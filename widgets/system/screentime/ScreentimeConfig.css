@@ -1,0 +1,90 @@
+/*
+ * ScreentimeConfig-specific styles.
+ * Base styles come from config-base.css via `.cfg`.
+ * [S-39] hidden-apps list (unhide UI).
+ */
+
+.sctcfg-filter-block {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 6px 0 12px;
+}
+
+.sctcfg-filter-head {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-bottom: 4px;
+}
+
+.sctcfg-filter-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.sctcfg-filter-name {
+  flex: 1;
+  min-width: 0;
+  font-size: calc(12px * var(--font-scale, 1));
+  color: var(--foreground);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sctcfg-filter-remove {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  background: transparent;
+  color: var(--muted-foreground);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  cursor: pointer;
+  transition: background 0.12s, color 0.12s;
+}
+
+.sctcfg-filter-remove:hover {
+  background: var(--overlay-hover);
+  color: var(--foreground);
+}
+
+.sctcfg-filter-empty {
+  font-size: calc(11px * var(--font-scale, 1));
+  color: var(--subtle-foreground);
+  padding: 6px 8px;
+}
+
+/* [S-59] the per-app goal adder: an exe name plus an Add button, matching the
+   hidden-apps rows above it. */
+.sctcfg-goal-input {
+  flex: 1;
+  min-width: 0;
+}
+
+.sctcfg-goal-add {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--foreground);
+  border-radius: 5px;
+  padding: 3px 10px;
+  font-family: inherit;
+  font-size: calc(11px * var(--font-scale, 1));
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: background 0.12s;
+}
+
+.sctcfg-goal-add:hover {
+  background: var(--overlay-hover);
+}

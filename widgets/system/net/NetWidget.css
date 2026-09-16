@@ -1,0 +1,77 @@
+.netw-widget {
+  width: 100%; height: 100%;
+  display: flex; flex-direction: column;
+  color: var(--foreground);
+  /* Background lives on the sibling layers (.widget-header / .widget-body); the
+     root is a transparent clipping frame so the two surfaces stay independent. */
+  background: transparent;
+  border-radius: var(--radius, 8px);
+  user-select: none; overflow: hidden;
+  box-sizing: border-box;
+  container-type: size;
+}
+
+.netw-body {
+  gap: 6px;
+  padding: 8px 12px 12px;
+}
+
+.netw-widget .wh-secondary { gap: 8px; }
+
+.netw-arrow { vertical-align:-0.15em; }
+.netw-info-rx .netw-arrow { color: var(--success); }
+.netw-info-tx .netw-arrow { color: var(--primary); }
+
+.netw-info-rx {
+  font-size: calc(11px * var(--font-scale, 1)); font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--success); flex-shrink: 0;
+}
+
+.netw-info-tx {
+  font-size: calc(11px * var(--font-scale, 1)); font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--primary); flex-shrink: 0;
+}
+
+.netw-spark-wrap {
+  flex: 1; position: relative; min-height: 0;
+}
+
+.netw-spark {
+  position: absolute; inset: 0; width: 100%; height: 100%;
+  overflow: visible;
+}
+
+.netw-aux-row {
+  display: flex; align-items: baseline; gap: 6px;
+  font-size: calc(10px * var(--font-scale, 1)); flex-shrink: 0;
+}
+.netw-aux-label { flex: 1; color: var(--muted-foreground); }
+.netw-aux-val   { color: var(--foreground); font-variant-numeric: tabular-nums; }
+
+.netw-procs { display: flex; flex-direction: column; gap: 2px; flex-shrink: 0; }
+.netw-proc-row {
+  display: flex; align-items: baseline; gap: 6px;
+  font-size: calc(10px * var(--font-scale, 1));
+}
+.netw-proc-name {
+  flex: 1; min-width: 0;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  color: var(--muted-foreground);
+}
+.netw-proc-val { color: var(--foreground); font-variant-numeric: tabular-nums; }
+
+/* ── Responsive ── */
+
+@container (max-width: 160px) {
+  .netw-widget .widget-header { padding: 2px 8px; gap: 4px; }
+  .netw-body { padding: 4px 8px 8px; gap: 3px; }
+  .netw-info-rx,
+  .netw-info-tx { font-size: calc(10px * var(--font-scale, 1)); }
+}
+
+/* very narrow: drop label */
+@container (max-width: 110px) {
+  .netw-widget .widget-header .wh-text { display: none; }
+}

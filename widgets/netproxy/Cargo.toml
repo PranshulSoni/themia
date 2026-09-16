@@ -1,0 +1,33 @@
+[package]
+name = "widget-netproxy"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "widget_netproxy"
+path = "src/lib.rs"
+
+[dependencies]
+url = "2"
+log = "0.4"
+# Optional so the ureq-only callers (cpu, folder) don't pull reqwest, and the
+# reqwest callers don't pull ureq. These are integration shims for one resolver,
+# not two implementations of it.
+reqwest = { version = "0.12", default-features = false, optional = true }
+ureq = { version = "2", optional = true }
+
+[features]
+# Hand a `reqwest::Proxy` / preconfigured `ClientBuilder` to reqwest callers.
+reqwest-client = ["dep:reqwest"]
+# Hand a proxy-configured `ureq::Agent` to the blocking one-shot callers.
+ureq-agent = ["dep:ureq"]
+
+[dev-dependencies]
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "net", "time"] }
+
+[target.'cfg(target_os = "windows")'.dependencies]
+windows = { version = "0.61", features = [
+    "Win32_Foundation",
+    "Win32_Networking_WinHttp",
+    "Win32_System_Memory",
+] }

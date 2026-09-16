@@ -1,0 +1,22 @@
+/*
+ * CalendarConfig-specific styles.
+ * Base styles come from config-base.css via `.cfg`; account rows come from
+ * AccountManager.css via the shared AccountToggleList component.
+ *
+ * Settings.SPEC.md [S-04]: this file styles only classes Calendar OWNS. It used
+ * to re-declare eight AccountToggleList classes (.account-row, .provider-badge,
+ * .account-email, …) at equal specificity, so import order decided the winner
+ * and the values had already drifted — Calendar's account rows rendered visibly
+ * unlike the same rows in the ten sibling configs using the same component.
+ * Deleting them restores the shared look; nothing replaced them.
+ */
+
+/* ── Per-account calendar picker [S-49]/[S-51], INSIDE its account row's card ──
+   The card and the inset are owned by `.account-entry` in AccountManager.css,
+   shared by every picker that lands in that slot; only the stack is ours. */
+.calendar-config-body .cal-cal-list { display: flex; flex-direction: column; gap: 4px; }
+.calendar-config-body .cal-cal-list-label { font-size: 10px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; color: var(--muted-foreground); padding: 2px 0; }
+.calendar-config-body .cal-cal-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 6px 10px; background: var(--overlay-subtle); border: 1px solid var(--border); border-radius: 8px; }
+.calendar-config-body .cal-cal-name { font-size: 13px; font-weight: 500; color: var(--foreground); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+/* Color swatch + show/hide toggle, grouped on the right of each calendar row. */
+.calendar-config-body .cal-cal-controls { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }

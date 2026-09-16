@@ -1,0 +1,147 @@
+/* -- Fluent card shell -------------------------------------------------- */
+.weather-current-widget {
+  width: 100%; height: 100%;
+  display: flex; flex-direction: column;
+  color: var(--foreground);
+  /* Background lives on the sibling layers (.widget-header / .widget-body); the
+     root is a transparent clipping frame so the two surfaces stay independent. */
+  background: transparent;
+  border-radius: var(--radius, 8px);
+  user-select: none; overflow: hidden;
+  box-sizing: border-box;
+  container-type: size;
+}
+
+/* -- Body -------------------------------------------------------------- */
+.weather-current-widget .weather-current-body {
+  padding: 0 12px;
+}
+
+/* -- Header (layout owned by WidgetHeader.css; only the location chip is local) -- */
+/* Cap the location at 55% on the secondary SLOT, not the text itself. A
+   `max-width: %` on `.info-loc` resolves against `.wh-secondary` (its flex
+   parent), whose own width comes FROM the location's max-content, and that circular
+   constraint left the slot full-text-width while the text truncated to 55%
+   inside it, stranding it left-of-flush. Capping the slot lets it hug its
+   content and sit flush right (wh-text flex:1 pushes it there). */
+.weather-current-widget .wh-secondary { max-width: 55%; }
+.weather-current-widget .info-loc {
+  font-size: calc(10px * var(--font-scale, 1)); color: var(--muted-foreground); opacity: 0.6;
+  display: inline-flex; align-items: center; gap: 3px;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  max-width: 100%;
+}
+.weather-current-widget .info-loc svg { flex-shrink: 0; }
+
+/* -- Empty / error ----------------------------------------------------- */
+.weather-current-widget .empty {
+  flex: 1; display: flex; flex-direction: column;
+  align-items: center; justify-content: center;
+  gap: 8px;
+  font-size: calc(12px * var(--font-scale, 1)); color: var(--muted-foreground); font-style: italic;
+  text-align: center;
+}
+.weather-current-widget .empty.err { color: var(--destructive); font-style: normal; }
+.weather-current-widget .empty-icon {
+  display: flex; align-items: center; justify-content: center;
+  color: var(--muted-foreground); opacity: 0.4;
+}
+
+/* -- Main: icon + temp ------------------------------------------------- */
+.weather-current-widget .main {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 4px 0;
+  min-height: 0;
+  min-width: 0;
+}
+
+.weather-current-widget .w-icon {
+  display: flex; align-items: center; line-height: 1; flex-shrink: 0;
+  color: var(--foreground);
+}
+.weather-current-widget .w-icon svg {
+  width: clamp(22px, 18cqw, 46px);
+  height: clamp(22px, 18cqw, 46px);
+}
+
+.weather-current-widget .temp-block {
+  display: flex; flex-direction: column; gap: 3px;
+  min-width: 0;
+}
+
+.weather-current-widget .temp {
+  font-size: clamp(20px, 18cqw, 42px); font-weight: 200; line-height: 1;
+  color: var(--foreground);
+  letter-spacing: -1px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.weather-current-widget .unit {
+  font-size: clamp(11px, 7cqw, 20px); font-weight: 300; opacity: 0.65;
+  vertical-align: super; margin-left: 2px;
+}
+
+.weather-current-widget .desc {
+  font-size: calc(12px * var(--font-scale, 1)); color: var(--muted-foreground);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+
+/* -- Detail pills ------------------------------------------------------ */
+.weather-current-widget .details {
+  display: flex; gap: 5px; flex-shrink: 0;
+  margin-top: 8px;
+}
+
+.weather-current-widget .detail-item {
+  flex: 1; min-width: 0;
+  display: flex; flex-direction: column; align-items: center; gap: 3px;
+  padding: 5px 4px;
+  overflow: hidden;
+}
+
+.weather-current-widget .d-icon {
+  display: flex; align-items: center; justify-content: center;
+  color: var(--muted-foreground);
+}
+.weather-current-widget .d-label { font-size: calc(9px * var(--font-scale, 1)); color: var(--muted-foreground); text-transform: uppercase; letter-spacing: 0.05em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+.weather-current-widget .d-val { font-size: calc(12px * var(--font-scale, 1)); font-weight: 600; color: var(--foreground); font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+
+/* ── Responsive: progressive disclosure ── */
+
+/* narrow: hide location in header. Threshold sits BELOW the widget's own
+   default width (220px) so the location shows at default size and the [S-24]
+   "Location name" toggle stays effective; an inclusive 220px cap hid it at
+   default width and made the toggle inert. */
+@container (max-width: 200px) {
+  .weather-current-widget .info-loc { display: none; }
+}
+
+/* short: drop detail pill labels */
+@container (max-height: 140px) {
+  .weather-current-widget .d-label { display: none; }
+}
+
+/* shorter: hide all detail pills */
+@container (max-height: 110px) {
+  .weather-current-widget .details { display: none; }
+}
+
+/* narrow: drop description under temp */
+@container (max-width: 180px) {
+  .weather-current-widget .desc { display: none; }
+}
+
+/* very narrow: drop weather icon, keep temp */
+@container (max-width: 140px) {
+  .weather-current-widget .w-icon { display: none; }
+  .weather-current-widget .main { gap: 0; justify-content: center; }
+}
+
+/* very short: hide header entirely */
+@container (max-height: 80px) {
+  .weather-current-widget .widget-header { display: none; }
+  .weather-current-widget .weather-current-body { padding: 0 8px; }
+}

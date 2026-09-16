@@ -1,0 +1,35 @@
+[workspace]
+members = [
+    "src-tauri",
+    "crates/store",
+    "widgets/office/folder",
+    "widgets/office/email",
+    "widgets/system/cpu",
+    "widgets/system/gpu",
+    "widgets/system/screentime",
+    "widgets/system/ping",
+    "widgets/system/volume",
+    "widgets/system/mixer",
+    "widgets/system/power",
+    "widgets/system/battery",
+    "widgets/system/bluetooth",
+    "widgets/others/music",
+    "widgets/others/clipboard",
+    "widgets/netguard",
+    "widgets/netproxy",
+    "widgets/license",
+]
+resolver = "2"
+
+# Release tuning. Applies workspace-wide, so every widget crate is built with
+# the same settings as the shell.
+#
+# `panic` is deliberately left at the default `unwind`: every Win32 hook,
+# WndProc and WinEvent callback wraps its body in `catch_unwind` so a panic can
+# never unwind into the OS (CLAUDE.md non-negotiable). `panic = "abort"` would
+# turn each of those into an instant process kill.
+[profile.release]
+lto = "fat"
+codegen-units = 1
+strip = "symbols"
+panic = "unwind"

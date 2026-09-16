@@ -1,0 +1,16 @@
+[package]
+name = "widget-netguard"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "widget_netguard"
+path = "src/lib.rs"
+
+[dependencies]
+url = "2"
+log = "0.4"
+# [NG-07]: the guard must know whether a proxy, rather than Themia, will
+# resolve the host. Resolution policy lives in netproxy; this is the only
+# coupling between the two.
+widget-netproxy = { path = "../netproxy" }

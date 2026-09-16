@@ -1,0 +1,490 @@
+/* Widgets are absolutely positioned by screen fraction ([S-04]); the grid is
+   just the positioning context, no CSS-grid tracks. */
+.grid {
+  position: fixed; inset: 0;
+}
+
+.grid.placing { cursor: crosshair; }
+
+/* Edit-mode snap-grid overlay: drawn as a CSS gradient (1px lines) rather than
+   per-cell DOM, so a fine grid stays cheap. Shown only when snap is on ([S-06a]).
+   `background-size` (the cell pitch) is set inline per the live grid dims. */
+.grid-lines {
+  position: absolute; inset: 0;
+  pointer-events: none;
+  z-index: 0;
+  background-image:
+    linear-gradient(to right, rgba(255, 255, 255, 0.07) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(255, 255, 255, 0.07) 1px, transparent 1px);
+}
+
+.widget {
+  position: relative;
+  box-sizing: border-box;
+  min-width: 0; min-height: 0;
+  border-radius: var(--radius, 12px);
+  border: var(--widget-border-width, 1px) var(--widget-border-style, solid) var(--widget-border-color, var(--border));
+  background: transparent;
+  overflow: hidden;
+  transition: opacity 0.15s, box-shadow 0.15s;
+}
+
+/* ── Startup intro ── staggered cascade when a view mounts. The style is
+   selectable (Settings → Style → Startup animation); `.intro-<style>` picks the
+   keyframes, the shared `.intro` rule sets timing. Per-widget `animation-delay`
+   is set inline (WidgetGrid.tsx, [S-15]).
+
+   Fill mode is `both`: `backwards` holds the from-state during the stagger
+   delay (no full-opacity flash before a widget's turn) and `forwards` keeps the
+   final keyframe afterwards. EVERY keyframe's `to` retains an identity
+   `transform` (e.g. `scale(1)`) on purpose: it holds the widget on a stable
+   composited layer. Letting the transform drop at rest makes WebView2 re-raster
+   the box and intermittently lose the outermost 1px border row (a missing
+   bottom/right border on some widgets). The identity transform is a visual
+   no-op and the window hit-mask reads logical geometry, not this transform
+   (App.tsx pushRects), so it has no other effect. */
+.widget.intro {
+  animation-duration: var(--widget-intro-duration, 0.5s);
+  animation-timing-function: cubic-bezier(0.22, 1, 0.36, 1);
+  animation-fill-mode: both;
+}
+.widget.intro-fade  { animation-name: wi-fade; }
+.widget.intro-scale { animation-name: wi-scale; }
+.widget.intro-slide { animation-name: wi-slide; }
+/* Both sheet styles ([S-28]) share ONE keyframe set: the axis is decided by
+   which var the grid sets, not by a second copy of the animation. */
+.widget.intro-sides,
+.widget.intro-topbottom { animation-name: wi-sheet; }
+.widget.intro-flip  { animation-name: wi-flip; transform-origin: top center; }
+.widget.intro-blur  { animation-name: wi-blur; }
+/* Hyperspace fly-in ([S-16]) NEVER brakes: the travel segment runs on a steep
+   ease-IN (set on the `from` keyframe itself), so the widget is at maximum
+   speed the instant it reaches its slot (it CRASHES rather than arrives),
+   and the post-impact judder frames run linear. */
+.widget.intro-hyperspace {
+  animation-name: wi-hyperspace;
+  animation-timing-function: linear;
+}
+
+@keyframes wi-fade {
+  from { opacity: 0; transform: scale(1); }
+  to   { opacity: 1; transform: scale(1); }
+}
+@keyframes wi-scale {
+  from { opacity: 0; transform: translateY(16px) scale(0.94); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
+}
+@keyframes wi-slide {
+  from { opacity: 0; transform: translateY(40px) scale(1); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
+}
+/* Widget slides in from the screen edge it is nearest ([S-28]). The grid sets
+   exactly ONE of --wi-dx (the `sides` style, x axis) / --wi-dy (`topbottom`,
+   y axis) per widget, introSheets.ts; the other stays at its 0px default, so a
+   single keyframe set serves both axes. The value is the signed distance to a
+   fully off-screen start — negative for a widget whose centre is in the first
+   half of that axis, positive for the rest. Every widget on the same sheet
+   shares ONE offset and runs with NO stagger, so the sheet arrives rigid rather
+   than as a cascade. Opacity is up by 12% rather than ramping the whole way:
+   the widget is already outside the viewport at the start, so a long fade would
+   only make it arrive translucent. Ends on an identity transform
+   (composited-layer rule, [S-15]). */
+@keyframes wi-sheet {
+  from { opacity: 0; transform: translate(var(--wi-dx, 0px), var(--wi-dy, 0px)); }
+  12%  { opacity: 1; }
+  to   { opacity: 1; transform: translate(0px, 0px); }
+}
+@keyframes wi-flip {
+  from { opacity: 0; transform: perspective(900px) rotateX(-32deg) scale(1); }
+  to   { opacity: 1; transform: perspective(900px) rotateX(0deg) scale(1); }
+}
+@keyframes wi-blur {
+  from { opacity: 0; filter: blur(12px); transform: scale(1.04); }
+  to   { opacity: 1; filter: blur(0); transform: scale(1); }
+}
+/* Widget flies in from the BACKGROUND core ([S-16]): starts near-zero scale at
+   the lowered warp core (--hs-dx/--hs-dy, set inline per widget) and
+   ACCELERATES the whole way in (steep ease-in on the travel segment, declared
+   on `from`), slamming into its slot at full speed: a brief over-scale impact
+   frame at 38%, then a decaying judder (translate + a fraction of a degree of
+   roll, so the tile reads as knocked loose) instead of a brake. Every landing
+   widget judders at ITS OWN landing moment; the [S-15] stagger spreads the
+   impacts so the screen takes hit after hit. Ends on an identity transform
+   (composited-layer rule, [S-15]). */
+@keyframes wi-hyperspace {
+  from { opacity: 0; filter: blur(10px); transform: translate(var(--hs-dx, 0px), var(--hs-dy, 0px)) scale(0.02); animation-timing-function: cubic-bezier(0.55, 0, 1, 0.45); }
+  8%   { opacity: 1; }
+  38%  { opacity: 1; filter: blur(0); transform: translate(0px, 0px) scale(1.05); animation-timing-function: linear; } /* impact */
+  46%  { transform: translate(-7px, 5px) rotate(-0.5deg) scale(0.99); }
+  56%  { transform: translate(5px, -4px) rotate(0.35deg) scale(1.01); }
+  68%  { transform: translate(-3px, 2px) rotate(-0.2deg) scale(1); }
+  80%  { transform: translate(2px, -1px) rotate(0.1deg) scale(1); }
+  90%  { transform: translate(-1px, 0.5px) rotate(0deg) scale(1); }
+  to   { opacity: 1; filter: blur(0); transform: translate(0px, 0px) scale(1); }
+}
+
+/* Screen shake ([S-16]), applied inline (hyperspaceShakeStyle) to the grid
+   for the WHOLE show (accel + cruise + decel, 3300ms, delayed past the 900ms
+   static phase). The envelope tracks the tease-then-snap warp: NEAR-STILL
+   through the tease (0→41%, sub-px tremble only, since the stars are barely
+   creeping, nothing may wiggle), a hard ~10px BANG at the snap (~42%, where the
+   whole field tears off at once), a ~5px judder with a fraction-of-a-degree
+   roll through cruise (46→72%), a ~14px spike at the jump point (~73% =
+   (accel+cruise)/(accel+cruise+decel)), then decaying LANDING SPIKES through
+   the widget-crash window (~75→93%, where the staggered widgets slam in) and
+   dies to zero. The star canvas stays steady (profile canvasShake: false);
+   only the grid takes the hits. Identity transforms at both ends. */
+@keyframes hs-shake {
+  0%    { transform: translate(0, 0) rotate(0deg); }
+  12%   { transform: translate(0.2px, -0.1px) rotate(0deg); }
+  22%   { transform: translate(-0.3px, 0.2px) rotate(0deg); }
+  30%   { transform: translate(0.4px, -0.3px) rotate(0.02deg); }
+  36%   { transform: translate(-0.6px, 0.4px) rotate(-0.03deg); }
+  41%   { transform: translate(0.8px, -0.6px) rotate(0.04deg); }  /* end of tease, barely trembling */
+  43%   { transform: translate(-10px, 7px) rotate(-0.5deg); }     /* the SNAP, bang */
+  45%   { transform: translate(8px, -6px) rotate(0.4deg); }
+  48%   { transform: translate(-6px, 4.5px) rotate(-0.3deg); }
+  51%   { transform: translate(5.5px, -4px) rotate(0.28deg); }
+  54%   { transform: translate(-5px, 3.5px) rotate(-0.26deg); }
+  58%   { transform: translate(5px, -3.5px) rotate(0.24deg); }
+  61%   { transform: translate(-5px, 3.5px) rotate(-0.24deg); }
+  64%   { transform: translate(5px, -3.5px) rotate(0.24deg); }
+  67%   { transform: translate(-5px, 3.5px) rotate(-0.24deg); }
+  70%   { transform: translate(5px, -3.5px) rotate(0.24deg); }
+  73%   { transform: translate(-14px, 9px) rotate(-0.55deg); }    /* jump accent */
+  75%   { transform: translate(11px, -7px) rotate(0.45deg); }
+  78%   { transform: translate(-9px, 6px) rotate(-0.4deg); }      /* first widgets slam in */
+  81%   { transform: translate(8px, -5px) rotate(0.35deg); }
+  84%   { transform: translate(-7px, 4.5px) rotate(-0.3deg); }
+  87%   { transform: translate(6px, -4px) rotate(0.25deg); }
+  90%   { transform: translate(-4px, 2.5px) rotate(-0.18deg); }   /* last widgets land */
+  93%   { transform: translate(2.5px, -1.5px) rotate(0.1deg); }
+  96%   { transform: translate(-1.2px, 0.8px) rotate(-0.05deg); }
+  100%  { transform: translate(0, 0) rotate(0deg); }
+}
+
+/* hacker ([S-23]) has NO widget keyframe; its per-widget tile canvas
+   (HackerTile) covers the widget and fades to reveal it. */
+@media (prefers-reduced-motion: reduce) {
+  .widget.intro { animation: none; }
+}
+
+/* ── Area group expand / collapse ([S-43]) ──
+   The tile's inline rect flips to its target in one commit; this transition is
+   what carries the BOX there, so the border, the title bar and the area travel
+   as one piece instead of snapping. Added only while the phase is live
+   (groupCollapse.ts), so a drag — which rewrites the same four properties every
+   frame — is never slowed by it.
+
+   Duration comes from `--group-collapse-ms`, published by the grid from the
+   constant the phase timer runs on: CSS and the JS clock cannot drift. */
+.widget.group-anim {
+  transition:
+    left   var(--group-collapse-ms, 200ms) cubic-bezier(0.22, 1, 0.36, 1),
+    top    var(--group-collapse-ms, 200ms) cubic-bezier(0.22, 1, 0.36, 1),
+    width  var(--group-collapse-ms, 200ms) cubic-bezier(0.22, 1, 0.36, 1),
+    height var(--group-collapse-ms, 200ms) cubic-bezier(0.22, 1, 0.36, 1),
+    opacity 0.15s, box-shadow 0.15s;
+}
+
+/* Members of a group that is closing. They are the grid's own tiles standing on
+   the area, not children of it, so nothing about the tile animation hides them:
+   they fade with the area and unmount when the phase ends. Pointer events go
+   first, so a click during the fade lands on what is really there. */
+.widget.group-leaving {
+  opacity: 0;
+  transform: scale(0.97);
+  pointer-events: none;
+  transition:
+    opacity   var(--group-collapse-ms, 200ms) ease,
+    transform var(--group-collapse-ms, 200ms) cubic-bezier(0.22, 1, 0.36, 1);
+}
+/* Opening: the members MOUNT, and a transition cannot animate a mount, so the
+   way back in is a keyframe. */
+.widget.group-entering { animation: group-member-in var(--group-collapse-ms, 200ms) cubic-bezier(0.22, 1, 0.36, 1) both; }
+@keyframes group-member-in {
+  from { opacity: 0; transform: scale(0.97); }
+  to   { opacity: 1; transform: scale(1); }
+}
+
+/* Suppressed with the widget intro above: the phase is never started under
+   reduced motion, and these keep the tiles correct if the setting flips while
+   one is in flight. */
+@media (prefers-reduced-motion: reduce) {
+  .widget.group-anim { transition: opacity 0.15s, box-shadow 0.15s; }
+  .widget.group-entering { animation: none; }
+  .widget.group-leaving { transition: none; transform: none; }
+}
+
+.widget.edit { cursor: grab; }
+.widget.edit > *:not(.widget-toolbar):not(.corner-overlay) { pointer-events: none; }
+.widget.edit:hover { box-shadow: 0 0 0 1px var(--overlay-border); }
+.widget.is-dragging { opacity: 0.35; cursor: grabbing; }
+
+/* A widget reporting itself hidden (Now Playing with nothing playing, music
+   [S-20]) paints nothing at all. Its content is already unmounted, so only the
+   frame is left to suppress: the border slot goes transparent (a user-set
+   widgetBorderWidth would otherwise outline an empty rectangle) and the tile
+   stops taking pointer events, so a click reaches whatever is behind it inside
+   the app. Outside the app that is handled by dropping the tile from the
+   SetWindowRgn hit-mask (App.tsx), which is what lets clicks land on the
+   Windows desktop. Geometry is untouched: the widget keeps its slot, and edit
+   mode brings it straight back (the widget stops reporting hidden). */
+.widget.is-hidden {
+  border-color: transparent;
+  pointer-events: none;
+}
+
+/* Container widgets paint no chrome of their own (registry `noChrome`,
+   stack [S-07]): the border slot is kept (transparent) so geometry matches
+   chromed widgets exactly. Edit mode must make the container READABLE on any
+   wallpaper: an accent-tinted dashed bound + a faint accent wash mark the
+   whole drop area (the plain --border token at 8% white was invisible). The
+   dashed accent also foreshadows the solid-accent drop glow ([S-22]). */
+.widget.no-chrome { border-color: transparent; }
+
+/* [S-32] Transparent background, per widget INSTANCE (config `transparentBg`,
+   offered only by registry `canTransparent` widgets). The two fill tokens are
+   redefined on the widget root, so every layer that reads them goes clear in
+   one place: the shared `.widget-header` / `.widget-body` surfaces (App.css)
+   AND the headerless widgets that paint `var(--card)` on their own root
+   (clock). No widget CSS needs a transparent variant of its own.
+
+   The backdrop-filter has to be REMOVED, not just fed a transparent fill: a
+   blurred backdrop keeps frosting the wallpaper behind the tile, which reads as
+   a milky panel rather than "no background" (same reasoning as [S-21], and the
+   same reason `blur(0px)` is not used). `.widget.bare *` is (0,2,0), so it
+   out-specifies the (0,1,0) per-surface declarations without `!important`.
+
+   Only the fills go: text/icon colours, item hovers and the widget's own
+   internal accents are untouched, and geometry is identical to a filled tile
+   (the border slot is kept, transparent). */
+.widget.bare {
+  --card: transparent;
+  --header-bg: transparent;
+  border-color: transparent;
+}
+.widget.bare,
+.widget.bare * {
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+/* An area group with its border switched off ([S-15]). Only the border goes —
+   its own surfaces (title bar, area fill) are the group's own settings.
+   The TITLE BAR keeps an edge of its own (Group.css draws it as an inset ring):
+   what the setting is for is an area that blends into the wallpaper, and a bar
+   with no outline at all stops reading as a bar. */
+.widget.no-widget-border { border-color: transparent; }
+
+/* Edit mode must still show WHERE a transparent widget is, so it borrows the
+   container widgets' dashed accent bound rather than leaving the user hunting
+   for an invisible drag target. */
+.widget.no-chrome.edit,
+.widget.no-widget-border.edit,
+.widget.bare.edit {
+  border-style: dashed;
+  border-color: color-mix(in srgb, var(--primary) 50%, transparent);
+  background: color-mix(in srgb, var(--primary) 6%, transparent);
+}
+/* Grouped with the no-chrome.edit variant so the drop glow OUT-SPECIFIES the
+   dashed edit bound above (3 classes), else the border stays dashed while a
+   widget hovers the stack. */
+.widget.stack-drop-hover,
+.widget.no-widget-border.edit.stack-drop-hover,
+.widget.no-chrome.edit.stack-drop-hover {
+  border-color: var(--primary);
+  border-style: solid;
+  background: color-mix(in srgb, var(--primary) 10%, transparent);
+  box-shadow: 0 0 0 1px var(--primary), 0 0 18px color-mix(in srgb, var(--primary) 35%, transparent);
+}
+
+/* ── Toolbar ── */
+.widget-toolbar {
+  position: absolute; top: 6px; left: 50%;
+  transform: translateX(-50%);
+  z-index: 20;
+  display: flex; gap: 4px;
+  background: var(--popover-bg);
+  border: 1px solid var(--overlay-border);
+  border-radius: 8px; padding: 3px;
+}
+
+.toolbar-btn {
+  width: 24px; height: 24px;
+  border-radius: 5px; border: none;
+  background: transparent;
+  color: var(--muted-foreground);
+  font-size: calc(13px * var(--font-scale, 1)); cursor: pointer;
+  display: flex; align-items: center; justify-content: center; line-height: 1;
+}
+.toolbar-btn:hover { background: var(--overlay-hover); color: var(--foreground); }
+.toolbar-btn.remove:hover { background: var(--danger-subtle-bg); color: var(--destructive); }
+.toolbar-btn:focus-visible {
+  outline: 1.5px solid var(--primary);
+  outline-offset: -1.5px;
+}
+
+/* Non-edit "open in window" affordance for poppable widgets. Sits over the
+   header's (empty) top-right, hover-revealed so it stays out of the way until
+   the user reaches for the widget. */
+/* Overlay fallback only. A widget with a `normal` header draws this button
+   inline in its header instead (WidgetHeader [S-18]), so the two can never
+   collide; this floating version is for `compact` (no actions slot) and `none`
+   (no header at all), where the top-right corner is free. */
+.widget-popout-btn {
+  position: absolute; top: 6px; right: 6px; z-index: 20;
+  width: 24px; height: 24px;
+  display: flex; align-items: center; justify-content: center;
+  border: 1px solid var(--overlay-border); border-radius: 5px; padding: 0;
+  background: var(--popover-bg);
+  color: var(--muted-foreground);
+  cursor: pointer;
+  opacity: 0; pointer-events: none;
+  transition: opacity 0.12s, background 0.12s, color 0.12s;
+}
+.widget:hover .widget-popout-btn { opacity: 1; pointer-events: auto; }
+.widget-popout-btn:hover { background: var(--overlay-hover); color: var(--foreground); }
+.widget-popout-btn:focus-visible {
+  opacity: 1; pointer-events: auto;
+  outline: 1.5px solid var(--primary); outline-offset: -1.5px;
+}
+
+/* ── Corner overlay ── */
+.corner-overlay {
+  position: relative; pointer-events: none; z-index: 2;
+}
+
+/* ── Resize handles ── */
+.resize-handle {
+  position: absolute; pointer-events: auto; z-index: 10;
+  width: 18px; height: 18px;
+  display: flex; align-items: center; justify-content: center;
+  color: var(--muted-foreground);
+  background: var(--popover-bg);
+  border-radius: 4px;
+}
+.resize-handle:hover { color: var(--foreground); background: var(--overlay-hover); }
+
+.rh-tl { top: 4px;    left: 4px;  }
+.rh-tr { top: 4px;    right: 4px; }
+.rh-bl { bottom: 4px; left: 4px;  }
+.rh-br { bottom: 4px; right: 4px; }
+
+/* Side handles: a short bar centred on each edge, drags that edge only. Kept
+   18px along the edge and 12px across it so both corner handles and the side
+   handle still fit side by side on a min-size (64px) widget. */
+.resize-edge.rh-t, .resize-edge.rh-b { width: 18px; height: 12px; left: 50%; transform: translateX(-50%); }
+.resize-edge.rh-l, .resize-edge.rh-r { width: 12px; height: 18px; top: 50%;  transform: translateY(-50%); }
+.rh-t { top: 4px;    }
+.rh-b { bottom: 4px; }
+.rh-l { left: 4px;   }
+.rh-r { right: 4px;  }
+
+.ghost {
+  box-sizing: border-box;
+  border-radius: var(--radius, 12px);
+  background: color-mix(in srgb, var(--primary) 18%, transparent);
+  border: 2px dashed var(--primary);
+  pointer-events: none;
+  z-index: 4;
+}
+
+/* Corner brackets on the ghost, aligned to the full (un-padded) widget
+   boundary so the true edges read clearly even with large widget spacing. */
+.ghost-corner {
+  position: absolute;
+  width: 12px; height: 12px;
+  border: 2px solid var(--primary);
+}
+.ghost-corner.tl { top: -2px; left: -2px;  border-right: none; border-bottom: none;
+  border-top-left-radius: var(--radius, 12px); }
+.ghost-corner.tr { top: -2px; right: -2px; border-left: none;  border-bottom: none;
+  border-top-right-radius: var(--radius, 12px); }
+.ghost-corner.bl { bottom: -2px; left: -2px;  border-right: none; border-top: none;
+  border-bottom-left-radius: var(--radius, 12px); }
+.ghost-corner.br { bottom: -2px; right: -2px; border-left: none;  border-top: none;
+  border-bottom-right-radius: var(--radius, 12px); }
+
+/* The area's guide while one of ITS widgets is dragged ([S-40]). A reference,
+   not the thing being placed: no accent fill (it covers a whole area, and a
+   wash that size would drown the widgets under it), a dimmer bound, and a layer
+   BELOW the dragged widget's own ghost.
+
+   ONE line, and no corner brackets (the markup omits them): the guide sits on
+   the group's outer boundary while the group's own tile border sits a half-gap
+   inside it, so a bracket ring stacked 2px further out made three concentric
+   borders around a single area. The bound alone is the edge to align against. */
+.ghost.ghost-guide {
+  z-index: 3;
+  background: transparent;
+  border-color: color-mix(in srgb, var(--primary) 45%, transparent);
+}
+
+/* Where an area group's title bar ends and its usable body begins ([S-40]).
+   Drawn inside the group's own ghost only, so sizing or placing an area shows
+   the line widgets actually have to clear. Dashed, so it never reads as the
+   widget's own boundary (that's what the corner brackets are). */
+.ghost-split {
+  position: absolute;
+  border-color: color-mix(in srgb, var(--primary) 60%, transparent);
+  border-style: dashed;
+  border-width: 0;
+}
+.ghost-split.gs-top,
+.ghost-split.gs-bottom { left: 0; right: 0; border-top-width: 1px; }
+.ghost-split.gs-left,
+.ghost-split.gs-right  { top: 0; bottom: 0; border-left-width: 1px; }
+
+/* Marks each widget's FULL boundary (no spacing applied) with SQUARE
+   (un-rounded) corner brackets. Persists the whole time edit mode is active
+   (mounts/unmounts with edit mode), no fade. */
+.edit-bounds { position: absolute; pointer-events: none; z-index: 6; }
+.bound-corner {
+  position: absolute;
+  width: 14px; height: 14px;
+  border: 2px solid color-mix(in srgb, var(--primary) 55%, transparent);
+}
+/* Keep borders on the integer pixel grid (rects are pixel-rounded): shift the
+   LEFT/TOP borders out by the full border width (2px) while leaving RIGHT/BOTTOM
+   at the edge. A widget's left border then lands on the exact same device pixels
+   as its left neighbour's right border (and top/bottom likewise), so shared
+   edges overlap perfectly into one 2px line instead of a doubled 4px edge. */
+.bound-corner.tl { top: -2px; left: -2px;  border-right: none; border-bottom: none; }
+.bound-corner.tr { top: -2px; right: 0;    border-left: none;  border-bottom: none; }
+.bound-corner.bl { bottom: 0; left: -2px;  border-right: none; border-top: none; }
+.bound-corner.br { bottom: 0; right: 0;     border-left: none;  border-top: none; }
+
+/* Per-widget error fallback (1.17): a single dead tile that fills the widget
+   cell when its component throws, so the rest of the grid keeps rendering. */
+.widget-error {
+  width: 100%; height: 100%;
+  display: flex; flex-direction: column;
+  align-items: center; justify-content: center; gap: 6px;
+  padding: 8px; box-sizing: border-box;
+  text-align: center;
+  color: var(--muted-foreground);
+  background: var(--danger-subtle-bg);
+  border: 1px solid color-mix(in srgb, var(--destructive) 35%, transparent);
+  border-radius: var(--radius, 8px);
+  overflow: hidden;
+}
+.widget-error-icon { color: var(--destructive); flex: none; }
+.widget-error-text { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.widget-error-title {
+  font-size: calc(12px * var(--font-scale, 1)); font-weight: 600; color: var(--foreground);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%;
+}
+.widget-error-sub { font-size: calc(10px * var(--font-scale, 1)); color: var(--subtle-foreground); }
+.widget-error-retry {
+  margin-top: 2px;
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 22px; height: 22px;
+  color: var(--muted-foreground);
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  cursor: pointer;
+  transition: background 0.12s, color 0.12s;
+}
+.widget-error-retry:hover { color: var(--foreground); background: var(--overlay-hover); }

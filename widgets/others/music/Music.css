@@ -1,0 +1,233 @@
+.music-widget {
+  width: 100%; height: 100%;
+  display: flex; flex-direction: column;
+  color: var(--foreground);
+  /* Background lives on the sibling .widget-body layer so the header surface
+     stays independent; the root is a transparent clipping frame. */
+  background: transparent;
+  border-radius: var(--radius, 8px);
+  user-select: none; overflow: hidden;
+  box-sizing: border-box;
+  container-type: size;
+}
+
+.music-widget .music-body {
+  gap: 6px;
+  padding: 10px 12px 12px;
+}
+
+/* ── Empty state ────────────────────────────────────── */
+
+.music-empty {
+  flex: 1;
+  display: flex; flex-direction: column;
+  align-items: center; justify-content: center;
+  gap: 8px;
+  color: var(--muted-foreground);
+}
+
+.music-empty span {
+  font-size: calc(11px * var(--font-scale, 1));
+}
+
+/* ── Content (art + info) ────────────────────────────── */
+
+.music-content {
+  display: flex;
+  gap: 10px;
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  align-items: center;
+  /* Art is a fixed 48px that won't shrink; when the body is squeezed short
+     (header eats 40px), centring would overflow it UPWARD past the body top
+     and paint over the header. Clip the row so it can't escape its box. */
+  overflow: hidden;
+}
+
+/* When the equalizer is shown, IT is the element that absorbs spare vertical
+   space (see .music-spectrum flex:1), so the now-playing row sizes to its
+   content instead of growing. With no equalizer, the row keeps flex:1 above. */
+.music-content:has(+ .music-spectrum) { flex: 0 0 auto; }
+
+.music-art {
+  width: 48px; height: 48px;
+  border-radius: 6px;
+  overflow: hidden;
+  flex-shrink: 0;
+}
+
+.music-art img {
+  width: 100%; height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.music-art-placeholder {
+  display: flex;
+  align-items: center; justify-content: center;
+  background: var(--overlay-subtle);
+  color: var(--muted-foreground);
+}
+
+.music-info {
+  flex: 1;
+  min-width: 0;
+  display: flex; flex-direction: column;
+  justify-content: center;
+  gap: 2px;
+}
+
+.music-title {
+  font-size: calc(13px * var(--font-scale, 1)); font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden; text-overflow: ellipsis;
+}
+
+.music-artist {
+  font-size: calc(11px * var(--font-scale, 1));
+  color: var(--muted-foreground);
+  white-space: nowrap;
+  overflow: hidden; text-overflow: ellipsis;
+}
+
+/* ── Controls ────────────────────────────────────────── */
+
+/* [S-22] Lives inside .music-content, right of .music-info. `.music-info`
+   holds flex:1 so the cluster is pushed to the row's right edge; it never
+   shrinks, so the title ellipsizes instead of the buttons squashing. */
+.music-controls {
+  display: flex;
+  align-items: center; justify-content: center;
+  gap: 4px;
+  flex-shrink: 0;
+  margin-left: 4px;
+}
+
+.music-ctrl-btn {
+  background: transparent;
+  border: none;
+  color: var(--foreground);
+  cursor: pointer;
+  padding: 4px;
+  border-radius: 4px;
+  display: flex; align-items: center; justify-content: center;
+  transition: background 0.12s, color 0.12s;
+  font-family: inherit;
+  line-height: 1;
+}
+
+.music-ctrl-btn:hover {
+  background: var(--overlay-hover);
+}
+
+.music-ctrl-btn:disabled {
+  color: var(--subtle-foreground);
+  cursor: default;
+}
+
+.music-ctrl-btn:disabled:hover {
+  background: transparent;
+}
+
+.music-ctrl-play {
+  padding: 6px;
+  border-radius: 50%;
+}
+
+/* ── Progress bar ────────────────────────────────────── */
+
+.music-progress {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+  min-width: 0;
+}
+
+.music-time {
+  font-size: calc(10px * var(--font-scale, 1));
+  color: var(--muted-foreground);
+  font-variant-numeric: tabular-nums;
+  min-width: 28px;
+}
+
+.music-time:last-of-type {
+  text-align: right;
+}
+
+.music-bar-track {
+  flex: 1;
+  height: 3px;
+  background: var(--border);
+  border-radius: 9999px;
+  cursor: pointer;
+  position: relative;
+  overflow: hidden;
+  min-width: 0;
+}
+
+.music-bar-fill {
+  height: 100%;
+  border-radius: 9999px;
+  background: var(--primary);
+  transition: width 0.1s linear;
+}
+
+/* ── Responsive ── */
+
+/* short: hide progress bar */
+@container (max-height: 100px) {
+  .music-progress { display: none; }
+  /* gap/padding live on .music-body since the header migration; tighten the
+     body, not the root frame (padding on the root would inset the header too). */
+  .music-widget .music-body { gap: 3px; padding: 6px 8px; }
+}
+
+/* shorter: hide artist line */
+@container (max-height: 80px) {
+  .music-artist { display: none; }
+  .music-title { font-size: calc(12px * var(--font-scale, 1)); }
+}
+
+/* narrow: shrink album art */
+@container (max-width: 220px) {
+  .music-art { width: 36px; height: 36px; }
+  .music-widget .music-body { padding: 8px 10px; }
+}
+
+/* narrower: hide album art */
+@container (max-width: 170px) {
+  .music-art { display: none; }
+  .music-content { gap: 0; }
+  /* [S-22] The transport now shares the row with the title, so at this width
+     tighten the cluster rather than let it eat the whole line. */
+  .music-controls { gap: 0; margin-left: 2px; }
+  .music-ctrl-btn { padding: 3px; }
+  .music-ctrl-play { padding: 4px; }
+}
+
+/* very narrow: hide time labels on progress */
+@container (max-width: 200px) {
+  .music-time { display: none; }
+}
+
+/* ── Audio spectrum ─────────────────────────────────── */
+.music-spectrum {
+  display: flex;
+  align-items: flex-end;
+  gap: 2px;
+  /* The equalizer is the flexible element: it grows to fill the body's spare
+     height (bars are %-height, so they scale with it), down to a 28px floor. */
+  flex: 1 1 auto;
+  min-height: 28px;
+  padding: 0 2px;
+}
+.music-bar {
+  flex: 1;
+  min-width: 0;
+  min-height: 2px;
+  border-radius: 2px 2px 0 0;
+  background: var(--primary);
+  transition: height 0.06s linear;
+}

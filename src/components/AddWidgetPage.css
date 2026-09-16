@@ -1,0 +1,83 @@
+/* Add Widget page, hosted inside the config window's content panel.
+   Layout: topbar (search + Group by) on top + scrolling vertical list. */
+.add-widget-page {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+
+/* ── Topbar ── */
+.picker-topbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--border);
+  flex: 0 0 auto;
+}
+.picker-topbar .picker-search-wrap { flex: 1 1 auto; }
+
+/* Back button, replaces the sidebar tree on the picker page. Mirrors the
+   app's neutral secondary-button style (transparent + overlay border, muted
+   text that brightens on hover). */
+.picker-back {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 0 0 auto;
+  padding: 7px 12px;
+  background: transparent;
+  border: 1px solid var(--overlay-border);
+  border-radius: 6px;
+  color: var(--muted-foreground);
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: color 0.15s, border-color 0.15s, background 0.15s;
+}
+.picker-back:hover {
+  color: var(--foreground);
+  border-color: var(--ring);
+  background: var(--overlay-hover);
+}
+
+/* "Adding to <container>" chip ([S-34]). Accent-tinted so the bound target is
+   obvious at a glance, since it changes where the picked widget lands. */
+.picker-into {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 0 0 auto;
+  max-width: 240px;
+  padding: 6px 10px;
+  border: 1px solid var(--primary);
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--primary) 12%, transparent);
+  color: var(--foreground);
+  font-size: 12px;
+  font-weight: 500;
+}
+.picker-into svg { flex: none; color: var(--primary); }
+.picker-into > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.picker-groupby {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 0 0 auto;
+}
+.picker-groupby-label {
+  font-size: 11px;
+  color: var(--muted-foreground);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.picker-groupby-dropdown {
+  min-width: 130px;
+}

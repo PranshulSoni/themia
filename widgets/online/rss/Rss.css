@@ -1,0 +1,179 @@
+.rss-widget {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  /* Background lives on the sibling layers (.widget-header / .widget-body); the
+     root is a transparent clipping frame so the two surfaces stay independent. */
+  background: transparent;
+  border-radius: var(--radius, 8px);
+  overflow: hidden;
+  user-select: none;
+  position: relative;
+  container-type: size;
+}
+
+.rss-widget__msg {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: calc(12px * var(--font-scale, 1));
+  color: var(--muted-foreground);
+  text-align: center;
+  line-height: 1.7;
+  padding: 16px;
+}
+.rss-widget__msg--error { color: var(--destructive); }
+
+/* Header layout owned by WidgetHeader.css; narrow-mode tweaks below. */
+
+.rss-widget__list {
+  flex: 1;
+  overflow-y: auto;
+  scrollbar-width: none;
+  display: flex;
+  flex-direction: column;
+  gap: var(--item-gap, 0px);
+  padding: 0;
+}
+.rss-widget__list::-webkit-scrollbar { display: none; }
+
+.rss-widget__item {
+  padding: 8px 14px;
+  cursor: pointer;
+  transition: background 0.12s;
+}
+.rss-widget__item:hover { background: var(--card-hover); }
+
+.rss-widget__item-source {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin-bottom: 3px;
+  min-width: 0;
+}
+.rss-widget__item-favicon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 12px;
+  height: 12px;
+  flex-shrink: 0;
+  color: var(--subtle-foreground);
+}
+.rss-widget__item-favicon img {
+  width: 12px;
+  height: 12px;
+  border-radius: 2px;
+  object-fit: contain;
+}
+.rss-widget__item-host {
+  font-size: calc(10px * var(--font-scale, 1));
+  font-weight: 500;
+  color: var(--muted-foreground);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+
+.rss-widget__item-title {
+  font-size: calc(12px * var(--font-scale, 1));
+  font-weight: 500;
+  color: var(--foreground);
+  line-height: 1.4;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+
+.rss-widget__item-snippet {
+  font-size: calc(11px * var(--font-scale, 1));
+  color: var(--muted-foreground);
+  line-height: 1.4;
+  margin-top: 2px;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.rss-widget__item-date {
+  font-size: calc(10px * var(--font-scale, 1));
+  color: var(--subtle-foreground);
+  margin-top: 3px;
+  font-variant-numeric: tabular-nums;
+}
+
+.rss-widget__fade {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 32px;
+  background: linear-gradient(transparent, var(--card));
+  pointer-events: none;
+}
+
+/* ── Responsive ── */
+
+/* narrow: compact header + items */
+@container (max-width: 220px) {
+  .rss-widget .widget-header { height: 32px; padding: 0 10px; }
+  .rss-widget__item { padding: 6px 10px; }
+}
+
+/* narrow: drop snippet */
+@container (max-width: 200px) {
+  .rss-widget__item-snippet { display: none; }
+}
+
+/* narrower: drop date + source host label (keep favicon) */
+@container (max-width: 160px) {
+  .rss-widget__item-date { display: none; }
+  .rss-widget__item-host { display: none; }
+}
+
+/* short: hide header */
+@container (max-height: 80px) {
+  .rss-widget .widget-header { display: none; }
+}
+
+/* Refresh / staleness badge [S-33][S-34]. Sits in the top-right corner over
+   whatever surface is beneath it (header band or, in `none` header mode, the
+   list). Last child in the DOM, so paint order puts it on top without claiming
+   a z-index. Non-interactive: it reports, it is not a button. */
+.rss-widget__status {
+  position: absolute;
+  top: 6px;
+  right: 8px;
+  display: flex;
+  align-items: center;
+  pointer-events: none;
+}
+.rss-widget__status-badge {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  /* Tooltips need hover, so the badge itself takes pointer events back. */
+  pointer-events: auto;
+}
+.rss-widget__status-badge--warn { color: var(--destructive); }
+.rss-widget__status-badge--spin {
+  color: var(--muted-foreground);
+  animation: rss-status-spin 1s linear infinite;
+}
+
+@keyframes rss-status-spin {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
+}
+
+/* Respect the user's motion preference: the badge still appears, it just
+   stops spinning. */
+@media (prefers-reduced-motion: reduce) {
+  .rss-widget__status-badge--spin { animation: none; }
+}

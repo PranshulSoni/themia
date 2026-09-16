@@ -1,0 +1,1360 @@
+/* ── Reset + base ── */
+*, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+
+:root {
+  /* General UI scale (popups + config window). Set by design.ts. */
+  --ui-scale: 1;
+  /* Per-monitor widget-content scale. Set by App.tsx from getMonitorScale(). */
+  --monitor-scale: 1;
+  /* Global font (issue #62). Set by design.ts (applyGlobalDesign); these
+     defaults preserve the original Segoe stack + 1× size before JS runs. */
+  --font-family: 'Segoe UI Variable', 'Segoe UI', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+  --font-scale: 1;
+
+  /* Z-index scale (2.8): one ordered ladder for the cross-component overlay
+     tiers so no rule hardcodes a magic z-index. Values preserved from the prior
+     hardcoded numbers (behavior-preserving). The in-grid widget layers (0–20)
+     stay local to WidgetGrid.css; they're a self-contained stacking context. */
+  --z-overlay: 9999;        /* edit-bar / drag overlays */
+  --z-popup: 10000;         /* popup-layer, modal backdrop, toast */
+  --z-ctx-backdrop: 10001;  /* context-menu click-catcher */
+  --z-ctx-menu: 10002;
+  --z-ctx-submenu: 10003;
+  --z-dropdown: 10004;      /* dropdown panels */
+  --z-color-picker: 10100;  /* floats above everything */
+}
+
+html {
+  width: 100%; height: 100%;
+  background: transparent;
+  overflow: hidden;
+  /* Global font (issue #62). --font-family/--font-scale are set on :root by
+     design.ts (applyGlobalDesign). The var() fallbacks keep the original Segoe
+     stack + 16px base if the vars are ever unset. font-family cascades to widgets
+     (they use `font-family: inherit`); the scaled base font-size only reaches text
+     that inherits it or uses rem/em (widgets with hardcoded px do not scale yet). */
+  font-family: var(--font-family, 'Segoe UI Variable', 'Segoe UI', -apple-system, BlinkMacSystemFont, system-ui, sans-serif);
+  font-size: calc(16px * var(--font-scale, 1));
+  color: var(--foreground);
+  -webkit-font-smoothing: antialiased;
+}
+body, #app {
+  width: 100%; height: 100%;
+  background: transparent;
+  overflow: hidden;
+  font-family: inherit;
+  color: inherit;
+}
+
+/* ── Scale layers ──
+   Two independent scale knobs. The config window scales its whole `body`
+   (everything there is "popups + windows"). The widget window splits into
+   two transformed sibling layers: `#app.app-layer` holds the widgets +
+   chrome (scaled per-monitor), `.popup-layer` is the portal mount target
+   for context menus / pickers (scaled by the general uiScale). */
+body.config-window {
+  transform: scale(var(--ui-scale));
+  transform-origin: top left;
+  width: calc(100% / var(--ui-scale));
+  height: calc(100vh / var(--ui-scale));
+}
+#app.app-layer {
+  position: fixed; top: 0; left: 0;
+  width: calc(100vw / var(--monitor-scale));
+  height: calc(100vh / var(--monitor-scale));
+  transform: scale(var(--monitor-scale));
+  transform-origin: top left;
+}
+.popup-layer {
+  position: fixed; top: 0; left: 0;
+  width: calc(100vw / var(--ui-scale));
+  height: calc(100vh / var(--ui-scale));
+  transform: scale(var(--ui-scale));
+  transform-origin: top left;
+  pointer-events: none;
+  z-index: var(--z-popup, 10000);
+}
+.popup-layer > * { pointer-events: auto; }
+
+/* Per-view root container. All views render simultaneously so widgets
+   stay mounted across switches; only the active one is visible. Each
+   view-root scopes its own visual design vars so hidden views don't fight
+   the active one. Backgrounds are intentionally transparent; the Windows
+   desktop shows through everywhere except widgets. */
+.view-root {
+  position: absolute; inset: 0;
+}
+.view-root.inactive {
+  /* Hide from view + a11y tree, drop pointer events. Stays mounted so
+     widget effects keep running and cached data stays warm. */
+  visibility: hidden;
+  pointer-events: none;
+}
+
+button, [role="button"], label[for], summary { cursor: pointer; }
+
+/* ── Shared keyboard focus ring ──
+   Use `.kbd-focusable:focus-visible` on any element that should show a
+   visible outline only when the user is navigating with the keyboard. */
+.kbd-focusable:focus { outline: none; }
+.kbd-focusable:focus-visible {
+  outline: 1.5px solid var(--primary);
+  outline-offset: -1.5px;
+  border-radius: inherit;
+}
+/* Within the unified config window, every interactive control inside the
+   content pane and the sidebar tree gets the same focus ring by default,
+   which saves us from tagging each button/input individually as kbd-focusable. */
+.config-shell button:focus,
+.config-shell input:focus,
+.config-shell select:focus,
+.config-shell textarea:focus { outline: none; }
+.config-shell button:focus-visible,
+.config-shell input:focus-visible,
+.config-shell select:focus-visible,
+.config-shell textarea:focus-visible {
+  outline: 1.5px solid var(--primary);
+  outline-offset: -1.5px;
+  border-radius: inherit;
+}
+input[type="range"], input[type="color"], select { cursor: pointer; }
+input[type="checkbox"], input[type="radio"] { cursor: pointer; }
+input[type="text"], input[type="number"], input[type="password"],
+input[type="search"], input[type="email"], textarea { cursor: text; }
+
+/* ── Widget surfaces ──
+   A widget is two independent background layers so the header can differ from
+   the body it sits on (different colour, more/less opaque). The header surface
+   (--header-bg/--header-blur) and body surface (--card/--widget-blur) are
+   sibling elements; the body fill does NOT sit behind the header, so a header
+   can be MORE transparent than the body. Header-bearing widgets make their root
+   transparent and wrap content in `.widget-body`; headerless widgets keep
+   `background: var(--card)` on their root (the root IS the body). Per-widget CSS
+   sets header/body LAYOUT but never `background`, so these rules own the fill. */
+.widget-header {
+  background: var(--header-bg);
+  backdrop-filter: blur(var(--header-blur, 60px)) saturate(180%);
+}
+.widget-body {
+  background: var(--card);
+  backdrop-filter: blur(var(--widget-blur, 60px)) saturate(180%);
+  flex: 1 1 auto; min-width: 0; min-height: 0;
+  display: flex; flex-direction: column;
+  position: relative;
+}
+
+/* ── Edit bars ── */
+.edit-bar-row {
+  position: fixed; bottom: 0; left: 0; right: 0;
+  display: flex; align-items: flex-end; justify-content: center;
+  gap: 12px; z-index: var(--z-overlay, 9999); pointer-events: none;
+}
+.edit-bar-row > * { pointer-events: auto; }
+
+.edit-bar-right {
+  display: flex; align-items: center; gap: 2px; flex-wrap: nowrap;
+  /* Slightly transparent so the desktop shows through; backdrop blur keeps
+     controls legible. Theme-agnostic; derives from the popover token. */
+  background: color-mix(in srgb, var(--popover-bg) 70%, transparent);
+  /* Dual-contrast edge: a light border reads against dark backgrounds, while
+     the outer 1px dark ring + drop shadow read against light backgrounds, so
+     the bar stays differentiated on any wallpaper. */
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  border-bottom: none;
+  border-radius: 14px 14px 0 0; padding: 7px 8px 8px;
+  backdrop-filter: blur(40px) saturate(180%);
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.45), 0 -8px 30px rgba(0, 0, 0, 0.45);
+  user-select: none;
+}
+
+/* Fluent edit-bar controls: borderless ghost buttons that share one pill, with
+   the accent reserved for the primary + update actions. */
+.edit-bar-right .design-btn {
+  border: none; background: transparent; color: var(--foreground);
+  padding: 7px 11px; border-radius: 9px; gap: 6px;
+}
+.edit-bar-right .design-btn:hover { background: var(--overlay-hover); border-color: transparent; }
+.edit-bar-right .design-btn.primary {
+  background: var(--primary); color: var(--primary-foreground, var(--foreground)); font-weight: 600;
+}
+.edit-bar-right .design-btn.primary:hover { background: color-mix(in srgb, var(--primary) 85%, white); }
+.edit-bar-right .design-btn.update-btn {
+  background: var(--primary-subtle-bg); color: var(--primary); font-weight: 600;
+}
+.edit-bar-right .design-btn.update-btn:hover:not(:disabled) { background: var(--primary-subtle-border); }
+
+.grid-control { display: flex; align-items: center; gap: 8px; }
+
+/* Grid-snap toggle: sits as a ghost chip in the edit bar. */
+.grid-toggle {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 7px 11px; border-radius: 9px;
+  font-size: calc(12px * var(--font-scale, 1)); font-weight: 500; color: var(--muted-foreground);
+  white-space: nowrap;
+}
+.edit-bar-right .divider { height: 20px; margin: 0 2px; opacity: 0.7; }
+
+.label {
+  font-size: calc(11px * var(--font-scale, 1)); font-weight: 500; letter-spacing: 0.06em;
+  text-transform: uppercase; color: var(--muted-foreground);
+}
+
+.value {
+  font-size: calc(14px * var(--font-scale, 1)); font-variant-numeric: tabular-nums;
+  min-width: 28px; text-align: center; font-weight: 500;
+}
+
+.grid-input {
+  width: 40px; height: 28px; border-radius: 6px;
+  border: 1px solid var(--overlay-border);
+  background: var(--overlay-subtle); color: var(--foreground);
+  font-size: calc(13px * var(--font-scale, 1)); font-weight: 500; font-family: inherit;
+  font-variant-numeric: tabular-nums; text-align: center;
+  outline: none; transition: border-color 0.15s;
+  -moz-appearance: textfield;
+}
+.grid-input::-webkit-outer-spin-button,
+.grid-input::-webkit-inner-spin-button {
+  -webkit-appearance: none; margin: 0;
+}
+.grid-input:focus {
+  border-color: var(--primary);
+}
+
+.grid-control button:not(.dropdown-trigger) {
+  width: 28px; height: 28px; border-radius: 6px;
+  border: 1px solid var(--overlay-border);
+  background: var(--overlay-subtle); color: var(--foreground);
+  font-size: calc(15px * var(--font-scale, 1)); display: flex; align-items: center; justify-content: center;
+  line-height: 1; transition: background 0.15s;
+}
+.grid-control button:not(.dropdown-trigger):hover { background: var(--overlay-hover); }
+
+.recommended {
+  font-size: calc(11px * var(--font-scale, 1)); color: var(--muted-foreground);
+  min-width: 28px; display: flex; align-items: center;
+}
+.recommended.match { color: var(--primary); }
+
+.rec-btn {
+  background: transparent; border: none; color: var(--muted-foreground);
+  font-size: calc(11px * var(--font-scale, 1)); font-family: inherit; font-variant-numeric: tabular-nums;
+  cursor: pointer; padding: 2px 5px; border-radius: 4px;
+  white-space: nowrap; transition: background 0.12s, color 0.12s;
+  width: auto; height: auto;
+  display: inline-flex; align-items: center; gap: 3px;
+}
+.rec-btn:hover { background: var(--overlay-hover); color: var(--foreground); }
+
+.divider { width: 1px; height: 18px; background: var(--overlay-border); }
+
+/* Edit-bar chrome, NOT a config surface -- it never appears inside a `.cfg`, so
+   it is deliberately outside the `btn-*` role family ([S-11]).
+   A bare `.add-btn` used to sit here too, declaring byte-identical values and
+   sharing every `.edit-bar-right` override with `.design-btn`: two names, one
+   design, and it collided with the config family's dashed `.cfg .add-btn`. Its
+   two call sites (Add widget / Settings) are plain `.design-btn` now. */
+.design-btn {
+  border: 1px solid var(--overlay-border);
+  background: var(--overlay-subtle); color: var(--foreground);
+  font-size: calc(12px * var(--font-scale, 1)); font-weight: 500; padding: 5px 10px; border-radius: 6px;
+  transition: background 0.15s, border-color 0.15s; font-family: inherit;
+  white-space: nowrap;
+  display: inline-flex; align-items: center; gap: 4px;
+}
+.design-btn:hover:not(:disabled) { background: var(--overlay-hover); border-color: var(--ring); }
+.design-btn.primary { background: var(--primary); color: var(--primary-foreground, var(--foreground)); border-color: var(--primary); font-weight: 600; }
+.design-btn.primary:hover { background: color-mix(in srgb, var(--primary) 85%, white); border-color: color-mix(in srgb, var(--primary) 85%, white); }
+.design-btn.update-btn { background: color-mix(in srgb, var(--primary) 15%, transparent); color: var(--primary); border-color: color-mix(in srgb, var(--primary) 30%, transparent); font-weight: 600; }
+.design-btn.update-btn:hover:not(:disabled) { background: color-mix(in srgb, var(--primary) 25%, transparent); }
+.design-btn.update-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+
+/* ── Views bar ── */
+.views-bar {
+  position: fixed;
+  display: flex; align-items: center; gap: 3px;
+  /* Match the widgets: same --card background + opacity (user-configurable via
+     widgetBgOpacity) and the same blur, so the switcher reads as a widget. */
+  background: var(--card);
+  backdrop-filter: blur(var(--widget-blur, 60px)) saturate(180%);
+  border: 1px solid var(--overlay-border);
+  border-radius: 10px; padding: 4px 6px;
+  z-index: var(--z-overlay, 9999); user-select: none;
+}
+.views-bar.vertical { flex-direction: column; }
+
+/* Edit-mode preview of the "hidden" state: the bar stays mounted so the add
+   (+) cluster is reachable, but a dimmed/dashed look shows the user that
+   "Show view bar" is OFF and the bar will vanish once edit mode ends. */
+.views-bar.hidden-preview {
+  opacity: 0.45;
+  border-style: dashed;
+}
+
+/* Size variants */
+.views-bar.size-medium { padding: 4px 6px; gap: 3px; }
+.views-bar.size-medium .view-name-btn { font-size: calc(12px * var(--font-scale, 1)); padding: 3px 8px; }
+.views-bar.size-medium .view-icon { width: 13px; height: 13px; }
+.views-bar.size-large { padding: 6px 10px; gap: 4px; border-radius: 12px; }
+.views-bar.size-large .view-name-btn { font-size: calc(14px * var(--font-scale, 1)); padding: 5px 12px; }
+.views-bar.size-large .view-icon { width: 16px; height: 16px; }
+.views-bar.size-xl { padding: 8px 14px; gap: 5px; border-radius: 14px; }
+.views-bar.size-xl .view-name-btn { font-size: calc(16px * var(--font-scale, 1)); padding: 7px 16px; }
+.views-bar.size-xl .view-icon { width: 20px; height: 20px; }
+
+/* Icon-only mode */
+.views-bar.icon-only .view-name-text { display: none; }
+.views-bar.icon-only .view-num { display: none; }
+.views-bar.icon-only .view-name-btn {
+  padding: 0; aspect-ratio: 1; justify-content: center;
+}
+.views-bar.icon-only.size-medium .view-name-btn { width: 28px; }
+.views-bar.icon-only.size-large .view-name-btn { width: 34px; }
+.views-bar.icon-only.size-xl .view-name-btn { width: 40px; }
+
+.view-chip { display: flex; align-items: center; gap: 1px; }
+
+.view-name-btn {
+  background: transparent; border: none; color: var(--foreground);
+  font-size: calc(12px * var(--font-scale, 1)); font-weight: 500; padding: 3px 8px; border-radius: 6px;
+  transition: background 0.15s, color 0.15s; font-family: inherit;
+  white-space: nowrap; display: flex; align-items: center; gap: 5px;
+}
+.view-chip.active .view-name-btn { background: var(--overlay-hover); color: var(--foreground); }
+.view-name-btn.is-default { font-weight: 700; }
+.view-name-btn:hover { color: var(--foreground); }
+
+.view-num { font-size: calc(10px * var(--font-scale, 1)); opacity: 0.4; font-variant-numeric: tabular-nums; }
+
+.view-del-btn {
+  background: transparent; border: none; color: var(--subtle-foreground);
+  font-size: calc(12px * var(--font-scale, 1)); line-height: 1; padding: 2px 4px; border-radius: 4px;
+  font-family: inherit; transition: color 0.15s, background 0.15s;
+}
+.view-del-btn:hover { color: var(--destructive); background: var(--danger-subtle-bg); }
+
+.view-cfg-btn {
+  background: var(--overlay-subtle); border: 1px solid var(--overlay-border);
+  color: var(--foreground);
+  font-size: calc(12px * var(--font-scale, 1)); line-height: 1; padding: 3px 5px; border-radius: 5px;
+  margin-left: 2px;
+  font-family: inherit; transition: color 0.15s, background 0.15s, border-color 0.15s;
+  display: inline-flex; align-items: center; justify-content: center;
+  cursor: pointer;
+}
+.view-cfg-btn:hover { color: var(--primary); background: var(--overlay-hover); border-color: var(--primary); }
+
+/* Hover-revealed mini actions on the active chip in edit mode
+   (rename / duplicate / delete), sit alongside the existing settings gear. */
+.view-chip-actions {
+  display: inline-flex; align-items: center; gap: 2px; margin-left: 3px;
+}
+.view-chip-mini-btn {
+  width: 20px; height: 20px;
+  display: inline-flex; align-items: center; justify-content: center;
+  padding: 0; border: 1px solid transparent;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--muted-foreground);
+  font-family: inherit;
+  opacity: 0;
+  transition: opacity 140ms ease, background 0.12s, color 0.12s, border-color 0.12s;
+  cursor: pointer;
+}
+.view-chip:hover .view-chip-mini-btn { opacity: 0.75; }
+.view-chip-mini-btn:hover {
+  opacity: 1; background: var(--overlay-hover); color: var(--foreground);
+  border-color: var(--overlay-border);
+}
+.view-chip-mini-btn.danger:hover {
+  background: var(--danger-subtle-bg); color: var(--destructive);
+  border-color: transparent;
+}
+
+.view-chip.dragging { opacity: 0.4; }
+.view-chip.drag-over { background: var(--overlay-hover); border-radius: 6px; }
+
+.view-input {
+  background: var(--overlay-hover);
+  border: 1px solid var(--ring);
+  border-radius: 5px; color: var(--foreground);
+  font-size: calc(12px * var(--font-scale, 1)); font-family: inherit;
+  padding: 2px 7px; width: 80px; outline: none; height: 24px;
+}
+.view-add-input { width: 120px; }
+
+.view-add-btn {
+  background: transparent; border: 1px solid var(--overlay-border);
+  color: var(--muted-foreground); font-size: calc(14px * var(--font-scale, 1));
+  width: 22px; height: 22px; display: flex; align-items: center;
+  justify-content: center; border-radius: 5px; padding: 0; line-height: 1;
+  font-family: inherit; transition: background 0.15s, color 0.15s;
+}
+.view-add-btn:hover { background: var(--overlay-hover); color: var(--foreground); }
+.view-add-btn.disabled { opacity: 0.35; cursor: default; }
+.view-add-btn.disabled:hover { background: transparent; color: var(--muted-foreground); }
+
+.views-bar.bar-dragging { cursor: grabbing; }
+.views-bar.bar-dragging .view-bar-handle { cursor: grabbing; }
+
+.view-bar-handle {
+  background: transparent; border: none; padding: 2px;
+  color: var(--subtle-foreground);
+  display: inline-flex; align-items: center; justify-content: center;
+  border-radius: 4px; cursor: grab;
+  transition: background 0.12s, color 0.12s;
+}
+.view-bar-handle:hover { background: var(--overlay-hover); color: var(--foreground); }
+.views-bar.vertical .view-bar-handle { transform: rotate(90deg); }
+
+/* selector-bar styles are now in the .edit-bar-left, .edit-bar-right, .selector-bar rule above */
+.size-toggle {
+  display: flex; gap: 6px;
+}
+.size-toggle button {
+  border: 1px solid var(--overlay-border);
+  background: var(--overlay-subtle); color: var(--foreground);
+  font-size: calc(13px * var(--font-scale, 1)); font-weight: 500; padding: 6px 14px; border-radius: 6px;
+  transition: background 0.15s, border-color 0.15s; font-family: inherit;
+  white-space: nowrap; cursor: pointer;
+  display: inline-flex; align-items: center; gap: 4px;
+}
+.size-toggle button:hover { background: var(--overlay-hover); border-color: var(--ring); }
+.size-toggle button.active { background: var(--primary); border-color: var(--primary); color: var(--primary-foreground, var(--foreground)); }
+
+/* View icon in chips */
+.view-icon {
+  display: inline-flex; align-items: center; justify-content: center;
+  flex-shrink: 0; vertical-align: middle;
+}
+.view-icon-letters {
+  font-weight: 600;
+  line-height: 1;
+  letter-spacing: -0.02em;
+  text-transform: uppercase;
+  font-variant-numeric: tabular-nums;
+  color: currentColor;
+}
+
+.view-dropdown-letters {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  flex: 0 0 auto;
+  font-size: calc(9px * var(--font-scale, 1));
+  font-weight: 600;
+  line-height: 1;
+  letter-spacing: -0.02em;
+  text-transform: uppercase;
+  font-variant-numeric: tabular-nums;
+  color: currentColor;
+}
+
+/* ── Icon picker ── */
+.icon-picker-panel {
+  position: fixed;
+  display: grid; grid-template-columns: repeat(8, 1fr); gap: 2px;
+  background: var(--popover-bg);
+  backdrop-filter: blur(32px) saturate(200%);
+  border: 1px solid var(--overlay-border);
+  border-radius: 8px;
+  padding: 6px;
+  box-shadow: 0 12px 48px rgba(0,0,0,0.55), 0 2px 10px rgba(0,0,0,0.3);
+  z-index: var(--z-dropdown, 10004);
+  max-height: 300px;
+  overflow-y: auto;
+  scrollbar-width: none;
+}
+.icon-picker-panel::-webkit-scrollbar { display: none; }
+.icon-picker-btn {
+  width: 32px; height: 32px; border-radius: 5px;
+  border: none; background: transparent; color: var(--foreground);
+  display: flex; align-items: center; justify-content: center;
+  cursor: pointer; transition: background 0.07s;
+  padding: 0;
+}
+.icon-picker-btn:hover { background: var(--overlay-hover); }
+.icon-picker-btn.active { background: var(--primary); color: var(--primary-foreground, var(--foreground)); }
+.icon-picker-btn.kbd-focused {
+  background: var(--overlay-hover);
+  outline: 1.5px solid var(--primary);
+  outline-offset: -1.5px;
+}
+
+/* ── Modals ── */
+.modal-backdrop {
+  position: fixed; inset: 0; background: rgba(0, 0, 0, 0.6);
+  display: flex; align-items: center; justify-content: center; z-index: var(--z-popup, 10000);
+}
+
+.modal {
+  background: var(--popover-bg);
+  border: 1px solid var(--overlay-border);
+  border-radius: var(--radius, 12px); min-width: 408px; max-width: 816px;
+  width: 100%; overflow: hidden; position: relative;
+  display: flex; flex-direction: column;
+  box-shadow: 0 25px 50px rgba(0, 0, 0, 0.5);
+  height: min(812px, calc(100vh - 40px));
+}
+
+.modal-header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 14px 18px;
+  border-bottom: 1px solid var(--border);
+  font-size: 14px; font-weight: 600; letter-spacing: 0.01em;
+  cursor: grab; user-select: none;
+  border-radius: var(--radius, 12px) var(--radius, 12px) 0 0;
+  overflow: hidden;
+}
+.modal-header:active { cursor: grabbing; }
+
+.close-btn {
+  background: transparent; border: none; color: var(--muted-foreground);
+  font-size: 13px; padding: 3px 7px; border-radius: 5px;
+  transition: background 0.15s, color 0.15s; font-family: inherit; line-height: 1;
+}
+.close-btn:hover { color: var(--foreground); background: var(--overlay-hover); }
+
+
+/* ── Widget picker (Add Widget page, see components/AddWidgetPage.tsx) ── */
+.picker-search-wrap {
+  display: flex; align-items: center; gap: 6px;
+  padding: 6px 10px;
+  background: var(--overlay-subtle);
+  border: 1px solid var(--overlay-border);
+  border-radius: 7px;
+}
+.picker-search-icon { font-size: 11px; opacity: 0.5; flex-shrink: 0; }
+.picker-search {
+  flex: 1; border: none; background: transparent;
+  color: var(--foreground); font-size: 13px; font-family: inherit;
+  outline: none; user-select: text; -webkit-user-select: text;
+}
+.picker-search::placeholder { color: var(--muted-foreground); opacity: 0.6; }
+.picker-search-clear {
+  background: transparent; border: none; padding: 0 2px;
+  color: var(--muted-foreground); font-size: 11px; cursor: pointer;
+  opacity: 0.5; line-height: 1; flex-shrink: 0; transition: opacity 0.12s;
+}
+.picker-search-clear:hover { opacity: 1; }
+.config-shell .picker-search:focus,
+.config-shell .picker-search:focus-visible { outline: none; }
+.picker-search-wrap:has(.picker-search:focus-visible) {
+  outline: 1.5px solid var(--primary);
+  outline-offset: -1.5px;
+}
+
+.picker-empty {
+  padding: 24px; text-align: center;
+  font-size: 13px; color: var(--muted-foreground);
+}
+
+/* Body splits into a scrolling card list (left) and a fixed preview pane
+   (right) that's always visible. */
+.picker-body { display: flex; flex-direction: row; flex: 1; min-height: 0; }
+.picker-scroll { padding: 12px 16px 16px; display: flex; flex-direction: column; gap: 16px; overflow-y: scroll; flex: 1 1 auto; min-height: 0; min-width: 0; }
+.picker-section { display: flex; flex-direction: column; gap: 6px; }
+.picker-category {
+  font-size: 10px; font-weight: 600; letter-spacing: 0.08em;
+  text-transform: uppercase; color: var(--muted-foreground); padding: 0 2px;
+}
+/* Responsive grid: pack as many columns as fit at ~220px each. The
+   `min(100%, …)` floor collapses to a single column when the list is
+   narrower than a track, so cards never overflow (the panel clips). */
+.picker-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 220px), 1fr)); gap: 6px; }
+
+.widget-card {
+  position: relative;
+  display: flex; flex-direction: row; align-items: center; gap: 14px;
+  width: 100%; padding: 10px 12px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--overlay-subtle); color: var(--foreground);
+  text-align: left;
+  transition: background 0.15s, border-color 0.15s; font-family: inherit;
+  cursor: pointer;
+}
+.widget-card:hover { background: var(--overlay-hover); border-color: var(--ring); }
+.widget-card-icon {
+  display: flex; align-items: center; justify-content: center;
+  color: var(--muted-foreground);
+  flex: 0 0 auto;
+  width: 24px; height: 24px;
+}
+.widget-card-text {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex; flex-direction: column; gap: 2px;
+}
+.widget-card-label {
+  font-size: 13px; font-weight: 500; color: var(--foreground);
+  line-height: 1.3;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.widget-card-desc {
+  font-size: 11px; color: var(--muted-foreground);
+  line-height: 1.35;
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+/* ── Persistent preview pane (right side of the picker body) ── */
+.picker-preview-pane {
+  flex: 0 1 400px;
+  min-width: 300px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  padding: 20px;
+  border-left: 1px solid var(--border);
+  overflow: hidden;
+}
+.picker-preview-frame {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  /* Grow to fill the pane so WidgetRowPreview can measure the real available
+     space and size the widget to it (instead of a hardcoded box). */
+  flex: 1 1 auto;
+  align-self: stretch;
+  min-height: 0;
+  width: 100%;
+}
+.picker-preview-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  text-align: center;
+  max-width: 100%;
+}
+.picker-preview-label {
+  font-size: 14px; font-weight: 600; color: var(--foreground);
+  line-height: 1.3;
+}
+.picker-preview-desc {
+  font-size: 12px; color: var(--muted-foreground); line-height: 1.4;
+}
+
+/* Preview box: width/height set inline by WidgetRowPreview from the widget's
+   defaultSpan aspect ratio (clamped to MAX_W × MAX_H). */
+.widget-pane-preview {
+  position: relative;
+  /* Mirror the desktop widget chrome (.widget in WidgetGrid.css): a transparent
+     wrapper with the configured border AND corner radius. The widget paints its
+     own --card background, so a background here would double it up and hide how
+     the widget actually looks on the desktop (its own glass/transparency).
+     Radius MUST track --radius (not a literal), else a border at cornerRadius:0
+     traces a rounded corner the desktop widget doesn't have. */
+  border-radius: var(--radius, 12px);
+  border: var(--widget-border-width, 1px) var(--widget-border-style, solid) var(--widget-border-color, var(--border));
+  background: transparent;
+  overflow: hidden;
+  pointer-events: none;
+}
+.widget-pane-preview-stage {
+  position: absolute; top: 0; left: 0;
+  transform-origin: top left;
+}
+.widget-pane-preview-fallback {
+  width: 100%; height: 100%;
+  background: repeating-linear-gradient(
+    45deg,
+    transparent 0 8px,
+    var(--overlay-hover) 8px 9px
+  );
+  opacity: 0.5;
+}
+
+/* Settings.SPEC.md [S-10]: the design-row vocabulary (.design-row, .design-left,
+   .design-label, .design-desc, the .design-val family, .design-range-wrap) is
+   owned by config-base.css ALONE, scoped under
+   `.cfg`. App.css used to carry an unscoped SECOND copy of all of it. Every
+   element that renders these classes is inside a `.cfg` (the four page bodies
+   and ConfigTabs all render `class="settings-content cfg"`; widget configs and
+   NewsletterRow are nested inside those), so `.cfg .design-row` (0,2,0) beat the
+   unscoped copy (0,1,0) on every property either declared -- which is exactly
+   why the two silently drifted apart: `.design-val` min-width 32px here vs 24px
+   in the base, and `.design-label` here had lost the `display:inline-flex` that
+   SettingsModal's "active now" pill depends on. The copy was pure dead weight;
+   deleting it changes no rendered value and leaves one source of truth. */
+
+.color-wrap { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+
+/* `.design-toggle` / `.design-reset-btn` lived here: a second, undocumented
+   button vocabulary (25 sites across SettingsModal / ViewSettingsModal /
+   NewsletterRow) that the documented `.cfg` family could not reach, at a third
+   scale again. Both are gone -- the app settings page now speaks the same
+   `btn-*` roles as every widget config. Settings.SPEC.md [S-11].
+   `.design-toggle.on` was never a selected state despite the name: all three
+   sites (subscribe / activate license / install update) were the surface's
+   primary action, so it maps to `.btn-primary`, bare maps to `.btn-secondary`,
+   and `.danger` to `.btn-danger`. */
+
+.view-name-edit-input {
+  background: var(--overlay-hover);
+  border: 1px solid var(--overlay-border);
+  border-radius: 6px; color: var(--foreground);
+  font-size: 13px; font-family: inherit;
+  padding: 4px 10px; width: 200px; outline: none;
+  transition: border-color 0.15s;
+}
+.view-name-edit-input:focus { border-color: var(--ring); }
+.view-name-edit-input:disabled { opacity: 0.5; cursor: not-allowed; }
+
+/* ── Theme toggle ── */
+.theme-seg {
+  display: flex; flex-shrink: 0;
+  background: var(--overlay-subtle);
+  border: 1px solid var(--overlay-border);
+  border-radius: 8px; padding: 2px;
+}
+.theme-seg button {
+  padding: 4px 10px; border-radius: 6px; border: none;
+  background: transparent; color: var(--muted-foreground);
+  font-size: 12px; font-weight: 500; cursor: pointer; font-family: inherit;
+  transition: background 0.2s, color 0.2s, box-shadow 0.2s;
+  display: flex; align-items: center; gap: 4px;
+}
+.theme-seg button:hover { color: var(--foreground); }
+.theme-seg button.active {
+  background: var(--overlay-hover); color: var(--foreground);
+  box-shadow: 0 1px 3px rgba(0,0,0,0.2);
+}
+
+/* ── Config label row ── */
+.label-input {
+  flex: 1; padding: 6px 10px; border-radius: 6px;
+  border: 1px solid var(--overlay-border);
+  background: var(--overlay-subtle); color: var(--foreground);
+  font-size: 12px; font-family: inherit; outline: none;
+  transition: border-color 0.15s; min-width: 0;
+}
+.label-input:focus { border-color: var(--primary); }
+.label-input::placeholder { color: var(--muted-foreground); opacity: 0.6; }
+
+.config-body { padding: 18px; display: flex; flex-direction: column; gap: 14px; }
+.config-hint { font-size: 13px; color: var(--muted-foreground); font-style: italic; }
+
+/* ── Context menu ── */
+.ctx-backdrop { position: fixed; inset: 0; z-index: var(--z-ctx-backdrop, 10001); }
+
+.ctx-menu {
+  position: fixed; z-index: var(--z-ctx-menu, 10002);
+  min-width: 180px;
+  background: var(--popover-bg);
+  backdrop-filter: blur(32px) saturate(200%);
+  border: 1px solid var(--overlay-border);
+  border-radius: 8px;
+  padding: 4px;
+  box-shadow: 0 12px 48px rgba(0,0,0,0.55), 0 2px 10px rgba(0,0,0,0.3);
+  outline: none;
+  user-select: none;
+}
+
+.ctx-header {
+  padding: 4px 8px 2px;
+  font-size: calc(10px * var(--font-scale, 1)); font-weight: 700;
+  color: var(--subtle-foreground);
+  text-transform: uppercase; letter-spacing: 0.07em;
+}
+
+.ctx-sep { height: 1px; background: var(--border); margin: 2px 0; }
+
+.ctx-item {
+  display: flex; align-items: center; gap: 6px;
+  padding: 4px 8px 4px 6px;
+  font-size: calc(12px * var(--font-scale, 1)); font-weight: 450;
+  color: var(--foreground);
+  border-radius: 5px;
+  cursor: default;
+  white-space: nowrap;
+  transition: background 0.07s;
+}
+.ctx-item:hover, .ctx-item.hovered { background: var(--overlay-hover); }
+.ctx-item.active   { color: var(--primary); }
+.ctx-item.danger   { color: var(--destructive); }
+.ctx-item.danger:hover, .ctx-item.danger.hovered { background: var(--danger-subtle-bg); }
+.ctx-item.disabled { opacity: 0.3; pointer-events: none; }
+
+.ctx-icon  { width: 16px; flex-shrink: 0; display: flex; align-items: center; justify-content: center; opacity: 0.8; }
+.ctx-label { flex: 1; }
+.ctx-shortcut {
+  font-size: calc(10px * var(--font-scale, 1)); color: var(--subtle-foreground);
+  background: var(--overlay-subtle); border-radius: 3px;
+  padding: 1px 4px; letter-spacing: 0.02em; font-family: inherit;
+}
+.ctx-check {
+  width: 14px; flex-shrink: 0; display: flex; align-items: center; justify-content: center;
+  color: var(--primary);
+}
+.ctx-chevron {
+  width: 14px; flex-shrink: 0; display: flex; align-items: center; justify-content: center;
+  opacity: 0.5;
+}
+.ctx-submenu {
+  position: fixed; z-index: var(--z-ctx-submenu, 10003);
+  min-width: 180px;
+  background: var(--popover-bg);
+  backdrop-filter: blur(32px) saturate(200%);
+  border: 1px solid var(--overlay-border);
+  border-radius: 8px;
+  padding: 4px;
+  box-shadow: 0 12px 48px rgba(0,0,0,0.55), 0 2px 10px rgba(0,0,0,0.3);
+  outline: none;
+  user-select: none;
+}
+
+
+/* ── License ── */
+/* Accent-tinted CTA: a variant of btn-secondary, compounded onto it (0,3,0) so
+   it wins on merit. It used to be a bare `.upgrade-btn` that beat `.design-toggle`
+   with five `!important`s at equal specificity; `font-weight` was the one
+   declaration it could not shout down that way, and it only held because this
+   file happens to be emitted after config-base.css. */
+.cfg .btn-secondary.upgrade-btn {
+  background: color-mix(in srgb, var(--primary) 12%, transparent);
+  border-color: color-mix(in srgb, var(--primary) 25%, transparent);
+  color: var(--primary);
+  font-weight: 600;
+}
+.cfg .btn-secondary.upgrade-btn:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--primary) 22%, transparent);
+  border-color: color-mix(in srgb, var(--primary) 45%, transparent);
+  color: var(--primary);
+}
+.license-input {
+  width: 100%; padding: 5px 9px; font-size: 12px; font-family: inherit;
+  border: 1px solid var(--border); border-radius: 6px;
+  background: transparent; color: var(--foreground); outline: none;
+}
+.license-input:focus { border-color: var(--primary); }
+.license-input::placeholder { color: var(--subtle-foreground); }
+.license-error {
+  font-size: 11px; color: var(--destructive);
+}
+
+/* Newsletter signup row (reuses .design-row + .license-input + the btn-* family) */
+.newsletter-activate {
+  display: flex; gap: 6px; align-items: center;
+}
+.newsletter-input {
+  width: 200px;
+}
+.newsletter-done {
+  display: flex; gap: 8px; align-items: center; flex-shrink: 0;
+}
+.newsletter-ok {
+  display: inline-flex; align-items: center; gap: 4px;
+  font-size: 12px; color: var(--foreground); font-weight: 500;
+}
+.newsletter-email {
+  color: var(--muted-foreground); font-weight: 400;
+  font-variant-numeric: tabular-nums;
+}
+.newsletter-error { margin-left: 6px; }
+
+/* ── License: status hero card ── */
+.license-hero {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 14px 16px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.02);
+  margin-bottom: 10px;
+  flex-wrap: wrap;
+}
+.license-hero.pro {
+  border-color: color-mix(in srgb, var(--primary) 30%, transparent);
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--primary) 6%, transparent), color-mix(in srgb, var(--primary) 1.5%, transparent) 60%, transparent),
+    rgba(255, 255, 255, 0.02);
+}
+.license-hero-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+  flex: 1 1 220px;
+}
+.license-hero-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--foreground);
+}
+.license-hero-title svg {
+  color: var(--primary);
+}
+.license-hero-sub {
+  font-size: 11px;
+  color: var(--muted-foreground);
+  font-variant-numeric: tabular-nums;
+}
+.license-hero-bars {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-width: 280px;
+}
+.license-hero-cta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+.license-status-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: rgba(34, 197, 94, 0.12);
+  color: rgb(134, 239, 172);
+}
+.license-status-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: rgb(74, 222, 128);
+  box-shadow: 0 0 6px rgba(74, 222, 128, 0.6);
+}
+.license-hero-key {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.license-hero-key .license-key-val {
+  max-width: 280px;
+}
+.license-hero .license-limit-warning {
+  flex-basis: 100%;
+  margin: 4px 0 0;
+}
+
+/* ── License: quota row ── */
+.license-quota {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+.license-quota-stat {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.02);
+}
+.license-quota-stat.full {
+  border-color: rgba(239, 68, 68, 0.30);
+  background: rgba(239, 68, 68, 0.04);
+}
+.license-quota-label {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--muted-foreground);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.license-quota-num {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 2px;
+  font-variant-numeric: tabular-nums;
+  color: var(--foreground);
+}
+.license-quota-cur {
+  font-size: 20px;
+  font-weight: 600;
+  line-height: 1;
+}
+.license-quota-sep {
+  font-size: 14px;
+  color: var(--subtle-foreground);
+}
+.license-quota-max {
+  font-size: 14px;
+  color: var(--muted-foreground);
+}
+.license-quota-stat.full .license-quota-cur,
+.license-quota-stat.full .license-quota-max {
+  color: var(--destructive);
+}
+
+/* ── License: usage bars (used inside hero) ── */
+.license-usage-bar {
+  width: 100%;
+  height: 4px;
+  border-radius: 2px;
+  background: rgba(255,255,255,0.08);
+  overflow: hidden;
+}
+.license-usage-fill {
+  height: 100%;
+  border-radius: 2px;
+  background: var(--primary);
+  transition: width 0.3s;
+}
+.license-usage-fill.full {
+  background: var(--destructive);
+}
+.license-limit-warning {
+  font-size: 12px;
+  color: var(--destructive);
+  padding: 8px 10px;
+  border-radius: 6px;
+  background: rgba(239, 68, 68, 0.08);
+  border: 1px solid rgba(239, 68, 68, 0.15);
+  margin-bottom: 4px;
+}
+
+/* ── License: plan comparison ── */
+.license-tiers {
+  display: grid;
+  grid-template-columns: 1fr 1.3fr;
+  gap: 10px;
+  align-items: stretch;
+  margin-bottom: 10px;
+}
+.license-tier {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.02);
+}
+.license-tier.featured {
+  border-color: color-mix(in srgb, var(--primary) 45%, transparent);
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--primary) 10%, transparent), transparent 55%),
+    color-mix(in srgb, var(--primary) 2.5%, transparent);
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--primary) 10%, transparent),
+    0 8px 24px -12px color-mix(in srgb, var(--primary) 30%, transparent);
+}
+.license-tier-tag {
+  position: absolute;
+  top: -8px;
+  right: 12px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--primary);
+  color: var(--primary-foreground, rgba(0, 0, 0, 0.85));
+  box-shadow: 0 2px 8px -2px color-mix(in srgb, var(--primary) 45%, transparent);
+}
+.license-tier-tag.neutral {
+  background: rgba(255, 255, 255, 0.10);
+  color: var(--foreground);
+  box-shadow: none;
+  border: 1px solid var(--border);
+}
+.license-tier.current:not(.featured) {
+  border-color: rgba(255, 255, 255, 0.16);
+  background: rgba(255, 255, 255, 0.035);
+}
+.license-tier-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.license-tier-name {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--foreground);
+}
+.license-tier.featured .license-tier-name {
+  font-size: 14px;
+}
+.license-tier.featured .license-tier-name svg {
+  color: var(--primary);
+}
+.license-tier-price {
+  font-size: 12px;
+  color: var(--muted-foreground);
+  font-weight: 500;
+}
+.license-tier.featured .license-tier-price {
+  font-size: 14px;
+  color: var(--foreground);
+  font-weight: 600;
+}
+.license-tier-features {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  flex: 1;
+}
+.license-tier-features li {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--muted-foreground);
+}
+.license-tier.featured .license-tier-features li {
+  color: var(--foreground);
+}
+.license-tier-features li svg {
+  color: var(--primary);
+  flex-shrink: 0;
+}
+.license-tier-cta {
+  margin-top: 6px;
+  width: 100%;
+  justify-content: center;
+}
+
+/* ── License: activate card (Free, standalone) ── */
+.license-activate-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.02);
+  margin-bottom: 4px;
+}
+.license-activate-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.license-activate-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--foreground);
+}
+.license-activate-desc {
+  font-size: 11px;
+  color: var(--muted-foreground);
+}
+.license-activate {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+.license-activate .license-input {
+  flex: 1;
+}
+
+/* ── License key value (used in Pro hero) ── */
+.license-key-val {
+  font-family: monospace;
+  font-size: 11px;
+  color: var(--foreground);
+  padding: 4px 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.03);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  user-select: all;
+  min-width: 0;
+}
+/* Icon-only, so it hugs tighter than the family's default 12px side padding.
+   Compounded onto `.btn-secondary` (0,3,0) rather than left bare (0,1,0): a
+   bare `.license-copy-btn` would now lose `padding` to `.cfg .btn-secondary`,
+   and matching that at (0,2,0) would only move the decision to whichever
+   stylesheet the bundler emits last ([S-07]). */
+.cfg .btn-secondary.license-copy-btn {
+  padding: 0 8px;
+}
+.picker-limit {
+  display: flex; align-items: center; gap: 6px;
+  padding: 10px 18px; text-align: center;
+  font-size: 12px; color: var(--muted-foreground);
+  border-top: 1px solid var(--border);
+}
+
+/* Bottom-right status corner: the update badge ([S-35]) and the game-mode
+   badge stack upwards from the corner, newest concern nearest the eye. The
+   column itself is inert so it never eats desktop clicks between badges. */
+.corner-badges {
+  position: fixed;
+  right: 16px;
+  bottom: 16px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 8px;
+  pointer-events: none;
+  z-index: var(--z-overlay, 9999);
+}
+.corner-badges > * { pointer-events: auto; }
+
+/* [S-27] First-run analytics consent card. Sits in the same bottom-right
+   stack as the badges: it is a question, not a wall, so it never blocks the
+   desktop and can simply be ignored. */
+.consent-card {
+  width: 300px;
+  max-width: calc(100vw - 32px);
+  padding: 12px 14px;
+  border-radius: var(--radius);
+  background: var(--card);
+  border: 1px solid var(--border);
+  backdrop-filter: blur(60px) saturate(180%);
+  color: var(--foreground);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.consent-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--foreground);
+}
+
+.consent-title {
+  font-size: calc(12px * var(--font-scale, 1));
+  font-weight: 600;
+}
+
+.consent-body {
+  margin: 0;
+  font-size: calc(11px * var(--font-scale, 1));
+  line-height: 1.5;
+  color: var(--muted-foreground);
+}
+
+.consent-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.consent-spacer { flex: 1; }
+
+.consent-link {
+  background: none;
+  border: none;
+  padding: 0;
+  color: var(--muted-foreground);
+  font-family: inherit;
+  font-size: calc(11px * var(--font-scale, 1));
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.consent-link:hover { color: var(--foreground); }
+
+.consent-btn {
+  padding: 5px 10px;
+  border-radius: calc(var(--radius) - 3px);
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--foreground);
+  font-family: inherit;
+  font-size: calc(11px * var(--font-scale, 1));
+  cursor: pointer;
+  transition: background 0.12s;
+}
+
+.consent-btn:hover { background: var(--card-hover); }
+
+.consent-btn.is-primary {
+  border-color: var(--primary);
+  color: var(--primary);
+}
+
+/* Badge shown while game-mode suspension is active. */
+.game-mode-badge {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  border-radius: var(--radius);
+  background: var(--card);
+  border: 1px solid var(--border);
+  color: var(--muted-foreground);
+  font-size: calc(11px * var(--font-scale, 1));
+  font-weight: 500;
+  backdrop-filter: blur(60px) saturate(180%);
+  -webkit-backdrop-filter: blur(60px) saturate(180%);
+  user-select: none;
+}
+.game-mode-badge svg { flex-shrink: 0; }
+
+/* [S-35] "A newer version is out" pill. Deliberately quiet: same glass chrome
+   as the other badges, with the accent reserved for the icon so it reads as a
+   notice, not an alert. Opens Settings -> Updates; the X silences this version. */
+.update-badge {
+  display: flex;
+  align-items: stretch;
+  border-radius: var(--radius);
+  background: var(--card);
+  border: 1px solid var(--border);
+  backdrop-filter: blur(60px) saturate(180%);
+  -webkit-backdrop-filter: blur(60px) saturate(180%);
+  overflow: hidden;
+  user-select: none;
+  /* Opacity ONLY, never a transform: the pass-through mask ([S-17]) measures
+     chrome with getBoundingClientRect, which folds a transform in. A sliding
+     entrance would be sampled mid-animation and leave the clickable region
+     offset from the pill until some unrelated push re-measured it. */
+  animation: update-badge-in 0.22s ease-out;
+}
+.update-badge button {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  background: transparent;
+  border: none;
+  font-family: inherit;
+  font-size: calc(11px * var(--font-scale, 1));
+  font-weight: 500;
+  color: var(--foreground);
+  transition: background 0.12s;
+}
+.update-badge button:hover { background: var(--card-hover); }
+.update-badge-open svg { flex-shrink: 0; color: var(--primary); }
+.update-badge .update-badge-dismiss {
+  padding: 6px 8px;
+  color: var(--subtle-foreground);
+  border-left: 1px solid var(--border);
+}
+.update-badge-dismiss:hover { color: var(--foreground); }
+
+@keyframes update-badge-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .update-badge { animation: none; }
+}

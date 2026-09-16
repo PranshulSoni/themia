@@ -1,0 +1,132 @@
+.scratchpad-widget {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+  /* Background lives on the sibling layers (.widget-header / .widget-body); the
+     root is a transparent clipping frame so the two surfaces stay independent. */
+  background: transparent;
+  border-radius: var(--radius, 8px);
+  user-select: none;
+  overflow: hidden;
+}
+
+/* Header layout owned by WidgetHeader.css. */
+
+.sp-tools {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.sp-colors {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.sp-swatch {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  border: 1px solid var(--overlay-border, rgba(255, 255, 255, 0.1));
+  cursor: pointer;
+  padding: 0;
+  transition: transform 0.1s, box-shadow 0.1s;
+}
+.sp-swatch:hover { transform: scale(1.12); }
+.sp-swatch.active {
+  box-shadow: 0 0 0 2px var(--card), 0 0 0 3.5px var(--foreground);
+}
+
+.sp-divider {
+  width: 1px;
+  align-self: stretch;
+  margin: 2px 2px;
+  background: var(--border);
+}
+
+.sp-sizes {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.sp-size {
+  width: 22px;
+  height: 22px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  background: transparent;
+  border-radius: 5px;
+  cursor: pointer;
+  padding: 0;
+  transition: background 0.12s;
+}
+.sp-size:hover { background: var(--card-hover); }
+.sp-size.active { background: var(--primary-subtle-bg, var(--card-hover)); }
+
+.sp-dot {
+  border-radius: 50%;
+  background: var(--foreground);
+  display: block;
+}
+
+.sp-tool {
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  background: transparent;
+  color: var(--muted-foreground);
+  border-radius: 5px;
+  cursor: pointer;
+  padding: 0;
+  transition: background 0.12s, color 0.12s;
+}
+.sp-tool:hover { background: var(--card-hover); color: var(--foreground); }
+.sp-tool.active {
+  background: var(--primary-subtle-bg, var(--card-hover));
+  color: var(--primary);
+}
+
+.scratchpad-canvas-wrap {
+  flex: 1;
+  min-height: 0;
+  /* No padding: the canvas fills the body edge-to-edge so the drawable area
+     reaches the widget border (root clips the rounded corners). */
+  box-sizing: border-box;
+  position: relative;
+}
+
+/* Blank-pad hint, overlays the canvas area, never intercepts drawing. */
+.scratchpad-placeholder {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  pointer-events: none;
+  color: var(--subtle-foreground);
+  font-size: calc(12px * var(--font-scale, 1));
+}
+
+.scratchpad-canvas {
+  width: 100%;
+  height: 100%;
+  display: block;
+  /* No fill/frame: the canvas blends into the widget body so the draw area has
+     no visible border. Strokes are the only mark on the surface. */
+  background: transparent;
+  touch-action: none;
+  cursor: crosshair;
+}

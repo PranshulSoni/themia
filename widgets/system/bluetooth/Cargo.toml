@@ -1,0 +1,20 @@
+[package]
+name = "widget-bluetooth"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "widget_bluetooth"
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+
+[target.'cfg(target_os = "windows")'.dependencies]
+windows = { version = "0.58", features = [
+    "Devices_Enumeration",
+    "Devices_Bluetooth",
+    "Devices_Bluetooth_GenericAttributeProfile",
+    "Foundation",
+    "Foundation_Collections",
+    "Storage_Streams",
+] }

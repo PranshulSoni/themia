@@ -1,0 +1,550 @@
+/*
+ * Shared base styles for widget config panels and form UI.
+ * Import this in any config component or shared component that uses form elements.
+ *
+ * Scoped under `.cfg`; add this class to the config root element.
+ */
+
+/* ── Config body ── */
+.cfg {
+  padding: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  overflow-y: scroll;
+  flex: 1;
+  min-height: 0;
+  max-width: 720px;
+}
+
+/* ── Styled thin scrollbar utility ──
+   One source of truth for the config-surface scrollbar (8px thumb, hover
+   brightens). Add `cfg-scrollbar` to any scrollable config surface. `.cfg`
+   itself opts in here so config roots get it for free. */
+.cfg-scrollbar,
+.cfg {
+  scrollbar-width: thin;
+  scrollbar-color: var(--overlay-border) transparent;
+}
+.cfg-scrollbar::-webkit-scrollbar,
+.cfg::-webkit-scrollbar { width: 8px; }
+.cfg-scrollbar::-webkit-scrollbar-track,
+.cfg::-webkit-scrollbar-track { background: transparent; }
+.cfg-scrollbar::-webkit-scrollbar-thumb,
+.cfg::-webkit-scrollbar-thumb {
+  background: var(--overlay-border);
+  border-radius: 4px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+.cfg-scrollbar::-webkit-scrollbar-thumb:hover,
+.cfg::-webkit-scrollbar-thumb:hover {
+  background: var(--ring);
+  background-clip: padding-box;
+}
+
+/* Items inside settings/config lists keep their natural size: scroll, don't squish */
+.cfg > * { flex-shrink: 0; }
+
+/* ── Section label ── */
+.cfg .section-label {
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--muted-foreground);
+}
+
+/* ── Subsection label ──
+   A lighter heading nested under a section-label: not uppercase, dimmer, with a
+   little top breathing room so grouped rows (e.g. Widget › Body / Header /
+   Border) read as children of the section above. */
+.cfg .subsection-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--subtle-foreground);
+  margin-top: 6px;
+}
+
+/* ── Divider ── */
+.cfg .divider {
+  height: 1px;
+  background: var(--border);
+  margin: 4px 0;
+}
+
+/* A panel whose widget contributes no sections of its own (Quote) ends on the
+   divider ConfigTabs emits after the shared Header/Background blocks. Nothing
+   follows it, so it would draw a rule under the last row. */
+.cfg .divider:last-child {
+  display: none;
+}
+
+/* ── Design row (label + desc on left, control on right) ── */
+.cfg .design-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 36px;
+  max-width: 100%;
+}
+
+.cfg .design-left {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+  flex: 1;
+}
+
+.cfg .design-label {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--foreground);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* ── Dimmed row (e.g. a display that's no longer connected) ── */
+.cfg .design-row.inactive .design-left { opacity: 0.5; }
+
+.cfg .design-desc {
+  font-size: 12px;
+  color: var(--muted-foreground);
+  line-height: 1.4;
+}
+
+/* ── Inline callout ──
+   A persistent warning bound to the row above it: used when a control refused
+   to change and the remedy is a step taken OUTSIDE the app (e.g. "Launch on
+   startup" needing administrator rights, #69/#79). Deliberately not a toast —
+   a message that dismisses itself while the user is reading the row it belongs
+   to is what made the toggle read as dead. */
+.cfg .cfg-callout {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 10px 12px;
+  border: 1px solid color-mix(in srgb, var(--warning) 35%, transparent);
+  border-radius: var(--radius);
+  background: color-mix(in srgb, var(--warning) 10%, transparent);
+}
+
+.cfg .cfg-callout-icon {
+  flex: none;
+  margin-top: 2px;
+  color: var(--warning);
+}
+
+.cfg .cfg-callout-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.cfg .cfg-callout-title {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--foreground);
+}
+
+.cfg .cfg-callout-desc {
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--muted-foreground);
+}
+
+/* The raw backend diagnostic under the advice: quieter than the advice itself,
+   and wrapped — one unbroken token (a path, a command line) must not widen the
+   settings pane. */
+.cfg .cfg-callout-detail {
+  margin-top: 4px;
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--subtle-foreground);
+  overflow-wrap: anywhere;
+}
+
+/* ── Design row: stacked variant (control below label+desc) ── */
+.cfg .design-row.stacked {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 6px;
+}
+
+/* ── Field layouts ── */
+.cfg .field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.cfg .field-col {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.cfg label {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--foreground);
+}
+.cfg .optional {
+  font-size: 11px;
+  font-weight: 400;
+  color: var(--muted-foreground);
+}
+
+/* ── Text input ── */
+.cfg .text-input {
+  width: 100%;
+  background: var(--overlay-subtle);
+  border: 1px solid var(--overlay-border);
+  border-radius: 6px;
+  color: var(--foreground);
+  /* Match the height/scale of the other controls (Dropdown trigger = 28px). */
+  font-size: 13px;
+  font-family: inherit;
+  height: 28px;
+  padding: 0 10px;
+  outline: none;
+  transition: border-color 0.15s;
+  box-sizing: border-box;
+}
+.cfg .text-input::placeholder { color: var(--muted-foreground); }
+.cfg .text-input:focus { border-color: var(--ring); }
+
+/* ── Number input ── */
+.cfg .num-input {
+  width: 64px;
+  text-align: center;
+  background: var(--overlay-subtle);
+  border: 1px solid var(--overlay-border);
+  border-radius: 6px;
+  color: var(--foreground);
+  font-size: 14px;
+  font-family: inherit;
+  padding: 6px 8px;
+  outline: none;
+  transition: border-color 0.15s;
+}
+.cfg .num-input:focus { border-color: var(--ring); }
+
+/* ── Small number input (for ports, etc.) ── */
+.cfg .num-input-sm {
+  width: 66px;
+  flex-shrink: 0;
+  text-align: center;
+  background: var(--overlay-subtle);
+  border: 1px solid var(--overlay-border);
+  border-radius: 6px;
+  color: var(--foreground);
+  font-size: 14px;
+  font-family: inherit;
+  padding: 7px 6px;
+  outline: none;
+}
+
+/* ── Select (use Dropdown component instead) ── */
+
+/* ── Buttons: one family, one scale ── Settings.SPEC.md [S-11]
+   Named by ROLE, not by dialog action. `save`/`cancel` described what one
+   dialog's buttons did, so every button that wasn't a save or a cancel had to
+   borrow the wrong name -- "Export settings" was marked up as a `cancel-btn`.
+   The role names survive being reused, which is the whole point of a shared
+   vocabulary.
+
+   The scale is the one this file's own `.text-input` comment already asked for
+   and only `.text-input` honoured: 28px tall, 13px text, matching the Dropdown
+   trigger. Everything else had drifted (save ~38/15, cancel ~36/15, App.css's
+   parallel `.design-toggle` ~24/12), so a single settings row could stack three
+   button heights.
+
+   Roles:
+     btn-primary    the one action the surface exists for (save, activate, install)
+     btn-secondary  every other action (cancel, export, contact support, check)
+     btn-danger     destructive (delete view, disconnect account)
+     btn-add        appends to a collection editor; dashed, ends the list
+     btn-reset      clears an overridden value back to inherited */
+.cfg .btn-primary,
+.cfg .btn-secondary,
+.cfg .btn-danger,
+.cfg .btn-add,
+.cfg .btn-reset {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  box-sizing: border-box;
+  min-height: 28px;
+  padding: 0 12px;
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 500;
+  font-family: inherit;
+  line-height: 1;
+  white-space: nowrap;
+  flex-shrink: 0;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s, color 0.15s;
+}
+
+/* [S-01]/[S-02]: uniform, and declared for the whole family at once so a role
+   cannot be added without it. [S-03]: every :hover below is guarded with
+   `:not(:disabled)`, so a disabled button never lights up under the cursor. */
+.cfg .btn-primary:disabled,
+.cfg .btn-secondary:disabled,
+.cfg .btn-danger:disabled,
+.cfg .btn-add:disabled,
+.cfg .btn-reset:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.cfg .btn-primary {
+  border: 1px solid var(--primary-subtle-border);
+  background: var(--primary-subtle-bg);
+  color: var(--primary);
+}
+.cfg .btn-primary:hover:not(:disabled) { background: var(--primary-subtle-border); }
+
+.cfg .btn-secondary {
+  border: 1px solid var(--overlay-border);
+  background: var(--overlay-subtle);
+  color: var(--muted-foreground);
+}
+.cfg .btn-secondary:hover:not(:disabled) {
+  background: var(--overlay-hover);
+  border-color: var(--ring);
+  color: var(--foreground);
+}
+
+/* [S-05]: the tints are mixed from --destructive at use time. They were
+   rgba(239,68,68,.3)/.08 -- the DEFAULT --destructive, pre-mixed by hand, and
+   the only hardcoded rgba left in this file. */
+.cfg .btn-danger {
+  border: 1px solid color-mix(in srgb, var(--destructive) 30%, transparent);
+  background: color-mix(in srgb, var(--destructive) 8%, transparent);
+  color: var(--destructive);
+}
+.cfg .btn-danger:hover:not(:disabled) { background: var(--danger-subtle-bg); }
+
+.cfg .btn-add {
+  /* Block-level (not the family's inline-flex) so it stretches across the
+     column and reads as the end of the list it appends to. */
+  display: flex;
+  border: 1px dashed var(--overlay-border);
+  background: transparent;
+  color: var(--muted-foreground);
+}
+.cfg .btn-add:hover:not(:disabled) {
+  border-color: var(--ring);
+  color: var(--foreground);
+  background: var(--overlay-subtle);
+}
+
+/* Icon-only modifier for any role ([S-11]): a square button at the family's
+   28px scale, holding a single glyph and no label. Declared here, by the family
+   owner, so a widget config never has to restyle a role it doesn't own ([S-04]).
+   Used by the Shortcut config's "add shortcut" button in its section header. */
+.cfg .btn-primary.btn-icon,
+.cfg .btn-secondary.btn-icon,
+.cfg .btn-danger.btn-icon,
+.cfg .btn-add.btn-icon {
+  display: inline-flex;
+  width: 28px;
+  min-width: 28px;
+  padding: 0;
+  border-style: solid;
+  flex-shrink: 0;
+}
+
+.cfg .btn-reset {
+  /* Sits inline beside the control it resets, so it hugs its label. */
+  padding: 0 8px;
+  border: 1px solid var(--overlay-border);
+  background: transparent;
+  color: var(--muted-foreground);
+}
+.cfg .btn-reset:hover:not(:disabled) {
+  color: var(--foreground);
+  background: var(--overlay-hover);
+  border-color: var(--ring);
+}
+
+/* ── Error text ── */
+.cfg .add-error {
+  font-size: 13px;
+  color: var(--destructive);
+}
+
+/* ── Empty hint ── */
+.cfg .empty-hint {
+  font-size: 14px;
+  color: var(--muted-foreground);
+  font-style: italic;
+}
+
+/* ── Collection editor ──
+   Shared primitives for the configs that edit a list of items (countdown's
+   timers, habit-tracker's habits, shortcut's items). All three declared these
+   themselves, under the GLOBAL `.cfg` scope rather than their own root, so each
+   one's rules landed on every other config that used the same class name.
+   countdown's and habit-tracker's copies were byte-identical; shortcut wanted a
+   growing list instead of a scrolling box and had to fight the leak with a
+   higher-specificity `.cfg .items-list.shortcut-items-list`, with a comment
+   explaining the workaround. One owner here; the scrolling box is the default,
+   and a widget that wants otherwise overrides it under its own class.
+   Settings.SPEC.md [S-18]. The list is ended by a `.btn-add` ([S-11]). */
+.cfg .items-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 360px;
+  overflow-y: auto;
+  scrollbar-width: none;
+}
+.cfg .items-list::-webkit-scrollbar { display: none; }
+
+.cfg .item-remove {
+  background: transparent;
+  border: none;
+  color: var(--muted-foreground);
+  padding: 4px 6px;
+  border-radius: 4px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  font-family: inherit;
+  transition: color 0.12s, background 0.12s;
+}
+.cfg .item-remove:hover { color: var(--destructive); background: var(--danger-subtle-bg); }
+
+/* Drag-to-reorder grip, the third collection-editor primitive: any config whose
+   list is user-ordered mounts one of these as the row's first child. It lives
+   here rather than in the first widget that needed it because config panels are
+   lazy-loaded per widget ([R1] in each widget's index.tsx) -- a second config
+   borrowing shortcut's copy would render an unstyled grip whenever shortcut's
+   stylesheet happened not to be in the bundle chunk. The row's own drag STATE
+   (`.drag-src` / `.drag-over`) stays with the widget, compounded onto its own
+   row class, since each list wants a different highlight. Settings.SPEC.md
+   [S-18]. */
+.cfg .item-handle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  /* Sized rather than left to the 14px icon, so a row that renders the box
+     WITHOUT the grip (an add row, which has nothing to reorder) still lines its
+     content up with the rows above it. */
+  width: 14px;
+  height: 14px;
+  color: var(--muted-foreground);
+  cursor: grab;
+  flex-shrink: 0;
+}
+.cfg .item-handle:active { cursor: grabbing; }
+
+/* ── Column / chip picker ── */
+.cfg .col-picker {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.cfg .col-chip {
+  padding: 5px 12px;
+  border-radius: 5px;
+  border: 1px solid var(--overlay-border);
+  background: var(--overlay-subtle);
+  color: var(--muted-foreground);
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  font-family: inherit;
+  transition: background 0.13s, border-color 0.13s, color 0.13s;
+}
+.cfg .col-chip.active { background: var(--primary-subtle-bg); border-color: var(--primary-subtle-border); color: var(--primary); }
+.cfg .col-chip:hover:not(.active) { background: var(--overlay-hover); color: var(--foreground); }
+
+/* Flex row wrapper for a NumberStepper plus optional adjacent buttons. */
+.cfg .design-range-wrap {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.cfg .design-val-wrap {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  border: 1px solid var(--overlay-border);
+  background: var(--overlay-subtle);
+  border-radius: 4px;
+  flex-shrink: 0;
+  transition: border-color 0.15s;
+}
+.cfg .design-val-wrap:focus-within { border-color: var(--primary); }
+
+.cfg .design-val-input {
+  width: 32px; padding: 2px 4px; border: none; background: transparent;
+  color: var(--foreground); font-size: 11px; text-align: right;
+  font-variant-numeric: tabular-nums; font-family: inherit;
+  outline: none;
+}
+.cfg .design-val-input::-webkit-inner-spin-button,
+.cfg .design-val-input::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+
+.cfg .design-val-unit {
+  font-size: 10px; color: var(--muted-foreground); padding-right: 5px;
+  user-select: none; pointer-events: none;
+}
+
+.cfg .design-val {
+  font-size: 11px;
+  color: var(--muted-foreground);
+  min-width: 24px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── Nested form / secondary container ── */
+.cfg .form-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  background: var(--overlay-subtle);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+.cfg .form-panel-label {
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--muted-foreground);
+  margin-bottom: 2px;
+}
+.cfg .form-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+  margin-top: 2px;
+}
+
+/* ── Widget header field (rendered by ConfigTabs atop the Display tab) ──
+   Header-mode dropdown + title input (compact, right-aligned in the Header rows).
+   No min-width: the trigger hugs its content like every other Dropdown, and the
+   row's space-between flush-rights it. */
+.cfg .header-mode-dropdown {
+  flex-shrink: 0;
+}
+.cfg .header-mode-field {
+  width: 200px;
+  flex-shrink: 0;
+}

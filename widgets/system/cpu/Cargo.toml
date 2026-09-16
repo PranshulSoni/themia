@@ -1,0 +1,18 @@
+[package]
+name = "widget-cpu"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "widget_cpu"
+
+[dependencies]
+tauri = { version = "2", features = [] }
+serde = { version = "1", features = ["derive"] }
+sysinfo = "0.30"
+
+[target.'cfg(target_os = "windows")'.dependencies]
+wmi = "0.13"
+ureq = { version = "2", features = ["tls"] }
+url = "2"
+widget-netproxy = { path = "../../netproxy", features = ["ureq-agent"] }

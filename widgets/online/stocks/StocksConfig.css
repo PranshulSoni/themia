@@ -1,0 +1,90 @@
+.stocks-config__list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: 200px;
+  overflow-y: auto;
+  scrollbar-width: none;
+}
+.stocks-config__list::-webkit-scrollbar { display: none; }
+
+.stocks-config__row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border-radius: 4px;
+  transition: background 0.12s;
+}
+.stocks-config__row:hover { background: var(--card-hover); }
+
+.stocks-config__fields {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1;
+  min-width: 0;
+}
+
+.stocks-config__edit-input {
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 3px;
+  color: var(--foreground);
+  font-family: inherit;
+  padding: 2px 4px;
+  outline: none;
+  transition: border-color 0.12s, background 0.12s;
+  min-width: 0;
+}
+.stocks-config__edit-input:hover { border-color: var(--border); }
+.stocks-config__edit-input:focus { border-color: var(--primary); background: rgba(255,255,255,0.04); }
+
+.stocks-config__edit-name {
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.stocks-config__edit-sym {
+  font-size: 10px;
+  color: var(--muted-foreground);
+}
+
+.stocks-config__type {
+  font-size: 10px;
+  font-weight: 500;
+  color: var(--muted-foreground);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  background: var(--card-hover);
+  padding: 2px 6px;
+  border-radius: 3px;
+}
+
+.stocks-config__remove {
+  background: transparent;
+  border: none;
+  color: var(--muted-foreground);
+  cursor: pointer;
+  padding: 2px;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  transition: color 0.12s;
+}
+.stocks-config__remove:hover { color: var(--destructive); }
+
+.stocks-config__color {
+  width: 36px;
+  height: 22px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: transparent;
+  cursor: pointer;
+  padding: 0;
+}
+.stocks-config__color::-webkit-color-swatch-wrapper { padding: 2px; }
+.stocks-config__color::-webkit-color-swatch { border: none; border-radius: 2px; }
+

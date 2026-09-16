@@ -1,0 +1,55 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Themia",
+  "version": "0.15.1",
+  "identifier": "com.themia.desktop",
+  "build": {
+    "beforeBuildCommand": "npm run vite:build",
+    "beforeDevCommand": "npm run vite:dev",
+    "frontendDist": "../dist",
+    "devUrl": "http://localhost:5173"
+  },
+  "app": {
+    "windows": [],
+    "security": {
+      "csp": "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: http: https:; font-src 'self' data:; connect-src 'self' ipc: http://ipc.localhost https:; object-src 'none'; base-uri 'self'; frame-src 'self'; worker-src 'self' blob:; form-action 'self'; frame-ancestors 'none'",
+      "assetProtocol": {
+        "enable": false,
+        "scope": []
+      }
+    }
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDc5RkVCQkFBM0VGRjZFMkUKUldRdWJ2OCtxcnYrZWU0TURBVGdMcXhNMklzM0x6MWJTM2dublBnejIyUWRGOCtBa0FhUzVIbTYK",
+      "endpoints": [
+        "https://github.com/crazy-rabbit-software/themia/releases/latest/download/latest.json"
+      ]
+    }
+  },
+  "bundle": {
+    "publisher": "Nathaniel Walser",
+    "active": true,
+    "targets": ["nsis"],
+    "createUpdaterArtifacts": true,
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.ico"
+    ],
+    "windows": {
+      "certificateThumbprint": "8E74027425C2C858ADD295403738D784148F77EB",
+      "digestAlgorithm": "sha256",
+      "timestampUrl": "http://time.certum.pl",
+      "tsp": true,
+      "nsis": {
+        "installMode": "both",
+        "displayLanguageSelector": false,
+        "languages": ["English"],
+        "installerIcon": "icons/icon.ico",
+        "installerHooks": "windows/installer-hooks.nsh"
+      }
+    }
+  }
+}

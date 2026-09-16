@@ -1,0 +1,344 @@
+/*
+ * Connect account window. Form controls come from config-base.css via `.cfg`;
+ * provider logos come from AccountManager.css. This file owns the window
+ * chrome, the picker grid, the step list, and the device/success/error states.
+ */
+
+.connect-window {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--popover-bg);
+  color: var(--foreground);
+  overflow: hidden;
+}
+
+/* ── Back ([S-50]) ──
+   There is no in-app header: the window is decorated, so the OS title bar is
+   the header and carries the step heading + close. Back is the one control it
+   can't provide, so it sits inline at the top of the body. */
+.connect-back {
+  display: inline-flex; align-items: center; align-self: flex-start; gap: 5px;
+  margin-left: -8px;
+  padding: 4px 8px; border-radius: 6px;
+  background: transparent; border: none;
+  color: var(--muted-foreground); font-family: inherit; font-size: 12.5px;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+.connect-back:hover { background: var(--overlay-hover); color: var(--foreground); }
+
+/* ── Body (scrolls) ──
+   The window's only surface now that the OS title bar serves as the header, so
+   it owns the top padding too. */
+.connect-body.cfg { padding: 16px; max-width: none; gap: 14px; }
+.connect-lede { font-size: 12.5px; line-height: 1.5; color: var(--muted-foreground); margin: 0; }
+
+/* ── Provider picker ── */
+.connect-group { display: flex; flex-direction: column; gap: 7px; }
+.connect-group + .connect-group { margin-top: 6px; }
+.connect-group-label {
+  font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.08em;
+  color: var(--muted-foreground); opacity: 0.7;
+}
+/* Three columns: the catalog is scannable at a glance instead of a long stack,
+   and services + protocols share one rhythm. Steps down rather than crushing
+   the cards when the window is narrowed. */
+.connect-provider-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+/* Breakpoints sit below the window's 520px minimum, so three columns hold for
+   every size the user can actually drag it to; these only catch UI-scale. */
+@media (max-width: 500px) { .connect-provider-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 360px) { .connect-provider-grid { grid-template-columns: minmax(0, 1fr); } }
+
+.connect-provider-btn {
+  display: flex; flex-direction: column; align-items: stretch; gap: 6px;
+  padding: 12px; text-align: left;
+  background: var(--overlay-subtle); border: 1px solid var(--overlay-border);
+  border-radius: 10px; color: var(--foreground);
+  font-family: inherit; cursor: pointer;
+  transition: background .15s, border-color .15s, transform .15s, box-shadow .15s;
+  animation: connect-rise 0.2s ease both;
+}
+.connect-provider-head { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.connect-provider-btn .provider-logo,
+.connect-provider-btn .provider-logo-lucide,
+.connect-provider-btn .provider-logo-fallback { width: 20px; height: 20px; flex-shrink: 0; }
+.connect-provider-btn:not(:disabled):hover {
+  background: var(--overlay-hover); border-color: var(--ring);
+  transform: translateY(-1px); box-shadow: 0 4px 14px rgba(0,0,0,0.2);
+}
+.connect-provider-btn:not(:disabled):active { transform: translateY(0); }
+.connect-provider-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.connect-provider-name {
+  font-size: 13px; font-weight: 500; flex: 1; min-width: 0;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.connect-provider-ext { color: var(--muted-foreground); flex-shrink: 0; }
+
+/* The widgets this connection feeds, as a dashed list. Chips read as metadata
+   you skim past; a list reads as "here is what you get", which is the whole
+   point of the card. Absolute marker + padding gives a hanging indent, so a
+   long label wraps under its own text rather than under the dash. [S-49] */
+.connect-provider-uses { display: flex; flex-direction: column; gap: 2px; padding-top: 2px; }
+.connect-use {
+  position: relative; padding-left: 11px;
+  font-size: 11.5px; line-height: 1.45; color: var(--muted-foreground);
+}
+.connect-use::before { content: '-'; position: absolute; left: 2px; opacity: 0.65; }
+
+/* Brand strip: the services a protocol actually reaches. Pinned to the card's
+   bottom edge so the strips line up across a row of uneven widget lists. */
+.connect-provider-brands {
+  display: flex; align-items: center; flex-wrap: wrap; gap: 4px;
+  margin-top: auto; padding-top: 8px;
+}
+.connect-provider-brands .preset-logo { width: 18px; height: 18px; border-radius: 5px; }
+.connect-provider-brands .preset-logo-mono { font-size: 9px; }
+.connect-brand-more {
+  font-size: 10px; font-weight: 600; color: var(--muted-foreground);
+  opacity: 0.7; font-variant-numeric: tabular-nums;
+}
+
+/* ── Preset page ([S-47]) ──
+   Page one of a protocol connection. Same three-column rhythm as the provider
+   picker, so moving between the two pages feels like one flow. */
+.connect-preset-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+@media (max-width: 500px) { .connect-preset-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 360px) { .connect-preset-grid { grid-template-columns: minmax(0, 1fr); } }
+
+.connect-preset-tile {
+  display: flex; align-items: center; gap: 9px;
+  padding: 10px 12px; text-align: left;
+  background: var(--overlay-subtle); border: 1px solid var(--overlay-border);
+  border-radius: 10px; color: var(--foreground);
+  font-family: inherit; cursor: pointer; min-width: 0;
+  transition: background .15s, border-color .15s, transform .15s, box-shadow .15s;
+  animation: connect-rise 0.2s ease both;
+}
+.connect-preset-tile:hover {
+  background: var(--overlay-hover); border-color: var(--ring);
+  transform: translateY(-1px); box-shadow: 0 4px 14px rgba(0,0,0,0.2);
+}
+.connect-preset-tile:active { transform: translateY(0); }
+.connect-preset-tile-name {
+  font-size: 12.5px; font-weight: 500; min-width: 0;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+/* "Enter it myself": an outline, so it reads as "none of the above" rather
+   than as another provider — same idiom as the Connections ghost row. */
+.connect-preset-tile.manual {
+  background: transparent; border-style: dashed; color: var(--muted-foreground);
+}
+.connect-preset-tile.manual:hover {
+  background: var(--primary-subtle-bg); border-color: var(--primary-subtle-border); color: var(--primary);
+}
+
+/* ── Preset brand marks ──
+   The published mark renders as `.brand-plate` (BrandMark.css); these three
+   rules size it and give the two non-brand variants — the monogram fallback
+   and the "Enter it myself" tile — the same footprint, so a grid of them lines
+   up whatever each row is showing. */
+.preset-logo {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 22px; height: 22px; flex-shrink: 0;
+  border-radius: 6px; overflow: hidden; box-sizing: border-box;
+}
+.preset-logo-mono { font-size: 11px; font-weight: 700; line-height: 1; }
+.preset-logo-manual { border: 1px dashed var(--border); color: inherit; }
+
+/* Chosen provider, carried onto page two with the way back to change it. */
+.connect-chosen {
+  display: flex; align-items: center; gap: 9px;
+  padding: 9px 12px; border-radius: 10px;
+  background: var(--overlay-subtle); border: 1px solid var(--border);
+}
+.connect-chosen-name { font-size: 13px; font-weight: 500; flex: 1; min-width: 0; }
+.connect-chosen-change {
+  background: none; border: none; padding: 0; cursor: pointer;
+  font-family: inherit; font-size: 12px; color: var(--primary); flex-shrink: 0;
+}
+.connect-chosen-change:hover { opacity: 0.8; }
+
+/* Consequences of the chosen preset: the app-password requirement, and the
+   live reachability badge that outs an out-of-date preset. */
+.connect-preset-detail { display: flex; flex-direction: column; gap: 8px; }
+.connect-preset-note {
+  display: flex; align-items: flex-start; gap: 8px;
+  padding: 10px 12px; border-radius: 8px;
+  background: var(--overlay-subtle); border: 1px solid var(--border);
+  font-size: 12px; line-height: 1.45; color: var(--muted-foreground);
+}
+.connect-preset-note svg { flex-shrink: 0; margin-top: 1px; color: var(--muted-foreground); }
+.connect-preset-note.app-password { border-color: var(--primary-subtle-border); background: var(--primary-subtle-bg); }
+.connect-preset-note.app-password svg { color: var(--primary); }
+.connect-preset-note .device-url { color: var(--primary); cursor: pointer; text-decoration: underline; }
+.connect-preset-note .device-url:hover { opacity: 0.8; }
+
+.connect-preset-health {
+  display: flex; align-items: flex-start; gap: 7px;
+  font-size: 11.5px; line-height: 1.45; color: var(--muted-foreground);
+}
+.connect-preset-health svg { flex-shrink: 0; margin-top: 1px; }
+.connect-preset-health.ok svg { color: var(--success); }
+.connect-preset-health.stale { color: var(--foreground); }
+.connect-preset-health.stale svg { color: var(--destructive); }
+
+/* Template token still in a field: submitting it would produce a confusing DNS
+   error, so the form says exactly what to replace instead. */
+.connect-placeholder-hint {
+  font-size: 11.5px; line-height: 1.45; color: var(--foreground);
+  padding: 8px 10px; border-radius: 6px;
+  background: var(--primary-subtle-bg); border: 1px solid var(--primary-subtle-border);
+}
+
+/* ── Step list ── */
+.connect-steps {
+  list-style: none; margin: 0; padding: 0;
+  display: flex; flex-direction: column; gap: 9px;
+}
+.connect-steps li { display: flex; align-items: flex-start; gap: 10px; font-size: 12.5px; line-height: 1.45; color: var(--muted-foreground); }
+.connect-step-num {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 20px; height: 20px; flex-shrink: 0;
+  border-radius: 50%; background: var(--primary-subtle-bg); color: var(--primary);
+  font-size: 11px; font-weight: 600; font-variant-numeric: tabular-nums;
+}
+
+/* ── Panel (form / device / tips) ── */
+.connect-panel {
+  display: flex; flex-direction: column; gap: 14px;
+  padding: 16px; border-radius: 10px;
+  background: var(--overlay-subtle); border: 1px solid var(--border);
+  animation: connect-rise 0.2s ease both;
+}
+.connect-panel .text-input:focus,
+.connect-panel .num-input-sm:focus {
+  border-color: var(--primary); box-shadow: 0 0 0 3px var(--primary-subtle-bg);
+}
+
+/* Pinned action bar: sibling of the scrolling `.connect-body`, so it holds the
+   window's bottom edge and never scrolls with the form/device/error content. */
+.connect-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  flex-shrink: 0;
+  padding: 12px 16px;
+  border-top: 1px solid var(--border);
+  background: var(--popover-bg);
+}
+
+/* The footer sits OUTSIDE `.connect-body.cfg`, so config-base's `.cfg .btn-*`
+   rules don't reach its buttons (they'd otherwise render unstyled). Re-apply the
+   two roles the footer uses, from the same design tokens as config-base. */
+.connect-footer .btn-primary,
+.connect-footer .btn-secondary {
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  box-sizing: border-box; min-height: 28px; padding: 0 12px; border-radius: 6px;
+  font-size: 13px; font-weight: 500; font-family: inherit; line-height: 1;
+  white-space: nowrap; flex-shrink: 0; cursor: pointer;
+  transition: background 0.15s, border-color 0.15s, color 0.15s;
+}
+.connect-footer .btn-primary:disabled,
+.connect-footer .btn-secondary:disabled { opacity: 0.5; cursor: not-allowed; }
+.connect-footer .btn-primary {
+  border: 1px solid var(--primary-subtle-border);
+  background: var(--primary-subtle-bg); color: var(--primary);
+}
+.connect-footer .btn-primary:hover:not(:disabled) { background: var(--primary-subtle-border); }
+.connect-footer .btn-secondary {
+  border: 1px solid var(--overlay-border);
+  background: var(--overlay-subtle); color: var(--muted-foreground);
+}
+.connect-footer .btn-secondary:hover:not(:disabled) {
+  background: var(--overlay-hover); border-color: var(--ring); color: var(--foreground);
+}
+
+/* Labeled fields (Field component) */
+.connect-window .am-field-label { display: flex; align-items: baseline; gap: 6px; }
+.connect-window .am-field-hint { font-size: 11px; color: var(--muted-foreground); line-height: 1.45; opacity: 0.9; }
+.connect-window .am-field-hint code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 10.5px;
+  padding: 1px 4px; background: var(--overlay-hover); border-radius: 3px; color: var(--foreground);
+}
+.connect-window .am-field-hint .device-url { color: var(--primary); cursor: pointer; }
+.connect-window .am-field-hint .device-url:hover { opacity: 0.8; }
+
+/* ── Device code ── */
+.connect-device-label { font-size: 13px; line-height: 1.55; color: var(--muted-foreground); }
+.connect-device-label .device-url,
+.connect-lede .device-url { color: var(--primary); cursor: pointer; text-decoration: underline; word-break: break-all; }
+.connect-code-row { display: flex; align-items: center; justify-content: center; gap: 10px; }
+.connect-code {
+  font-size: 26px; font-weight: 700; letter-spacing: 0.22em;
+  color: var(--primary); text-align: center; padding: 4px 2px;
+  font-variant-numeric: tabular-nums;
+}
+.connect-copy {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 34px; height: 34px; flex-shrink: 0;
+  border-radius: 8px; border: 1px solid var(--overlay-border);
+  background: transparent; color: var(--muted-foreground); cursor: pointer;
+  transition: background .15s, color .15s, border-color .15s;
+}
+.connect-copy:hover { background: var(--overlay-hover); color: var(--foreground); border-color: var(--ring); }
+.connect-waiting { display: flex; align-items: center; justify-content: center; gap: 7px; font-size: 12px; color: var(--muted-foreground); }
+
+/* ── Centered states (connecting / success) ── */
+.connect-center {
+  display: flex; flex-direction: column; align-items: center; text-align: center;
+  gap: 10px; padding: 28px 16px;
+  animation: connect-rise 0.22s ease both;
+}
+.connect-center-title { font-size: 16px; font-weight: 600; }
+.connect-center-desc { font-size: 12.5px; color: var(--muted-foreground); line-height: 1.5; max-width: 340px; }
+.connect-center .btn-primary { margin-top: 8px; min-width: 120px; }
+
+.connect-badge {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 56px; height: 56px; border-radius: 50%; margin-bottom: 4px;
+}
+.connect-badge.ok  { background: color-mix(in srgb, var(--success) 16%, transparent); color: var(--success); }
+.connect-badge.bad { background: var(--danger-subtle-bg); color: var(--destructive); }
+
+/* ── Error / troubleshooting ── */
+.connect-error-head { display: flex; flex-direction: column; align-items: center; text-align: center; gap: 8px; padding: 6px 0 2px; }
+.connect-tips-label { font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted-foreground); opacity: 0.7; }
+.connect-tips { margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: 7px; }
+.connect-tips li { font-size: 12.5px; line-height: 1.5; color: var(--foreground); }
+.connect-raw { font-size: 12px; color: var(--muted-foreground); }
+.connect-raw summary { cursor: pointer; user-select: none; }
+.connect-raw summary:hover { color: var(--foreground); }
+.connect-raw pre {
+  margin: 8px 0 0; padding: 10px; border-radius: 8px;
+  background: var(--overlay-subtle); border: 1px solid var(--border);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px;
+  white-space: pre-wrap; word-break: break-word; color: var(--muted-foreground);
+}
+
+/* ── Motion ── */
+@keyframes connect-rise { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
+@keyframes connect-spin { to { transform: rotate(360deg); } }
+.connect-spin { animation: connect-spin 0.9s linear infinite; color: var(--primary); }
+
+@media (prefers-reduced-motion: reduce) {
+  .connect-provider-btn, .connect-panel, .connect-center { animation: none; }
+  .connect-provider-btn:not(:disabled):hover { transform: none; }
+  .connect-spin { animation: none; }
+}
+
+/* Fields that are really one setting share a row (IMAP server + its port), so
+   the pair the presets fill reads as one question instead of two. [S-47] */
+.connect-field-row { display: flex; align-items: flex-start; gap: 10px; }
+.connect-field-row > .am-field { flex: 1; min-width: 0; }
+.connect-field-row > .am-field:has(.num-input-sm) { flex: 0 0 92px; }
+.connect-field-row .num-input-sm { width: 100%; }

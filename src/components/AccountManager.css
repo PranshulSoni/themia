@@ -1,0 +1,196 @@
+/*
+ * AccountManager-specific styles.
+ * Base form styles (.text-input, .btn-secondary, .btn-danger, etc.) come from config-base.css via `.cfg`.
+ */
+
+/* ── Account manager (inside settings modal) ── */
+.account-manager { display: flex; flex-direction: column; gap: 18px; }
+
+/* ── Sections (Connected accounts / Add account / Finish signing in) ── */
+.account-manager .am-section { display: flex; flex-direction: column; gap: 10px; }
+/* Heading text left, the page's standing action pinned top-right. `baseline`
+   would drift with the two-line description, so align to the top edge. */
+.account-manager .am-section-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
+.account-manager .am-section-heading { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.account-manager .am-section-title { font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted-foreground); }
+.account-manager .am-section-desc { font-size: 12px; color: var(--muted-foreground); line-height: 1.45; opacity: 0.85; }
+.account-manager .am-account-list { display: flex; flex-direction: column; gap: 8px; }
+
+/* ── Empty state ── */
+.account-manager .am-empty { display: flex; flex-direction: column; gap: 4px; padding: 16px; border: 1px dashed var(--border); border-radius: 8px; background: var(--overlay-subtle); }
+.account-manager .am-empty-title { font-size: 13px; font-weight: 500; color: var(--foreground); }
+.account-manager .am-empty-desc { font-size: 12px; color: var(--muted-foreground); line-height: 1.45; }
+
+/* ── Account toggle list (inside widget configs) ── */
+.account-toggle-list { display: flex; flex-direction: column; gap: 8px; }
+/* Groups an account row with its optional per-account extra (e.g. the calendar
+   picker) so they read as one unit; the list gap sits between entries. */
+.account-toggle-list .account-entry { display: flex; flex-direction: column; gap: 6px; }
+
+/* ── An entry that HAS extra content becomes the card itself ──────────────────
+   The row normally carries the border + fill, so an extra rendered after it
+   landed OUTSIDE the card and read as a loose section floating under a source
+   rather than as part of it. When the extra is actually present, the chrome
+   moves up to the entry and wraps both.
+
+   `:has(> *:not(.account-row))` is the test, not a class, because the extra is
+   the caller's JSX: a `<Show>` that is closed renders a comment node and no
+   element, so a source whose picker is hidden (To Do in account mode) keeps the
+   plain row automatically, with nothing to keep in sync. */
+.account-toggle-list .account-entry:has(> *:not(.account-row)) {
+  gap: 0;
+  background: var(--overlay-subtle);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  /* The row's own radius is gone (below), so the entry clips the corners. */
+  overflow: hidden;
+  transition: border-color .15s, background .15s;
+}
+/* Selected: the same accent the row would have carried, now on the whole card. */
+.account-toggle-list .account-entry:has(> .account-row.active):has(> *:not(.account-row)) {
+  border-color: var(--primary-subtle-border);
+  background: var(--primary-subtle-bg);
+}
+/* The row inside a card entry is a band, not a card: it keeps its geometry and
+   gives up its own surface so there is exactly one border, not two. */
+.account-toggle-list .account-entry:has(> *:not(.account-row)) > .account-row {
+  background: transparent;
+  border-color: transparent;
+  border-radius: 0;
+}
+/* Inset the extra so it sits inside the card rather than against its edge. Owned
+   here rather than by each widget's stylesheet, so every picker that lands in
+   this slot is inset identically. */
+.account-toggle-list .account-entry > *:not(.account-row) {
+  padding: 0 12px 10px;
+}
+.account-toggle-hint { display: flex; justify-content: flex-end; }
+.manage-accounts-btn { display: inline-flex; align-items: center; gap: 5px; padding: 5px 12px; border-radius: 6px; border: 1px solid var(--overlay-border); background: var(--overlay-subtle); color: var(--muted-foreground); font-size: 12px; font-weight: 500; font-family: inherit; cursor: pointer; transition: background 0.15s, color 0.15s, border-color 0.15s; }
+.manage-accounts-btn:hover { background: var(--overlay-hover); color: var(--foreground); border-color: var(--ring); }
+
+/* ── Provider logo ── */
+/* Sizes the brand plate (BrandMark.css) as well as the lucide + letter
+   fallbacks below, so a mixed list of services and protocols keeps one rhythm.
+   5px to match the fallback tile at this size. */
+.provider-logo { width: 20px; height: 20px; flex-shrink: 0; border-radius: 5px; }
+.provider-logo-fallback { width: 20px; height: 20px; flex-shrink: 0; border-radius: 5px; background: var(--overlay-hover); border: 1px solid var(--overlay-border); display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 700; color: var(--muted-foreground); }
+.provider-logo-lucide { display: inline-flex; align-items: center; justify-content: center; color: var(--muted-foreground); }
+.provider-logo-lucide svg { width: 100%; height: 100%; }
+
+/* ── Account rows ── */
+.account-manager .account-row,
+.account-toggle-list .account-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 10px 12px; min-height: 60px; background: var(--overlay-subtle); border: 1px solid var(--border); border-radius: 8px; transition: border-color .15s, background .15s; box-sizing: border-box; }
+.account-manager .account-row.active,
+.account-toggle-list .account-row.active { border-color: var(--primary-subtle-border); background: var(--primary-subtle-bg); }
+
+.account-manager .account-info,
+.account-toggle-list .account-info { display: flex; flex-direction: column; gap: 2px; min-width: 0; cursor: pointer; flex: 1; }
+.account-manager .account-name-row,
+.account-toggle-list .account-name-row { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.account-manager .account-name,
+.account-toggle-list .account-name { font-size: 14px; font-weight: 500; color: var(--foreground); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.account-manager .provider-badge,
+.account-toggle-list .provider-badge { font-size: 10px; font-weight: 600; letter-spacing: 0.05em; color: var(--muted-foreground); background: var(--overlay-hover); border: 1px solid var(--overlay-border); border-radius: 4px; padding: 2px 6px; flex-shrink: 0; white-space: nowrap; }
+.account-manager .account-email,
+.account-toggle-list .account-email { font-size: 12px; color: var(--muted-foreground); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+.account-manager .account-btns,
+.account-toggle-list .account-btns { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
+/* Equal-width pair. `.btn-danger` gets its box from the family now ([S-11]) --
+   this rule had been hand-correcting its 15px text back down to 13px -- so only
+   the shared min-width is left to declare. `.edit-btn` is not in the family and
+   still brings its own. */
+.account-manager .account-btns .btn-danger { min-width: 88px; }
+.account-manager .account-btns .edit-btn { display: inline-flex; align-items: center; justify-content: center; gap: 5px; font-size: 13px; padding: 5px 10px; min-width: 88px; box-sizing: border-box; }
+
+/* ── Inline rename ── */
+.account-manager .edit-btn { background: transparent; border: 1px solid var(--overlay-border); color: var(--muted-foreground); font-size: 13px; padding: 5px 10px; border-radius: 6px; cursor: pointer; font-family: inherit; transition: color 0.15s, border-color 0.15s; }
+.account-manager .edit-btn:hover { color: var(--foreground); border-color: var(--ring); }
+.account-manager .rename-input { flex: 1; min-width: 0; background: var(--overlay-hover); border: 1px solid var(--ring); border-radius: 6px; color: var(--foreground); font-size: 13px; font-family: inherit; padding: 5px 9px; outline: none; user-select: text; }
+.account-manager .rename-input:focus { border-color: var(--primary); }
+.account-manager .rename-actions { display: flex; gap: 4px; flex-shrink: 0; }
+.account-manager .rename-ok, .account-manager .rename-cancel { display: inline-flex; align-items: center; justify-content: center; background: transparent; border: 1px solid var(--overlay-border); color: var(--muted-foreground); font-size: 13px; padding: 5px 10px; min-width: 36px; box-sizing: border-box; border-radius: 6px; cursor: pointer; font-family: inherit; transition: color 0.15s, border-color 0.15s; }
+.account-manager .rename-ok:hover { color: var(--success); border-color: var(--success); }
+.account-manager .rename-cancel:hover { color: var(--foreground); border-color: var(--ring); }
+
+/* ── Add connection ([S-40]) ──
+   One button, not a provider grid: the catalog lives in the Connect window,
+   which is the only surface that can also guide the user through what they
+   picked. Offered twice — pinned top-right, and as a ghost row closing the
+   list — because the two moments someone wants it are "I came here to add
+   something" and "I just finished reading what I already have". */
+.account-manager .am-add-btn {
+  display: inline-flex; align-items: center; gap: 7px;
+  /* One line, always: in a narrow config window the label would otherwise wrap
+     and the icon squash. */
+  white-space: nowrap; flex-shrink: 0;
+  padding: 8px 16px; border-radius: 8px;
+  border: 1px solid var(--primary-subtle-border); background: var(--primary-subtle-bg);
+  color: var(--primary); font-size: 13px; font-weight: 500; font-family: inherit;
+  cursor: pointer;
+  transition: background .15s, border-color .15s, transform .15s, box-shadow .15s;
+}
+.account-manager .am-add-btn:hover {
+  background: var(--primary-subtle-border);
+  transform: translateY(-1px); box-shadow: 0 4px 14px rgba(0,0,0,0.2);
+}
+.account-manager .am-add-btn:active { transform: translateY(0); }
+
+/* Ghost row: an account row with the fill taken out, so it reads as the empty
+   slot after the real ones rather than as another connection. Inherits
+   `.account-row` geometry, then overrides only what makes it look filled in. */
+.account-manager .am-add-ghost {
+  width: 100%; text-align: left; font-family: inherit; cursor: pointer;
+  justify-content: flex-start;
+  background: transparent;
+  border: 1px dashed var(--border);
+  color: var(--muted-foreground);
+  /* Dimmed via tokens, NOT opacity: the shared `am-rise` row animation ends on
+     `opacity: 1` with fill-mode `both`, so an opacity here is overwritten the
+     moment the row settles. */
+  transition: border-color .15s, background .15s, box-shadow .15s, color .15s;
+}
+.account-manager .am-add-ghost .account-name { color: var(--muted-foreground); font-weight: 500; }
+.account-manager .am-add-ghost .account-info { cursor: pointer; }
+.account-manager .am-add-ghost:hover {
+  opacity: 1;
+  border-color: var(--primary-subtle-border);
+  background: var(--primary-subtle-bg);
+  box-shadow: none;
+}
+.account-manager .am-add-ghost:hover .account-name,
+.account-manager .am-add-ghost:hover .am-ghost-logo { color: var(--primary); }
+.account-manager .am-add-ghost:hover .am-ghost-logo { border-color: var(--primary-subtle-border); }
+
+/* Stands where a provider logo would, dashed to match the row's outline. */
+.account-manager .am-ghost-logo {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 26px; height: 26px; flex-shrink: 0;
+  border: 1px dashed var(--border); border-radius: 50%;
+  color: var(--muted-foreground);
+  transition: color .15s, border-color .15s;
+}
+
+/* ── Fluent motion + polish ─────────────────────────────────────────────────── */
+
+@keyframes am-rise {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* Sections + rows ease in so adding/removing a connection never snaps */
+.account-manager .am-section { animation: am-rise 0.22s ease both; }
+.account-manager .am-account-list .account-row { animation: am-rise 0.2s ease both; }
+
+/* Account rows: lift slightly on hover for a tactile feel. The ghost row is
+   excluded — it declares its own hover above, and this rule (same specificity,
+   later in the file) would otherwise win and give the outline a solid ring. */
+.account-manager .account-row { transition: border-color .15s, background .15s, box-shadow .15s, transform .15s; }
+.account-manager .account-row:not(.am-add-ghost):hover { border-color: var(--ring); box-shadow: 0 2px 10px rgba(0,0,0,0.18); }
+
+@media (prefers-reduced-motion: reduce) {
+  .account-manager .am-section,
+  .account-manager .am-account-list .account-row { animation: none; }
+  .account-manager .am-add-btn:hover,
+  .account-manager .account-row:hover { transform: none; }
+}

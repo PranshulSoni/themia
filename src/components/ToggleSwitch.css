@@ -1,0 +1,32 @@
+.toggle-switch-wrap {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+.toggle-switch-state {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--muted-foreground);
+  user-select: none;
+  font-variant-numeric: tabular-nums;
+}
+
+.design-switch {
+  position: relative; width: 36px; height: 20px; border-radius: 10px;
+  background: var(--overlay-border); border: none; cursor: pointer;
+  flex-shrink: 0; transition: background 0.2s; padding: 0;
+}
+.design-switch::after {
+  content: ''; position: absolute; top: 3px; left: 3px;
+  width: 14px; height: 14px; border-radius: 50%;
+  background: var(--muted-foreground);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
+  transition: transform 0.2s, background 0.2s;
+}
+.design-switch.on { background: var(--primary); }
+.design-switch.on::after {
+  transform: translateX(16px); background: var(--primary-foreground);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.5);
+}
+.design-switch:disabled { opacity: 0.5; cursor: not-allowed; } /* [S-02] */

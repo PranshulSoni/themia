@@ -1,0 +1,8 @@
+/* Ping config: widget-specific overrides only.
+   Base styles provided by config-base.css (.cfg scope). */
+
+.ping-config__addr-input {
+  font-family: monospace;
+  font-size: 12px;
+  color: var(--muted-foreground);
+}

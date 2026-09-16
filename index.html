@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <link rel="icon" type="image/svg+xml" href="/logo.svg" />
+  <title>Themia</title>
+  <style>
+    /* Applied before any module CSS loads, so detached config windows don't
+       briefly show default browser scrollbars while ConfigWindow.css is
+       still being fetched. */
+    html, body { margin: 0; padding: 0; overflow: hidden; background: transparent; }
+  </style>
+  <script>
+    // Paint the config-window surface in the correct theme color from the
+    // very first frame, otherwise it flashes white until design.ts runs.
+    // Mirrors `applyGlobalDesign()` in src/design.ts for `--popover-bg`.
+    (function () {
+      try {
+        if (!new URLSearchParams(location.search).has('config')) return;
+        var raw = localStorage.getItem('widget-global-design');
+        var theme = 'dark';
+        if (raw) {
+          var parsed = JSON.parse(raw);
+          if (parsed && (parsed.theme === 'dark' || parsed.theme === 'light' || parsed.theme === 'system')) {
+            theme = parsed.theme;
+          }
+        }
+        if (theme === 'system') {
+          theme = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+        }
+        // --popover-bg is the translucent dropdown/popover surface; the root
+        // background is OPAQUE (matches --config-bg, so no faint band on the
+        // first frame — issue_43). applyGlobalDesign() repaints both once it runs.
+        var popoverBg = theme === 'dark' ? 'rgba(26, 26, 28, 0.97)' : 'rgba(255, 255, 255, 0.97)';
+        var rootBg = theme === 'dark' ? 'rgb(26, 26, 28)' : 'rgb(255, 255, 255)';
+        document.documentElement.style.setProperty('--popover-bg', popoverBg);
+        document.documentElement.style.background = rootBg;
+      } catch (_) { /* CSS fallback in ConfigWindow.css handles failure */ }
+    })();
+  </script>
+</head>
+<body>
+  <div id="app"></div>
+  <script type="module" src="/src/main.tsx"></script>
+</body>
+</html>

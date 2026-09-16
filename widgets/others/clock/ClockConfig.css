@@ -1,0 +1,10 @@
+/* Clock config: widget-specific overrides only.
+   Base styles provided by config-base.css (.cfg scope). */
+
+.clock-tz-dropdown {
+  max-width: 220px;
+}
+
+.clock-label-input {
+  max-width: 220px;
+}

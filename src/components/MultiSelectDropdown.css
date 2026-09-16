@@ -1,0 +1,207 @@
+.msd-trigger {
+  min-width: 160px;
+  max-width: 280px;
+}
+
+/* "+ Create view" button + inline-name input, rendered inside the footer */
+.dvs-create {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  background: transparent;
+  border: 1px dashed var(--overlay-border, rgba(255, 255, 255, 0.12));
+  border-radius: 6px;
+  color: var(--muted-foreground);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  transition: background 0.12s, color 0.12s, border-color 0.12s;
+}
+.dvs-create:hover:not(.disabled) {
+  background: var(--overlay-hover, rgba(255, 255, 255, 0.04));
+  color: var(--foreground);
+  border-color: color-mix(in srgb, var(--primary) 40%, transparent);
+}
+.dvs-create.disabled { cursor: not-allowed; opacity: 0.5; }
+.dvs-create-input {
+  padding: 6px 10px;
+  background: var(--overlay-subtle, rgba(255, 255, 255, 0.04));
+  border: 1px solid var(--primary);
+  border-radius: 6px;
+  color: var(--foreground);
+  font: inherit;
+  font-size: 13px;
+  outline: none;
+  min-width: 200px;
+}
+
+.msd-trigger-label {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: left;
+}
+
+.msd-panel {
+  display: flex;
+  flex-direction: column;
+  padding: 4px;
+  min-width: 220px;
+  max-width: 360px;
+}
+
+.msd-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 6px;
+  font-size: 12px;
+  font-weight: 450;
+  color: var(--foreground);
+  border-radius: 5px;
+  cursor: pointer;
+  transition: background 0.07s, opacity 0.15s, border-top-color 0.15s;
+  font-family: inherit;
+  user-select: none;
+  border-top: 1px solid transparent;
+}
+
+.msd-row-draggable { cursor: grab; }
+.msd-row-draggable:active { cursor: grabbing; }
+
+.msd-row:hover,
+.msd-row.focused { background: var(--overlay-hover); }
+.msd-row.drag-src { opacity: 0.4; }
+.msd-row.drag-over { border-top-color: var(--primary); }
+
+.msd-handle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+  color: var(--muted-foreground);
+  cursor: grab;
+  opacity: 0.55;
+  transition: opacity 0.12s;
+}
+.msd-handle:hover { opacity: 1; }
+.msd-handle:active { cursor: grabbing; }
+.msd-handle.is-disabled { cursor: default; opacity: 0; }
+
+.msd-check {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+  border: 1px solid var(--overlay-border);
+  border-radius: 3px;
+  background: var(--overlay-subtle);
+  color: transparent;
+  transition: background 0.12s, border-color 0.12s, color 0.12s;
+}
+.msd-check.checked {
+  background: var(--primary);
+  border-color: var(--primary);
+  color: var(--primary-foreground, #000);
+}
+.msd-check.disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.msd-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+  color: var(--muted-foreground);
+  opacity: 0.85;
+}
+
+.msd-letter {
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 12px;
+  color: var(--muted-foreground);
+}
+
+.msd-label {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.msd-sep {
+  height: 1px;
+  background: var(--overlay-border);
+  margin: 4px 4px;
+}
+
+.msd-row-actions {
+  display: inline-flex;
+  align-items: center;
+  margin-left: 4px;
+  flex-shrink: 0;
+}
+
+.msd-header-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 6px 6px 6px;
+  font-size: 11px;
+  color: var(--muted-foreground);
+}
+
+.msd-footer {
+  margin-top: 4px;
+  padding: 4px 4px 2px 4px;
+  display: flex;
+  align-items: center;
+}
+
+/* Row-action button reused by callers (delete, etc.) */
+.msd-row-action-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  background: transparent;
+  border: none;
+  color: var(--muted-foreground);
+  cursor: pointer;
+  opacity: 0;
+  border-radius: 4px;
+  transition: opacity 0.12s, background 0.12s, color 0.12s;
+}
+.msd-row:hover .msd-row-action-btn:not(:disabled) { opacity: 0.7; }
+.msd-row-action-btn:hover:not(:disabled) {
+  opacity: 1;
+  background: rgba(239, 68, 68, 0.12);
+  color: var(--destructive);
+}
+.msd-row-action-btn:disabled { cursor: not-allowed; opacity: 0; }
+
+/* Header link buttons reused for "Select All · Only Assigned" */
+.msd-link {
+  background: transparent;
+  border: none;
+  padding: 0;
+  font: inherit;
+  font-size: 11px;
+  color: var(--primary);
+  cursor: pointer;
+}
+.msd-link:hover { text-decoration: underline; }
+.msd-sep-dot { opacity: 0.5; }

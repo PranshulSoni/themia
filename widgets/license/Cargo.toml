@@ -1,0 +1,21 @@
+[package]
+name = "widget-license"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "widget_license"
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+reqwest = { version = "0.12", features = ["json"] }
+log = "0.4"
+widget-netproxy = { path = "../netproxy", features = ["reqwest-client"] }
+sha2 = "0.10"
+hex = "0.4"
+aes-gcm = "0.10"
+rand = "0.8"
+
+[target.'cfg(target_os = "windows")'.dependencies]
+winapi = { version = "0.3", features = ["winreg", "winnt"] }

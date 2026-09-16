@@ -1,0 +1,90 @@
+.power-widget {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  overflow: hidden;
+  box-sizing: border-box;
+  /* Background lives on the sibling .widget-body layer so the header surface
+     stays independent; the root is a transparent clipping frame. */
+  background: transparent;
+  container-type: size;
+}
+
+/* Scoped to the root (specificity 0,2,0) so it beats App.css's own
+   `.widget-body`, which loads later and sets `flex-direction: column`
+   (same trap the volume widget documents in its SPEC [S-06]). */
+.power-widget .power-body {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 6px;
+  overflow: auto;
+  scrollbar-width: none;
+}
+.power-widget .power-body::-webkit-scrollbar { display: none; }
+
+/* auto-fit rather than a fixed column count: the same widget holds one row of
+   four at its default size and reflows to a block as the user resizes it, with
+   no JS measuring the box. */
+.power-widget .power-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(58px, 1fr));
+  gap: 4px;
+  width: 100%;
+  align-content: center;
+}
+.power-widget .power-grid.no-labels {
+  grid-template-columns: repeat(auto-fit, minmax(40px, 1fr));
+}
+
+.power-widget .power-tile {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  min-width: 0;
+  padding: 8px 4px;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--radius);
+  color: var(--foreground);
+  font-family: inherit;
+  font-size: calc(11px * var(--font-scale, 1));
+  cursor: pointer;
+  transition: background 0.12s, border-color 0.12s, color 0.12s;
+}
+.power-widget .power-grid.no-labels .power-tile { padding: 8px 4px; }
+
+.power-widget .power-tile:hover { background: var(--card-hover); }
+.power-widget .power-tile:focus-visible {
+  outline: none;
+  border-color: var(--primary);
+}
+
+/* Armed = waiting for the second click. Red is the whole point: the tile has to
+   look different enough that the second click is a decision, not a reflex. */
+.power-widget .power-tile.armed {
+  color: var(--destructive);
+  border-color: var(--destructive);
+  background: var(--card-hover);
+}
+
+.power-widget .power-tile-label {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  line-height: 1.2;
+}
+
+.power-widget .power-empty {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  font-size: calc(12px * var(--font-scale, 1));
+  color: var(--muted-foreground);
+  font-style: italic;
+}

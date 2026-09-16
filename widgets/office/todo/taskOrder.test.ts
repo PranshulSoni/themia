@@ -1,0 +1,94 @@
+import { describe, it, expect } from 'vitest';
+import { parseTaskOrder, applyTaskOrder, moveId, rowIndexAtY, sameOrder } from './taskOrder.ts';
+
+const row = (id: string) => ({ id });
+
+describe('parseTaskOrder [S-54]', () => {
+  it('returns an empty list for a non-array', () => {
+    expect(parseTaskOrder(undefined)).toEqual([]);
+    expect(parseTaskOrder(null)).toEqual([]);
+    expect(parseTaskOrder('a,b')).toEqual([]);
+    expect(parseTaskOrder({ 0: 'a' })).toEqual([]);
+  });
+
+  it('drops non-string entries and keeps their siblings', () => {
+    expect(parseTaskOrder(['a', 3, null, 'b', {}])).toEqual(['a', 'b']);
+  });
+});
+
+describe('applyTaskOrder [S-54]', () => {
+  it('leaves the backend order alone when nothing has been arranged', () => {
+    const rows = [row('a'), row('b')];
+    expect(applyTaskOrder(rows, [])).toBe(rows);
+  });
+
+  it('arranges known ids first, in the stored order', () => {
+    const rows = [row('a'), row('b'), row('c')];
+    expect(applyTaskOrder(rows, ['c', 'a', 'b']).map(r => r.id)).toEqual(['c', 'a', 'b']);
+  });
+
+  it('appends rows the order has never seen — a new task lands at the BOTTOM [S-55]', () => {
+    const rows = [row('fresh'), row('a'), row('b')];
+    expect(applyTaskOrder(rows, ['a', 'b']).map(r => r.id)).toEqual(['a', 'b', 'fresh']);
+  });
+
+  it('skips ids that no longer exist', () => {
+    const rows = [row('a'), row('b')];
+    expect(applyTaskOrder(rows, ['gone', 'b', 'a']).map(r => r.id)).toEqual(['b', 'a']);
+  });
+
+  it('cannot duplicate a row from a corrupt order', () => {
+    const rows = [row('a'), row('b')];
+    expect(applyTaskOrder(rows, ['a', 'a', 'b']).map(r => r.id)).toEqual(['a', 'b']);
+  });
+});
+
+describe('moveId [S-54]', () => {
+  it('moves an id into the target slot, keeping the rest in order', () => {
+    expect(moveId(['a', 'b', 'c', 'd'], 'a', 'c')).toEqual(['b', 'c', 'a', 'd']);
+  });
+
+  it('moves upward too', () => {
+    expect(moveId(['a', 'b', 'c'], 'c', 'a')).toEqual(['c', 'a', 'b']);
+  });
+
+  it('returns the same reference for a no-op move', () => {
+    const ids = ['a', 'b'];
+    expect(moveId(ids, 'a', 'a')).toBe(ids);
+  });
+
+  it('returns the same reference when either id is unknown', () => {
+    const ids = ['a', 'b'];
+    expect(moveId(ids, 'ghost', 'b')).toBe(ids);
+    expect(moveId(ids, 'a', 'ghost')).toBe(ids);
+  });
+});
+
+describe('rowIndexAtY [S-54]', () => {
+  const rects = [
+    { top: 0, bottom: 10 },
+    { top: 10, bottom: 20 },
+    { top: 20, bottom: 30 },
+  ];
+
+  it('resolves a point inside a row', () => {
+    expect(rowIndexAtY(rects, 15)).toBe(1);
+  });
+
+  it('clamps above the first row and below the last', () => {
+    expect(rowIndexAtY(rects, -50)).toBe(0);
+    expect(rowIndexAtY(rects, 500)).toBe(2);
+  });
+
+  it('returns -1 for an empty list', () => {
+    expect(rowIndexAtY([], 5)).toBe(-1);
+  });
+});
+
+describe('sameOrder [S-54]', () => {
+  it('is true only for the same ids in the same order', () => {
+    expect(sameOrder(['a', 'b'], ['a', 'b'])).toBe(true);
+    expect(sameOrder(['a', 'b'], ['b', 'a'])).toBe(false);
+    expect(sameOrder(['a'], ['a', 'b'])).toBe(false);
+  });
+});

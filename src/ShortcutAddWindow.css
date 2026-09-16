@@ -1,0 +1,110 @@
+/*
+ * "Add shortcut" window. The OS title bar is the window's header, so the page
+ * itself renders no chrome -- just the list. Form controls come from
+ * config-base.css via `.cfg`; the rows below are the window's own.
+ */
+
+.shortcut-add-window {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--popover-bg);
+  color: var(--foreground);
+  overflow: hidden;
+}
+
+.sa-body.cfg {
+  padding: 14px;
+  max-width: none;
+  gap: 10px;
+  flex: 1;
+  overflow-y: scroll;
+}
+
+.sa-empty {
+  font-size: 12px;
+  color: var(--subtle-foreground);
+  padding: 16px;
+  text-align: center;
+}
+
+.sa-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.sa-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 8px 10px;
+  text-align: left;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  color: var(--foreground);
+  font-family: inherit;
+  cursor: pointer;
+  transition: background 0.12s, border-color 0.12s;
+}
+.sa-row:hover:not(:disabled):not(.sa-row-static) { background: var(--overlay-hover); }
+.sa-row:disabled { cursor: default; opacity: 0.55; }
+
+/* A row that is not itself the action: it hosts a control (the link field's
+   header, a location's switch) instead of being clickable. */
+.sa-row-static { cursor: default; }
+
+/* Locations are one line: icon, name, switch. No second line -- the raw
+   `shell:` URI is the tooltip, not body text. */
+.sa-row-compact {
+  padding: 4px 10px;
+  gap: 10px;
+}
+.sa-row-compact .sa-row-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sa-row-ic {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  flex-shrink: 0;
+  color: var(--muted-foreground);
+}
+.sa-row-img { width: 20px; height: 20px; object-fit: contain; display: block; }
+
+.sa-row-text {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+  flex: 1;
+}
+.sa-row-label {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--foreground);
+}
+.sa-row-desc {
+  font-size: 11px;
+  color: var(--muted-foreground);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.sa-url-form {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 10px 4px 44px;   /* aligns the input under the row's text column */
+}
+.sa-url-form .text-input { flex: 1; min-width: 0; }

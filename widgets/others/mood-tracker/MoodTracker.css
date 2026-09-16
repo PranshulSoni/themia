@@ -1,0 +1,192 @@
+.mood-widget {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+  /* Background lives on the sibling layers (.widget-header / .widget-body); the
+     root is a transparent clipping frame so the two surfaces stay independent. */
+  background: transparent;
+  border-radius: var(--radius, 8px);
+  user-select: none;
+  overflow: hidden;
+}
+
+.mood-body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-height: 0;
+  padding: 8px;
+  box-sizing: border-box;
+}
+
+/* ── The scale ([S-01]/[S-03]) ─────────────────────────────────────────────── */
+
+.mood-scale {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.mood-face {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 5px 0;
+  border: 1px solid transparent;
+  border-radius: var(--radius, 8px);
+  background: transparent;
+  color: var(--muted-foreground);
+  font-family: inherit;
+  cursor: pointer;
+  transition: background 0.12s, color 0.12s, border-color 0.12s;
+}
+.mood-face:hover { background: var(--overlay-hover); color: var(--foreground); }
+.mood-face:active { background: var(--overlay-subtle); }
+
+/* The selected face carries its own level's colour, so the scale reads as a
+   gradient from rough to great rather than five identical accent chips. */
+.mood-face.selected { border-color: var(--border); }
+.mood-face.selected[data-level="1"] { color: var(--destructive); }
+.mood-face.selected[data-level="2"] { color: color-mix(in srgb, var(--destructive) 55%, var(--warning)); }
+.mood-face.selected[data-level="3"] { color: var(--warning); }
+.mood-face.selected[data-level="4"] { color: color-mix(in srgb, var(--warning) 45%, var(--success)); }
+.mood-face.selected[data-level="5"] { color: var(--success); }
+
+/* ── The thought box ([S-05]) ──────────────────────────────────────────────── */
+
+.mood-note {
+  flex-shrink: 0;
+  width: 100%;
+  box-sizing: border-box;
+  padding: 5px 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius, 8px);
+  background: var(--overlay-subtle);
+  color: var(--foreground);
+  font-family: inherit;
+  font-size: calc(12px * var(--font-scale, 1));
+  outline: none;
+  transition: border-color 0.12s;
+}
+.mood-note::placeholder { color: var(--subtle-foreground); }
+.mood-note:focus { border-color: var(--primary); }
+.mood-note:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  background: transparent;
+}
+
+/* ── The heatmap ([S-07]/[S-08]) ───────────────────────────────────────────── */
+
+/* 7 columns, so wrapping the window puts one weekday per column. Rows share the
+   leftover height (no fixed cell size), so the grid never clips. */
+.mood-heat {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+}
+
+/* The two grids MUST share their column template and gap, or the weekday header
+   drifts out of line with the cells it labels. */
+.mood-heat-head,
+.mood-heat-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 2px;
+}
+
+/* Rows share the leftover height, but never below 6px: a `minmax(0, 1fr)` floor
+   let 8+ rows collapse to nothing in a default-sized widget, drawing an empty
+   band instead of a heatmap. Below the floor the grid scrolls (scrollbar hidden,
+   as on every widget body) rather than shrinking the cells away. */
+.mood-heat-grid {
+  grid-auto-rows: minmax(6px, 1fr);
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  scrollbar-width: none;
+}
+.mood-heat-grid::-webkit-scrollbar { display: none; }
+
+/* One row (the 4-week window) would otherwise stretch its cells over the whole
+   body; cap the row height so they stay chips and the grid sits at the top. */
+.mood-heat--short .mood-heat-grid {
+  grid-auto-rows: minmax(0, 20px);
+  align-content: start;
+  overflow: hidden;
+}
+
+.mood-heat-dow {
+  font-size: calc(9px * var(--font-scale, 1));
+  color: var(--subtle-foreground);
+  text-align: center;
+  line-height: 1.2;
+}
+
+.mood-heat-cell {
+  border-radius: 3px;
+  background: var(--border);
+  transition: opacity 0.12s ease, background 0.2s ease;
+}
+
+/* Padding slots before the window starts: present for alignment, not drawn. */
+.mood-heat-cell.is-blank { background: transparent; }
+
+/* [S-07] the scale runs destructive → warning → success, mixed from the theme's
+   own semantic tokens so it follows light/dark instead of hardcoding five
+   literals. Level 0 is "nothing logged", which is the neutral border tone and
+   never the same colour as an awful day. */
+.mood-heat-l0 { background: var(--border); }
+.mood-heat-l1 { background: var(--destructive); }
+.mood-heat-l2 { background: color-mix(in srgb, var(--destructive) 55%, var(--warning)); }
+.mood-heat-l3 { background: var(--warning); }
+.mood-heat-l4 { background: color-mix(in srgb, var(--warning) 45%, var(--success)); }
+.mood-heat-l5 { background: var(--success); }
+
+.mood-heat-cell.is-today { box-shadow: inset 0 0 0 1.5px var(--foreground); }
+
+/* ── Footer ([S-09]/[S-10]) ────────────────────────────────────────────────── */
+
+.mood-stats {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: calc(11px * var(--font-scale, 1));
+  font-variant-numeric: tabular-nums;
+  color: var(--subtle-foreground);
+}
+
+.mood-hint {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--muted-foreground);
+}
+
+.mood-avg { color: var(--muted-foreground); }
+
+.mood-streak {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+.mood-streak.active { color: var(--primary); }
+
+/* Small widgets: shed chrome from the outside in, keeping the scale (the only
+   input) and the heatmap (the only history) to the last. */
+@container (max-height: 200px) {
+  .mood-heat-head { display: none; }
+}
+@container (max-height: 160px) {
+  .mood-stats { display: none; }
+  .mood-note { display: none; }
+}

@@ -1,0 +1,62 @@
+.quote-widget {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+  /* Background lives on the sibling layers (.widget-header / .widget-body); the
+     root is a transparent clipping frame so the two surfaces stay independent. */
+  background: transparent;
+  border-radius: var(--radius, 8px);
+  user-select: none;
+  overflow: hidden;
+}
+
+/* Header layout owned by WidgetHeader.css. */
+
+.quote-shuffle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  background: transparent;
+  color: var(--muted-foreground);
+  cursor: pointer;
+  padding: 2px 4px;
+  border-radius: 4px;
+  transition: background 0.12s, color 0.12s;
+}
+.quote-shuffle:hover {
+  background: var(--card-hover);
+  color: var(--foreground);
+}
+
+.quote-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  /* `safe center` centers a short quote but falls back to flex-start when the
+     content overflows, so the top of a long quote stays scroll-reachable
+     instead of being pushed into unreachable overflow above the container. */
+  justify-content: safe center;
+  gap: 10px;
+  padding: 14px 16px;
+  overflow-y: auto;
+  scrollbar-width: none;
+}
+.quote-body::-webkit-scrollbar { display: none; }
+
+.quote-text {
+  margin: 0;
+  font-size: calc(13px * var(--font-scale, 1));
+  line-height: 1.45;
+  font-weight: 500;
+  color: var(--foreground);
+}
+
+.quote-author {
+  font-size: calc(12px * var(--font-scale, 1));
+  color: var(--muted-foreground);
+  align-self: flex-end;
+}

@@ -1,0 +1,237 @@
+/* Detached config window: a single opaque surface on the root canvas so the OS
+   frame has a solid background instead of the transparent widget chrome.
+   Painted on the ROOT element ONLY: stacking the same `--config-bg` on
+   html + body + #app laid three coats, and once `body.config-window` is
+   `transform: scale()`-d the coats stopped perfectly coinciding, so the overlap
+   count (and the sliver of desktop bleeding through a translucent fill) changed
+   across the window, leaving a faint vertical band (issue #43). One opaque layer
+   paints one uniform fill.
+
+   Targeted via `:root` (specificity 0,1,0), NOT a bare `html` (0,0,1): App.css
+   paints `html { background: transparent }` for the transparent widget windows,
+   and a bare `html` fill here would TIE it, letting bundler emit order pick the
+   winner. When App.css won, this window's root painted transparent — so a light
+   preset (Daylight/Paper) rendered dark-on-dark and unusable, even though
+   `--config-bg` resolved correctly to white. `:root` out-specifies the bare
+   `html` rule, so specificity (checked before source order) settles it. */
+:root {
+  background: var(--config-bg, rgb(26, 26, 28));
+}
+html, body, #app {
+  overflow: hidden;
+}
+body, #app {
+  background: transparent;
+}
+
+.config-window-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  /* 100% (not 100vh): the parent body is `transform: scale(--ui-scale)` and
+     sized to `100vh / --ui-scale`, so vh would ignore the scale and overflow. */
+  height: 100%;
+  color: var(--muted-foreground);
+  font-size: 13px;
+}
+
+/* Unified config window shell: tree sidebar + content panel, filling the
+   OS-decorated window (the OS frame is the chrome). */
+/* Vertical stack: an optional dev-mode banner pinned at the very top (full
+   width, over the sidebar too), then the tree|panel row fills the rest. */
+.config-root {
+  display: flex;
+  flex-direction: column;
+  /* 100% (not 100vh): the body is `transform: scale(--ui-scale)` and sized to
+     `100vh / --ui-scale`. A vh height ignores the scale, so the shell renders
+     at 100vh*scale, leaving a gap (scale<1) or overflowing (scale>1) instead
+     of filling the window. 100% inherits the body's already-compensated size. */
+  height: 100%;
+  color: var(--foreground);
+}
+
+/* Developer Mode banner ([D-10]): primary-accented, full-width, above the
+   whole shell (sidebar + panel). */
+.config-dev-banner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 0 0 auto;
+  padding: 8px 14px;
+  background: var(--primary-subtle-bg);
+  border-bottom: 1px solid var(--primary-subtle-border);
+  color: var(--foreground);
+  font-size: 12px;
+  line-height: 1.4;
+}
+.config-dev-banner svg {
+  flex-shrink: 0;
+  color: var(--primary);
+}
+
+.config-shell {
+  display: flex;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.config-tree {
+  flex: 0 0 312px;
+  border-right: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+/* Scrollable tree rows. Owns the scroll so the footer below stays pinned. */
+.config-tree-list {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: scroll;
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+/* Add Widget + edit-mode toggle pinned at the bottom of the sidebar. */
+.config-tree-footer {
+  flex: 0 0 auto;
+  padding: 8px;
+  border-top: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.config-panel {
+  flex: 1 1 auto;
+  min-width: 0;
+  /* The direct child (.settings-content / .cfg / .settings-layout / widget
+     config wrapper) fills via height:100% rules below and owns the scroll.
+     Clip here so we don't get a second (always-visible) track on the outer
+     panel. */
+  overflow: hidden;
+}
+
+/* The content panels (app settings, view settings, view bar and widget
+   config) fill the panel. The direct child is a *Body's `.settings-content` /
+   `.settings-layout`, or (for the widget configs that wrap `<ConfigTabs>` in a
+   namespacing div, e.g. `.email-config-body`, `.fv-config`) that wrapper,
+   which must become a full-height flex column so the `.settings-content`
+   inside it stretches. (View settings keeps its own `.settings-layout` with a
+   sub-nav, so it is excluded from the wrapper rule.) */
+.config-panel > .settings-content,
+.config-panel > .settings-layout {
+  height: 100%;
+}
+.config-panel > :has(> .settings-content):not(.settings-layout) {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+.config-panel .settings-content {
+  border-right: none;
+}
+
+/* ── Config tree ── */
+/* Primary action: opens the Add Widget page. Pinned in the sidebar footer. */
+.config-tree-add-widget {
+  color: var(--primary);
+  margin-bottom: 4px;
+}
+.config-tree-add-widget:hover {
+  background: var(--primary-subtle-bg);
+  color: var(--primary);
+}
+
+.config-tree-group-label {
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--subtle-foreground);
+  padding: 10px 8px 4px;
+}
+
+.config-tree-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  text-align: left;
+}
+
+.config-tree-item .config-tree-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.config-tree-edit-mode .config-tree-label { flex: 1; }
+.config-tree-edit-mode .design-switch {
+  width: 28px; height: 16px; border-radius: 8px;
+}
+.config-tree-edit-mode .design-switch::after {
+  width: 10px; height: 10px; top: 3px; left: 3px;
+}
+.config-tree-edit-mode .design-switch.on::after { transform: translateX(12px); }
+
+.config-tree-view {
+  font-weight: 500;
+}
+
+.config-tree-nested {
+  padding-left: 32px;
+}
+/* A widget nested inside a container widget (stack / tabs): one more step in,
+   so the tree mirrors what the tile actually holds. */
+.config-tree-nested-child {
+  padding-left: 52px;
+}
+
+.config-tree-add-view {
+  color: var(--muted-foreground);
+  font-weight: 400;
+}
+.config-tree-add-view:hover {
+  color: var(--foreground);
+}
+
+.config-tree-chevron {
+  display: inline-flex;
+  width: 14px;
+  margin-left: -4px;
+  color: var(--muted-foreground);
+}
+
+.config-tree-widget-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 15px;
+  height: 15px;
+  flex: 0 0 auto;
+}
+.config-tree-widget-icon svg {
+  width: 15px;
+  height: 15px;
+}
+
+.config-tree-view-letters {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 15px;
+  height: 15px;
+  flex: 0 0 auto;
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 1;
+  letter-spacing: -0.02em;
+  text-transform: uppercase;
+  font-variant-numeric: tabular-nums;
+  color: currentColor;
+}

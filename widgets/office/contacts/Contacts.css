@@ -1,0 +1,303 @@
+.contacts-widget {
+  width: 100%; height: 100%;
+  display: flex; flex-direction: column;
+  color: var(--foreground);
+  /* Background lives on the sibling layers (.widget-header / .widget-body); the
+     root is a transparent clipping frame so the two surfaces stay independent. */
+  background: transparent;
+  border-radius: var(--radius, 8px);
+  user-select: none; overflow: hidden;
+  box-sizing: border-box;
+  container-type: size;
+}
+
+/* ── Header (layout owned by WidgetHeader.css) ── */
+.contacts-widget .badge {
+  background: var(--primary);
+  color: var(--primary-foreground, var(--foreground));
+  font-size: calc(9px * var(--font-scale, 1));
+  font-weight: 700;
+  padding: 1px 6px;
+  border-radius: 9999px;
+  line-height: 1.6;
+  flex-shrink: 0;
+}
+
+/* ── Body ── */
+.contacts-widget .contacts-body {
+  flex: 1; min-height: 0;
+  display: flex; flex-direction: column;
+  padding: 8px 0; gap: 6px;
+}
+
+@container (max-height: 80px) {
+  .contacts-widget .widget-header { display: none; }
+}
+
+/* ── Search bar ── */
+.contacts-widget .search-bar {
+  display: flex; align-items: center; gap: 6px;
+  margin: 0 10px;
+  padding: 5px 8px;
+  background: var(--overlay-subtle);
+  border: 1px solid var(--overlay-border);
+  border-radius: 6px; flex-shrink: 0;
+  pointer-events: auto;
+}
+.contacts-widget .search-icon { flex-shrink: 0; opacity: 0.5; display: flex; align-items: center; }
+.contacts-widget .search-input {
+  flex: 1; border: none; background: transparent;
+  color: var(--foreground); font-size: calc(12px * var(--font-scale, 1)); font-family: inherit;
+  outline: none;
+  user-select: text; -webkit-user-select: text; pointer-events: auto;
+}
+.contacts-widget .search-input::placeholder { color: var(--muted-foreground); opacity: 0.6; }
+.contacts-widget .clear-btn {
+  background: transparent; border: none; padding: 0 2px;
+  color: var(--muted-foreground); cursor: pointer;
+  opacity: 0.5; flex-shrink: 0;
+  transition: opacity 0.12s;
+  display: flex; align-items: center;
+}
+.contacts-widget .clear-btn:hover { opacity: 1; }
+
+/* ── States ── */
+.contacts-widget .state-msg {
+  flex: 1; display: flex; align-items: center; justify-content: center;
+  text-align: center; font-size: calc(12px * var(--font-scale, 1)); color: var(--muted-foreground); line-height: 1.7;
+}
+.contacts-widget .state-msg.dim   { opacity: 0.5; }
+.contacts-widget .state-msg.error { color: var(--destructive); }
+
+.contacts-widget .reauth-box {
+  flex: 1; display: flex; flex-direction: column;
+  align-items: center; justify-content: center;
+  gap: 8px; text-align: center; padding: 16px;
+}
+.contacts-widget .reauth-icon  { display: flex; align-items: center; justify-content: center; }
+.contacts-widget .reauth-title { font-size: calc(13px * var(--font-scale, 1)); font-weight: 600; color: var(--foreground); }
+.contacts-widget .reauth-body  { font-size: calc(11px * var(--font-scale, 1)); color: var(--muted-foreground); line-height: 1.6; max-width: 220px; }
+.contacts-widget .reauth-btn {
+  margin-top: 4px; padding: 7px 16px;
+  background: var(--primary-subtle-bg); border: 1px solid var(--primary-subtle-border);
+  border-radius: 7px; color: var(--primary);
+  font-size: calc(12px * var(--font-scale, 1)); font-weight: 600; cursor: pointer; font-family: inherit;
+  transition: background 0.15s, border-color 0.15s;
+}
+.contacts-widget .reauth-btn:hover { background: var(--primary-subtle-bg); border-color: var(--primary-subtle-border); }
+
+/* ── Scrollable wrapper ── */
+.contacts-widget .scroll-area {
+  flex: 1; min-height: 0; position: relative;
+}
+
+/* ── Avatars ── */
+.contacts-widget .avatar {
+  border-radius: 50%; flex-shrink: 0;
+  display: flex; align-items: center; justify-content: center;
+  font-weight: 700; color: var(--foreground);
+}
+.contacts-widget .av-xs { width: 20px; height: 20px; font-size: calc(8px * var(--font-scale, 1)); }
+.contacts-widget .av-sm { width: 26px; height: 26px; font-size: calc(10px * var(--font-scale, 1)); }
+.contacts-widget .av-md { width: 34px; height: 34px; font-size: calc(13px * var(--font-scale, 1)); }
+.contacts-widget .av-lg { width: 44px; height: 44px; font-size: calc(16px * var(--font-scale, 1)); }
+
+/* ── Shared text styles ── */
+.contacts-widget .c-name {
+  font-size: calc(12px * var(--font-scale, 1)); font-weight: 600; color: var(--foreground);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.contacts-widget .c-sub {
+  font-size: calc(10px * var(--font-scale, 1)); color: var(--muted-foreground); opacity: 0.8;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.contacts-widget .c-detail {
+  font-size: calc(10px * var(--font-scale, 1)); color: var(--muted-foreground);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  display: flex; align-items: center; gap: 4px;
+}
+.contacts-widget .c-detail svg { flex-shrink: 0; opacity: 0.7; }
+
+/* ══ List view ══════════════════════════════════════════════════════════════ */
+.contacts-widget .list-view {
+  position: absolute; inset: 0;
+  overflow-y: auto; display: flex; flex-direction: column; gap: 1px;
+  scrollbar-width: thin; scrollbar-color: var(--overlay-border) transparent;
+}
+
+.contacts-widget .list-row {
+  display: flex; align-items: flex-start; gap: 9px;
+  padding: 6px 8px; border-radius: 0; cursor: pointer;
+  transition: background 0.1s; flex-shrink: 0;
+}
+.contacts-widget .list-row:hover { background: var(--overlay-hover); }
+.contacts-widget .list-row:active { background: var(--overlay-subtle); }
+.contacts-widget .list-row.sel   { background: var(--primary-selection-bg) !important; outline: 1px solid var(--primary-subtle-border); outline-offset: -1px; }
+
+.contacts-widget .list-info {
+  flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px;
+}
+
+/* ══ Compact view ═══════════════════════════════════════════════════════════ */
+.contacts-widget .compact-view {
+  position: absolute; inset: 0;
+  overflow-y: auto; display: flex; flex-direction: column;
+  scrollbar-width: thin; scrollbar-color: var(--overlay-border) transparent;
+}
+
+.contacts-widget .compact-row {
+  display: flex; align-items: center; gap: 7px;
+  padding: 4px 8px; cursor: pointer;
+  transition: background 0.1s; flex-shrink: 0;
+  border-radius: 0;
+}
+.contacts-widget .compact-row:hover { background: var(--overlay-hover); }
+.contacts-widget .compact-row:active { background: var(--overlay-subtle); }
+.contacts-widget .compact-row.sel   { background: var(--primary-selection-bg) !important; outline: 1px solid var(--primary-subtle-border); outline-offset: -1px; }
+
+.contacts-widget .compact-name { flex: 0 0 auto; max-width: 45%; }
+.contacts-widget .compact-aside {
+  flex: 1; min-width: 0;
+  font-size: calc(10px * var(--font-scale, 1)); color: var(--muted-foreground);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  text-align: right;
+}
+
+/* ══ Details view ════════════════════════════════════════════════════════════ */
+.contacts-widget .details-container {
+  position: absolute; inset: 0;
+  overflow-y: auto; overflow-x: hidden; scrollbar-width: none;
+  box-sizing: border-box; display: flex; flex-direction: column;
+}
+.contacts-widget .details-container::-webkit-scrollbar { display: none; }
+
+.contacts-widget .details-table {
+  display: flex; flex-direction: column;
+  min-height: 100%; padding: 0;
+}
+
+.contacts-widget .details-header {
+  display: grid;
+  grid-template-columns: var(--det-cols, 1fr 1.2fr 108px);
+  padding: 3px 8px 4px;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 2px; flex-shrink: 0;
+}
+.contacts-widget .details-header > div {
+  font-size: calc(10px * var(--font-scale, 1)); font-weight: 600;
+  color: var(--muted-foreground);
+  text-transform: uppercase; letter-spacing: 0.04em;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+
+.contacts-widget .details-row {
+  display: grid;
+  grid-template-columns: var(--det-cols, 1fr 1.2fr 108px);
+  padding: 4px 8px; border-radius: 0;
+  cursor: pointer; transition: background 0.12s;
+  align-items: center; flex-shrink: 0; color: var(--foreground);
+}
+.contacts-widget .details-row:hover { background: var(--overlay-hover); }
+.contacts-widget .details-row:active { background: var(--overlay-subtle); }
+.contacts-widget .details-row.sel   { background: var(--primary-selection-bg) !important; outline: 1px solid var(--primary-subtle-border); outline-offset: -1px; }
+
+.contacts-widget .det-cell {
+  font-size: calc(11px * var(--font-scale, 1)); color: var(--muted-foreground);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  padding: 0 4px;
+}
+.contacts-widget .det-name {
+  font-size: calc(12px * var(--font-scale, 1)); color: var(--foreground); font-weight: 500;
+  display: flex; align-items: center; gap: 6px;
+}
+
+/* ══ Grid (card) view ════════════════════════════════════════════════════════ */
+.contacts-widget .grid-view {
+  position: absolute; inset: 0;
+  overflow-y: auto;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(90px, 1fr));
+  gap: 0; padding: 0;
+  align-content: start;
+  scrollbar-width: thin; scrollbar-color: var(--overlay-border) transparent;
+}
+
+.contacts-widget .grid-card {
+  display: flex; flex-direction: column; align-items: center;
+  gap: 4px; padding: 10px 6px 8px;
+  border-radius: 0; cursor: pointer;
+  transition: background 0.1s;
+  min-width: 0;
+}
+.contacts-widget .grid-card:hover { background: var(--overlay-hover); }
+.contacts-widget .grid-card:active { background: var(--overlay-subtle); }
+.contacts-widget .grid-card.sel   { background: var(--primary-selection-bg) !important; outline: 1px solid var(--primary-subtle-border); outline-offset: -1px; }
+
+.contacts-widget .gc-name {
+  font-size: calc(11px * var(--font-scale, 1)); font-weight: 600; color: var(--foreground);
+  text-align: center; line-height: 1.3;
+  display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2;
+  overflow: hidden; white-space: normal; max-width: 100%;
+}
+.contacts-widget .gc-sub {
+  font-size: calc(9px * var(--font-scale, 1)); color: var(--muted-foreground); opacity: 0.7;
+  text-align: center;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  max-width: 100%;
+}
+
+/* ── Responsive ── */
+
+/* Details view: below 280px keep only the first two columns, regardless of how
+   many the user configured. nth-child(n+3) hides the 3rd column AND everything
+   after it, so the visible cell count matches the forced two tracks and the row
+   never wraps into multi-row cells (a 5-column config used to blow out here). */
+@container (max-width: 280px) {
+  .contacts-widget .details-header,
+  .contacts-widget .details-row {
+    grid-template-columns: 1fr 1.2fr !important;
+  }
+  .contacts-widget .details-header > div:nth-child(n+3),
+  .contacts-widget .details-row > .det-cell:nth-child(n+3) { display: none; }
+}
+
+/* Below 180px keep only the first (name) column. */
+@container (max-width: 180px) {
+  .contacts-widget .details-header,
+  .contacts-widget .details-row {
+    grid-template-columns: 1fr !important;
+  }
+  .contacts-widget .details-header > div:nth-child(n+2),
+  .contacts-widget .details-row > .det-cell:nth-child(n+2) { display: none; }
+}
+
+/* Grid view: shrink min card size on narrow */
+@container (max-width: 220px) {
+  .contacts-widget .grid-view { grid-template-columns: repeat(auto-fill, minmax(70px, 1fr)); gap: 0; }
+  .contacts-widget .grid-card { padding: 6px 3px 5px; }
+}
+@container (max-width: 160px) {
+  .contacts-widget .grid-view { grid-template-columns: repeat(auto-fill, minmax(56px, 1fr)); }
+  .contacts-widget .gc-sub { display: none; }
+}
+
+/* List view: drop sub text when very narrow */
+@container (max-width: 160px) {
+  .contacts-widget .list-row { padding: 4px 6px; gap: 6px; }
+  .contacts-widget .c-sub { display: none; }
+  .contacts-widget .c-detail { display: none; }
+}
+
+/* Compact view: drop aside meta when narrow */
+@container (max-width: 200px) {
+  .contacts-widget .compact-aside { display: none; }
+  .contacts-widget .compact-name { max-width: none; flex: 1; min-width: 0; }
+}
+
+/* Hide search bar when extremely short */
+@container (max-height: 80px) {
+  .contacts-widget .search-bar { display: none; }
+  /* padding/gap live on .contacts-body since the header migration: tighten the
+     body, not the root frame (padding on the root would inset the header too). */
+  .contacts-widget .contacts-body { padding: 4px 0; gap: 2px; }
+}

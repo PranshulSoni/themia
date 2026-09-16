@@ -1,0 +1,99 @@
+.gh-notif {
+  width: 100%; height: 100%;
+  display: flex; flex-direction: column;
+  color: var(--foreground);
+  /* Background lives on the sibling layers (.widget-header / .widget-body); the
+     root is a transparent clipping frame so the two surfaces stay independent. */
+  background: transparent;
+  border-radius: var(--radius, 8px);
+  user-select: none; overflow: hidden;
+  box-sizing: border-box;
+  container-type: size;
+}
+
+.gh-notif__msg {
+  flex: 1;
+  display: flex; align-items: center; justify-content: center;
+  text-align: center;
+  font-size: calc(12px * var(--font-scale, 1)); color: var(--muted-foreground);
+  line-height: 1.7;
+  padding: 12px 14px;
+}
+
+.gh-notif__msg--error { color: var(--destructive); }
+
+.gh-notif__body {
+  padding: 0;
+}
+
+/* Header layout owned by WidgetHeader.css; only the count badge is local. */
+
+.gh-notif__count {
+  font-size: calc(10px * var(--font-scale, 1)); font-weight: 700;
+  padding: 1px 7px;
+  border-radius: 9999px;
+  color: var(--primary);
+  background: color-mix(in srgb, var(--primary) 15%, transparent);
+  flex-shrink: 0;
+}
+
+.gh-notif__list {
+  display: flex; flex-direction: column;
+  gap: 1px;
+  margin-top: 4px; padding-top: 4px;
+  border-top: 1px solid var(--border);
+  overflow-y: auto;
+  scrollbar-width: none;
+  flex: 1; min-height: 0;
+}
+.gh-notif__list::-webkit-scrollbar { display: none; }
+
+.gh-notif__item {
+  display: flex; align-items: center; gap: 6px;
+  font-size: calc(11px * var(--font-scale, 1));
+  padding: 4px 12px;
+  border-radius: 0;
+  cursor: pointer;
+  transition: background 0.12s;
+  opacity: 0.65;
+}
+
+.gh-notif__item:hover { background: var(--card-hover); }
+.gh-notif__item--unread { opacity: 1; }
+
+.gh-notif__reason {
+  font-size: calc(9px * var(--font-scale, 1)); font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  flex-shrink: 0;
+  min-width: 42px;
+}
+
+.gh-notif__subject {
+  flex: 1; min-width: 0;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  color: var(--foreground);
+}
+
+.gh-notif__repo {
+  font-size: calc(10px * var(--font-scale, 1));
+  color: var(--muted-foreground);
+  flex-shrink: 0;
+  max-width: 35%;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+
+.gh-notif__time {
+  font-size: calc(10px * var(--font-scale, 1));
+  color: var(--muted-foreground);
+  flex-shrink: 0;
+  font-variant-numeric: tabular-nums;
+}
+
+@container (max-width: 260px) {
+  .gh-notif__repo { display: none; }
+}
+
+@container (max-width: 180px) {
+  .gh-notif__reason { display: none; }
+}

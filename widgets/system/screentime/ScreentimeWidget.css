@@ -1,0 +1,595 @@
+.sctw-widget {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  color: var(--foreground);
+  /* Background lives on the sibling .widget-header / .widget-body layers. */
+  background: transparent;
+  border-radius: var(--radius, 8px);
+  user-select: none;
+  overflow: hidden;
+  box-sizing: border-box;
+  container-type: size;
+  /* [S-36] color of the aggregate "Other" doughnut wedge; a token so the ring
+     stays themable rather than a hardcoded literal. */
+  --sctw-other-color: rgba(255, 255, 255, 0.16);
+}
+
+.sctw-widget .wh-secondary {
+  gap: 6px;
+  min-width: 0;
+}
+
+.sctw-body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 8px 12px 12px;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+/* [S-11] day navigation in the header, calendar-widget pattern: ‹ Today › ● */
+.sctw-widget .sctw-nav {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  min-width: 0;
+}
+
+.sctw-widget .sctw-nav-title {
+  font-size: calc(12px * var(--font-scale, 1));
+  font-weight: 600;
+  color: var(--foreground);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  /* Fixed width + centered so the day text changing length ("Yesterday" vs
+     "Tue, Jun 30") never shifts the prev/next buttons (calendar precedent). */
+  width: 110px;
+  text-align: center;
+  flex-shrink: 0;
+}
+
+.sctw-widget .sctw-nav-btn {
+  background: transparent;
+  border: none;
+  color: var(--muted-foreground);
+  font-size: calc(15px * var(--font-scale, 1));
+  cursor: pointer;
+  padding: 2px 11px;
+  border-radius: 4px;
+  font-family: inherit;
+  flex-shrink: 0;
+  transition: color 0.12s, background 0.12s;
+}
+
+.sctw-widget .sctw-nav-btn:hover:not(:disabled) {
+  color: var(--foreground);
+  background: var(--overlay-hover);
+}
+
+.sctw-widget .sctw-nav-btn:disabled {
+  opacity: 0.3;
+  cursor: default;
+}
+
+.sctw-widget .sctw-today-btn {
+  background: transparent;
+  border: none;
+  color: var(--primary);
+  font-size: calc(10px * var(--font-scale, 1));
+  cursor: pointer;
+  padding: 2px 5px;
+  border-radius: 4px;
+  font-family: inherit;
+  transition: color 0.12s, background 0.12s;
+  line-height: 1;
+}
+
+.sctw-widget .sctw-today-btn:hover {
+  background: var(--overlay-hover);
+}
+
+.sctw-total-row {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+}
+
+.sctw-total {
+  font-size: calc(22px * var(--font-scale, 1));
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.1;
+}
+
+.sctw-empty {
+  font-size: calc(11px * var(--font-scale, 1));
+  color: var(--subtle-foreground);
+  padding: 4px 0;
+}
+
+/* [S-37] app icon (or an initial chip when no icon resolved). */
+.sctw-app-icon {
+  width: 20px;
+  height: 20px;
+  border-radius: 5px;
+  flex-shrink: 0;
+  object-fit: contain;
+  display: block;
+}
+
+.sctw-app-icon--fallback {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: calc(10px * var(--font-scale, 1));
+  font-weight: 600;
+  /* Dark glyph on the app's (light) stable color chip. */
+  color: rgba(0, 0, 0, 0.72);
+}
+
+.sctw-app-name {
+  color: var(--muted-foreground);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+
+.sctw-app-secs {
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  flex-shrink: 0;
+}
+
+/* [S-58] each app's share of the period. */
+.sctw-app-pct {
+  font-size: calc(10px * var(--font-scale, 1));
+  color: var(--subtle-foreground);
+  font-variant-numeric: tabular-nums;
+  flex-shrink: 0;
+}
+
+/* [S-59] the daily limit a figure is measured against, and the over-limit
+   state it shares with the figure itself. */
+.sctw-total-goal {
+  font-size: calc(11px * var(--font-scale, 1));
+  color: var(--muted-foreground);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.sctw-app-goal {
+  font-size: calc(10px * var(--font-scale, 1));
+  color: var(--subtle-foreground);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.sctw-total.is-over,
+.sctw-total-goal.is-over,
+.sctw-app-goal.is-over {
+  color: var(--destructive);
+}
+
+/* [S-55] the period's app-switch count, beside the total. */
+.sctw-switches {
+  font-size: calc(11px * var(--font-scale, 1));
+  color: var(--subtle-foreground);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+/* [S-52] the window's average per day, beside the big total. */
+.sctw-total-avg {
+  font-size: calc(11px * var(--font-scale, 1));
+  color: var(--muted-foreground);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+/* [S-52] the per-day average beside a window legend's total: secondary weight,
+   so the total still reads first. */
+.sctw-app-avg {
+  font-size: calc(10px * var(--font-scale, 1));
+  color: var(--subtle-foreground);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+/* ── Doughnut view ([S-36]) ─────────────────────────────────────────────── */
+.sctw-body--donut {
+  align-items: center;
+}
+
+.sctw-donut {
+  position: relative;
+  /* Sized by the container height (cqh) so the ring shrinks before it can
+     crowd out the legend; capped so it never dominates a tall widget. */
+  width: min(150px, 55cqh);
+  aspect-ratio: 1 / 1;
+  flex-shrink: 0;
+  margin: 0 auto 6px;
+}
+
+.sctw-donut-svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+.sctw-donut-seg {
+  stroke-linecap: butt; /* wedges abut exactly — no overlap seam */
+  cursor: pointer;
+  transition: stroke-dasharray 0.35s ease, stroke-dashoffset 0.35s ease, opacity 0.15s ease;
+}
+
+/* [S-40] hover emphasis: the focused wedge stays lit, the rest dim. */
+.sctw-donut-seg.is-dim { opacity: 0.3; }
+.sctw-donut-seg.is-active { opacity: 1; }
+
+/* [S-40] center readout swaps to the hovered app's figures. */
+.sctw-donut-focus {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1px;
+  max-width: 78%;
+  text-align: center;
+}
+
+.sctw-donut-focus-name {
+  font-size: calc(10px * var(--font-scale, 1));
+  font-weight: 600;
+  line-height: 1.15;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sctw-donut-focus-pct {
+  font-size: calc(10px * var(--font-scale, 1));
+  color: var(--muted-foreground);
+  font-variant-numeric: tabular-nums;
+}
+
+.sctw-donut-center {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+}
+
+.sctw-donut-total {
+  font-size: calc(17px * var(--font-scale, 1));
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--foreground);
+  line-height: 1.1;
+}
+
+/* [S-36] The unfocused centre: the total plus whichever readout figures are on
+   ([S-55]/[S-59]), stacked so they stay inside the ring. Scoped so the shared
+   `.sctw-total` keeps the centre's smaller size instead of the readout row's. */
+.sctw-donut-readout {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1px;
+  text-align: center;
+}
+
+.sctw-donut-readout .sctw-total {
+  font-size: calc(17px * var(--font-scale, 1));
+}
+
+.sctw-donut-readout .sctw-total-goal,
+.sctw-donut-readout .sctw-switches {
+  font-size: calc(10px * var(--font-scale, 1));
+  line-height: 1.2;
+}
+
+/* [S-03] the app list, shown beside whatever the style draws. */
+.sctw-legend {
+  display: flex;
+  flex-direction: column;
+  gap: var(--item-gap, 0px);
+  width: 100%;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.sctw-legend-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 3px 6px;
+  border-radius: 5px;
+  font-size: calc(11px * var(--font-scale, 1));
+  cursor: default;
+  transition: background 0.12s ease, opacity 0.12s ease;
+}
+
+/* [S-56] filler rows keep the list (and so the chart above it) the same height
+   whatever the day held. Hidden, not absent: `visibility: hidden` also removes
+   them from hit-testing, so they are unhoverable and unclickable. */
+.sctw-legend-row--ghost {
+  visibility: hidden;
+}
+
+/* [S-40] legend hover mirrors (and drives) the wedge highlight. */
+.sctw-legend-row.is-active { background: var(--overlay-hover); }
+.sctw-legend-row.is-dim { opacity: 0.5; }
+
+/* [S-51] the name shrinks to its text (ellipsizing when long) so the colour dot
+   sits directly after the title; the free space is absorbed after the dot, which
+   keeps the average + total right-aligned. */
+.sctw-legend-row .sctw-app-name {
+  flex: 0 1 auto;
+}
+
+.sctw-legend-row .sctw-legend-swatch {
+  margin-right: auto;
+}
+
+/* [S-52] whichever number comes first opens the right-hand group. The sibling
+   rule wins when both are present, so the gap between them stays fixed. */
+.sctw-legend-row .sctw-app-avg,
+.sctw-legend-row .sctw-app-secs {
+  margin-left: auto;
+}
+
+.sctw-legend-row .sctw-app-avg + .sctw-app-secs {
+  margin-left: 0;
+}
+
+/* [S-51] the app's colour in the drawing, as a dot after its name — the key
+   that ties a legend row to its wedge / bar segment. */
+.sctw-legend-swatch {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+/* Swatch standing in for the icon on the aggregate "Other" wedge. */
+.sctw-legend-dot {
+  width: 20px;
+  height: 20px;
+  border-radius: 5px;
+  flex-shrink: 0;
+}
+
+/* ── Window views: week bars ([S-42]) / month heatmap ([S-43]) ─────────── */
+.sctw-body--range {
+  gap: 6px;
+}
+
+/* [S-41] the window layouts have no day to navigate, so the header slot names
+   the span instead of hosting the nav. */
+.sctw-widget .sctw-range-label {
+  font-size: calc(11px * var(--font-scale, 1));
+  font-weight: 600;
+  color: var(--muted-foreground);
+  white-space: nowrap;
+}
+
+/* [S-44] the hovered day's date, beside the readout it belongs to. */
+.sctw-range-sub {
+  font-size: calc(10px * var(--font-scale, 1));
+  color: var(--muted-foreground);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+
+/* [S-42] one column per day; the track spans the full height so a bar reads as
+   a share of the busiest day (the [S-05] rule, turned vertical). */
+.sctw-week {
+  display: flex;
+  align-items: stretch;
+  gap: 4px;
+  flex: 1;
+  min-height: 0;
+}
+
+.sctw-week-col {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  flex: 1;
+  min-width: 0;
+  transition: opacity 0.12s ease;
+}
+
+.sctw-week-col.is-dim { opacity: 0.45; }
+
+/* A month of bars is 30 columns wide: tighten the gutters (and the labels are
+   dropped in markup, since one per column would be unreadable). */
+.sctw-week--dense { gap: 2px; }
+
+/* [S-48] column-reverse stacks the parts up from the bottom in legend order,
+   so the busiest app sits at the base of every bar. The track is only the box
+   the bar grows in — no fill of its own, so the unused height above a short bar
+   stays empty rather than reading as a second, greyer bar. */
+.sctw-week-track {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column-reverse;
+  justify-content: flex-start;
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.sctw-week-part {
+  width: 100%;
+  flex-shrink: 0;
+  transition: height 0.3s ease, opacity 0.12s ease;
+}
+
+.sctw-week-part.is-dim { opacity: 0.25; }
+
+/* [S-50] the day's single horizontal bar: the same segments as the ring, laid
+   end to end, so it always spans the full width — and no track fill behind
+   them, matching the stacked bars. */
+.sctw-hbar {
+  display: flex;
+  width: 100%;
+  height: 14px;
+  border-radius: 4px;
+  overflow: hidden;
+  flex-shrink: 0;
+}
+
+.sctw-hbar-part {
+  height: 100%;
+  min-width: 1px;
+  transition: width 0.3s ease, opacity 0.12s ease;
+  cursor: default;
+}
+
+.sctw-hbar-part.is-dim { opacity: 0.3; }
+
+.sctw-week-dow {
+  font-size: calc(9px * var(--font-scale, 1));
+  color: var(--subtle-foreground);
+  text-align: center;
+  white-space: nowrap;
+  overflow: hidden;
+  line-height: 1.2;
+}
+
+.sctw-week-col.is-today .sctw-week-dow { color: var(--primary); }
+.sctw-week-col.is-active .sctw-week-dow { color: var(--foreground); }
+
+/* [S-43] 7 columns, so wrapping the window puts one weekday per column. Rows
+   share the leftover height (no fixed cell size), so the grid never clips. */
+.sctw-heat {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+}
+
+.sctw-heat-head,
+.sctw-heat-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 3px;
+}
+
+.sctw-heat-grid {
+  grid-auto-rows: minmax(0, 1fr);
+  flex: 1;
+  min-height: 0;
+}
+
+/* One or two rows (a week) would stretch each cell over the whole body; cap the
+   row height so the cells stay chips and the grid sits at the top. */
+.sctw-heat--short .sctw-heat-grid {
+  grid-auto-rows: minmax(0, 44px);
+  align-content: start;
+}
+
+.sctw-heat-dow {
+  font-size: calc(9px * var(--font-scale, 1));
+  color: var(--subtle-foreground);
+  text-align: center;
+  line-height: 1.2;
+}
+
+.sctw-heat-cell {
+  border-radius: 3px;
+  background: var(--border);
+  transition: opacity 0.12s ease, background 0.2s ease;
+}
+
+/* Padding slots before the window starts: present for alignment, not drawn. */
+.sctw-heat-cell.is-blank { background: transparent; }
+
+/* [S-43] intensity buckets mixed from the design accent, so the scale follows
+   the theme instead of hardcoding five literals. Level 0 = no usage at all. */
+.sctw-heat-l0 { background: var(--border); }
+.sctw-heat-l1 { background: color-mix(in srgb, var(--primary) 25%, transparent); }
+.sctw-heat-l2 { background: color-mix(in srgb, var(--primary) 45%, transparent); }
+.sctw-heat-l3 { background: color-mix(in srgb, var(--primary) 70%, transparent); }
+.sctw-heat-l4 { background: var(--primary); }
+
+.sctw-heat-cell.is-today { box-shadow: inset 0 0 0 1.5px var(--foreground); }
+.sctw-heat-cell.is-dim { opacity: 0.45; }
+
+/* Small widgets: drop the big total first, then the per-row bars. */
+@container (max-height: 120px) {
+  .sctw-total {
+    font-size: calc(16px * var(--font-scale, 1));
+  }
+  /* Window views: the charts survive; their weekday labels are the first cut. */
+  .sctw-week-dow,
+  .sctw-heat-head {
+    display: none;
+  }
+  /* Doughnut: keep the ring + centre total; the legend is the first to go. */
+  .sctw-legend {
+    display: none;
+  }
+  .sctw-donut {
+    width: min(96px, 80cqh);
+    margin-bottom: 0;
+  }
+  .sctw-donut-total {
+    font-size: calc(13px * var(--font-scale, 1));
+  }
+}
+
+@container (max-height: 90px) {
+  .sctw-total-row {
+    display: none;
+  }
+}
+
+/* Shrink the nav when narrow (calendar precedent). */
+@container (max-width: 220px) {
+  .sctw-widget .sctw-today-btn { display: none; }
+  .sctw-widget .sctw-nav-title { font-size: calc(11px * var(--font-scale, 1)); width: 84px; }
+  .sctw-widget .sctw-nav-btn { padding: 2px 8px; }
+}
+
+/* Hide widget header (incl. the nav) when extremely short (calendar precedent). */
+@container (max-height: 80px) {
+  .sctw-widget .widget-header { display: none; }
+}
+
+/* [S-52] the average is the first thing to go when the row runs out of room —
+   the app's total matters more than its per-day rate. The headline average
+   survives longer: that row holds only two numbers. */
+@container (max-width: 240px) {
+  .sctw-app-avg {
+    display: none;
+  }
+}
+
+@container (max-width: 170px) {
+  .sctw-total-avg,
+  .sctw-switches {
+    display: none;
+  }
+}
+
+@container (max-width: 140px) {
+  .sctw-app-secs {
+    font-size: calc(10px * var(--font-scale, 1));
+  }
+}

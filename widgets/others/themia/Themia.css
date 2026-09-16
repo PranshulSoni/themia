@@ -1,0 +1,33 @@
+.themia-widget {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  background: var(--card);
+  backdrop-filter: blur(var(--widget-blur, 60px)) saturate(180%);
+  border-radius: var(--radius, 8px);
+  overflow: hidden;
+}
+
+.themia-widget__logo {
+  width: 28px;
+  height: 28px;
+  flex-shrink: 0;
+}
+
+.themia-widget__name {
+  font-size: calc(13px * var(--font-scale, 1));
+  font-weight: 600;
+  color: var(--foreground);
+  letter-spacing: 0.02em;
+}
+
+.themia-widget__version {
+  font-size: calc(10px * var(--font-scale, 1));
+  font-weight: 500;
+  color: var(--subtle-foreground);
+  font-variant-numeric: tabular-nums;
+}

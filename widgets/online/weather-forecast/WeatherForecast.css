@@ -1,0 +1,256 @@
+/* -- Fluent card shell -------------------------------------------------- */
+.weather-forecast-widget {
+  width: 100%; height: 100%;
+  display: flex; flex-direction: column;
+  color: var(--foreground);
+  /* Background lives on the sibling layers (.widget-header / .widget-body); the
+     root is a transparent clipping frame so the two surfaces stay independent. */
+  background: transparent;
+  border-radius: var(--radius, 8px);
+  user-select: none; overflow: hidden;
+  box-sizing: border-box;
+  container-type: size;
+}
+
+/* -- Body -------------------------------------------------------------- */
+.weather-forecast-widget .weather-forecast-body {
+  gap: 6px;
+  padding: 0;
+}
+
+/* -- Header (layout owned by WidgetHeader.css; only the location chip is local) -- */
+/* Cap the location at 55% on the secondary SLOT, not the text itself. A
+   `max-width: %` on `.info-loc` resolves against `.wh-secondary` (its flex
+   parent), whose own width comes FROM the location's max-content, and that circular
+   constraint truncated the chip to a sliver. Capping the slot lets it hug its
+   content and sit flush right. (Mirrors WeatherCurrent.css.) */
+.weather-forecast-widget .wh-secondary { max-width: 55%; }
+.weather-forecast-widget .info-loc {
+  font-size: calc(10px * var(--font-scale, 1)); color: var(--muted-foreground); opacity: 0.6;
+  display: inline-flex; align-items: center; gap: 3px;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  max-width: 100%;
+}
+.weather-forecast-widget .info-loc svg { flex-shrink: 0; }
+
+/* -- Weather glyphs + precip (lucide line-icons) ----------------------- */
+.weather-forecast-widget .r-icon,
+.weather-forecast-widget .c-icon,
+.weather-forecast-widget .g-icon {
+  display: flex; align-items: center; justify-content: center;
+  color: var(--foreground);
+}
+.weather-forecast-widget .r-icon svg,
+.weather-forecast-widget .c-icon svg,
+.weather-forecast-widget .g-icon svg { width: 1em; height: 1em; }
+
+.weather-forecast-widget .r-precip,
+.weather-forecast-widget .c-precip,
+.weather-forecast-widget .g-precip {
+  display: inline-flex; align-items: center; gap: 2px;
+}
+.weather-forecast-widget .r-precip { justify-content: flex-end; }
+.weather-forecast-widget .c-precip,
+.weather-forecast-widget .g-precip { justify-content: center; }
+
+/* -- Shared empty ------------------------------------------------------ */
+.weather-forecast-widget .empty {
+  flex: 1; display: flex; align-items: center; justify-content: center;
+  font-size: calc(12px * var(--font-scale, 1)); color: var(--muted-foreground); font-style: italic; text-align: center;
+}
+.weather-forecast-widget .empty.err { color: var(--destructive); font-style: normal; }
+
+/* -- Shared today highlight -------------------------------------------- */
+.weather-forecast-widget .today {
+  background: var(--primary-subtle-bg) !important;
+  border-color: transparent !important;
+}
+
+/* == ROWS layout ======================================================= */
+/* Rows grow to fill the widget when they fit (flex-grow), but never shrink
+   below a legible min-height: once the day count outgrows the body the list
+   scrolls instead of squeezing rows to nothing. Scrollbar hidden per the
+   widget-body convention. */
+.weather-forecast-widget .rows-list {
+  flex: 1; display: flex; flex-direction: column;
+  gap: 2px; min-height: 0;
+  overflow-y: auto; overflow-x: hidden;
+  scrollbar-width: none;
+}
+.weather-forecast-widget .rows-list::-webkit-scrollbar { display: none; }
+
+.weather-forecast-widget .row-item {
+  display: grid;
+  grid-template-columns: 46px 20px 1fr 56px 34px 34px 34px;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 8px;
+  border-radius: 0;
+  border: 1px solid transparent;
+  transition: background 0.12s;
+  flex: 1 0 auto;
+  min-height: 28px;
+  min-width: 0;
+}
+.weather-forecast-widget .row-item:hover { background: var(--card-hover); }
+
+.weather-forecast-widget .r-day { font-size: calc(12px * var(--font-scale, 1)); font-weight: 600; color: var(--muted-foreground); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.weather-forecast-widget .today .r-day { color: var(--primary); }
+.weather-forecast-widget .r-icon { font-size: calc(15px * var(--font-scale, 1)); }
+.weather-forecast-widget .r-desc { font-size: calc(11px * var(--font-scale, 1)); color: var(--muted-foreground); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+.weather-forecast-widget .r-bar-track { position: relative; height: 3px; background: var(--border); border-radius: 9999px; overflow: hidden; }
+.weather-forecast-widget .r-bar-fill  { position: absolute; top: 0; bottom: 0; background: linear-gradient(90deg, var(--primary), var(--warning)); border-radius: 9999px; }
+
+.weather-forecast-widget .r-lo { font-size: calc(11px * var(--font-scale, 1)); color: var(--muted-foreground); text-align: right; font-variant-numeric: tabular-nums; }
+.weather-forecast-widget .r-hi { font-size: calc(12px * var(--font-scale, 1)); font-weight: 600; color: var(--foreground); text-align: right; font-variant-numeric: tabular-nums; }
+.weather-forecast-widget .r-precip { font-size: calc(10px * var(--font-scale, 1)); color: var(--muted-foreground); text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+
+/* ROWS: progressive drop when narrow */
+
+/* drop precip column */
+@container (max-width: 360px) {
+  .weather-forecast-widget .row-item {
+    grid-template-columns: 46px 20px 1fr 56px 34px 34px;
+  }
+  .weather-forecast-widget .r-precip { display: none; }
+}
+
+/* drop description */
+@container (max-width: 280px) {
+  .weather-forecast-widget .row-item {
+    grid-template-columns: 46px 20px 50px 32px 32px;
+    gap: 4px;
+  }
+  .weather-forecast-widget .r-desc { display: none; }
+}
+
+/* drop bar track */
+@container (max-width: 220px) {
+  .weather-forecast-widget .row-item {
+    grid-template-columns: 38px 18px 28px 28px;
+    gap: 4px;
+    padding: 4px 6px;
+  }
+  .weather-forecast-widget .r-bar-track { display: none; }
+  .weather-forecast-widget .r-day { font-size: calc(11px * var(--font-scale, 1)); }
+  .weather-forecast-widget .r-hi,
+  .weather-forecast-widget .r-lo { font-size: calc(10px * var(--font-scale, 1)); }
+}
+
+/* drop lo temp + icon */
+@container (max-width: 150px) {
+  .weather-forecast-widget .row-item {
+    grid-template-columns: 1fr 32px;
+  }
+  .weather-forecast-widget .r-icon,
+  .weather-forecast-widget .r-lo { display: none; }
+}
+
+/* hide header when very short */
+@container (max-height: 80px) {
+  .weather-forecast-widget .widget-header { display: none; }
+  .weather-forecast-widget .weather-forecast-body { padding: 0; gap: 2px; }
+}
+
+/* == COLUMNS layout ==================================================== */
+.weather-forecast-widget .cols-list {
+  flex: 1; display: flex; gap: 4px;
+  overflow-x: auto; overflow-y: hidden;
+  scrollbar-width: none; min-height: 0;
+  align-items: stretch;
+}
+.weather-forecast-widget .cols-list::-webkit-scrollbar { display: none; }
+
+.weather-forecast-widget .col-card {
+  flex: 1; min-width: 56px;
+  display: flex; flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 8px 4px 6px;
+  border: 1px solid transparent;
+  border-radius: 0;
+  transition: background 0.12s;
+  overflow: hidden;
+}
+.weather-forecast-widget .col-card:hover { background: var(--card-hover); }
+
+.weather-forecast-widget .c-day { font-size: calc(10px * var(--font-scale, 1)); font-weight: 700; color: var(--muted-foreground); text-transform: uppercase; letter-spacing: 0.05em; }
+.weather-forecast-widget .today .c-day { color: var(--primary); }
+.weather-forecast-widget .c-icon { font-size: calc(22px * var(--font-scale, 1)); line-height: 1; color: var(--foreground); }
+.weather-forecast-widget .c-desc { font-size: calc(9px * var(--font-scale, 1)); color: var(--muted-foreground); text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+
+.weather-forecast-widget .c-temps { display: flex; flex-direction: column; align-items: center; gap: 1px; }
+.weather-forecast-widget .c-hi { font-size: calc(13px * var(--font-scale, 1)); font-weight: 700; color: var(--foreground); font-variant-numeric: tabular-nums; }
+.weather-forecast-widget .c-lo { font-size: calc(11px * var(--font-scale, 1)); color: var(--muted-foreground); font-variant-numeric: tabular-nums; }
+
+.weather-forecast-widget .c-bar-track { width: 80%; height: 3px; background: var(--border); border-radius: 9999px; position: relative; overflow: hidden; }
+.weather-forecast-widget .c-bar-fill  { position: absolute; top: 0; bottom: 0; background: linear-gradient(90deg, var(--primary), var(--warning)); border-radius: 9999px; }
+
+.weather-forecast-widget .c-precip { font-size: calc(9px * var(--font-scale, 1)); color: var(--muted-foreground); font-variant-numeric: tabular-nums; }
+
+/* COLUMNS: progressive drop when short */
+@container (max-height: 140px) {
+  .weather-forecast-widget .c-precip { display: none; }
+  .weather-forecast-widget .c-desc { display: none; }
+}
+@container (max-height: 100px) {
+  .weather-forecast-widget .c-bar-track { display: none; }
+  .weather-forecast-widget .c-lo { display: none; }
+  .weather-forecast-widget .c-icon { font-size: calc(16px * var(--font-scale, 1)); }
+}
+@container (max-height: 70px) {
+  .weather-forecast-widget .c-icon { display: none; }
+  .weather-forecast-widget .col-card { padding: 4px 2px; gap: 2px; }
+}
+
+/* == GRID layout ======================================================= */
+.weather-forecast-widget .grid-list {
+  flex: 1; display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 5px; min-height: 0;
+  overflow-y: auto; overflow-x: hidden;
+  scrollbar-width: none;
+  align-content: start;
+}
+.weather-forecast-widget .grid-list::-webkit-scrollbar { display: none; }
+
+.weather-forecast-widget .grid-card {
+  display: flex; flex-direction: column;
+  gap: 4px;
+  padding: 9px 10px;
+  border: 1px solid transparent;
+  border-radius: 0;
+  transition: background 0.12s;
+  overflow: hidden;
+}
+.weather-forecast-widget .grid-card:hover { background: var(--card-hover); }
+
+.weather-forecast-widget .g-header { display: flex; align-items: center; justify-content: space-between; }
+.weather-forecast-widget .g-day { font-size: calc(11px * var(--font-scale, 1)); font-weight: 700; color: var(--muted-foreground); }
+.weather-forecast-widget .today .g-day { color: var(--primary); }
+.weather-forecast-widget .g-icon { font-size: calc(18px * var(--font-scale, 1)); line-height: 1; }
+
+.weather-forecast-widget .g-desc { font-size: calc(10px * var(--font-scale, 1)); color: var(--muted-foreground); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+.weather-forecast-widget .g-bar-track { height: 3px; background: var(--border); border-radius: 9999px; position: relative; overflow: hidden; }
+.weather-forecast-widget .g-bar-fill  { position: absolute; top: 0; bottom: 0; background: linear-gradient(90deg, var(--primary), var(--warning)); border-radius: 9999px; }
+
+.weather-forecast-widget .g-temps { display: flex; justify-content: space-between; align-items: baseline; }
+.weather-forecast-widget .g-lo { font-size: calc(11px * var(--font-scale, 1)); color: var(--muted-foreground); font-variant-numeric: tabular-nums; }
+.weather-forecast-widget .g-hi { font-size: calc(14px * var(--font-scale, 1)); font-weight: 700; color: var(--foreground); font-variant-numeric: tabular-nums; }
+
+.weather-forecast-widget .g-precip { font-size: calc(10px * var(--font-scale, 1)); color: var(--muted-foreground); font-variant-numeric: tabular-nums; }
+
+/* GRID: fall to 1 column when narrow, shed details when short */
+@container (max-width: 220px) {
+  .weather-forecast-widget .grid-list { grid-template-columns: 1fr; }
+}
+@container (max-height: 260px) {
+  .weather-forecast-widget .g-precip,
+  .weather-forecast-widget .g-desc { display: none; }
+}
+@container (max-height: 180px) {
+  .weather-forecast-widget .g-bar-track { display: none; }
+  .weather-forecast-widget .grid-card { padding: 5px 7px; gap: 2px; }
+}

@@ -1,0 +1,162 @@
+.cpuw-widget {
+  width: 100%; height: 100%;
+  display: flex; flex-direction: column;
+  color: var(--foreground);
+  /* Background lives on the sibling layers (.widget-header / .widget-body); the
+     root is a transparent clipping frame so the two surfaces stay independent. */
+  background: transparent;
+  border-radius: var(--radius, 8px);
+  user-select: none; overflow: hidden;
+  box-sizing: border-box;
+  container-type: size;
+}
+
+.cpuw-body {
+  gap: 6px;
+  padding: 8px 12px 12px;
+}
+
+.cpuw-widget .wh-secondary { gap: 6px; }
+
+.cpuw-info-val {
+  font-size: calc(13px * var(--font-scale, 1)); font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  transition: color 0.4s ease;
+  flex-shrink: 0;
+}
+
+.cpuw-info-sub {
+  font-size: calc(10px * var(--font-scale, 1));
+  color: var(--muted-foreground);
+  font-variant-numeric: tabular-nums;
+  flex-shrink: 0;
+}
+
+/* [S-23] fan metric enabled but no sensor source available */
+.cpuw-info-na { color: var(--subtle-foreground); }
+
+/* Aggregate spark */
+.cpuw-spark-wrap {
+  flex: 1; position: relative; min-height: 0;
+}
+
+.cpuw-spark {
+  position: absolute; inset: 0; width: 100%; height: 100%;
+  overflow: visible;
+}
+
+.cpuw-bar-track {
+  height: 2px; flex-shrink: 0;
+  background: var(--border);
+  border-radius: 9999px; overflow: hidden;
+}
+
+.cpuw-bar-fill {
+  height: 100%; border-radius: 9999px;
+  transition: width 0.6s cubic-bezier(0.4,0,0.2,1), background 0.4s ease;
+}
+
+/* Per-core grid */
+.cpuw-cores-grid {
+  flex: 1;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(56px, 1fr));
+  gap: 4px;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.cpuw-core-cell {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  border-radius: 4px;
+  overflow: hidden;
+  background: var(--overlay-subtle);
+}
+
+.cpuw-core-spark {
+  flex: 1;
+  width: 100%;
+  min-height: 0;
+  overflow: visible;
+}
+
+.cpuw-core-idx {
+  position: absolute;
+  top: 3px; left: 4px;
+  font-size: calc(8px * var(--font-scale, 1));
+  color: var(--muted-foreground);
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+
+.cpuw-core-pct {
+  position: absolute;
+  bottom: 3px; right: 4px;
+  font-size: calc(9px * var(--font-scale, 1)); font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+}
+
+/* Process list + aux rows */
+.cpuw-procs {
+  display: flex; flex-direction: column;
+  gap: 2px; flex-shrink: 0;
+}
+
+.cpuw-proc-row {
+  display: flex; align-items: baseline; gap: 6px;
+  font-size: calc(10px * var(--font-scale, 1));
+}
+
+.cpuw-proc-name {
+  flex: 1; min-width: 0;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  color: var(--muted-foreground);
+}
+
+.cpuw-proc-pct {
+  font-variant-numeric: tabular-nums;
+  color: var(--foreground);
+}
+
+.cpuw-aux-row {
+  display: flex; align-items: baseline; gap: 6px;
+  font-size: calc(10px * var(--font-scale, 1)); flex-shrink: 0;
+}
+
+.cpuw-aux-label {
+  flex: 1; color: var(--muted-foreground);
+}
+
+.cpuw-aux-val {
+  font-variant-numeric: tabular-nums;
+  color: var(--foreground);
+}
+
+/* ── Responsive ── */
+
+/* narrow cores grid: shrink cell floor */
+@container (max-width: 180px) {
+  .cpuw-cores-grid { grid-template-columns: repeat(auto-fill, minmax(40px, 1fr)); gap: 2px; }
+  .cpuw-core-idx { display: none; }
+}
+@container (max-width: 120px) {
+  .cpuw-cores-grid { grid-template-columns: repeat(auto-fill, minmax(28px, 1fr)); gap: 1px; }
+  .cpuw-core-pct { display: none; }
+}
+
+/* narrow: compact info row */
+@container (max-width: 160px) {
+  .cpuw-widget .widget-header { padding: 2px 8px; }
+  .cpuw-body { padding: 4px 8px 8px; gap: 3px; }
+  .cpuw-info-val { font-size: calc(11px * var(--font-scale, 1)); }
+  .cpuw-info-sub { display: none; }
+}
+
+/* short: hide bar track */
+@container (max-height: 70px) {
+  .cpuw-bar-track { display: none; }
+}

@@ -1,0 +1,44 @@
+.gal-folder-pick {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  /* Sit inline on the right of the design-row (single line), matching the folder
+     widget's picker. The path ellipsis absorbs long paths; Browse stays content-width. */
+  flex: 0 1 240px;
+  min-width: 0;
+}
+
+.gal-folder-path {
+  flex: 1;
+  min-width: 0;
+  font-size: 11px;
+  color: var(--muted-foreground);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  direction: rtl;
+  text-align: left;
+  background: var(--overlay-subtle);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 5px 8px;
+}
+
+.gal-folder-pick button {
+  padding: 5px 12px;
+  border-radius: 6px;
+  border: 1px solid var(--overlay-border);
+  background: var(--overlay-subtle);
+  color: var(--foreground);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.15s, border-color 0.15s;
+  font-family: inherit;
+}
+
+.gal-folder-pick button:hover {
+  background: var(--overlay-hover);
+  border-color: var(--ring);
+}

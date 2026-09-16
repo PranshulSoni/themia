@@ -1,0 +1,15 @@
+/* Wrapper is layout-transparent so ConfigTabs' .cfg lays out exactly like every
+   other widget config. */
+.webelement-config {
+  display: contents;
+}
+
+/* `.webelement-pick-btn` carried its own flex centring and its own `:disabled`
+   (at `cursor: default`, against [S-02]'s not-allowed). `.cfg .btn-add` now owns
+   both for the whole family, at higher specificity. Settings.SPEC.md [S-11]. */
+
+.webelement-selected .design-desc {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
