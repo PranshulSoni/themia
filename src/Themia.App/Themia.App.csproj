@@ -1,0 +1,76 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows10.0.19041.0</TargetFramework>
+    <TargetPlatformMinVersion>10.0.17763.0</TargetPlatformMinVersion>
+    <RootNamespace>Themia.App</RootNamespace>
+    <AssemblyName>Themia</AssemblyName>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <UseWinUI>true</UseWinUI>
+    <!-- Needed for the function-pointer Win32 callbacks (EnumDisplayMonitors, WndProc). -->
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <!-- Must stay true even unpackaged: it is what wires up XAML (.xbf) and resources.pri
+         generation AND their copy into the publish folder. With it off, publish silently dropped
+         every compiled XAML file and the app died at the first InitializeComponent. -->
+    <EnableMsixTooling>true</EnableMsixTooling>
+
+    <!-- Unpackaged: the Windows App SDK bootstrapper is initialised automatically. -->
+    <WindowsPackageType>None</WindowsPackageType>
+    <WindowsAppSDKSelfContained>true</WindowsAppSDKSelfContained>
+    <SelfContained>true</SelfContained>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+
+    <!--
+      Native AOT. This is the whole point of the port: no JIT, no CoreCLR, no warm-up, and a
+      working set that does not carry a GC heap full of framework metadata. Every reflection-based
+      API is therefore off limits - notably JSON, which goes through a source-generated context.
+    -->
+    <PublishAot>true</PublishAot>
+    <PublishReadyToRun>false</PublishReadyToRun>
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <EventSourceSupport>false</EventSourceSupport>
+    <MetadataUpdaterSupport>false</MetadataUpdaterSupport>
+    <!-- Stack traces stay on: a widget layer that fails silently is unfixable. -->
+    <AutoreleasePoolSupport>false</AutoreleasePoolSupport>
+
+    <!-- Surface trim/AOT problems as build errors instead of runtime surprises. -->
+    <TrimmerSingleWarn>false</TrimmerSingleWarn>
+    <IlcTreatWarningsAsErrors>true</IlcTreatWarningsAsErrors>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.WindowsAppSDK" Version="1.8.260804001" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Themia.Core\Themia.Core.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Content Include="Assets\**" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <!--
+    Publish the compiled XAML.
+
+    The XAML compiler emits .xbf (compiled XAML) and resources.pri into the BUILD output but never
+    registers them as publish items, so `dotnet publish` produced a folder with no XAML in it at all.
+    The app then started fine and threw XamlParseException at the first InitializeComponent - a
+    failure that only ever appears in the published build, never during development.
+  -->
+  <Target Name="PublishCompiledXaml"
+          AfterTargets="Build"
+          BeforeTargets="ComputeResolvedFilesToPublishList">
+    <ItemGroup>
+      <_CompiledXamlPayload Include="$(OutDir)**\*.xbf" />
+      <_CompiledXamlPayload Include="$(OutDir)resources.pri" Condition="Exists('$(OutDir)resources.pri')" />
+
+      <ResolvedFileToPublish Include="@(_CompiledXamlPayload)">
+        <RelativePath>$([MSBuild]::MakeRelative($(OutDir), %(FullPath)))</RelativePath>
+        <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+      </ResolvedFileToPublish>
+    </ItemGroup>
+  </Target>
+
+</Project>

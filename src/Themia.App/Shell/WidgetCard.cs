@@ -1,0 +1,420 @@
+using Microsoft.UI;
+using Microsoft.UI.Input;
+using Microsoft.UI.Xaml;
+using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Controls.Primitives;
+using Microsoft.UI.Xaml.Input;
+using Microsoft.UI.Xaml.Media;
+using Microsoft.UI.Xaml.Shapes;
+using Themia.App.Services;
+using Themia.App.Widgets;
+using Themia.Core.Diagnostics;
+using Themia.Core.Geometry;
+using Themia.Core.Model;
+using Windows.Foundation;
+
+namespace Themia.App.Shell;
+
+/// <summary>What a card needs from the surface it lives on.</summary>
+internal interface IWidgetCardHost
+{
+    ScreenMetrics Metrics { get; }
+
+    DesignState Design { get; }
+
+    Ticker Ticker { get; }
+
+    bool EditMode { get; }
+
+    /// <summary>The card moved or resized and is still being dragged: reposition it, do not re-layout everything.</summary>
+    void OnGeometryPreview(WidgetCard card);
+
+    /// <summary>The drag ended: persist.</summary>
+    void OnGeometryCommitted(WidgetCard card);
+
+    void RequestConfigure(WidgetCard card);
+
+    void RequestDuplicate(WidgetCard card);
+
+    void RequestDelete(WidgetCard card);
+
+    void RequestEditMode(bool enabled);
+}
+
+/// <summary>
+/// One widget on the desktop: the Fluent card chrome, the drag and resize affordances, and the
+/// right-click menu. The widget's own view is dropped inside and knows nothing about input.
+/// </summary>
+internal sealed partial class WidgetCard : Grid
+{
+    private const string Scope = "card";
+    private const double HandleSize = 10;
+
+    private readonly IWidgetCardHost _host;
+    private readonly Border _surface;
+    private readonly Border _editOutline;
+    private readonly Grid _handles;
+    private readonly FrameworkElement _view;
+
+    private FracRect _dragStartRect;
+    private Point _dragStartPoint;
+    private ResizeHandle? _activeHandle;
+    private bool _dragging;
+
+    public WidgetCard(IWidgetCardHost host, WidgetInstance model)
+    {
+        _host = host;
+        Model = model;
+
+        _view = WidgetCatalog.CreateView(model.Kind);
+        if (_view is IWidgetView widgetView)
+        {
+            widgetView.Attach(host.Ticker, model.Config);
+        }
+
+        _surface = new Border
+        {
+            Child = _view,
+            Padding = new Thickness(12),
+        };
+
+        _editOutline = new Border
+        {
+            BorderThickness = new Thickness(1),
+            BorderBrush = ThemeBrush("AccentFillColorDefaultBrush", Colors.DodgerBlue),
+            Background = null,
+            IsHitTestVisible = false,
+            Visibility = Visibility.Collapsed,
+        };
+
+        _handles = BuildHandles();
+
+        Children.Add(_surface);
+        Children.Add(_editOutline);
+        Children.Add(_handles);
+
+        Background = new SolidColorBrush(Colors.Transparent); // makes the whole card hit-testable for drags
+        ApplyDesign();
+        ApplyEditMode(host.EditMode);
+
+        PointerPressed += OnPointerPressed;
+        PointerMoved += OnPointerMoved;
+        PointerReleased += OnPointerReleased;
+        PointerCaptureLost += OnPointerCaptureLost;
+        RightTapped += OnRightTapped;
+        DoubleTapped += OnDoubleTapped;
+    }
+
+    public WidgetInstance Model { get; }
+
+    /// <summary>The rect the card is currently showing, which during a drag leads the persisted model.</summary>
+    public FracRect LiveRect { get; private set; }
+
+    // -----------------------------------------------------------------------------------------
+    // Appearance
+    // -----------------------------------------------------------------------------------------
+
+    public void ApplyDesign()
+    {
+        var design = _host.Design;
+        var radius = new CornerRadius(design.CornerRadiusPx);
+
+        _surface.CornerRadius = radius;
+        _editOutline.CornerRadius = radius;
+
+        switch (Model.Surface)
+        {
+            case WidgetSurface.Transparent:
+                // [S-32] No fill and no border: the content sits straight on the wallpaper.
+                _surface.Background = null;
+                _surface.BorderBrush = null;
+                _surface.BorderThickness = new Thickness(0);
+                break;
+
+            case WidgetSurface.Translucent:
+                _surface.Background = ThemeBrush("CardBackgroundFillColorDefaultBrush", Colors.Black);
+                _surface.BorderBrush = ThemeBrush("CardStrokeColorDefaultBrush", Colors.Gray);
+                _surface.BorderThickness = new Thickness(1);
+                _surface.Opacity = Math.Clamp(design.SurfaceOpacity * 0.65, 0.2, 1.0);
+                return;
+
+            case WidgetSurface.Card:
+            default:
+                _surface.Background = ThemeBrush("CardBackgroundFillColorDefaultBrush", Colors.Black);
+                _surface.BorderBrush = ThemeBrush("CardStrokeColorDefaultBrush", Colors.Gray);
+                _surface.BorderThickness = new Thickness(1);
+                break;
+        }
+
+        _surface.Opacity = Math.Clamp(design.SurfaceOpacity, 0.2, 1.0);
+    }
+
+    public void ApplyEditMode(bool editing)
+    {
+        _editOutline.Visibility = editing ? Visibility.Visible : Visibility.Collapsed;
+        _handles.Visibility = editing ? Visibility.Visible : Visibility.Collapsed;
+
+        // Outside edit mode the card must not eat pointer input at all: a clock is something you
+        // look at, and the desktop underneath stays usable.
+        IsHitTestVisible = true;
+        ProtectedCursor = editing
+            ? InputSystemCursor.Create(InputSystemCursorShape.SizeAll)
+            : InputSystemCursor.Create(InputSystemCursorShape.Arrow);
+    }
+
+    public void ApplyConfig()
+    {
+        if (_view is IWidgetView widgetView)
+        {
+            widgetView.ApplyConfig(Model.Config);
+        }
+
+        ApplyDesign();
+    }
+
+    public void Detach()
+    {
+        if (_view is IWidgetView widgetView)
+        {
+            widgetView.Detach();
+        }
+    }
+
+    public void SetLiveRect(FracRect rect) => LiveRect = rect;
+
+    // -----------------------------------------------------------------------------------------
+    // Handles
+    // -----------------------------------------------------------------------------------------
+
+    private Grid BuildHandles()
+    {
+        // A 3x3 grid places all eight handles without any arithmetic: the outer tracks are handle
+        // sized, the centre track takes the rest, and a negative margin straddles each edge.
+        var grid = new Grid
+        {
+            Visibility = Visibility.Collapsed,
+            RowDefinitions =
+            {
+                new RowDefinition { Height = GridLength.Auto },
+                new RowDefinition { Height = new GridLength(1, GridUnitType.Star) },
+                new RowDefinition { Height = GridLength.Auto },
+            },
+            ColumnDefinitions =
+            {
+                new ColumnDefinition { Width = GridLength.Auto },
+                new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) },
+                new ColumnDefinition { Width = GridLength.Auto },
+            },
+        };
+
+        Add(grid, ResizeHandle.TopLeft, 0, 0, InputSystemCursorShape.SizeNorthwestSoutheast);
+        Add(grid, ResizeHandle.Top, 0, 1, InputSystemCursorShape.SizeNorthSouth);
+        Add(grid, ResizeHandle.TopRight, 0, 2, InputSystemCursorShape.SizeNortheastSouthwest);
+        Add(grid, ResizeHandle.Left, 1, 0, InputSystemCursorShape.SizeWestEast);
+        Add(grid, ResizeHandle.Right, 1, 2, InputSystemCursorShape.SizeWestEast);
+        Add(grid, ResizeHandle.BottomLeft, 2, 0, InputSystemCursorShape.SizeNortheastSouthwest);
+        Add(grid, ResizeHandle.Bottom, 2, 1, InputSystemCursorShape.SizeNorthSouth);
+        Add(grid, ResizeHandle.BottomRight, 2, 2, InputSystemCursorShape.SizeNorthwestSoutheast);
+
+        return grid;
+
+        void Add(Grid parent, ResizeHandle handle, int row, int column, InputSystemCursorShape cursor)
+        {
+            var dot = new ResizeHandleDot
+            {
+                Width = HandleSize,
+                Height = HandleSize,
+                CornerRadius = new CornerRadius(HandleSize / 2),
+                Background = ThemeBrush("AccentFillColorDefaultBrush", Colors.DodgerBlue),
+                BorderBrush = ThemeBrush("SolidBackgroundFillColorBaseBrush", Colors.White),
+                BorderThickness = new Thickness(1.5),
+                Margin = new Thickness(
+                    column == 0 ? -HandleSize / 2 : 0,
+                    row == 0 ? -HandleSize / 2 : 0,
+                    column == 2 ? -HandleSize / 2 : 0,
+                    row == 2 ? -HandleSize / 2 : 0),
+                HorizontalAlignment = HorizontalAlignment.Center,
+                VerticalAlignment = VerticalAlignment.Center,
+                Tag = handle,
+            };
+
+            dot.SetCursorShape(cursor);
+            Grid.SetRow(dot, row);
+            Grid.SetColumn(dot, column);
+            parent.Children.Add(dot);
+        }
+    }
+
+    // -----------------------------------------------------------------------------------------
+    // Input
+    // -----------------------------------------------------------------------------------------
+
+    private void OnPointerPressed(object sender, PointerRoutedEventArgs e)
+    {
+        if (!_host.EditMode)
+        {
+            return;
+        }
+
+        var point = e.GetCurrentPoint(this);
+        if (!point.Properties.IsLeftButtonPressed)
+        {
+            return;
+        }
+
+        _activeHandle = HitHandle(e.OriginalSource);
+        _dragStartRect = LiveRect;
+        _dragStartPoint = e.GetCurrentPoint(ParentSurface()).Position;
+        _dragging = CapturePointer(e.Pointer);
+
+        e.Handled = _dragging;
+    }
+
+    private void OnPointerMoved(object sender, PointerRoutedEventArgs e)
+    {
+        if (!_dragging)
+        {
+            return;
+        }
+
+        var metrics = _host.Metrics;
+        if (!metrics.IsUsable)
+        {
+            return;
+        }
+
+        var now = e.GetCurrentPoint(ParentSurface()).Position;
+        var dxFrac = (now.X - _dragStartPoint.X) / metrics.Width;
+        var dyFrac = (now.Y - _dragStartPoint.Y) / metrics.Height;
+
+        // [S-06] Alt temporarily suspends the snap aid for fine positioning.
+        var altHeld = InputKeyboardSource
+            .GetKeyStateForCurrentThread(Windows.System.VirtualKey.Menu)
+            .HasFlag(Windows.UI.Core.CoreVirtualKeyStates.Down);
+
+        var snap = _host.Design.GridSnap && !altHeld;
+
+        var proposed = _activeHandle is { } handle
+            ? GridGeometry.Resize(_dragStartRect, handle, dxFrac, dyFrac, metrics)
+            : GridGeometry.Move(_dragStartRect, dxFrac, dyFrac);
+
+        LiveRect = GridGeometry.Settle(proposed, metrics, snap);
+        _host.OnGeometryPreview(this);
+        e.Handled = true;
+    }
+
+    private void OnPointerReleased(object sender, PointerRoutedEventArgs e)
+    {
+        if (!_dragging)
+        {
+            return;
+        }
+
+        ReleasePointerCapture(e.Pointer);
+        EndDrag();
+        e.Handled = true;
+    }
+
+    private void OnPointerCaptureLost(object sender, PointerRoutedEventArgs e)
+    {
+        // Capture can be lost without a release (a display change, another window grabbing input).
+        // Committing here rather than dropping the gesture avoids a widget stuck mid-drag.
+        if (_dragging)
+        {
+            EndDrag();
+        }
+    }
+
+    private void EndDrag()
+    {
+        _dragging = false;
+        _activeHandle = null;
+        Model.Rect = LiveRect;
+        _host.OnGeometryCommitted(this);
+    }
+
+    private ResizeHandle? HitHandle(object? source)
+        => source is FrameworkElement { Tag: ResizeHandle handle } ? handle : null;
+
+    private UIElement ParentSurface() => Parent as UIElement ?? this;
+
+    private void OnDoubleTapped(object sender, DoubleTappedRoutedEventArgs e)
+    {
+        // The tray icon is the documented way in, but a double-click on a widget is the one people
+        // actually try — and it is the fallback if the tray icon failed to register.
+        _host.RequestEditMode(!_host.EditMode);
+        e.Handled = true;
+    }
+
+    private void OnRightTapped(object sender, RightTappedRoutedEventArgs e)
+    {
+        try
+        {
+            var menu = new MenuFlyout { Placement = FlyoutPlacementMode.BottomEdgeAlignedLeft };
+
+            menu.Items.Add(Item("", "Configure…", () => _host.RequestConfigure(this)));
+            menu.Items.Add(Item("", "Duplicate", () => _host.RequestDuplicate(this)));
+            menu.Items.Add(new MenuFlyoutSeparator());
+            menu.Items.Add(Item(
+                _host.EditMode ? "" : "",
+                _host.EditMode ? "Done editing" : "Edit layout",
+                () => _host.RequestEditMode(!_host.EditMode)));
+            menu.Items.Add(new MenuFlyoutSeparator());
+
+            var delete = Item("", "Delete", () => _host.RequestDelete(this));
+            menu.Items.Add(delete);
+
+            menu.ShowAt(this, e.GetPosition(this));
+            e.Handled = true;
+        }
+        catch (Exception ex)
+        {
+            Log.Error(Scope, "could not open the widget context menu", ex);
+        }
+
+        static MenuFlyoutItem Item(string glyph, string text, Action action)
+        {
+            var item = new MenuFlyoutItem
+            {
+                Text = text,
+                Icon = new FontIcon { Glyph = glyph },
+            };
+
+            item.Click += (_, _) => action();
+            return item;
+        }
+    }
+
+    // -----------------------------------------------------------------------------------------
+
+    /// <summary>
+    /// A resize grip.
+    /// <para>
+    /// A subclass only because <c>UIElement.ProtectedCursor</c> is protected: a resize handle whose
+    /// pointer does not change shape reads as decoration rather than something you can grab, and
+    /// the shape is the whole affordance. It derives from <see cref="Grid"/> rather than
+    /// <c>Rectangle</c> because WinUI seals its shape primitives.
+    /// </para>
+    /// </summary>
+    private sealed partial class ResizeHandleDot : Grid
+    {
+        public void SetCursorShape(InputSystemCursorShape shape)
+            => ProtectedCursor = InputSystemCursor.Create(shape);
+    }
+
+    /// <summary>
+    /// Look a Fluent theme brush up by key, falling back to a literal only if the resource is
+    /// missing. Using the stock keys is what makes the widgets track the system light/dark theme
+    /// and accent colour without any colour of our own.
+    /// </summary>
+    private static Brush ThemeBrush(string key, Windows.UI.Color fallback)
+    {
+        if (Application.Current.Resources.TryGetValue(key, out var value) && value is Brush brush)
+        {
+            return brush;
+        }
+
+        Log.Warn(Scope, $"theme resource '{key}' missing; using a literal colour");
+        return new SolidColorBrush(fallback);
+    }
+}

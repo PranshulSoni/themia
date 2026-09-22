@@ -1,0 +1,313 @@
+using System.Runtime.InteropServices;
+
+namespace Themia.App.Interop;
+
+/// <summary>
+/// Raw Win32 surface. Every entry point uses <see cref="LibraryImportAttribute"/> so the marshalling
+/// stubs are source generated at build time — <c>DllImport</c> builds them with runtime IL emission,
+/// which does not exist under Native AOT.
+/// </summary>
+internal static partial class Win32
+{
+    // ---- window styles -------------------------------------------------------------------
+
+    internal const int GwlExStyle = -20;
+
+    internal const uint WsExNoActivate = 0x08000000;
+    internal const uint WsExToolWindow = 0x00000080;
+    internal const uint WsExTopmost = 0x00000008;
+    internal const uint WsExTransparent = 0x00000020;
+    internal const uint WsExAppWindow = 0x00040000;
+
+    // ---- SetWindowPos --------------------------------------------------------------------
+
+    internal static readonly nint HwndTop = 0;
+    internal static readonly nint HwndBottom = 1;
+    internal static readonly nint HwndTopmost = -1;
+    internal static readonly nint HwndNoTopmost = -2;
+
+    internal const uint SwpNoSize = 0x0001;
+    internal const uint SwpNoMove = 0x0002;
+    internal const uint SwpNoActivate = 0x0010;
+    internal const uint SwpFrameChanged = 0x0020;
+    internal const uint SwpNoOwnerZOrder = 0x0200;
+
+    [LibraryImport("user32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static partial bool SetWindowPos(nint hWnd, nint hWndInsertAfter, int x, int y, int cx, int cy, uint flags);
+
+    [LibraryImport("user32.dll", EntryPoint = "GetWindowLongPtrW", SetLastError = true)]
+    internal static partial nint GetWindowLongPtr(nint hWnd, int nIndex);
+
+    [LibraryImport("user32.dll", EntryPoint = "SetWindowLongPtrW", SetLastError = true)]
+    internal static partial nint SetWindowLongPtr(nint hWnd, int nIndex, nint dwNewLong);
+
+    [LibraryImport("user32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static partial bool IsWindow(nint hWnd);
+
+    [LibraryImport("user32.dll")]
+    internal static partial uint GetDpiForWindow(nint hWnd);
+
+    [LibraryImport("user32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static partial bool GetClientRect(nint hWnd, out Rect lpRect);
+
+    [LibraryImport("user32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static partial bool GetCursorPos(out Point lpPoint);
+
+    [LibraryImport("user32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static partial bool SetForegroundWindow(nint hWnd);
+
+    // ---- regions (desktop click-through mask) ---------------------------------------------
+
+    internal const int RgnOr = 2;
+
+    [LibraryImport("gdi32.dll", SetLastError = true)]
+    internal static partial nint CreateRectRgn(int left, int top, int right, int bottom);
+
+    [LibraryImport("gdi32.dll", SetLastError = true)]
+    internal static partial int CombineRgn(nint dest, nint src1, nint src2, int mode);
+
+    [LibraryImport("gdi32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static partial bool DeleteObject(nint hObject);
+
+    [LibraryImport("user32.dll", SetLastError = true)]
+    internal static partial int SetWindowRgn(nint hWnd, nint hRgn, [MarshalAs(UnmanagedType.Bool)] bool redraw);
+
+    // ---- monitors -------------------------------------------------------------------------
+
+    [LibraryImport("user32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static partial bool EnumDisplayMonitors(nint hdc, nint lprcClip, nint lpfnEnum, nint dwData);
+
+    [LibraryImport("user32.dll", EntryPoint = "GetMonitorInfoW", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static partial bool GetMonitorInfo(nint hMonitor, ref MonitorInfoEx lpmi);
+
+    [LibraryImport("shcore.dll")]
+    internal static partial int GetDpiForMonitor(nint hMonitor, int dpiType, out uint dpiX, out uint dpiY);
+
+    // ---- tray icon -------------------------------------------------------------------------
+
+    internal const uint NimAdd = 0x00000000;
+    internal const uint NimModify = 0x00000001;
+    internal const uint NimDelete = 0x00000002;
+    internal const uint NimSetVersion = 0x00000004;
+
+    internal const uint NifMessage = 0x00000001;
+    internal const uint NifIcon = 0x00000002;
+    internal const uint NifTip = 0x00000004;
+
+    [LibraryImport("shell32.dll", EntryPoint = "Shell_NotifyIconW", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static partial bool ShellNotifyIcon(uint dwMessage, ref NotifyIconData lpData);
+
+    // ---- menus ---------------------------------------------------------------------------
+
+    internal const uint MfString = 0x00000000;
+    internal const uint MfSeparator = 0x00000800;
+    internal const uint MfChecked = 0x00000008;
+    internal const uint MfDisabled = 0x00000002;
+    internal const uint MfGrayed = 0x00000001;
+
+    internal const uint TpmRightButton = 0x0002;
+    internal const uint TpmReturnCmd = 0x0100;
+    internal const uint TpmRightAlign = 0x0008;
+    internal const uint TpmBottomAlign = 0x0020;
+
+    [LibraryImport("user32.dll", SetLastError = true)]
+    internal static partial nint CreatePopupMenu();
+
+    [LibraryImport("user32.dll", EntryPoint = "AppendMenuW", SetLastError = true, StringMarshalling = StringMarshalling.Utf16)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static partial bool AppendMenu(nint hMenu, uint flags, nuint idNewItem, string? lpNewItem);
+
+    [LibraryImport("user32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static partial bool DestroyMenu(nint hMenu);
+
+    [LibraryImport("user32.dll", SetLastError = true)]
+    internal static partial int TrackPopupMenuEx(nint hMenu, uint flags, int x, int y, nint hWnd, nint lptpm);
+
+    // ---- message-only window ----------------------------------------------------------------
+
+    internal const uint WmDestroy = 0x0002;
+    internal const uint WmCommand = 0x0111;
+    internal const uint WmUser = 0x0400;
+    internal const uint WmTrayCallback = WmUser + 1;
+
+    internal const uint WmLButtonUp = 0x0202;
+    internal const uint WmRButtonUp = 0x0205;
+    internal const uint WmLButtonDblClk = 0x0203;
+
+    internal static readonly nint HwndMessage = -3;
+
+    [LibraryImport("user32.dll", EntryPoint = "CreateWindowExW", SetLastError = true, StringMarshalling = StringMarshalling.Utf16)]
+    internal static partial nint CreateWindowEx(
+        uint exStyle,
+        string lpClassName,
+        string? lpWindowName,
+        uint style,
+        int x,
+        int y,
+        int width,
+        int height,
+        nint hWndParent,
+        nint hMenu,
+        nint hInstance,
+        nint lpParam);
+
+    [LibraryImport("user32.dll", EntryPoint = "DestroyWindow", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static partial bool DestroyWindow(nint hWnd);
+
+    [LibraryImport("user32.dll", EntryPoint = "DefWindowProcW")]
+    internal static partial nint DefWindowProc(nint hWnd, uint msg, nint wParam, nint lParam);
+
+    [LibraryImport("user32.dll", EntryPoint = "RegisterWindowMessageW", SetLastError = true, StringMarshalling = StringMarshalling.Utf16)]
+    internal static partial uint RegisterWindowMessage(string lpString);
+
+    [LibraryImport("user32.dll", EntryPoint = "RegisterClassExW", SetLastError = true)]
+    internal static partial ushort RegisterClassEx(ref WndClassEx lpwcx);
+
+    [LibraryImport("kernel32.dll", EntryPoint = "GetModuleHandleW", SetLastError = true, StringMarshalling = StringMarshalling.Utf16)]
+    internal static partial nint GetModuleHandle(string? lpModuleName);
+
+    [LibraryImport("user32.dll", EntryPoint = "LoadImageW", SetLastError = true, StringMarshalling = StringMarshalling.Utf16)]
+    internal static partial nint LoadImage(nint hInst, string name, uint type, int cx, int cy, uint fuLoad);
+
+    [LibraryImport("user32.dll", EntryPoint = "LoadIconW", SetLastError = true)]
+    internal static partial nint LoadIcon(nint hInstance, nint lpIconName);
+
+    [LibraryImport("user32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static partial bool DestroyIcon(nint hIcon);
+
+    internal const uint ImageIcon = 1;
+    internal const uint LrLoadFromFile = 0x00000010;
+    internal const uint LrDefaultSize = 0x00000040;
+    internal const uint LrShared = 0x00008000;
+
+    // ---- structs ---------------------------------------------------------------------------
+
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct Point
+    {
+        public int X;
+        public int Y;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct Rect
+    {
+        public int Left;
+        public int Top;
+        public int Right;
+        public int Bottom;
+
+        public readonly int Width => Right - Left;
+
+        public readonly int Height => Bottom - Top;
+    }
+
+    /// <summary>
+    /// Blittable by design: the inline character buffers are declared with <c>fixed</c> rather than
+    /// <c>ByValTStr</c>, because a struct needing custom string marshalling cannot be handled by a
+    /// source-generated P/Invoke (SYSLIB1051) — and source generation is what lets these calls work
+    /// under Native AOT. It is also the faster path: the struct is passed straight through with no
+    /// marshalling stub at all.
+    /// </summary>
+    [StructLayout(LayoutKind.Sequential)]
+    internal unsafe struct MonitorInfoEx
+    {
+        public int Size;
+        public Rect Monitor;
+        public Rect Work;
+        public uint Flags;
+        public fixed char DeviceNameBuffer[32];
+
+        public readonly string DeviceName
+        {
+            get
+            {
+                fixed (char* name = DeviceNameBuffer)
+                {
+                    return ReadFixed(name, 32);
+                }
+            }
+        }
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    internal unsafe struct NotifyIconData
+    {
+        public int Size;
+        public nint Wnd;
+        public uint Id;
+        public uint Flags;
+        public uint CallbackMessage;
+        public nint Icon;
+        public fixed char TipBuffer[128];
+        public uint State;
+        public uint StateMask;
+        public fixed char InfoBuffer[256];
+        public uint VersionOrTimeout;
+        public fixed char InfoTitleBuffer[64];
+        public uint InfoFlags;
+        public Guid ItemGuid;
+        public nint BalloonIcon;
+
+        public void SetTip(string value)
+        {
+            fixed (char* tip = TipBuffer)
+            {
+                WriteFixed(tip, 128, value);
+            }
+        }
+    }
+
+    /// <summary>Read a possibly-unterminated fixed buffer as a string.</summary>
+    private static unsafe string ReadFixed(char* buffer, int capacity)
+    {
+        var length = 0;
+        while (length < capacity && buffer[length] != '\0')
+        {
+            length++;
+        }
+
+        return new string(buffer, 0, length);
+    }
+
+    /// <summary>Copy a string into a fixed buffer, truncating to leave room for the terminator.</summary>
+    private static unsafe void WriteFixed(char* buffer, int capacity, string value)
+    {
+        var length = Math.Min(value.Length, capacity - 1);
+        for (var i = 0; i < length; i++)
+        {
+            buffer[i] = value[i];
+        }
+
+        buffer[length] = '\0';
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct WndClassEx
+    {
+        public uint Size;
+        public uint Style;
+        public nint WndProc;
+        public int ClsExtra;
+        public int WndExtra;
+        public nint Instance;
+        public nint Icon;
+        public nint Cursor;
+        public nint Background;
+        public nint MenuName;
+        public nint ClassName;
+        public nint IconSm;
+    }
+}
