@@ -273,14 +273,38 @@ internal sealed partial class EmailView : Grid, IWidgetView
             });
         }
 
-        return new Border
+        var row = new Border
         {
             Child = stack,
-            Padding = new Thickness(0, 7, 0, 7),
+            Padding = new Thickness(8, 7, 8, 7),
+            Margin = new Thickness(-8, 0, -8, 0),
+            CornerRadius = new CornerRadius(4),
+            Background = Transparent,
             BorderBrush = ThemeBrush("DividerStrokeColorDefaultBrush", Colors.Gray),
             BorderThickness = new Thickness(0, 0, 0, 1),
         };
+
+        // Hover, the way every list on Windows does it. Done by hand rather than with a ListView
+        // because the rows are a custom layout, but the brush is the stock one so it tracks the
+        // theme and the accent. PointerExited alone is not enough: the pointer can leave without it
+        // when the list scrolls or the widget is torn down mid-hover, which would strand a row lit.
+        row.PointerEntered += (_, _) => row.Background = ThemeBrush("SubtleFillColorSecondaryBrush", Colors.Gray);
+        row.PointerExited += (_, _) => row.Background = Transparent;
+        row.PointerCaptureLost += (_, _) => row.Background = Transparent;
+        row.PointerCanceled += (_, _) => row.Background = Transparent;
+
+        ToolTipService.SetToolTip(row, message.Who + Environment.NewLine + message.Subject);
+        return row;
     }
+
+    /// <summary>
+    /// A shared transparent brush for the rows' rest state.
+    /// <para>
+    /// Transparent rather than null: a null background is not hit-testable, so the row would never
+    /// raise the pointer events the hover depends on.
+    /// </para>
+    /// </summary>
+    private static readonly SolidColorBrush Transparent = new(Colors.Transparent);
 
     /// <summary>Say what is actually wrong, because every one of these needs a different action.</summary>
     private string EmptyMessage() => _mail?.Status switch

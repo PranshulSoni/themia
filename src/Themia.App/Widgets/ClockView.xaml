@@ -7,63 +7,53 @@
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
     mc:Ignorable="d">
 
-    <Grid>
+    <Grid x:Name="Root">
 
         <!--
-            Digital face. A Viewbox rather than a font size: the widget is freely resizable, so the
-            time should fill whatever box the user drew instead of being clipped or marooned.
+            Digital face. Font sizes are computed from the tile in code-behind rather than fixed
+            here, so the clock fills whatever box the user drew. Deliberately not a Viewbox: that
+            stretches an already-rendered glyph, and text laid out at 48px and blown up four times
+            is soft where text laid out at 192px is sharp.
         -->
-        <Viewbox
-            x:Name="DigitalRoot"
-            Stretch="Uniform"
-            StretchDirection="DownOnly"
-            HorizontalAlignment="Center"
-            VerticalAlignment="Center">
+        <Grid x:Name="DigitalRoot" HorizontalAlignment="Center" VerticalAlignment="Center">
             <StackPanel HorizontalAlignment="Center">
                 <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" Spacing="6">
                     <TextBlock
                         x:Name="TimeText"
-                        FontSize="48"
                         FontWeight="SemiBold"
+                        LineHeight="0"
                         Foreground="{ThemeResource TextFillColorPrimaryBrush}"
                         VerticalAlignment="Center"
-                        Text="00:00">
-                        <TextBlock.RenderTransform>
-                            <TranslateTransform />
-                        </TextBlock.RenderTransform>
-                    </TextBlock>
+                        Text="00:00" />
                     <TextBlock
                         x:Name="MeridiemText"
-                        FontSize="16"
                         FontWeight="SemiBold"
                         Foreground="{ThemeResource TextFillColorSecondaryBrush}"
                         VerticalAlignment="Bottom"
-                        Margin="0,0,0,8"
                         Visibility="Collapsed"
                         Text="AM" />
                 </StackPanel>
                 <TextBlock
                     x:Name="DateText"
-                    FontSize="14"
                     HorizontalAlignment="Center"
+                    TextTrimming="CharacterEllipsis"
                     Foreground="{ThemeResource TextFillColorSecondaryBrush}"
                     Text="" />
             </StackPanel>
-        </Viewbox>
+        </Grid>
 
-        <!-- Analog face. Laid out in a fixed 100x100 space and scaled by the Viewbox. -->
+        <!-- Analog face. Laid out in a fixed 100x100 space; the Viewbox scales it to fill the tile,
+             which is correct here because it is vector geometry, not text. -->
         <Viewbox
             x:Name="AnalogRoot"
             Stretch="Uniform"
-            Visibility="Collapsed"
-            Margin="4">
+            Visibility="Collapsed">
             <Grid Width="100" Height="100">
                 <Ellipse
                     Stroke="{ThemeResource TextFillColorSecondaryBrush}"
                     StrokeThickness="1.5"
                     Fill="Transparent" />
 
-                <!-- Hands pivot about the centre of the 100x100 face. -->
                 <Rectangle
                     x:Name="HourHand"
                     Width="3.5"

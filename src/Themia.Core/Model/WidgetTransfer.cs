@@ -76,4 +76,64 @@ public static class WidgetTransfer
         var target = state.FindView(targetViewId) ?? state.ActiveView();
         target.Widgets.Add(plan.Widget);
     }
+
+    /// <summary>
+    /// Give each display a view of its own, once.
+    /// <para>
+    /// Without this every display falls back to the <i>active</i> view, so the same widgets are
+    /// drawn on all of them — and dragging one to another screen is then a no-op by definition
+    /// ([S-76]), because it is already there. Per-display views are also what makes "show a
+    /// different layout on the second monitor" possible at all.
+    /// </para>
+    /// <para>
+    /// Idempotent and stable: a display keeps whatever it was assigned, existing views are handed
+    /// out before new ones are made, and a view already claimed by another display is never taken.
+    /// Returns the number of views it had to create.
+    /// </para>
+    /// </summary>
+    public static int EnsureViewPerDisplay(this AppState state, IReadOnlyList<string> displayIds)
+    {
+        ArgumentNullException.ThrowIfNull(state);
+        ArgumentNullException.ThrowIfNull(displayIds);
+
+        if (displayIds.Count == 0)
+        {
+            return 0;
+        }
+
+        // Only assignments naming a view that still exists count as taken; a dangling one is free
+        // to be replaced.
+        var taken = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var (display, viewId) in state.MonitorViews)
+        {
+            if (displayIds.Contains(display) && state.FindView(viewId) is not null)
+            {
+                taken.Add(viewId);
+            }
+        }
+
+        var created = 0;
+
+        foreach (var display in displayIds)
+        {
+            if (state.MonitorViews.TryGetValue(display, out var existing) && state.FindView(existing) is not null)
+            {
+                continue;
+            }
+
+            var free = state.Views.FirstOrDefault(v => !taken.Contains(v.Id));
+
+            if (free is null)
+            {
+                free = ViewState.Create($"Display {state.Views.Count + 1}");
+                state.Views.Add(free);
+                created++;
+            }
+
+            state.MonitorViews[display] = free.Id;
+            taken.Add(free.Id);
+        }
+
+        return created;
+    }
 }

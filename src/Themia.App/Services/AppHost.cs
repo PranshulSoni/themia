@@ -217,6 +217,16 @@ internal sealed class AppHost : IDisposable
             return;
         }
 
+        // Give each display a view of its own before any surface is built. Without this every
+        // display falls back to the active view, so the same widgets are drawn on all of them and
+        // dragging one to another screen is a no-op by definition - it is already there.
+        var created = State.EnsureViewPerDisplay([.. monitors.Select(m => m.DeviceName)]);
+        if (created > 0)
+        {
+            Log.Info(Scope, $"created {created} view(s) so every display has one of its own");
+            _store.SaveSoon(State);
+        }
+
         foreach (var window in _windows)
         {
             window.CloseSurface();

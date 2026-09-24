@@ -20,6 +20,7 @@ public sealed partial class ClockView : UserControl, IWidgetView
     public ClockView()
     {
         InitializeComponent();
+        Root.SizeChanged += (_, _) => ApplyTypeScale();
         Unloaded += (_, _) => Detach();
     }
 
@@ -41,7 +42,40 @@ public sealed partial class ClockView : UserControl, IWidgetView
         DateText.Visibility = _config.ShowDate ? Visibility.Visible : Visibility.Collapsed;
         MeridiemText.Visibility = _config.Use24Hour ? Visibility.Collapsed : Visibility.Visible;
 
+        ApplyTypeScale();
         Resubscribe();
+    }
+
+    /// <summary>
+    /// Size the text to the tile so the clock fills whatever box it was given.
+    /// <para>
+    /// The time is measured against both axes: against width because a long string like
+    /// <c>12:34:56 PM</c> needs far more of it than <c>09:05</c>, and against height because a wide,
+    /// short tile would otherwise clip. The date takes its share out of the height first, so adding
+    /// it shrinks the time rather than pushing it out of the tile.
+    /// </para>
+    /// </summary>
+    private void ApplyTypeScale()
+    {
+        var width = Root.ActualWidth;
+        var height = Root.ActualHeight;
+
+        // Roughly how wide one glyph is relative to the font size, times the number of them: a
+        // 5-character clock wants a much larger size than an 11-character one in the same box.
+        var characters = (_config.ShowSeconds ? 8 : 5) + (_config.Use24Hour ? 0 : 3);
+        var widthFactor = 1.0 / (characters * 0.62);
+
+        var timeShare = _config.ShowDate ? 0.62 : 0.85;
+
+        TimeText.FontSize = TypeScale.Fit(width, height, widthFactor, timeShare, 14, 240);
+        TimeText.LineHeight = TimeText.FontSize * 1.05;
+
+        MeridiemText.FontSize = Math.Max(9, TimeText.FontSize * 0.28);
+        MeridiemText.Margin = new Thickness(0, 0, 0, TimeText.FontSize * 0.12);
+
+        // Its own clamp rather than a fraction of the time: on a very large tile a proportional date
+        // becomes a second headline competing with the clock.
+        DateText.FontSize = TypeScale.Fit(width, height, widthFactor * 0.42, 0.14, 10, 34);
     }
 
     private void Resubscribe()

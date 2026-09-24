@@ -7,6 +7,7 @@ using Microsoft.UI.Xaml.Shapes;
 using Themia.App.Services;
 using Themia.Core.Diagnostics;
 using Themia.Core.Model;
+using Themia.Core.Widgets;
 using Windows.Foundation;
 
 namespace Themia.App.Widgets;
@@ -67,8 +68,12 @@ internal sealed partial class MeterView : Grid, IWidgetView
 
         _trace.Stroke = ThemeBrush("AccentFillColorDefaultBrush", Colors.DodgerBlue);
         _trace.StrokeThickness = 1.5;
-        _trace.Opacity = 0.35;
+        _trace.Opacity = 0.45;
         _trace.IsHitTestVisible = false;
+
+        // Stretch.None: the points are already computed against the host's measured size, so letting
+        // the shape scale them again would distort the trace.
+        _trace.Stretch = Stretch.None;
 
         _traceHost.Children.Add(_trace);
         _traceHost.IsHitTestVisible = false;
@@ -81,14 +86,53 @@ internal sealed partial class MeterView : Grid, IWidgetView
             Children = { _icon, _title },
         };
 
-        var stack = new StackPanel
-        {
-            VerticalAlignment = VerticalAlignment.Center,
-            Children = { header, _primary, _bar, _secondary },
-        };
+        // Rows: header and footer take what they need, the middle stretches. That is what makes the
+        // meter fill its tile however it is resized — the same shape the original uses, where the
+        // graph is `flex: 1` and the labels are `flex-shrink: 0`.
+        RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
+        RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
 
-        Children.Add(_traceHost);
-        Children.Add(stack);
+        Grid.SetRow(header, 0);
+
+        // The reading sits over the trace rather than beside it, so neither has to give up width.
+        _primary.HorizontalAlignment = HorizontalAlignment.Left;
+        _primary.VerticalAlignment = VerticalAlignment.Center;
+
+        var middle = new Grid { Children = { _traceHost, _primary } };
+        Grid.SetRow(middle, 1);
+
+        var footer = new StackPanel { Children = { _bar, _secondary } };
+        Grid.SetRow(footer, 2);
+
+        Children.Add(header);
+        Children.Add(middle);
+        Children.Add(footer);
+
+        SizeChanged += (_, _) => ApplyTypeScale();
+    }
+
+    /// <summary>
+    /// Size the readout to the tile. The number is the thing that should grow; the title and the
+    /// caption stay close to their natural size, because a meter whose label is as big as its value
+    /// reads as two competing headlines.
+    /// </summary>
+    private void ApplyTypeScale()
+    {
+        var width = ActualWidth;
+        var height = ActualHeight;
+
+        // Four characters at most ("100%"), so the width factor is generous compared to the clock's.
+        _primary.FontSize = TypeScale.Fit(width, height, 0.30, 0.34, 16, 96);
+
+        _title.FontSize = TypeScale.Fit(width, height, 0.10, 0.12, 10, 20);
+        _icon.FontSize = _title.FontSize;
+        _secondary.FontSize = TypeScale.Fit(width, height, 0.075, 0.09, 9, 16);
+
+        // The bar is part of the readout, so it thickens with everything else rather than staying a
+        // hairline on a large tile.
+        _bar.Height = Math.Clamp(height * 0.04, 3, 10);
+        _bar.Margin = new Thickness(0, 4, 0, 4);
     }
 
     public void Attach(Ticker ticker, WidgetConfig config)
