@@ -1,7 +1,7 @@
 using Microsoft.UI;
-using Microsoft.UI.Text;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Documents;
 using Microsoft.UI.Xaml.Media;
 using Themia.App.Services;
 using Themia.App.Shell;
@@ -24,21 +24,27 @@ internal sealed partial class ProcessesView : Grid, IWidgetView
     private const string Scope = "processes-widget";
 
     /// <summary>
-    /// The shortest a row may be and still be read.
+    /// The height of a row: Fluent's compact list row, the same one Task Manager and Explorer's
+    /// details view use.
     /// <para>
-    /// The row count is a setting, but the tile's height is not — twenty rows in a 140px widget is
-    /// seven pixels each, which is a texture rather than a list. The tile wins: it shows as many of
-    /// the requested rows as it can actually render, and they are the top of the ranking, which is
-    /// the part worth seeing.
+    /// A fixed height, not a fraction of the tile. The row count is a setting, but the tile's height
+    /// is not — twenty rows in a 140px widget is seven pixels each, which is a texture rather than a
+    /// list, and rows that grow with the window are a web idea that reads as the wrong application
+    /// next to Explorer. The tile shows as many rows of the right height as it has room for, and
+    /// they are the top of the ranking, which is the part worth seeing.
     /// </para>
     /// </summary>
-    private const double MinimumRowHeight = 14;
+    private const double RowHeight = Fluent.RowHeightCompact;
 
     private readonly TextBlock _title = new();
-    private readonly FontIcon _icon = new();
-    private readonly TextBlock _caption = new();
+    private readonly TextBlock _caption = Fluent.Text(FluentType.Caption, "TextFillColorTertiaryBrush");
+
+    // The Grid is what the rows are measured against: it is stretched by its star row, so its height
+    // is the space the list actually has. The StackPanel inside it holds the rows at their own fixed
+    // height, top down.
     private readonly Grid _list = new();
-    private readonly TextBlock _empty = new();
+    private readonly StackPanel _stack = new();
+    private readonly TextBlock _empty = Fluent.Text(FluentType.Body, "TextFillColorSecondaryBrush");
     private readonly List<Row> _rows = [];
 
     private Ticker? _ticker;
@@ -51,49 +57,25 @@ internal sealed partial class ProcessesView : Grid, IWidgetView
     public ProcessesView()
     {
         var definition = WidgetCatalog.Definition(WidgetKind.Processes);
-        var muted = FluentLayout.Themed("TextFillColorSecondaryBrush", Colors.Gray);
-
-        _icon.Glyph = definition.Glyph;
-        _icon.Foreground = muted;
-        _icon.VerticalAlignment = VerticalAlignment.Center;
 
         _title.Text = definition.Label;
-        _title.Foreground = muted;
-        _title.FontWeight = FontWeights.SemiBold;
-        _title.VerticalAlignment = VerticalAlignment.Center;
 
         // Which column the ranking is on. Without it the list is ambiguous the moment two processes
         // have similar numbers in both columns.
-        _caption.Foreground = FluentLayout.Themed("TextFillColorTertiaryBrush", Colors.Gray);
-        _caption.VerticalAlignment = VerticalAlignment.Center;
         _caption.HorizontalAlignment = HorizontalAlignment.Right;
 
-        var header = new Grid
-        {
-            Margin = new Thickness(WidgetLayout.ContentInset, WidgetLayout.ContentInset, WidgetLayout.ContentInset, 4),
-            ColumnDefinitions =
-            {
-                new ColumnDefinition { Width = GridLength.Auto },
-                new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) },
-                new ColumnDefinition { Width = GridLength.Auto },
-            },
-        };
+        var header = Fluent.Header(definition.Glyph, _title, _caption);
+        header.Margin = Fluent.HeaderMargin;
 
-        Grid.SetColumn(_icon, 0);
-        Grid.SetColumn(_title, 1);
-        Grid.SetColumn(_caption, 2);
-        _title.Margin = new Thickness(6, 0, 0, 0);
+        _stack.VerticalAlignment = VerticalAlignment.Top;
+        _list.Children.Add(_stack);
 
-        header.Children.Add(_icon);
-        header.Children.Add(_title);
-        header.Children.Add(_caption);
-
-        _empty.Foreground = FluentLayout.Themed("TextFillColorTertiaryBrush", Colors.Gray);
+        _empty.TextWrapping = TextWrapping.Wrap;
+        _empty.TextTrimming = TextTrimming.None;
         _empty.HorizontalAlignment = HorizontalAlignment.Center;
         _empty.VerticalAlignment = VerticalAlignment.Center;
         _empty.Padding = WidgetLayout.SideInset;
         _empty.TextAlignment = TextAlignment.Center;
-        _empty.TextWrapping = TextWrapping.Wrap;
         _empty.Visibility = Visibility.Collapsed;
 
         RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
@@ -110,8 +92,8 @@ internal sealed partial class ProcessesView : Grid, IWidgetView
         SizeChanged += OnSizeChanged;
 
         // The list's own size, as well as the widget's: when the card is resized the parent's
-        // SizeChanged runs before its children have been arranged, so the row height read there is
-        // the previous layout's. This one carries the height the rows actually got.
+        // SizeChanged runs before its children have been arranged, so the height read there is the
+        // previous layout's. This one carries the height the rows actually got.
         _list.SizeChanged += OnSizeChanged;
     }
 
@@ -179,7 +161,7 @@ internal sealed partial class ProcessesView : Grid, IWidgetView
         Render();
     }
 
-    /// <summary>How many rows this tile can render at a readable height.</summary>
+    /// <summary>How many whole rows this tile has room to draw.</summary>
     private int Capacity()
     {
         var height = _list.ActualHeight;
@@ -191,7 +173,7 @@ internal sealed partial class ProcessesView : Grid, IWidgetView
             return _config.EffectiveMaxCount;
         }
 
-        return Math.Max(1, (int)(height / MinimumRowHeight));
+        return Math.Max(1, (int)(height / RowHeight));
     }
 
     /// <summary>
@@ -218,18 +200,14 @@ internal sealed partial class ProcessesView : Grid, IWidgetView
         {
             _rows[i].Show(_latest[i], _config.ShowMemory);
         }
-
-        ApplyTypeScale();
     }
 
     /// <summary>
     /// Grows or shrinks the list to <paramref name="count"/> rows.
     /// <para>
-    /// Star-sized rows rather than fixed heights, so the list fills the tile exactly at any size
-    /// without the view having to compute — or recompute on every resize — what each row is worth.
     /// Rows beyond the count are collapsed rather than removed: the count moves when the user drags
-    /// the row slider, and destroying and rebuilding visuals through that drag is what made the
-    /// list flicker.
+    /// the row slider, and destroying and rebuilding visuals through that drag is what made the list
+    /// flicker.
     /// </para>
     /// </summary>
     private void Resize(int count)
@@ -238,64 +216,30 @@ internal sealed partial class ProcessesView : Grid, IWidgetView
         {
             var row = new Row();
             _rows.Add(row);
-            _list.Children.Add(row.Host);
-        }
-
-        while (_list.RowDefinitions.Count < count)
-        {
-            _list.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
-        }
-
-        while (_list.RowDefinitions.Count > count)
-        {
-            _list.RowDefinitions.RemoveAt(_list.RowDefinitions.Count - 1);
+            _stack.Children.Add(row.Host);
         }
 
         for (var i = 0; i < _rows.Count; i++)
         {
-            var visible = i < count;
-            _rows[i].Host.Visibility = visible ? Visibility.Visible : Visibility.Collapsed;
-
-            if (visible)
-            {
-                Grid.SetRow(_rows[i].Host, i);
-            }
+            _rows[i].Host.Visibility = i < count ? Visibility.Visible : Visibility.Collapsed;
         }
     }
 
     private void OnSizeChanged(object sender, SizeChangedEventArgs e)
     {
-        ApplyTypeScale();
+        // A torn-down widget has no rows left to re-fit, and rebuilding them here would hand new
+        // hover handlers to a view nothing will ever detach again.
+        if (_detached)
+        {
+            return;
+        }
 
-        // A shorter tile holds fewer readable rows, so a resize can change what the list should
-        // contain and not just how big it is. Redrawn from the sample already in hand; the next
-        // tick refills it if the tile grew.
+        // A shorter tile holds fewer rows, so a resize can change what the list should contain and
+        // not just how big it is. Redrawn from the sample already in hand; the next tick refills it
+        // if the tile grew.
         if (_latest.Count > Capacity())
         {
             Render();
-        }
-    }
-
-    /// <summary>
-    /// Size the text to the tile. The row height is what the numbers have to fit inside, so it —
-    /// not the widget height — is what the row font scales against.
-    /// </summary>
-    private void ApplyTypeScale()
-    {
-        var width = ActualWidth;
-        var height = ActualHeight;
-
-        _title.FontSize = TypeScale.Fit(width, height, 0.055, 0.10, 10, 20);
-        _icon.FontSize = _title.FontSize;
-        _caption.FontSize = TypeScale.Fit(width, height, 0.040, 0.075, 9, 15);
-
-        var visible = Math.Max(1, _list.RowDefinitions.Count);
-        var rowHeight = _list.ActualHeight > 0 ? _list.ActualHeight / visible : MinimumRowHeight;
-        var font = TypeScale.Fit(width, rowHeight, 0.060, 0.52, 9, 26);
-
-        foreach (var row in _rows)
-        {
-            row.Scale(font, rowHeight);
         }
     }
 
@@ -304,43 +248,56 @@ internal sealed partial class ProcessesView : Grid, IWidgetView
         _detached = true;
         _subscription?.Dispose();
         _subscription = null;
+
+        // The rows go with the subscription that fed them, hover handlers and all: a handler left
+        // hooked keeps its row alive and re-lights it after teardown. Attach rebuilds them on the
+        // first sample, which is what a re-attached widget draws anyway.
+        foreach (var row in _rows)
+        {
+            row.Detach();
+        }
+
+        _rows.Clear();
+        _stack.Children.Clear();
     }
-
-
-    /// <summary>
-    /// A shared transparent brush for the rows' rest state.
-    /// <para>
-    /// Transparent rather than null: a null background is not hit-testable, so the row would never
-    /// raise the pointer events the hover depends on.
-    /// </para>
-    /// </summary>
-    private static readonly SolidColorBrush Transparent = new(Colors.Transparent);
 
     /// <summary>
     /// One row's visuals, kept so a sample can rewrite them instead of replacing them.
     /// </summary>
     private sealed class Row
     {
-        private readonly TextBlock _name = new();
-        private readonly TextBlock _cpu = new();
-        private readonly TextBlock _memory = new();
+        /// <summary>The width the numeric columns hold open, so the name column does not jog.</summary>
+        private const double CpuWidth = Fluent.Space6 * 2;
+
+        private const double MemoryWidth = Fluent.Space4 * 4;
+
+        // A value that could not be read is a colour, not an opacity: the same disabled brush every
+        // other unavailable thing on the desktop uses, so it follows the theme. Shared by every row,
+        // because a stock brush looked up twenty times is the same brush twenty times.
+        private static readonly Brush KnownBrush = FluentLayout.Themed("TextFillColorSecondaryBrush", Colors.Gray);
+
+        private static readonly Brush UnknownBrush = FluentLayout.Themed("TextFillColorDisabledBrush", Colors.Gray);
+
+        private readonly TextBlock _name = Fluent.Text(FluentType.Body);
+        private readonly TextBlock _cpu = Fluent.Text(FluentType.Body, "TextFillColorSecondaryBrush");
+        private readonly TextBlock _memory = Fluent.Text(FluentType.Body, "TextFillColorSecondaryBrush");
+        private readonly IDisposable _hover;
 
         public Row()
         {
-            _name.Foreground = FluentLayout.Themed("TextFillColorPrimaryBrush", Colors.White);
-            _name.TextTrimming = TextTrimming.CharacterEllipsis;
             _name.MaxLines = 1;
-            _name.VerticalAlignment = VerticalAlignment.Center;
 
             // Right-aligned, because a column of numbers that are not aligned on their last digit
-            // cannot be compared at a glance, which is the only reason to rank them.
-            _cpu.Foreground = FluentLayout.Themed("TextFillColorSecondaryBrush", Colors.Gray);
+            // cannot be compared at a glance, which is the only reason to rank them. Tabular
+            // figures as well: proportional digits change width as the value changes, so a column
+            // sampled twice a second visibly shuffles.
             _cpu.TextAlignment = TextAlignment.Right;
-            _cpu.VerticalAlignment = VerticalAlignment.Center;
+            _cpu.MinWidth = CpuWidth;
+            Typography.SetNumeralAlignment(_cpu, FontNumeralAlignment.Tabular);
 
-            _memory.Foreground = FluentLayout.Themed("TextFillColorTertiaryBrush", Colors.Gray);
             _memory.TextAlignment = TextAlignment.Right;
-            _memory.VerticalAlignment = VerticalAlignment.Center;
+            _memory.MinWidth = MemoryWidth;
+            Typography.SetNumeralAlignment(_memory, FontNumeralAlignment.Tabular);
 
             Grid.SetColumn(_name, 0);
             Grid.SetColumn(_cpu, 1);
@@ -348,6 +305,7 @@ internal sealed partial class ProcessesView : Grid, IWidgetView
 
             var grid = new Grid
             {
+                ColumnSpacing = Fluent.Space3,
                 ColumnDefinitions =
                 {
                     new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) },
@@ -357,24 +315,20 @@ internal sealed partial class ProcessesView : Grid, IWidgetView
                 Children = { _name, _cpu, _memory },
             };
 
-            Host = new Border
-            {
-                Child = grid,
-                Background = Transparent,
-                Padding = new Thickness(WidgetLayout.ContentInset, 0, WidgetLayout.ContentInset, 0),
-            };
+            // A Fluent compact row: a fixed height, the standard inset as its own padding so the
+            // row — and the highlight it draws — reaches both edges of the widget, and no divider
+            // underneath. Windows 11 lists separate rows with space and hover, not with a rule.
+            Host = Fluent.Row(grid, compact: true);
 
-            // Hover, the way every list on Windows does it — the same treatment as the mail list,
-            // and the same stock brush, so it tracks the theme and the accent. PointerExited alone
-            // is not enough: the pointer can leave without it when the widget is torn down or moved
-            // mid-hover, which would strand a row lit.
-            Host.PointerEntered += (_, _) => Host.Background = FluentLayout.Themed("SubtleFillColorSecondaryBrush", Colors.Gray);
-            Host.PointerExited += (_, _) => Host.Background = Transparent;
-            Host.PointerCaptureLost += (_, _) => Host.Background = Transparent;
-            Host.PointerCanceled += (_, _) => Host.Background = Transparent;
+            // Hover, the way every list on Windows does it. Held, because a handler left hooked
+            // keeps the row alive and re-lights it after the widget has been torn down.
+            _hover = Fluent.Hover(Host);
         }
 
         public Border Host { get; }
+
+        /// <summary>Unhook the hover. Safe to call twice: the handle itself is idempotent.</summary>
+        public void Detach() => _hover.Dispose();
 
         /// <summary>Rewrite this row in place.</summary>
         public void Show(ProcessUsage usage, bool showMemory)
@@ -382,9 +336,9 @@ internal sealed partial class ProcessesView : Grid, IWidgetView
             _name.Text = usage.Name;
             _cpu.Text = usage.CpuText;
 
-            // A row whose CPU could not be read is dimmed as well as marked, so "--" reads as
+            // A row whose CPU could not be read is greyed as well as marked, so "--" reads as
             // "not available" rather than as a column the eye should be comparing.
-            _cpu.Opacity = usage.CpuKnown ? 1 : 0.5;
+            _cpu.Foreground = usage.CpuKnown ? KnownBrush : UnknownBrush;
 
             _memory.Visibility = showMemory ? Visibility.Visible : Visibility.Collapsed;
 
@@ -394,28 +348,6 @@ internal sealed partial class ProcessesView : Grid, IWidgetView
             }
 
             ToolTipService.SetToolTip(Host, $"{usage.Name} (pid {usage.Pid})");
-        }
-
-        /// <summary>Resize the row's text to the tile.</summary>
-        public void Scale(double font, double rowHeight)
-        {
-            _name.FontSize = font;
-            _cpu.FontSize = font;
-            _memory.FontSize = font;
-
-            // Reserved width rather than measured, so the numbers stay in the same place as they
-            // change width and the name column does not jog left and right every sample.
-            _cpu.MinWidth = font * 3.4;
-            _memory.MinWidth = font * 4.6;
-
-            _cpu.Margin = new Thickness(font * 0.5, 0, 0, 0);
-            _memory.Margin = new Thickness(font * 0.5, 0, 0, 0);
-
-            Host.Padding = new Thickness(
-                WidgetLayout.ContentInset,
-                Math.Clamp(rowHeight * 0.08, 0, 6),
-                WidgetLayout.ContentInset,
-                Math.Clamp(rowHeight * 0.08, 0, 6));
         }
     }
 }

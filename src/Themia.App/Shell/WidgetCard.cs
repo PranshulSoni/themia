@@ -73,6 +73,7 @@ internal sealed partial class WidgetCard : Grid, IWidgetSurface
 
     private readonly IWidgetCardHost _host;
     private readonly Border _fill;
+    private readonly Border _tint;
     private readonly Border _surface;
     private readonly Border _editOutline;
     private readonly Grid _handles;
@@ -106,6 +107,18 @@ internal sealed partial class WidgetCard : Grid, IWidgetSurface
         // without fading the text on it.
         _fill = new Border();
 
+        // Windows 11 draws a card as a tint ON something, not as a flat colour. On an opaque
+        // window that something is Mica; here the window is genuinely transparent, so the card
+        // paints the opaque surface colour Fluent expects underneath and then lays the real
+        // CardBackgroundFillColor overlay on top of it. That overlay is the ~5% lift that makes a
+        // Windows card look raised rather than merely filled, and using it alone - as a first
+        // attempt did - left the card almost invisible over the wallpaper.
+        _tint = new Border
+        {
+            Background = FluentLayout.Themed("CardBackgroundFillColorDefaultBrush", Colors.Transparent),
+            IsHitTestVisible = false,
+        };
+
         // No padding: the content area goes edge to edge and each view insets its own parts. A card
         // that padded everything pushed every list row away from the edge and stopped its hover
         // highlight short of it, so a row read as a box inside a box rather than as a row. See
@@ -128,6 +141,7 @@ internal sealed partial class WidgetCard : Grid, IWidgetSurface
         _handles = BuildHandles();
 
         Children.Add(_fill);
+        Children.Add(_tint);
         Children.Add(_surface);
         Children.Add(_editOutline);
         Children.Add(_handles);
@@ -164,6 +178,12 @@ internal sealed partial class WidgetCard : Grid, IWidgetSurface
         var radius = new CornerRadius(design.CornerRadiusPx);
 
         _fill.CornerRadius = radius;
+        _tint.CornerRadius = radius;
+
+        // The content border is rounded too, so anything drawn edge to edge inside it - a meter's
+        // graph reaches the bottom and both sides - is clipped to the card's corners instead of
+        // squaring them off.
+        _surface.CornerRadius = radius;
         _editOutline.CornerRadius = radius;
 
         // The card paints its OWN base, rather than relying on a window background.
@@ -183,6 +203,7 @@ internal sealed partial class WidgetCard : Grid, IWidgetSurface
                 _fill.BorderBrush = null;
                 _fill.BorderThickness = new Thickness(0);
                 _fill.Opacity = 1;
+                _tint.Opacity = 0;
                 break;
 
             case WidgetSurface.Translucent:
@@ -190,6 +211,7 @@ internal sealed partial class WidgetCard : Grid, IWidgetSurface
                 _fill.BorderBrush = FluentLayout.Themed("CardStrokeColorDefaultBrush", Colors.Gray);
                 _fill.BorderThickness = new Thickness(1);
                 _fill.Opacity = Math.Clamp(opacity * 0.6, 0.15, 1.0);
+                _tint.Opacity = _fill.Opacity;
                 break;
 
             case WidgetSurface.Card:
@@ -198,6 +220,7 @@ internal sealed partial class WidgetCard : Grid, IWidgetSurface
                 _fill.BorderBrush = FluentLayout.Themed("CardStrokeColorDefaultBrush", Colors.Gray);
                 _fill.BorderThickness = new Thickness(1);
                 _fill.Opacity = opacity;
+                _tint.Opacity = opacity;
                 break;
         }
     }

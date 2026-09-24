@@ -1,9 +1,7 @@
 using System.Globalization;
 using Microsoft.UI;
-using Microsoft.UI.Text;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
-using Microsoft.UI.Xaml.Media;
 using Themia.App.Services;
 using Themia.App.Services.Hearth;
 using Themia.App.Shell;
@@ -26,33 +24,25 @@ internal sealed partial class ContactsView : Grid, IWidgetView
 {
     private const string Scope = "contacts-widget";
 
-    /// <summary>
-    /// A shared transparent brush for the rows' rest state.
-    /// <para>
-    /// Transparent rather than null: a null background is not hit-testable, so a row would never
-    /// raise the pointer events its hover depends on.
-    /// </para>
-    /// </summary>
-    private static readonly SolidColorBrush Transparent = new(Colors.Transparent);
-
-    private readonly FontIcon _icon = new();
     private readonly TextBlock _title = new();
     private readonly TextBlock _badge = new();
     private readonly Border _badgeHost;
     private readonly ProgressRing _busy = new();
     private readonly StackPanel _list = new() { Spacing = 0 };
     private readonly ScrollViewer _scroll;
+    private readonly FontIcon _emptyIcon;
     private readonly TextBlock _emptyText = new();
-    private readonly StackPanel _empty = new();
+    private readonly StackPanel _empty;
 
-    // What a resize has to re-size, kept by role. A widget is dragged to any size, so the rows are
-    // measured from the tile rather than fixed - and holding the pieces means a resize re-sizes
-    // what is already on screen instead of asking the hub for the same records again.
-    private readonly List<TextBlock> _primaryText = [];
-    private readonly List<TextBlock> _secondaryText = [];
+    // What a resize has to re-fit: the rows themselves, and the avatar, which is sized from the row
+    // height rather than from the tile. Everything else in a row is a step of the ramp or of the
+    // 4px grid, so a resize cannot change it.
     private readonly List<Border> _avatars = [];
-    private readonly List<TextBlock> _monograms = [];
     private readonly List<Border> _rows = [];
+
+    // One per row, so the hover handlers come off with the row they light. A leaked one keeps the
+    // row alive and re-lights it after teardown.
+    private readonly List<IDisposable> _hovers = [];
 
     private HearthDataService? _data;
     private Ticker? _ticker;
@@ -70,62 +60,37 @@ internal sealed partial class ContactsView : Grid, IWidgetView
         RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
 
-        var muted = ThemeBrush("TextFillColorSecondaryBrush", Colors.Gray);
-
         _title.Text = "People";
-        _title.FontWeight = FontWeights.SemiBold;
-        _title.Foreground = muted;
-        _title.VerticalAlignment = VerticalAlignment.Center;
         _title.TextTrimming = TextTrimming.CharacterEllipsis;
 
-        _icon.Glyph = Glyphs.Contact;
-        _icon.Foreground = muted;
-        _icon.Margin = new Thickness(0, 0, 6, 0);
+        // The count is Fluent's InfoBadge shape, which the design system owns.
+        _badgeHost = Fluent.Badge(_badge);
+        _badgeHost.Visibility = Visibility.Collapsed;
 
-        _badge.FontWeight = FontWeights.Bold;
-        _badge.Foreground = ThemeBrush("TextOnAccentFillColorPrimaryBrush", Colors.White);
-
-        _badgeHost = new Border
-        {
-            Child = _badge,
-            Background = ThemeBrush("AccentFillColorDefaultBrush", Colors.DodgerBlue),
-            CornerRadius = new CornerRadius(9),
-            Padding = new Thickness(7, 1, 7, 2),
-            VerticalAlignment = VerticalAlignment.Center,
-            Visibility = Visibility.Collapsed,
-        };
-
-        _busy.Width = 14;
-        _busy.Height = 14;
+        _busy.Width = Fluent.IconSize;
+        _busy.Height = Fluent.IconSize;
         _busy.IsActive = false;
         _busy.Visibility = Visibility.Collapsed;
 
-        var right = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6 };
-        right.Children.Add(_busy);
-        right.Children.Add(_badgeHost);
-
-        var header = new Grid
+        var trailing = new StackPanel
         {
-            Margin = new Thickness(WidgetLayout.ContentInset, WidgetLayout.ContentInset, WidgetLayout.ContentInset, 6),
-            ColumnDefinitions =
-            {
-                new ColumnDefinition { Width = GridLength.Auto },
-                new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) },
-                new ColumnDefinition { Width = GridLength.Auto },
-            },
+            Orientation = Orientation.Horizontal,
+            Spacing = Fluent.Space2,
+            VerticalAlignment = VerticalAlignment.Center,
         };
 
-        Grid.SetColumn(_icon, 0);
-        Grid.SetColumn(_title, 1);
-        Grid.SetColumn(right, 2);
-        header.Children.Add(_icon);
-        header.Children.Add(_title);
-        header.Children.Add(right);
+        trailing.Children.Add(_busy);
+        trailing.Children.Add(_badgeHost);
+
+        var header = Fluent.Header(Glyphs.Contact, _title, trailing);
+        header.Margin = Fluent.HeaderMargin;
         Grid.SetRow(header, 0);
 
         _scroll = new ScrollViewer
         {
-            Padding = WidgetLayout.ListInset,
+            // Nothing either side, so a row reaches both edges of the card and its highlight with
+            // it. The gap above the first row is the header's; this keeps the last one off the edge.
+            Padding = Fluent.ListPadding,
             Content = _list,
             HorizontalScrollMode = ScrollMode.Disabled,
             HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
@@ -134,14 +99,9 @@ internal sealed partial class ContactsView : Grid, IWidgetView
 
         Grid.SetRow(_scroll, 1);
 
-        _emptyText.TextWrapping = TextWrapping.Wrap;
-        _emptyText.HorizontalAlignment = HorizontalAlignment.Center;
-        _emptyText.TextAlignment = TextAlignment.Center;
-        _emptyText.Foreground = ThemeBrush("TextFillColorTertiaryBrush", Colors.Gray);
-
-        _empty.VerticalAlignment = VerticalAlignment.Center;
-        _empty.Padding = WidgetLayout.SideInset;
-        _empty.Children.Add(_emptyText);
+        // A Windows empty state: an icon over a line of body text in the secondary colour, centred.
+        // Not a shrunken caption, which reads as an error the app is embarrassed about.
+        _empty = Fluent.EmptyState(Glyphs.Contact, _emptyText, out _emptyIcon);
         _empty.Visibility = Visibility.Collapsed;
         Grid.SetRow(_empty, 1);
 
@@ -149,8 +109,15 @@ internal sealed partial class ContactsView : Grid, IWidgetView
         Children.Add(_scroll);
         Children.Add(_empty);
 
-        SizeChanged += (_, _) => ApplyTypeScale();
+        SizeChanged += (_, _) => ApplyDensity();
     }
+
+    /// <summary>
+    /// Whether the tile takes the compact row. Fluent has two list-row heights and a tile shorter
+    /// than five standard rows reads better with the shorter one: this is a density switch between
+    /// two fixed heights, not a row that grows with the tile.
+    /// </summary>
+    private bool Compact => ActualHeight > 0 && ActualHeight < Fluent.CompactBelow;
 
     public void Attach(Ticker ticker, WidgetConfig config)
     {
@@ -305,9 +272,11 @@ internal sealed partial class ContactsView : Grid, IWidgetView
         _empty.Visibility = Visibility.Collapsed;
         _scroll.Visibility = Visibility.Visible;
 
+        var compact = Compact;
+
         foreach (var contact in contacts)
         {
-            var row = BuildRow(contact);
+            var row = BuildRow(contact, compact);
             _rows.Add(row);
             _list.Children.Add(row);
         }
@@ -315,37 +284,27 @@ internal sealed partial class ContactsView : Grid, IWidgetView
         _badge.Text = contacts.Count.ToString(CultureInfo.InvariantCulture);
         _badgeHost.Visibility = Visibility.Visible;
 
-        ApplyTypeScale();
+        // The avatars have no size until this runs, and a first render need not be followed by a
+        // resize, so it is called here rather than left to SizeChanged alone.
+        ApplyDensity();
     }
 
-    private Border BuildRow(ContactRecord contact)
+    private Border BuildRow(ContactRecord contact, bool compact)
     {
-        var name = new TextBlock
-        {
-            Text = contact.Who,
-            Foreground = ThemeBrush("TextFillColorPrimaryBrush", Colors.White),
-            TextTrimming = TextTrimming.CharacterEllipsis,
-            MaxLines = 1,
-            VerticalAlignment = VerticalAlignment.Center,
-        };
+        var name = Fluent.Text(FluentType.BodyStrong);
+        name.Text = contact.Who;
+        name.VerticalAlignment = VerticalAlignment.Center;
 
-        _primaryText.Add(name);
-
-        var text = new StackPanel { Spacing = 1, VerticalAlignment = VerticalAlignment.Center };
+        // No spacing between the lines of a row: each one already carries the line height Fluent
+        // pairs with its size, and a gap on top of that is the web app's look.
+        var text = new StackPanel { Spacing = 0, VerticalAlignment = VerticalAlignment.Center };
         text.Children.Add(name);
 
         var detail = _config.ShowDetail ? DetailLine(contact) : string.Empty;
         if (detail.Length != 0)
         {
-            var line = new TextBlock
-            {
-                Text = detail,
-                Foreground = ThemeBrush("TextFillColorTertiaryBrush", Colors.Gray),
-                TextTrimming = TextTrimming.CharacterEllipsis,
-                MaxLines = 1,
-            };
-
-            _secondaryText.Add(line);
+            var line = Fluent.Text(FluentType.Caption, "TextFillColorTertiaryBrush");
+            line.Text = detail;
             text.Children.Add(line);
         }
 
@@ -360,24 +319,21 @@ internal sealed partial class ContactsView : Grid, IWidgetView
 
         if (_config.ShowAvatar)
         {
-            var monogram = new TextBlock
-            {
-                Text = Monogram(contact.Who),
-                FontWeight = FontWeights.SemiBold,
-                Foreground = ThemeBrush("TextFillColorSecondaryBrush", Colors.Gray),
-                HorizontalAlignment = HorizontalAlignment.Center,
-                VerticalAlignment = VerticalAlignment.Center,
-            };
+            var monogram = Fluent.Text(FluentType.Caption, "TextFillColorSecondaryBrush");
+            monogram.Text = Monogram(contact.Who);
+            monogram.HorizontalAlignment = HorizontalAlignment.Center;
+            monogram.VerticalAlignment = VerticalAlignment.Center;
 
+            // A circle, sized in ApplyDensity from the row height - never from the tile, which is
+            // what made it a different size on every widget on the desktop.
             var avatar = new Border
             {
                 Child = monogram,
-                Background = ThemeBrush("ControlAltFillColorSecondaryBrush", Colors.Gray),
+                Background = FluentLayout.Themed("ControlAltFillColorSecondaryBrush", Colors.Gray),
                 VerticalAlignment = VerticalAlignment.Center,
-                Margin = new Thickness(0, 0, 8, 0),
+                Margin = new Thickness(0, 0, Fluent.Space3, 0),
             };
 
-            _monograms.Add(monogram);
             _avatars.Add(avatar);
 
             Grid.SetColumn(avatar, 0);
@@ -387,22 +343,8 @@ internal sealed partial class ContactsView : Grid, IWidgetView
         Grid.SetColumn(text, 1);
         body.Children.Add(text);
 
-        var row = new Border
-        {
-            Child = body,
-            Background = Transparent,
-            BorderBrush = ThemeBrush("DividerStrokeColorDefaultBrush", Colors.Gray),
-            BorderThickness = new Thickness(0, 0, 0, 1),
-        };
-
-        // Hover, the way every list on Windows does it. Done by hand rather than with a ListView
-        // because the row is a custom layout, but the brush is the stock one so it tracks the theme
-        // and the accent. PointerExited alone is not enough: the pointer can leave without it when
-        // the list scrolls or the widget is torn down mid-hover, stranding a row lit.
-        row.PointerEntered += (_, _) => row.Background = ThemeBrush("SubtleFillColorSecondaryBrush", Colors.Gray);
-        row.PointerExited += (_, _) => row.Background = Transparent;
-        row.PointerCaptureLost += (_, _) => row.Background = Transparent;
-        row.PointerCanceled += (_, _) => row.Background = Transparent;
+        var row = Fluent.Row(body, compact);
+        _hovers.Add(Fluent.Hover(row));
 
         ToolTipService.SetToolTip(row, Tooltip(contact));
         return row;
@@ -445,35 +387,25 @@ internal sealed partial class ContactsView : Grid, IWidgetView
     private static string Monogram(string who) => Formatting.Monogram(who);
 
     /// <summary>
-    /// Size the rows to the tile. A widget is dragged to any size, so a fixed row would leave a
-    /// large tile mostly empty and clip a small one.
+    /// Re-fit what is already drawn to the tile: the row height, the avatar that is sized from it,
+    /// and whether the empty state has room for its icon. No query, and no font size derived from
+    /// the tile — every size in a row is a step of the ramp or of the 4px grid.
     /// </summary>
-    private void ApplyTypeScale()
+    private void ApplyDensity()
     {
-        var width = ActualWidth;
-        var height = ActualHeight;
+        var compact = Compact;
+        var height = compact ? Fluent.RowHeightCompact : Fluent.RowHeight;
 
-        var primary = TypeScale.Fit(width, height, 0.055, 0.085, 11, 20);
-        var secondary = TypeScale.Fit(width, height, 0.046, 0.072, 10, 17);
-        var heading = TypeScale.Fit(width, height, 0.050, 0.080, 10, 18);
-        var pad = Math.Clamp(primary * 0.55, 4, 12);
+        // The circle leaves one step of the 4px grid above and below it inside the row: 32 on the
+        // standard row, 24 on the compact one, which is the pair of sizes Fluent's own person
+        // picture uses. Sized from the row, never from the tile.
+        var avatarSize = height - Fluent.Space2;
 
-        _title.FontSize = heading;
-        _icon.FontSize = heading;
-        _badge.FontSize = Math.Max(9, heading - 2);
-        _emptyText.FontSize = secondary;
-
-        foreach (var text in _primaryText)
+        foreach (var row in _rows)
         {
-            text.FontSize = primary;
+            Fluent.SetDensity(row, compact);
         }
 
-        foreach (var text in _secondaryText)
-        {
-            text.FontSize = secondary;
-        }
-
-        var avatarSize = Math.Round(primary * 2.2);
         foreach (var avatar in _avatars)
         {
             avatar.Width = avatarSize;
@@ -481,20 +413,7 @@ internal sealed partial class ContactsView : Grid, IWidgetView
             avatar.CornerRadius = new CornerRadius(avatarSize / 2);
         }
 
-        foreach (var monogram in _monograms)
-        {
-            monogram.FontSize = Math.Max(9, primary * 0.8);
-        }
-
-        foreach (var row in _rows)
-        {
-            // The sides are the standard inset rather than the tile-scaled one, so a row
-            // reaches both edges of the widget and its text still lines up with the header.
-            row.Padding = new Thickness(WidgetLayout.ContentInset, pad * 0.7, WidgetLayout.ContentInset, pad * 0.7);
-
-            // Negative side margins so the hover highlight reaches the tile's edge rather than
-            // stopping short of it in a box of its own.
-        }
+        _emptyIcon.Visibility = compact ? Visibility.Collapsed : Visibility.Visible;
     }
 
     /// <summary>Say what is actually true, because every one of these needs a different action.</summary>
@@ -522,14 +441,21 @@ internal sealed partial class ContactsView : Grid, IWidgetView
         _badgeHost.Visibility = Visibility.Collapsed;
     }
 
+    /// <summary>
+    /// Drop the rows and, with them, their hover handlers: a handler left hooked keeps the row it
+    /// lights alive and re-lights it after the list has moved on.
+    /// </summary>
     private void ClearRows()
     {
+        foreach (var hover in _hovers)
+        {
+            hover.Dispose();
+        }
+
+        _hovers.Clear();
         _list.Children.Clear();
         _rows.Clear();
-        _primaryText.Clear();
-        _secondaryText.Clear();
         _avatars.Clear();
-        _monograms.Clear();
     }
 
     public void Detach()
@@ -550,9 +476,4 @@ internal sealed partial class ContactsView : Grid, IWidgetView
         _records = [];
         ClearRows();
     }
-
-    private static Brush ThemeBrush(string key, Windows.UI.Color fallback)
-        => Application.Current.Resources.TryGetValue(key, out var value) && value is Brush brush
-            ? brush
-            : new SolidColorBrush(fallback);
 }

@@ -49,6 +49,27 @@ public static class FluentType
     /// <summary>68/92 semibold. The largest step Fluent defines.</summary>
     public static TypeStep Display { get; } = new(68, 92, true);
 
+    /// <summary>
+    /// The same step, semibold. <see cref="Fit"/> can only return ramp entries and the ramp holds
+    /// one semibold step below Subtitle, so a fitted readout that needs weight has no other way
+    /// to ask for it.
+    /// </summary>
+    public static TypeStep Strong(TypeStep step) => step with { SemiBold = true };
+
+    /// <summary>
+    /// Roughly how wide <paramref name="characters"/> characters are at a step.
+    /// <para>
+    /// An estimate, not a measurement: 0.58em is a workable average advance for Segoe UI's digits
+    /// and lower case. It only has to be close, because callers use it to choose a ramp step and
+    /// being slightly out changes nothing until it crosses a whole step.
+    /// </para>
+    /// </summary>
+    private static double Advance(TypeStep step, double characters)
+        => step.FontSize * AverageAdvance * Math.Max(1, characters);
+
+    /// <summary>The average character advance, as a fraction of the font size.</summary>
+    private const double AverageAdvance = 0.58;
+
     /// <summary>The ramp in order, smallest first.</summary>
     public static IReadOnlyList<TypeStep> Ramp { get; } =
         [Caption, Body, BodyLarge, Subtitle, Title, TitleLarge, Display];
@@ -87,10 +108,7 @@ public static class FluentType
                 continue;
             }
 
-            // 0.58em is a workable average advance for Segoe UI's digits and lower case. It only has
-            // to be close: the result is a step, not a measurement, so being slightly out moves
-            // nothing until it crosses a whole step.
-            var needed = step.FontSize * 0.58 * wanted;
+            var needed = Advance(step, wanted);
 
             if (step.LineHeight <= height && needed <= width)
             {
@@ -142,7 +160,7 @@ public static class FluentType
         }
 
         var wanted = Math.Max(1, characters);
-        var byWidth = width / (Display.FontSize * 0.58 * wanted);
+        var byWidth = width / Advance(Display, wanted);
         var byHeight = height / Display.LineHeight;
         var factor = Math.Min(byWidth, byHeight);
 

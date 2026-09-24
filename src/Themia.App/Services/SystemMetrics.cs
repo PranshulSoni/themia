@@ -9,9 +9,25 @@ namespace Themia.App.Services;
 /// <param name="Primary">The big number.</param>
 /// <param name="Secondary">The line under it, or null.</param>
 /// <param name="Available">False when the machine cannot answer (no battery, drive gone).</param>
-public readonly record struct MeterReading(double? Fraction, string Primary, string? Secondary, bool Available)
+/// <param name="Absent">
+/// True when the thing being measured does not exist on this machine at all, as opposed to
+/// existing but being momentarily unreadable. A desktop with no battery is not a battery meter
+/// that failed, and the two want different things on screen: one is an empty state, the other
+/// is a dimmed <c>--</c>. Carried as a flag because the view used to tell them apart by
+/// matching the reason string, which made a display decision depend on the exact wording of a
+/// caption in another file.
+/// </param>
+public readonly record struct MeterReading(
+    double? Fraction,
+    string Primary,
+    string? Secondary,
+    bool Available,
+    bool Absent = false)
 {
     public static MeterReading Unavailable(string reason) => new(null, "--", reason, false);
+
+    /// <summary>The thing being measured is not present on this machine.</summary>
+    public static MeterReading Missing(string reason) => new(null, "--", reason, false, Absent: true);
 }
 
 /// <summary>
@@ -144,7 +160,7 @@ internal static class SystemMetrics
         // 255 is "unknown", which desktops without a battery report.
         if (status.BatteryLifePercent > 100)
         {
-            return MeterReading.Unavailable("no battery");
+            return MeterReading.Missing("No battery");
         }
 
         var fraction = status.BatteryLifePercent / 100.0;

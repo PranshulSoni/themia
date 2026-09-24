@@ -266,6 +266,11 @@ Owning files: `Themia.Core/Geometry/*`, `Themia.Core/Model/*`, `Themia.Core/Stor
   already counts idle inside its kernel total, so busy is `(kernel + user) - idle`.
 - **[S-82]** A meter that cannot be read says so (`--`, dimmed) rather than showing 0%. A machine
   with no battery reports 255 for the charge, which is "unknown", not "empty".
+- **[S-82a]** "Not present on this machine" and "present but unreadable right now" are different
+  states and look different: the first is a proper empty state, the second a dimmed `--`. A desktop
+  with no battery is not a battery meter that failed. The reading carries a flag saying which;
+  matching on the caption text, as a first attempt did, made a display decision depend on the exact
+  wording of a string in another file.
 - **[S-83]** Cadence follows what the number actually does: CPU and memory once a second, disk and
   battery once a minute. Battery draws no history - at a one-minute cadence a flat line reads as a
   broken graph rather than a stable charge.
@@ -326,9 +331,11 @@ Owning files: `Themia.Core/Geometry/*`, `Themia.Core/Model/*`, `Themia.Core/Stor
   time still matches is the same process with the same name.
 - **[S-104]** Process identity is (pid, start time as `FILETIME`) on both paths, so switching paths
   does not look like a recycled pid.
-- **[S-105]** The list fills its tile: rows are star-sized, fonts scale from the **row** height, and
-  the configured row count is clamped to what the tile can draw at a readable size. Row visuals are
-  rewritten in place — rebuilding the list each sample made it blink twice a second.
+- **[S-105]** The list fills its tile with **correctly sized rows**, not stretched ones: the row
+  height is Fluent's, and the configured count is clamped to how many of them the tile can actually
+  draw. A bigger tile shows more rows, never taller ones — a list whose rows grow with the window is
+  a web idea, and next to Explorer it reads as the wrong application. Row visuals are rewritten in
+  place; rebuilding the list each sample made it blink twice a second.
 - **[S-106]** Ping is sampled asynchronously and never blocked on from the tick. One probe is in
   flight at a time; a probe that overruns its interval delays the next reading rather than stacking
   up.
@@ -454,8 +461,10 @@ Owning files: `Themia.Core/Geometry/*`, `Themia.Core/Model/*`, `Themia.Core/Stor
   below the horizon.
 - **[S-170]** The two display settings are independent, except that hiding the graphic forces the
   rows on: a widget showing nothing is never the answer. The graphic itself is never dropped — it is
-  sized down to a 46px floor and keeps drawing. Only extras shed, in order: the countdown, the
-  daylight label, the label icons and the moon percentage, then the number strip.
+  sized down to a 46px floor and keeps drawing. Only extras shed, cheapest-first by width: the
+  countdown, then the label icons and the moon percentage, then the daylight label, then the number
+  strip. (An earlier version of this line had the daylight label going before the icons. The code
+  was right and the spec was wrong: "12h 6m" says more than two glyphs do.)
 - **[S-171]** There is no geocoding service here and widgets make no network calls, so the settings
   take latitude, longitude and place name directly. Input that is not a number in range is
   **rejected** — the last good value stands and the row says why — never coerced to 0, which would
@@ -468,8 +477,9 @@ Owning files: `Themia.Core/Geometry/*`, `Themia.Core/Model/*`, `Themia.Core/Stor
 - **[S-181]** Every hearth widget names which of "hearth not running", "access not granted", "no
   collections granted", "loading", "nothing to show" and "error" is true. A blank tile with no
   explanation is a defect, because each of those needs a different action from the user.
-- **[S-182]** Hearth widgets size their rows from the tile with `TypeScale.Fit`, never a `Viewbox`,
-  and re-size what is already drawn on a resize rather than re-querying the hub.
+- **[S-182]** Hearth widgets draw Fluent rows at a fixed height and re-lay what is already drawn
+  on a resize rather than re-querying the hub. What varies with the tile is how many rows fit and
+  whether they are the standard or the compact height — never the type size.
 - **[S-183]** A widget re-queries only when a field that changes the *request* changed;
   presentation-only settings — avatar, detail line, location, due date, all-day — re-render the
   records already in hand. The ticker subscription is remade only when the cadence actually changed.
@@ -504,7 +514,39 @@ Owning files: `Themia.Core/Geometry/*`, `Themia.Core/Model/*`, `Themia.Core/Stor
 - **[S-190a]** A full-bleed row therefore has no corner radius and no negative margin. The negative
   margins that used to cancel the card's padding are gone rather than adjusted: something pulling
   itself back out of a padding that no longer exists would now hang over the edge.
-- **[S-190b]** A separator belongs *between* rows, never after the last one, where it reads as an
-  empty extra row.
+- **[S-190b]** A list has **no separators at all**. Windows 11 separates rows with space and with
+  the fill under the pointer — Settings, Explorer and the Widgets board all do — and a rule between
+  every row is the single clearest tell of a web table. The one rule that survives anywhere is the
+  calculator's, which divides a scrolling region from a fixed command area the way a dialog does.
 - **[S-191]** Headers, footers, empty states and readouts keep the inset — they are labels, not rows.
   A day heading in the calendar is a label and lines up with the header above it.
+
+## Looking like Windows
+
+- **[S-210]** Type comes from the **Fluent ramp**, never from a number computed off the tile. A widget
+  still scales with its box — a resizable widget has to — but it scales by choosing a step, so every
+  size on screen is one Windows itself uses. The web app's `clamp(min, min(Ncqw, Mcqh), max)` is what
+  made the port read as a dashboard that happened to be running here.
+- **[S-210a]** A hero readout on a very large tile may scale past Display, keeping Fluent's own
+  line-height ratio, because the ramp stops at 68px and a clock filling a quarter of a screen
+  legitimately does not.
+- **[S-211]** Colour comes from **named brushes**, never from an opacity applied to a text block.
+  `Opacity = 0.65` is not a colour; it is a colour the theme cannot change, and in light theme it is
+  the wrong one. The single exception is the wash under a chart line, which is a translucent *area* —
+  and even there the alpha belongs to the shape, never to the shared brush every other accent surface
+  paints with.
+- **[S-212]** Spacing is the 4px grid. No 6px, no 7px, no 3px.
+- **[S-213]** A list row is a **fixed** Fluent height, standard or compact. A bigger tile shows more
+  rows, never taller ones.
+- **[S-214]** A card is a tint **on** something, not a flat fill: the opaque surface colour Fluent
+  expects, with the real `CardBackgroundFillColor` overlay on top. That overlay is the lift that makes
+  a Windows card look raised, and on its own — over a transparent window — it is nearly invisible.
+- **[S-215]** A chart is **full-bleed**: it reaches the card's left, right and bottom edges, and is
+  clipped to its corner radius. A chart floating inside a margin reads as a picture of a chart. Text
+  carries the inset instead, exactly as a list row does.
+- **[S-215a]** The chart is a band of bounded height at the foot of the tile, and the **reading**
+  takes the slack. Giving the graph the slack put a 350px band on a tall tile that a young trace had
+  no way to fill, with the number stranded at the top.
+- **[S-216]** A meter whose history moves slower than its window can fill draws no graph by default.
+  Free space sampled once a minute is a bare sliver for most of an hour and a flat line for the rest;
+  the bar says the same thing immediately. The setting stays, for a drive that really is filling up.

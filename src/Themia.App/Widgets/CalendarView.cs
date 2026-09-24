@@ -1,9 +1,6 @@
 using System.Globalization;
-using Microsoft.UI;
-using Microsoft.UI.Text;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
-using Microsoft.UI.Xaml.Media;
 using Themia.App.Services;
 using Themia.App.Services.Hearth;
 using Themia.App.Shell;
@@ -31,13 +28,11 @@ internal sealed partial class CalendarView : Grid, IWidgetView
     private const string Scope = "calendar-widget";
 
     /// <summary>
-    /// A shared transparent brush for the rows' rest state.
-    /// <para>
-    /// Transparent rather than null: a null background is not hit-testable, so a row would never
-    /// raise the pointer events its hover depends on.
-    /// </para>
+    /// The time column's width: thirteen steps of the 4px grid, which is what "All day" — the
+    /// longest thing the column ever holds — needs at the caption step. Fixed rather than derived
+    /// from the tile, so every row's title starts in the same place whatever size the widget is.
     /// </summary>
-    private static readonly SolidColorBrush Transparent = new(Colors.Transparent);
+    private const double TimeColumn = 52;
 
     // Written out rather than read from a culture: the app builds with InvariantGlobalization, and
     // Formatting.Ago only looks backwards, so a calendar that looks forwards needs its own names.
@@ -46,25 +41,24 @@ internal sealed partial class CalendarView : Grid, IWidgetView
     private static readonly string[] MonthNames =
         ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
-    private readonly FontIcon _icon = new();
     private readonly TextBlock _title = new();
     private readonly TextBlock _badge = new();
     private readonly Border _badgeHost;
     private readonly ProgressRing _busy = new();
     private readonly StackPanel _list = new() { Spacing = 0 };
     private readonly ScrollViewer _scroll;
+    private readonly FontIcon _emptyIcon;
     private readonly TextBlock _emptyText = new();
-    private readonly StackPanel _empty = new();
+    private readonly StackPanel _empty;
 
-    // What a resize has to re-size, kept by role. A widget is dragged to any size, so the rows are
-    // measured from the tile rather than fixed - and holding the pieces means a resize re-sizes
-    // what is already on screen instead of asking the hub for the same records again.
-    private readonly List<TextBlock> _primaryText = [];
-    private readonly List<TextBlock> _secondaryText = [];
-    private readonly List<TextBlock> _dayHeadings = [];
-    private readonly List<TextBlock> _timeLabels = [];
+    // The rows on screen, so a resize can switch them between the two row heights Fluent defines
+    // without asking the hub for the same records again. Nothing else needs holding: every size in
+    // a row is a ramp step or a grid step, so a resize cannot change it.
     private readonly List<Border> _rows = [];
-    private readonly List<Border> _dayHeadingHosts = [];
+
+    // One per row, so the hover handlers come off with the row they light. A leaked one keeps the
+    // row alive and re-lights it after teardown.
+    private readonly List<IDisposable> _hovers = [];
 
     private HearthDataService? _data;
     private Ticker? _ticker;
@@ -82,62 +76,37 @@ internal sealed partial class CalendarView : Grid, IWidgetView
         RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
 
-        var muted = ThemeBrush("TextFillColorSecondaryBrush", Colors.Gray);
-
         _title.Text = "Upcoming";
-        _title.FontWeight = FontWeights.SemiBold;
-        _title.Foreground = muted;
-        _title.VerticalAlignment = VerticalAlignment.Center;
         _title.TextTrimming = TextTrimming.CharacterEllipsis;
 
-        _icon.Glyph = Glyphs.Calendar;
-        _icon.Foreground = muted;
-        _icon.Margin = new Thickness(0, 0, 6, 0);
+        // The count is Fluent's InfoBadge shape, which the design system owns.
+        _badgeHost = Fluent.Badge(_badge);
+        _badgeHost.Visibility = Visibility.Collapsed;
 
-        _badge.FontWeight = FontWeights.Bold;
-        _badge.Foreground = ThemeBrush("TextOnAccentFillColorPrimaryBrush", Colors.White);
-
-        _badgeHost = new Border
-        {
-            Child = _badge,
-            Background = ThemeBrush("AccentFillColorDefaultBrush", Colors.DodgerBlue),
-            CornerRadius = new CornerRadius(9),
-            Padding = new Thickness(7, 1, 7, 2),
-            VerticalAlignment = VerticalAlignment.Center,
-            Visibility = Visibility.Collapsed,
-        };
-
-        _busy.Width = 14;
-        _busy.Height = 14;
+        _busy.Width = Fluent.IconSize;
+        _busy.Height = Fluent.IconSize;
         _busy.IsActive = false;
         _busy.Visibility = Visibility.Collapsed;
 
-        var right = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6 };
-        right.Children.Add(_busy);
-        right.Children.Add(_badgeHost);
-
-        var header = new Grid
+        var trailing = new StackPanel
         {
-            Margin = new Thickness(WidgetLayout.ContentInset, WidgetLayout.ContentInset, WidgetLayout.ContentInset, 6),
-            ColumnDefinitions =
-            {
-                new ColumnDefinition { Width = GridLength.Auto },
-                new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) },
-                new ColumnDefinition { Width = GridLength.Auto },
-            },
+            Orientation = Orientation.Horizontal,
+            Spacing = Fluent.Space2,
+            VerticalAlignment = VerticalAlignment.Center,
         };
 
-        Grid.SetColumn(_icon, 0);
-        Grid.SetColumn(_title, 1);
-        Grid.SetColumn(right, 2);
-        header.Children.Add(_icon);
-        header.Children.Add(_title);
-        header.Children.Add(right);
+        trailing.Children.Add(_busy);
+        trailing.Children.Add(_badgeHost);
+
+        var header = Fluent.Header(Glyphs.Calendar, _title, trailing);
+        header.Margin = Fluent.HeaderMargin;
         Grid.SetRow(header, 0);
 
         _scroll = new ScrollViewer
         {
-            Padding = WidgetLayout.ListInset,
+            // Nothing either side, so a row reaches both edges of the card and its highlight with
+            // it. The gap above the first row is the header's; this keeps the last one off the edge.
+            Padding = Fluent.ListPadding,
             Content = _list,
             HorizontalScrollMode = ScrollMode.Disabled,
             HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
@@ -146,14 +115,9 @@ internal sealed partial class CalendarView : Grid, IWidgetView
 
         Grid.SetRow(_scroll, 1);
 
-        _emptyText.TextWrapping = TextWrapping.Wrap;
-        _emptyText.HorizontalAlignment = HorizontalAlignment.Center;
-        _emptyText.TextAlignment = TextAlignment.Center;
-        _emptyText.Foreground = ThemeBrush("TextFillColorTertiaryBrush", Colors.Gray);
-
-        _empty.VerticalAlignment = VerticalAlignment.Center;
-        _empty.Padding = WidgetLayout.SideInset;
-        _empty.Children.Add(_emptyText);
+        // A Windows empty state: an icon over a line of body text in the secondary colour, centred.
+        // Not a shrunken caption, which reads as an error the app is embarrassed about.
+        _empty = Fluent.EmptyState(Glyphs.Calendar, _emptyText, out _emptyIcon);
         _empty.Visibility = Visibility.Collapsed;
         Grid.SetRow(_empty, 1);
 
@@ -161,8 +125,15 @@ internal sealed partial class CalendarView : Grid, IWidgetView
         Children.Add(_scroll);
         Children.Add(_empty);
 
-        SizeChanged += (_, _) => ApplyTypeScale();
+        SizeChanged += (_, _) => ApplyDensity();
     }
+
+    /// <summary>
+    /// Whether the tile takes the compact row. Fluent has two list-row heights and a tile shorter
+    /// than five standard rows reads better with the shorter one: this is a density switch between
+    /// two fixed heights, not a row that grows with the tile.
+    /// </summary>
+    private bool Compact => ActualHeight > 0 && ActualHeight < Fluent.CompactBelow;
 
     public void Attach(Ticker ticker, WidgetConfig config)
     {
@@ -333,6 +304,7 @@ internal sealed partial class CalendarView : Grid, IWidgetView
         // A day heading only when the day changes, so a list of four meetings on one afternoon is
         // not four headings deep. Grouped in order because the query sorted by start.
         DateOnly? heading = null;
+        var compact = Compact;
 
         foreach (var item in shown)
         {
@@ -344,15 +316,13 @@ internal sealed partial class CalendarView : Grid, IWidgetView
                 _list.Children.Add(BuildDayHeading(DayLabel(day, today)));
             }
 
-            var row = BuildRow(item, now);
+            var row = BuildRow(item, now, compact);
             _rows.Add(row);
             _list.Children.Add(row);
         }
 
         _badge.Text = shown.Count.ToString(CultureInfo.InvariantCulture);
         _badgeHost.Visibility = Visibility.Visible;
-
-        ApplyTypeScale();
     }
 
     /// <summary>
@@ -382,66 +352,48 @@ internal sealed partial class CalendarView : Grid, IWidgetView
         return shown;
     }
 
-    private Border BuildDayHeading(string label)
+    /// <summary>
+    /// A day heading is a label, not a row: it keeps the inset the rows give up, so it lines up with
+    /// the widget's own title above it rather than with the rows' text.
+    /// </summary>
+    private static Border BuildDayHeading(string label)
     {
-        var text = new TextBlock
+        var text = Fluent.Text(FluentType.BodyStrong, "TextFillColorSecondaryBrush");
+        text.Text = label;
+
+        return new Border
         {
-            Text = label,
-            FontWeight = FontWeights.SemiBold,
-            Foreground = ThemeBrush("TextFillColorSecondaryBrush", Colors.Gray),
-            TextTrimming = TextTrimming.CharacterEllipsis,
-            MaxLines = 1,
+            Child = text,
+            Padding = new Thickness(Fluent.Space4, Fluent.Space2, Fluent.Space4, Fluent.Space1),
         };
-
-        _dayHeadings.Add(text);
-
-        var host = new Border { Child = text };
-        _dayHeadingHosts.Add(host);
-        return host;
     }
 
-    private Border BuildRow(EventRecord item, DateTimeOffset now)
+    private Border BuildRow(EventRecord item, DateTimeOffset now, bool compact)
     {
-        var when = new TextBlock
-        {
-            Text = TimeLabel(item, now),
-            Foreground = ThemeBrush("TextFillColorSecondaryBrush", Colors.Gray),
-            FontWeight = InProgress(item, now) ? FontWeights.SemiBold : FontWeights.Normal,
-            VerticalAlignment = VerticalAlignment.Top,
-            Margin = new Thickness(0, 0, 8, 0),
-            TextTrimming = TextTrimming.CharacterEllipsis,
-            MaxLines = 1,
-        };
+        // A fixed column, so the titles line up instead of each starting wherever its own time
+        // happened to end. An event under way says "Now" in the strong step of the same line.
+        var running = InProgress(item, now);
+        var when = Fluent.Text(
+            running ? FluentType.BodyStrong : FluentType.Body,
+            "TextFillColorSecondaryBrush");
 
-        // Every row's time block gets the same width in ApplyTypeScale, so the titles line up in a
-        // column instead of each starting wherever its own time happened to end.
-        _timeLabels.Add(when);
-        _secondaryText.Add(when);
+        when.Text = TimeLabel(item, now);
+        when.Width = TimeColumn;
+        when.VerticalAlignment = VerticalAlignment.Top;
+        when.Margin = new Thickness(0, 0, Fluent.Space2, 0);
 
-        var title = new TextBlock
-        {
-            Text = string.IsNullOrWhiteSpace(item.Title) ? "(no title)" : item.Title,
-            Foreground = ThemeBrush("TextFillColorPrimaryBrush", Colors.White),
-            TextTrimming = TextTrimming.CharacterEllipsis,
-            MaxLines = 1,
-        };
+        var title = Fluent.Text(FluentType.BodyStrong);
+        title.Text = string.IsNullOrWhiteSpace(item.Title) ? "(no title)" : item.Title;
 
-        _primaryText.Add(title);
-
-        var text = new StackPanel { Spacing = 1 };
+        // No spacing between the lines of a row: each one already carries the line height Fluent
+        // pairs with its size, and a gap on top of that is the web app's look.
+        var text = new StackPanel { Spacing = 0 };
         text.Children.Add(title);
 
         if (_config.ShowLocation && !string.IsNullOrWhiteSpace(item.Location))
         {
-            var place = new TextBlock
-            {
-                Text = item.Location,
-                Foreground = ThemeBrush("TextFillColorTertiaryBrush", Colors.Gray),
-                TextTrimming = TextTrimming.CharacterEllipsis,
-                MaxLines = 1,
-            };
-
-            _secondaryText.Add(place);
+            var place = Fluent.Text(FluentType.Caption, "TextFillColorTertiaryBrush");
+            place.Text = item.Location;
             text.Children.Add(place);
         }
 
@@ -458,22 +410,8 @@ internal sealed partial class CalendarView : Grid, IWidgetView
             Children = { when, text },
         };
 
-        var row = new Border
-        {
-            Child = body,
-            Background = Transparent,
-            BorderBrush = ThemeBrush("DividerStrokeColorDefaultBrush", Colors.Gray),
-            BorderThickness = new Thickness(0, 0, 0, 1),
-        };
-
-        // Hover, the way every list on Windows does it. Done by hand rather than with a ListView
-        // because the row is a custom layout, but the brush is the stock one so it tracks the theme
-        // and the accent. PointerExited alone is not enough: the pointer can leave without it when
-        // the list scrolls or the widget is torn down mid-hover, stranding a row lit.
-        row.PointerEntered += (_, _) => row.Background = ThemeBrush("SubtleFillColorSecondaryBrush", Colors.Gray);
-        row.PointerExited += (_, _) => row.Background = Transparent;
-        row.PointerCaptureLost += (_, _) => row.Background = Transparent;
-        row.PointerCanceled += (_, _) => row.Background = Transparent;
+        var row = Fluent.Row(body, compact);
+        _hovers.Add(Fluent.Hover(row));
 
         ToolTipService.SetToolTip(row, Tooltip(item, now));
         return row;
@@ -543,61 +481,20 @@ internal sealed partial class CalendarView : Grid, IWidgetView
     private static string Clock(DateTimeOffset moment) => Formatting.Clock24(moment);
 
     /// <summary>
-    /// Size the rows to the tile. A widget is dragged to any size, so a fixed row would leave a
-    /// large tile mostly empty and clip a small one.
+    /// Re-fit what is already drawn to the tile: the row height, and whether the empty state has
+    /// room for its icon. No query, and no font size derived from the tile — every size in a row is
+    /// a step of the ramp or of the 4px grid, so a resize has nothing else to change.
     /// </summary>
-    private void ApplyTypeScale()
+    private void ApplyDensity()
     {
-        var width = ActualWidth;
-        var height = ActualHeight;
-
-        var primary = TypeScale.Fit(width, height, 0.055, 0.085, 11, 20);
-        var secondary = TypeScale.Fit(width, height, 0.046, 0.072, 10, 17);
-        var heading = TypeScale.Fit(width, height, 0.050, 0.080, 10, 18);
-        var pad = Math.Clamp(primary * 0.55, 4, 12);
-
-        _title.FontSize = heading;
-        _icon.FontSize = heading;
-        _badge.FontSize = Math.Max(9, heading - 2);
-        _emptyText.FontSize = secondary;
-
-        foreach (var text in _primaryText)
-        {
-            text.FontSize = primary;
-        }
-
-        foreach (var text in _secondaryText)
-        {
-            text.FontSize = secondary;
-        }
-
-        foreach (var text in _dayHeadings)
-        {
-            text.FontSize = secondary;
-        }
-
-        // Wide enough for "All day", which is the longest thing the column ever holds.
-        var timeColumn = Math.Round(secondary * 4.2);
-        foreach (var text in _timeLabels)
-        {
-            text.MinWidth = timeColumn;
-        }
-
-        foreach (var host in _dayHeadingHosts)
-        {
-            // A day heading is a label, not a row, so it keeps the inset the rows give up.
-            host.Padding = new Thickness(WidgetLayout.ContentInset, pad, WidgetLayout.ContentInset, pad * 0.4);
-        }
+        var compact = Compact;
 
         foreach (var row in _rows)
         {
-            // The sides are the standard inset rather than the tile-scaled one, so a row
-            // reaches both edges of the widget and its text still lines up with the header.
-            row.Padding = new Thickness(WidgetLayout.ContentInset, pad * 0.7, WidgetLayout.ContentInset, pad * 0.7);
-
-            // Negative side margins so the hover highlight reaches the tile's edge rather than
-            // stopping short of it in a box of its own.
+            Fluent.SetDensity(row, compact);
         }
+
+        _emptyIcon.Visibility = compact ? Visibility.Collapsed : Visibility.Visible;
     }
 
     /// <summary>Say what is actually true, because every one of these needs a different action.</summary>
@@ -628,15 +525,20 @@ internal sealed partial class CalendarView : Grid, IWidgetView
         _badgeHost.Visibility = Visibility.Collapsed;
     }
 
+    /// <summary>
+    /// Drop the rows and, with them, their hover handlers: a handler left hooked keeps the row it
+    /// lights alive and re-lights it after the list has moved on.
+    /// </summary>
     private void ClearRows()
     {
+        foreach (var hover in _hovers)
+        {
+            hover.Dispose();
+        }
+
+        _hovers.Clear();
         _list.Children.Clear();
         _rows.Clear();
-        _primaryText.Clear();
-        _secondaryText.Clear();
-        _dayHeadings.Clear();
-        _dayHeadingHosts.Clear();
-        _timeLabels.Clear();
     }
 
     public void Detach()
@@ -657,9 +559,4 @@ internal sealed partial class CalendarView : Grid, IWidgetView
         _records = [];
         ClearRows();
     }
-
-    private static Brush ThemeBrush(string key, Windows.UI.Color fallback)
-        => Application.Current.Resources.TryGetValue(key, out var value) && value is Brush brush
-            ? brush
-            : new SolidColorBrush(fallback);
 }

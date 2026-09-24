@@ -1,5 +1,4 @@
 using Microsoft.UI;
-using Microsoft.UI.Text;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
@@ -15,51 +14,50 @@ namespace Themia.App.Widgets;
 /// <para>
 /// The rows are built when the timer list changes and only re-lettered on a tick, rather than rebuilt
 /// each time: a list that is thrown away once a second drops the row the pointer is over, and with a
-/// seconds format that happens every second.
+/// seconds format that happens every second. [S-143]
+/// </para>
+/// <para>
+/// The list is a Windows 11 list. Rows are a <b>fixed</b> 40px — 32 on a small tile — and the type is
+/// the ramp's list-row steps, so a tile that grows shows <i>more rows</i> rather than bigger ones,
+/// exactly as Settings and Explorer do. The only thing that scales with the tile is which of the two
+/// densities is in use, and whether the row has room for its second line. There is no rule between
+/// rows: Windows separates them with space and hover, and a ruled list is the clearest tell of a web
+/// table.
 /// </para>
 /// </summary>
 internal sealed partial class CountdownView : Grid, IWidgetView
 {
-    private readonly TextBlock _title = new();
-    private readonly FontIcon _icon = new();
+    /// <summary>Under this a row goes compact: 32px, and the target date sheds. [C-06]</summary>
+    private const double CompactWidth = 220;
+
+    private const double CompactHeight = 170;
+
+    private readonly TextBlock _title = new() { Text = "Countdowns", TextTrimming = TextTrimming.CharacterEllipsis };
+    private readonly Grid _header;
     private readonly StackPanel _list = new() { Spacing = 0 };
     private readonly ScrollViewer _scroll;
-    private readonly TextBlock _empty = new();
+    private readonly TextBlock _empty = Fluent.Text(FluentType.Body, "TextFillColorTertiaryBrush");
     private readonly List<Row> _rows = [];
 
     private Ticker? _ticker;
     private CountdownConfig _config = new();
     private IDisposable? _subscription;
     private TimeSpan _subscribedInterval = TimeSpan.Zero;
+    private bool _compact;
 
     public CountdownView()
     {
         RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
 
-        _title.Text = "Countdowns";
-        _title.FontWeight = FontWeights.SemiBold;
-        _title.Foreground = FluentLayout.Themed("TextFillColorSecondaryBrush", Colors.Gray);
-        _title.VerticalAlignment = VerticalAlignment.Center;
-        _title.TextTrimming = TextTrimming.CharacterEllipsis;
-
-        _icon.Glyph = Glyphs.Countdown;
-        _icon.Foreground = _title.Foreground;
-        _icon.Margin = new Thickness(0, 0, 6, 0);
-        _icon.VerticalAlignment = VerticalAlignment.Center;
-
-        var header = new StackPanel
-        {
-            Orientation = Orientation.Horizontal,
-            Margin = new Thickness(WidgetLayout.ContentInset, WidgetLayout.ContentInset, WidgetLayout.ContentInset, 6),
-            Children = { _icon, _title },
-        };
-
-        Grid.SetRow(header, 0);
+        _header = Fluent.Header(Glyphs.Countdown, _title);
+        Grid.SetRow(_header, 0);
 
         _scroll = new ScrollViewer
         {
-            Padding = WidgetLayout.ListInset,
+            // Nothing either side, so rows reach both edges and carry the inset as their own padding;
+            // a little under the last row so it is not flush against the card.
+            Padding = Fluent.ListPadding,
             Content = _list,
             HorizontalScrollMode = ScrollMode.Disabled,
             HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
@@ -75,16 +73,16 @@ internal sealed partial class CountdownView : Grid, IWidgetView
         _empty.HorizontalAlignment = HorizontalAlignment.Center;
         _empty.VerticalAlignment = VerticalAlignment.Center;
         _empty.Padding = WidgetLayout.SideInset;
-        _empty.Foreground = FluentLayout.Themed("TextFillColorTertiaryBrush", Colors.Gray);
         _empty.Visibility = Visibility.Collapsed;
 
         Grid.SetRow(_empty, 1);
 
-        Children.Add(header);
+        Children.Add(_header);
         Children.Add(_scroll);
         Children.Add(_empty);
 
-        SizeChanged += (_, _) => ApplyTypeScale();
+        ApplyDensity();
+        SizeChanged += (_, _) => ApplyDensity();
     }
 
     public void Attach(Ticker ticker, WidgetConfig config)
@@ -110,7 +108,7 @@ internal sealed partial class CountdownView : Grid, IWidgetView
     private void Resubscribe()
     {
         // Nothing to re-letter means nothing to wake for, and an empty countdown is a widget the
-        // user has only just dropped.
+        // user has only just dropped. [S-142]
         if (_config.Timers.Count == 0)
         {
             _subscription?.Dispose();
@@ -133,6 +131,11 @@ internal sealed partial class CountdownView : Grid, IWidgetView
 
     private void BuildRows()
     {
+        foreach (var existing in _rows)
+        {
+            existing.Detach();
+        }
+
         _rows.Clear();
         _list.Children.Clear();
 
@@ -143,19 +146,10 @@ internal sealed partial class CountdownView : Grid, IWidgetView
         foreach (var timer in _config.Timers)
         {
             var row = new Row(timer);
+            row.SetDensity(_compact);
             _rows.Add(row);
             _list.Children.Add(row.Host);
-
-            // A rule under the last row is a rule under nothing: it reads as an empty extra row.
-            row.Host.BorderThickness = new Thickness(0, 0, 0, 1);
         }
-
-        if (_rows.Count > 0)
-        {
-            _rows[^1].Host.BorderThickness = new Thickness(0);
-        }
-
-        ApplyTypeScale();
     }
 
     /// <summary>Re-letter the existing rows. Called on every tick, so it allocates nothing but strings.</summary>
@@ -176,25 +170,35 @@ internal sealed partial class CountdownView : Grid, IWidgetView
     }
 
     /// <summary>
-    /// Size the rows to the tile. The duration is the reading, so it leads; the label and the date
-    /// under it stay support, because a row whose three parts are the same size has no shape.
+    /// Pick the row density for this tile, and shed the header when there is no room above the list.
+    /// <para>
+    /// This is the whole of the widget's responsiveness, and deliberately so: the type is the ramp's
+    /// list-row steps at every size, because a Windows list does not grow its text with the window —
+    /// it shows more rows. Changing density in place also keeps the row under the pointer, which
+    /// rebuilding the list would not.
+    /// </para>
     /// </summary>
-    private void ApplyTypeScale()
+    private void ApplyDensity()
     {
         var width = ActualWidth;
         var height = ActualHeight;
+        var measured = width > 0 && height > 0;
 
-        _title.FontSize = TypeScale.Fit(width, height, 0.055, 0.090, 10, 18);
-        _icon.FontSize = _title.FontSize;
-        _empty.FontSize = TypeScale.Fit(width, height, 0.055, 0.090, 10, 18);
+        _compact = measured && (width < CompactWidth || height < CompactHeight);
 
-        var label = TypeScale.Fit(width, height, 0.055, 0.100, 11, 20);
-        var date = TypeScale.Fit(width, height, 0.045, 0.080, 9, 15);
-        var remaining = TypeScale.Fit(width, height, 0.075, 0.130, 12, 26);
+        // Under Fluent's header floor there is no room for a header above the list, so it sheds.
+        _header.Visibility = !measured || height >= Fluent.HeaderHidesBelow
+            ? Visibility.Visible
+            : Visibility.Collapsed;
+        _header.Margin = new Thickness(
+            Fluent.Space4,
+            _compact ? Fluent.Space2 : Fluent.Space4,
+            Fluent.Space4,
+            Fluent.Space1);
 
         foreach (var row in _rows)
         {
-            row.ApplyTypeScale(label, date, remaining);
+            row.SetDensity(_compact);
         }
     }
 
@@ -212,49 +216,34 @@ internal sealed partial class CountdownView : Grid, IWidgetView
         _list.Children.Clear();
     }
 
-
-    /// <summary>
-    /// A shared transparent brush for a row's rest state.
-    /// <para>
-    /// Transparent rather than null: a null background is not hit-testable, so the row would never
-    /// raise the pointer events the hover depends on.
-    /// </para>
-    /// </summary>
-    private static readonly SolidColorBrush Clear = new(Colors.Transparent);
-
     /// <summary>One timer's row: label and target on the left, the duration on the right. [C-03]</summary>
     private sealed class Row
     {
         private readonly CountdownTimer _timer;
-        private readonly TextBlock _label = new();
-        private readonly TextBlock _date = new();
-        private readonly TextBlock _remaining = new();
+        private readonly TextBlock _label = Fluent.Text(FluentType.Body);
+        private readonly TextBlock _date = Fluent.Text(FluentType.Caption, "TextFillColorTertiaryBrush");
+        private readonly TextBlock _remaining = Fluent.Text(FluentType.BodyStrong);
 
         private readonly Brush _primary = FluentLayout.Themed("TextFillColorPrimaryBrush", Colors.White);
         private readonly Brush _secondary = FluentLayout.Themed("TextFillColorSecondaryBrush", Colors.Gray);
-        private readonly Brush _tertiary = FluentLayout.Themed("TextFillColorTertiaryBrush", Colors.Gray);
 
         // [C-40] The theme's own "something has gone past" colour, so it tracks light/dark and the
         // high-contrast themes rather than being a red this file made up.
         private readonly Brush _critical = FluentLayout.Themed("SystemFillColorCriticalBrush", Colors.IndianRed);
+
+        private readonly IDisposable _hover;
 
         public Row(CountdownTimer timer)
         {
             _timer = timer;
 
             _label.Text = string.IsNullOrWhiteSpace(timer.Label) ? CountdownFormatter.UntitledLabel : timer.Label;
-            _label.TextTrimming = TextTrimming.CharacterEllipsis;
             _label.MaxLines = 1;
-            _label.Foreground = _primary;
 
-            _date.TextTrimming = TextTrimming.CharacterEllipsis;
             _date.MaxLines = 1;
-            _date.Foreground = _tertiary;
 
             _remaining.VerticalAlignment = VerticalAlignment.Center;
-            _remaining.Margin = new Thickness(10, 0, 0, 0);
-            _remaining.FontWeight = FontWeights.SemiBold;
-            _remaining.Foreground = _primary;
+            _remaining.Margin = new Thickness(Fluent.Space3, 0, 0, 0);
 
             // [C-04] Tabular figures, so a ticking duration does not shuffle sideways as the digits
             // change under it.
@@ -278,24 +267,13 @@ internal sealed partial class CountdownView : Grid, IWidgetView
                 Children = { text, _remaining },
             };
 
-            Host = new Border
-            {
-                Child = grid,
-                // The row is the full width of the widget, so the inset is its own padding and there
-                // is no negative margin pulling it back out over a card that no longer pads it.
-                // No corner radius either: a rounded highlight inside a flush list reads as a
-                // button, and these are rows.
-                Padding = new Thickness(WidgetLayout.ContentInset, 6, WidgetLayout.ContentInset, 6),
-                Background = Clear,
-                BorderBrush = FluentLayout.Themed("DividerStrokeColorDefaultBrush", Colors.Gray),
-            };
+            // A Windows 11 list row: a fixed height, the inset as its own padding so the highlight
+            // reaches both edges of the widget, and nothing ruled underneath it.
+            Host = Fluent.Row(grid);
 
-            // PointerExited alone is not enough: the pointer can leave without it when the list
-            // scrolls or the widget is torn down mid-hover, which would strand a row lit.
-            Host.PointerEntered += OnPointerEntered;
-            Host.PointerExited += OnPointerGone;
-            Host.PointerCaptureLost += OnPointerGone;
-            Host.PointerCanceled += OnPointerGone;
+            // Held, and dropped in Detach: a handler left hooked keeps the row alive and re-lights
+            // it after the list has been rebuilt or the widget torn down.
+            _hover = Fluent.Hover(Host);
         }
 
         public Border Host { get; }
@@ -307,9 +285,9 @@ internal sealed partial class CountdownView : Grid, IWidgetView
             _remaining.Text = reading.Text;
             _date.Text = CountdownFormatter.TargetLabel(_timer.Target, now, zone);
 
-            // [C-40] A target that has gone by is still worth showing — it is how long ago it went —
-            // but it is no longer the thing to look at, so the label steps back and the duration
-            // carries the fact.
+            // [C-40] [S-140] A target that has gone by is still worth showing — it is how long ago it
+            // went — but it is no longer the thing to look at, so the label steps back to the
+            // secondary text colour and the duration carries the fact in the theme's critical one.
             _remaining.Foreground = reading.Elapsed ? _critical : _primary;
             _label.Foreground = reading.Elapsed ? _secondary : _primary;
 
@@ -317,26 +295,22 @@ internal sealed partial class CountdownView : Grid, IWidgetView
             ToolTipService.SetToolTip(Host, CountdownFormatter.FullTargetLabel(_timer.Target, zone));
         }
 
-        public void ApplyTypeScale(double label, double date, double remaining)
+        /// <summary>
+        /// [C-06] Standard or compact, the two heights Windows lists come in. The second line goes
+        /// with the compact row rather than being squeezed into it: 32px holds one line of body type
+        /// and no more, and a clipped date is worse than none.
+        /// </summary>
+        public void SetDensity(bool compact)
         {
-            _label.FontSize = label;
-            _date.FontSize = date;
-            _remaining.FontSize = remaining;
+            Fluent.SetDensity(Host, compact);
+            _date.Visibility = compact ? Visibility.Collapsed : Visibility.Visible;
         }
 
+        /// <summary>Safe to call twice: the hover handle is idempotent and the child is already gone.</summary>
         public void Detach()
         {
-            Host.PointerEntered -= OnPointerEntered;
-            Host.PointerExited -= OnPointerGone;
-            Host.PointerCaptureLost -= OnPointerGone;
-            Host.PointerCanceled -= OnPointerGone;
+            _hover.Dispose();
             Host.Child = null;
         }
-
-        private void OnPointerEntered(object sender, Microsoft.UI.Xaml.Input.PointerRoutedEventArgs args)
-            => Host.Background = FluentLayout.Themed("SubtleFillColorSecondaryBrush", Colors.Gray);
-
-        private void OnPointerGone(object sender, Microsoft.UI.Xaml.Input.PointerRoutedEventArgs args)
-            => Host.Background = Clear;
     }
 }

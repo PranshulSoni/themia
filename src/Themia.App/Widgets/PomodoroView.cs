@@ -1,9 +1,7 @@
 using System.Runtime.InteropServices;
 using Microsoft.UI;
-using Microsoft.UI.Text;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
-using Microsoft.UI.Xaml.Media;
 using Themia.App.Services;
 using Themia.App.Shell;
 using Themia.Core.Diagnostics;
@@ -25,16 +23,28 @@ internal sealed partial class PomodoroView : Grid, IWidgetView
 {
     private const string Scope = "pomodoro";
 
+    /// <summary>The Fluent icon size, everywhere one appears in this widget.</summary>
+    private const double IconSize = 16;
+
     private readonly TextBlock _title = new();
-    private readonly FontIcon _titleIcon = new();
-    private readonly TextBlock _phase = new();
+    private readonly Grid _header;
+    private readonly TextBlock _phase;
     private readonly FontIcon _phaseIcon = new();
-    private readonly TextBlock _clock = new();
+    private readonly StackPanel _phaseRow;
+    private readonly TextBlock _clock;
+    private readonly Grid _clockHost = new();
     private readonly ProgressBar _progress = new();
     private readonly Button _runButton = new();
     private readonly FontIcon _runIcon = new();
     private readonly Button _resetButton = new();
     private readonly FontIcon _resetIcon = new();
+    private readonly StackPanel _controls;
+
+    // The box the countdown is sized against, so a layout pass that changed nothing does not
+    // re-pick the ramp step.
+    private double _clockWidth;
+    private double _clockHeight;
+    private int _clockCharacters;
 
     private Ticker? _ticker;
     private PomodoroConfig _config = new();
@@ -68,83 +78,98 @@ internal sealed partial class PomodoroView : Grid, IWidgetView
         RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });                     // controls
 
         _title.Text = "Pomodoro";
-        _title.FontWeight = FontWeights.SemiBold;
-        _title.Foreground = FluentLayout.Themed("TextFillColorSecondaryBrush", Colors.Gray);
-        _title.VerticalAlignment = VerticalAlignment.Center;
-        _title.TextTrimming = TextTrimming.CharacterEllipsis;
 
-        _titleIcon.Glyph = Glyphs.Pomodoro;
-        _titleIcon.Foreground = _title.Foreground;
-        _titleIcon.Margin = new Thickness(0, 0, 6, 0);
-        _titleIcon.VerticalAlignment = VerticalAlignment.Center;
+        // The standard pane header: a 16px icon and a Body Strong title in the secondary text
+        // colour, at a fixed ramp step rather than a fraction of the tile.
+        _header = Fluent.Header(Glyphs.Pomodoro, _title);
+        _header.Margin = new Thickness(0, 0, 0, Fluent.Space2);
 
-        var header = new StackPanel
-        {
-            Orientation = Orientation.Horizontal,
-            Children = { _titleIcon, _title },
-        };
+        Grid.SetRow(_header, 0);
 
-        Grid.SetRow(header, 0);
-
+        // The phase reads as a Fluent badge line — a 16px icon and one Body Strong word in the
+        // phase's own theme colour — rather than as a pill this file drew for itself.
+        _phase = Fluent.Text(FluentType.BodyStrong);
         _phase.VerticalAlignment = VerticalAlignment.Center;
-        _phaseIcon.Margin = new Thickness(0, 0, 5, 0);
+
+        _phaseIcon.FontSize = IconSize;
+        _phaseIcon.Margin = new Thickness(0, 0, Fluent.Space1, 0);
         _phaseIcon.VerticalAlignment = VerticalAlignment.Center;
 
-        var phaseRow = new StackPanel
+        _phaseRow = new StackPanel
         {
             Orientation = Orientation.Horizontal,
             HorizontalAlignment = HorizontalAlignment.Center,
-            Margin = new Thickness(0, 2, 0, 0),
             Children = { _phaseIcon, _phase },
         };
 
-        Grid.SetRow(phaseRow, 1);
+        Grid.SetRow(_phaseRow, 1);
 
-        _clock.FontWeight = FontWeights.SemiBold;
-        _clock.Foreground = FluentLayout.Themed("TextFillColorPrimaryBrush", Colors.White);
+        // The countdown is the hero of the tile: the largest ramp step that fits, and past the top
+        // of the ramp a multiple of its Display step that keeps Fluent's own line-height ratio.
+        _clock = Fluent.Text(FluentType.Display);
         _clock.HorizontalAlignment = HorizontalAlignment.Center;
         _clock.VerticalAlignment = VerticalAlignment.Center;
 
         // Tabular figures, so the seconds do not shuffle the whole readout sideways once a second.
         Microsoft.UI.Xaml.Documents.Typography.SetNumeralAlignment(_clock, Microsoft.UI.Xaml.FontNumeralAlignment.Tabular);
 
-        Grid.SetRow(_clock, 2);
+        // Its own host, so the countdown is sized against the room actually left over rather than
+        // against a guessed fraction of the whole tile.
+        _clockHost.Children.Add(_clock);
+        _clockHost.SizeChanged += (_, _) => ApplyTypeScale();
+
+        Grid.SetRow(_clockHost, 2);
 
         // [S-04] The bar is the elapsed fraction of the phase, so a glance says how far in you are
-        // without reading the digits.
+        // without reading the digits. A stock ProgressBar: its height, track and corner radius are
+        // the theme's, not this file's.
         _progress.Minimum = 0;
         _progress.Maximum = 100;
         _progress.HorizontalAlignment = HorizontalAlignment.Stretch;
-        _progress.Margin = new Thickness(0, 4, 0, 6);
 
         Grid.SetRow(_progress, 3);
 
+        // Stock Windows 11 buttons with a 16px FontIcon for content, square on the 4px grid. The
+        // primary action takes the accent style, the way the confirming button of any Windows
+        // dialog does.
+        _runIcon.FontSize = IconSize;
         _runButton.Content = _runIcon;
         _runButton.Padding = new Thickness(0);
         _runButton.Click += (_, _) => SetRunning(!_running);
 
+        if (Application.Current.Resources.TryGetValue("AccentButtonStyle", out var accentStyle)
+            && accentStyle is Style style)
+        {
+            _runButton.Style = style;
+        }
+        else
+        {
+            Log.Warn(Scope, "AccentButtonStyle is missing; the start button falls back to the standard button style");
+        }
+
+        _resetIcon.FontSize = IconSize;
+        _resetIcon.Glyph = Glyphs.Reset;
         _resetButton.Content = _resetIcon;
         _resetButton.Padding = new Thickness(0);
-        _resetIcon.Glyph = Glyphs.Reset;
         _resetButton.Click += (_, _) => Reset();
 
         ToolTipService.SetToolTip(_resetButton, "Reset");
 
-        var controls = new StackPanel
+        _controls = new StackPanel
         {
             Orientation = Orientation.Horizontal,
             HorizontalAlignment = HorizontalAlignment.Center,
-            Spacing = 8,
+            Spacing = Fluent.Space2,
             Children = { _runButton, _resetButton },
         };
 
-        Grid.SetRow(controls, 4);
+        Grid.SetRow(_controls, 4);
 
-        Children.Add(header);
-        Children.Add(phaseRow);
-        Children.Add(_clock);
+        Children.Add(_header);
+        Children.Add(_phaseRow);
+        Children.Add(_clockHost);
         Children.Add(_progress);
-        Children.Add(controls);
+        Children.Add(_controls);
 
         SizeChanged += (_, _) => ApplyTypeScale();
         Render();
@@ -248,44 +273,82 @@ internal sealed partial class PomodoroView : Grid, IWidgetView
         _progress.Value = PomodoroCycle.Progress(_state, total) * 100;
 
         // Which phase you are in is the first thing to read off this widget, so it is carried by
-        // colour as well as by the word. Both are theme tokens, so they follow light, dark and the
-        // user's accent.
-        var accent = work
+        // colour as well as by the word. Accent *text* fill rather than the accent control fill:
+        // the two differ precisely so that coloured text stays legible on a card.
+        var badge = work
+            ? FluentLayout.Themed("AccentTextFillColorPrimaryBrush", Colors.DodgerBlue)
+            : FluentLayout.Themed("SystemFillColorSuccessBrush", Colors.MediumSeaGreen);
+
+        _phase.Foreground = badge;
+        _phaseIcon.Foreground = badge;
+
+        // The bar keeps the control fill, which is the colour Windows fills a progress bar with.
+        _progress.Foreground = work
             ? FluentLayout.Themed("AccentFillColorDefaultBrush", Colors.DodgerBlue)
             : FluentLayout.Themed("SystemFillColorSuccessBrush", Colors.MediumSeaGreen);
 
-        _phase.Foreground = accent;
-        _phaseIcon.Foreground = accent;
-        _progress.Foreground = accent;
-
         _runIcon.Glyph = _running ? Glyphs.Pause : Glyphs.Play;
         ToolTipService.SetToolTip(_runButton, _running ? "Pause" : "Start");
+
+        // A longer phase is a longer readout, so the step is re-picked when the digits change
+        // width. The guard inside makes the once-a-second call free when they have not.
+        ApplyTypeScale();
     }
 
     /// <summary>
-    /// Size the readout to the tile. The clock leads and everything else stays support, because a
-    /// timer whose label is as big as its digits reads as two headlines.
+    /// Decide what a tile this size shows, and which ramp step the countdown is drawn at.
+    /// <para>
+    /// Only the countdown scales, and it scales by choosing a step. Everything else is a fixed
+    /// Fluent size — a 16px icon, a Body Strong line, a 32 or 40px square button — and a tile too
+    /// short for all of it drops parts rather than shrinking them, which is what Windows does and
+    /// what sizing every element to a fraction of the tile did not.
+    /// </para>
     /// </summary>
     private void ApplyTypeScale()
     {
-        var width = ActualWidth;
         var height = ActualHeight;
 
-        _clock.FontSize = TypeScale.Fit(width, height, 0.26, 0.20, 16, 96);
-        _title.FontSize = TypeScale.Fit(width, height, 0.070, 0.085, 10, 18);
-        _titleIcon.FontSize = _title.FontSize;
-        _phase.FontSize = TypeScale.Fit(width, height, 0.080, 0.095, 11, 22);
-        _phaseIcon.FontSize = _phase.FontSize;
+        // Under about 90 DIPs the title is most of the widget; under 140 the phase word is
+        // competing with the digits for the last usable line.
+        _header.Visibility = height < 90 ? Visibility.Collapsed : Visibility.Visible;
+        _phaseRow.Visibility = height < 140 ? Visibility.Collapsed : Visibility.Visible;
 
-        var button = TypeScale.Fit(width, height, 0.17, 0.16, 26, 48);
-        _runButton.Width = button;
-        _runButton.Height = button;
-        _resetButton.Width = button;
-        _resetButton.Height = button;
-        _runIcon.FontSize = Math.Max(10, button * 0.42);
-        _resetIcon.FontSize = _runIcon.FontSize;
+        var roomy = height >= 140;
 
-        _progress.Height = Math.Clamp(height * 0.035, 3, 8);
+        _phaseRow.Margin = new Thickness(0, 0, 0, Fluent.Space1);
+        _progress.Margin = new Thickness(0, roomy ? Fluent.Space3 : Fluent.Space2, 0, roomy ? Fluent.Space3 : Fluent.Space2);
+        _controls.Margin = new Thickness(0, roomy ? Fluent.Space1 : 0, 0, 0);
+
+        // The standard Windows control height, and its compact variant on a small tile. Square,
+        // because the content is one 16px glyph.
+        var side = height >= 260 ? Fluent.RowHeight : Fluent.RowHeightCompact;
+
+        _runButton.Width = side;
+        _runButton.Height = side;
+        _resetButton.Width = side;
+        _resetButton.Height = side;
+
+        var width = _clockHost.ActualWidth;
+        var clockHeight = _clockHost.ActualHeight;
+
+        // "25:00" is five, "120:00" is six — the readout's own length, so a long phase does not
+        // overrun the tile that a short one fitted.
+        var characters = Math.Max(5, _clock.Text.Length);
+
+        // A layout pass that moved nothing does not re-pick the step. This runs on every tick as
+        // well as on every resize, and re-applying the ramp once a second is work for nothing.
+        if (Math.Abs(width - _clockWidth) < 0.5
+            && Math.Abs(clockHeight - _clockHeight) < 0.5
+            && characters == _clockCharacters)
+        {
+            return;
+        }
+
+        _clockWidth = width;
+        _clockHeight = clockHeight;
+        _clockCharacters = characters;
+
+        _clock.Apply(FluentType.Hero(width, clockHeight, characters));
     }
 
     public void Detach()

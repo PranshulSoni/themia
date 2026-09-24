@@ -1,5 +1,4 @@
 using Microsoft.UI;
-using Microsoft.UI.Text;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
@@ -26,21 +25,51 @@ internal sealed partial class MeterView : Grid, IWidgetView
     private const string Scope = "meter";
     private const int HistoryLength = 60;
 
+    /// <summary>The graph's minimum height, and what the reading leaves room for when it is shown.</summary>
+    /// <summary>The graph never shrinks below this: under it a trace is a smudge, not a chart.</summary>
+    private const double SparklineHeight = Fluent.Space6;
+
+    /// <summary>Nor grows past it: a chart taller than the number it annotates inverts the tile.</summary>
+    private const double SparklineMaxHeight = 96;
+
+    /// <summary>The share of the tile the graph takes between those two bounds.</summary>
+    private const double SparklineShare = 0.32;
+
+    /// <summary>What the fallback bar costs the reading in height, the bar being a thin Fluent one.</summary>
+    private const double BarHeight = Fluent.Space1;
+
     private readonly WidgetKind _kind;
     private readonly TextBlock _title = new();
-    private readonly FontIcon _icon = new();
-    private readonly TextBlock _primary = new();
-    private readonly TextBlock _secondary = new();
+    private readonly TextBlock _primary = Fluent.Text(FluentType.Subtitle);
+    private readonly TextBlock _secondary = Fluent.Text(FluentType.Caption, "TextFillColorTertiaryBrush");
+    private readonly Grid _reading = new();
     private readonly ProgressBar _bar = new();
     private readonly Polygon _sparkFill = new();
     private readonly Polyline _sparkLine = new();
     private readonly Grid _sparkHost = new();
+    private readonly StackPanel? _absentState;
     private readonly Queue<double> _history = new(HistoryLength);
+
+    // Looked up once. The reading swaps between them on every sample, and a resource lookup per
+    // sample per widget is a dictionary hit and a possible log line for nothing.
+    private readonly Brush _readingBrush = FluentLayout.Themed("TextFillColorPrimaryBrush", Colors.White);
+    private readonly Brush _unavailableBrush = FluentLayout.Themed("TextFillColorDisabledBrush", Colors.Gray);
+    private readonly Brush _barBrush = FluentLayout.Themed("AccentFillColorDefaultBrush", Colors.DodgerBlue);
+    private readonly Brush _barUnavailableBrush = FluentLayout.Themed("AccentFillColorDisabledBrush", Colors.Gray);
 
     private Ticker? _ticker;
     private WidgetConfig _config;
     private IDisposable? _subscription;
     private TimeSpan _subscribedInterval = TimeSpan.Zero;
+
+    // The ramp steps currently applied. Kept so a sample that lands on the same step does not touch
+    // the text blocks at all: Present runs once a second, and re-applying a font size is a layout
+    // invalidation the tile does not need.
+    private TypeStep _heroStep;
+    private TypeStep _captionStep;
+
+    private bool _graph;
+    private bool _absent;
 
     // Ping is the one reading that cannot be taken synchronously: a probe takes up to two seconds
     // and Sample() runs on the UI thread. The token source is both the cancel handle and the
@@ -52,43 +81,43 @@ internal sealed partial class MeterView : Grid, IWidgetView
 
     public MeterView(WidgetKind kind)
     {
-        // The card no longer pads its content; a view that is not a list carries its own inset.
-        Padding = WidgetLayout.Inset;
+        // No padding on the view: the graph is a full-bleed band and has to reach the card edge on
+        // three sides. Text carries the inset instead, exactly as a list row does — the chart is
+        // the widget's surface, not something sitting on it, and a chart floating inside a margin
+        // reads as a picture of a chart.
+        RowSpacing = Fluent.Space2;
 
         _kind = kind;
         _config = WidgetConfig.CreateDefault(kind);
 
         var definition = WidgetCatalog.Definition(kind);
-        _icon.Glyph = definition.Glyph;
         _title.Text = definition.Label;
 
-        var muted = FluentLayout.Themed("TextFillColorSecondaryBrush", Colors.Gray);
-        _title.Foreground = muted;
-        _title.VerticalAlignment = VerticalAlignment.Center;
-        _icon.Foreground = muted;
+        _heroStep = FluentType.Subtitle;
+        _captionStep = FluentType.Caption;
 
-        _primary.FontWeight = FontWeights.SemiBold;
-        _primary.Foreground = FluentLayout.Themed("TextFillColorPrimaryBrush", Colors.White);
         _primary.Text = "--";
+        _primary.Foreground = _readingBrush;
         _primary.VerticalAlignment = VerticalAlignment.Bottom;
 
-        _secondary.Foreground = FluentLayout.Themed("TextFillColorTertiaryBrush", Colors.Gray);
-        _secondary.TextTrimming = TextTrimming.CharacterEllipsis;
+        // Lifted off the baseline of the reading it sits beside: bottom-aligning a 12px caption
+        // against a 68px number puts it below the number's baseline, which reads as a slipped line.
         _secondary.VerticalAlignment = VerticalAlignment.Bottom;
-        _secondary.Margin = new Thickness(0, 0, 0, 2);
+        _secondary.Margin = new Thickness(0, 0, 0, Fluent.Space1);
 
         _bar.Minimum = 0;
         _bar.Maximum = 100;
         _bar.HorizontalAlignment = HorizontalAlignment.Stretch;
+        _bar.VerticalAlignment = VerticalAlignment.Bottom;
+        _bar.Foreground = _barBrush;
 
         BuildSparkline();
 
-        var header = new StackPanel
-        {
-            Orientation = Orientation.Horizontal,
-            Spacing = 6,
-            Children = { _icon, _title },
-        };
+        // Only a battery can be absent — every other meter that cannot be read is a meter that could
+        // be read a moment ago, which is [S-82]'s dimmed "--" rather than an empty state.
+        _absentState = kind == WidgetKind.Battery ? BuildAbsentState(definition.Glyph) : null;
+
+        var header = Fluent.Header(definition.Glyph, _title);
 
         // The reading on its own line, the sparkline below it. Drawing the trace *behind* the number
         // meant the graph read as decoration and the number was read against a moving background;
@@ -98,35 +127,44 @@ internal sealed partial class MeterView : Grid, IWidgetView
         // width, so the caption never learns how much room it has and TextTrimming never fires. On a
         // narrow tile it simply ran past the edge of the card and was cut mid-word — "up 105 KB/".
         // The star column hands it exactly what is left over, so it ellipsises instead.
-        var reading = new Grid
-        {
-            ColumnSpacing = 8,
-            ColumnDefinitions =
-            {
-                new ColumnDefinition { Width = GridLength.Auto },
-                new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) },
-            },
-        };
+        _reading.ColumnSpacing = Fluent.Space2;
+        _reading.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        _reading.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
 
         Grid.SetColumn(_primary, 0);
         Grid.SetColumn(_secondary, 1);
-        reading.Children.Add(_primary);
-        reading.Children.Add(_secondary);
+        _reading.Children.Add(_primary);
+        _reading.Children.Add(_secondary);
 
-        RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        // The READING takes the slack, not the graph. With the star on the graph row, a tall tile
+        // gave the sparkline a 350px band it had no way to fill — a young trace occupies the
+        // right-hand slots and the bottom half of the scale, so the tile read as mostly empty
+        // with a number stranded at the top. The graph is a band of bounded height at the foot,
+        // which is the proportion Windows gives a chart under a readout.
         RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
         RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
 
+        header.Margin = new Thickness(Fluent.Space4, Fluent.Space4, Fluent.Space4, 0);
         Grid.SetRow(header, 0);
-        Grid.SetRow(reading, 1);
+        _reading.VerticalAlignment = VerticalAlignment.Center;
+        _reading.Margin = WidgetLayout.SideInset;
+        Grid.SetRow(_reading, 1);
         Grid.SetRow(_sparkHost, 2);
         Grid.SetRow(_bar, 3);
 
         Children.Add(header);
-        Children.Add(reading);
+        Children.Add(_reading);
         Children.Add(_sparkHost);
         Children.Add(_bar);
+
+        if (_absentState is not null)
+        {
+            // The star row, so the empty state is centred in what is left under the header.
+            Grid.SetRow(_absentState, 1);
+            Children.Add(_absentState);
+        }
 
         SizeChanged += (_, _) => ApplyTypeScale();
     }
@@ -139,39 +177,129 @@ internal sealed partial class MeterView : Grid, IWidgetView
     {
         var accent = FluentLayout.Themed("AccentFillColorDefaultBrush", Colors.DodgerBlue);
 
+        // The wash under the trace is the accent at low alpha. It is the one opacity in the view
+        // that is not standing in for a colour: an area fill under a line is drawn translucent by
+        // every chart Windows ships, and there is no named brush for "the accent, quietly".
         _sparkFill.Fill = accent;
         _sparkFill.Opacity = 0.18;
         _sparkFill.Stretch = Stretch.None;
 
         _sparkLine.Stroke = accent;
-        _sparkLine.StrokeThickness = 1.5;
+        _sparkLine.StrokeThickness = Fluent.ChartStroke;
         _sparkLine.StrokeLineJoin = PenLineJoin.Round;
         _sparkLine.Stretch = Stretch.None;
 
         _sparkHost.IsHitTestVisible = false;
-        _sparkHost.MinHeight = 24;
-        _sparkHost.Margin = new Thickness(0, 6, 0, 6);
+        _sparkHost.MinHeight = SparklineHeight;
         _sparkHost.Children.Add(_sparkFill);
         _sparkHost.Children.Add(_sparkLine);
         _sparkHost.SizeChanged += (_, _) => RedrawSparkline();
     }
 
     /// <summary>
-    /// Size the readout to the tile. The number grows; the title and caption stay close to their
-    /// natural size, because a meter whose label is as big as its value reads as two headlines.
+    /// The state a machine with no battery shows: the widget's own icon and one line, centred, the
+    /// shape Windows uses when a pane has nothing to show. Not a dimmed number and an empty bar,
+    /// which read as a broken widget rather than as a desktop.
+    /// </summary>
+    private static StackPanel BuildAbsentState(string glyph)
+    {
+        var icon = Fluent.Icon(glyph, "TextFillColorTertiaryBrush");
+        icon.HorizontalAlignment = HorizontalAlignment.Center;
+
+        var text = Fluent.Text(FluentType.Body, "TextFillColorSecondaryBrush");
+        text.Text = "No battery";
+        text.HorizontalAlignment = HorizontalAlignment.Center;
+
+        var panel = new StackPanel
+        {
+            Spacing = Fluent.Space2,
+            HorizontalAlignment = HorizontalAlignment.Center,
+            VerticalAlignment = VerticalAlignment.Center,
+            Visibility = Visibility.Collapsed,
+        };
+
+        panel.Children.Add(icon);
+        panel.Children.Add(text);
+        return panel;
+    }
+
+    /// <summary>
+    /// Step the readout to the tile. The reading is the only thing that grows: the header and the
+    /// caption stay where Fluent puts them, because a meter whose label is as big as its value reads
+    /// as two headlines.
+    /// <para>
+    /// A step, not a fraction of the tile. The reading moves Subtitle → Title → TitleLarge → Display
+    /// as the tile grows and stops there: the ramp is where Windows stops having anything larger to
+    /// say, and a meter is not a clock.
+    /// </para>
     /// </summary>
     private void ApplyTypeScale()
     {
-        var width = ActualWidth;
-        var height = ActualHeight;
+        // The text is inset even though the view is not, so the width it has is still the tile
+        // less both insets. The height is the whole tile now: the graph reaches the bottom.
+        var width = ActualWidth - (Fluent.Space4 * 2);
+        var height = ActualHeight - Fluent.Space4;
 
-        _primary.FontSize = TypeScale.Fit(width, height, 0.26, 0.30, 16, 88);
-        _title.FontSize = TypeScale.Fit(width, height, 0.10, 0.12, 10, 20);
-        _icon.FontSize = _title.FontSize;
-        _secondary.FontSize = TypeScale.Fit(width, height, 0.070, 0.085, 9, 16);
+        // The graph is a proportion of the tile between a readable floor and a ceiling, rather
+        // than whatever is left over. Left over is how it ended up taller than the number it is
+        // annotating.
+        var band = Math.Clamp(height * SparklineShare, SparklineHeight, SparklineMaxHeight);
+        _sparkHost.Height = band;
 
-        _bar.Height = Math.Clamp(height * 0.035, 3, 8);
+        // What is left for the reading once the header line, the two gaps above and below it, and
+        // whichever of the graph and the bar is showing have had their fixed share.
+        var reserved = FluentType.BodyStrong.LineHeight
+            + (Fluent.Space2 * 2)
+            + (_sparkHost.Visibility == Visibility.Visible ? band : BarHeight);
+
+        // The caption shares the line with the reading, so the reading gets at most half of it.
+        // Letting the number take the whole line is how a tall narrow tile ended up with a 68px
+        // reading and a caption trimmed to a single ellipsis.
+        var readingWidth = _secondary.Visibility == Visibility.Visible ? width / 2 : width;
+
+        var hero = FluentType.Hero(
+            readingWidth,
+            Math.Min(height - reserved, FluentType.Display.LineHeight),
+            ReadingCharacters(_kind));
+
+        // Never below Subtitle: the reading is the point of the tile and must not end up smaller
+        // than the header above it.
+        if (hero.FontSize < FluentType.Subtitle.FontSize)
+        {
+            hero = FluentType.Subtitle;
+        }
+
+        // The caption steps once, with the reading, rather than sliding: next to a 28px number a
+        // 12px caption is right, next to a 68px one it is a footnote.
+        var caption = hero.FontSize >= FluentType.Title.FontSize ? FluentType.Body : FluentType.Caption;
+
+        if (hero != _heroStep)
+        {
+            _heroStep = hero;
+            _primary.Apply(hero);
+        }
+
+        if (caption != _captionStep)
+        {
+            _captionStep = caption;
+            _secondary.Apply(caption);
+        }
     }
+
+    /// <summary>
+    /// How wide the reading has to be able to get, in characters — the widest string this kind can
+    /// produce, not the one currently on screen.
+    /// <para>
+    /// Fitting to the live text would mean "9%" and "100%" choose different steps, so the number
+    /// would change size between two samples a second apart. The kind's own worst case is stable.
+    /// </para>
+    /// </summary>
+    private static double ReadingCharacters(WidgetKind kind) => kind switch
+    {
+        WidgetKind.Network => 8,  // "1.2 MB/s"
+        WidgetKind.Ping => 6,     // "999 ms"
+        _ => 4,                   // "100%"
+    };
 
     public void Attach(Ticker ticker, WidgetConfig config)
     {
@@ -186,13 +314,9 @@ internal sealed partial class MeterView : Grid, IWidgetView
 
         // Battery has no meaningful history at a one-minute cadence, and a flat line reads as a
         // broken graph rather than as a stable charge.
-        var graphable = _config is GaugeConfig { ShowGraph: true } && _config is not BatteryConfig;
+        _graph = _config is GaugeConfig { ShowGraph: true } && _config is not BatteryConfig;
 
-        _sparkHost.Visibility = graphable ? Visibility.Visible : Visibility.Collapsed;
-
-        // The bar is the fallback readout: with no sparkline there would otherwise be nothing
-        // showing the value against its range.
-        _bar.Visibility = graphable ? Visibility.Collapsed : Visibility.Visible;
+        UpdateVisibility();
 
         var previousHost = _probeHost;
         _probeHost = (_config as PingConfig)?.EffectiveHost;
@@ -224,6 +348,27 @@ internal sealed partial class MeterView : Grid, IWidgetView
         {
             Sample();
         }
+    }
+
+    /// <summary>
+    /// Which of the reading, the graph, the fallback bar and the empty state are on screen. One
+    /// place, so the two things that move them — the config and an absent battery — cannot disagree.
+    /// </summary>
+    private void UpdateVisibility()
+    {
+        _reading.Visibility = _absent ? Visibility.Collapsed : Visibility.Visible;
+        _sparkHost.Visibility = _graph && !_absent ? Visibility.Visible : Visibility.Collapsed;
+
+        // The bar is the fallback readout: with no sparkline there would otherwise be nothing
+        // showing the value against its range.
+        _bar.Visibility = !_graph && !_absent ? Visibility.Visible : Visibility.Collapsed;
+
+        if (_absentState is not null)
+        {
+            _absentState.Visibility = _absent ? Visibility.Visible : Visibility.Collapsed;
+        }
+
+        ApplyTypeScale();
     }
 
     /// <summary>True when the subscription was rebuilt, which also fires an immediate tick.</summary>
@@ -390,13 +535,31 @@ internal sealed partial class MeterView : Grid, IWidgetView
     /// <summary>Put one reading on screen, wherever it came from.</summary>
     private void Present(MeterReading reading)
     {
+        // A desktop with no battery is not a battery meter that failed, so it gets an empty state
+        // rather than a dimmed "--". The reading says which it is; matching on the caption text
+        // would make a display decision depend on the exact wording of a string in another file.
+        var absent = reading.Absent;
+
+        if (absent != _absent)
+        {
+            _absent = absent;
+            UpdateVisibility();
+        }
+
         _primary.Text = reading.Primary;
         _secondary.Text = reading.Secondary ?? string.Empty;
         _secondary.Visibility = string.IsNullOrEmpty(reading.Secondary) ? Visibility.Collapsed : Visibility.Visible;
 
+        // Unavailable is a colour, not an opacity: the disabled text and accent brushes are what
+        // every other disabled thing on the desktop uses, and they follow the theme.
+        _primary.Foreground = reading.Available ? _readingBrush : _unavailableBrush;
+
         _bar.Value = (reading.Fraction ?? 0) * 100;
-        _bar.Opacity = reading.Available ? 1 : 0.4;
-        _primary.Opacity = reading.Available ? 1 : 0.5;
+        _bar.Foreground = reading.Available ? _barBrush : _barUnavailableBrush;
+
+        // The caption can appear and disappear between samples, which changes how much of the line
+        // the reading may take.
+        ApplyTypeScale();
 
         if (reading is { Available: true, Fraction: { } fraction })
         {

@@ -10,110 +10,51 @@
     <Grid x:Name="Root">
 
         <!--
-            Digital face. Font sizes are computed from the tile in code-behind rather than fixed
-            here, so the clock fills whatever box the user drew. Deliberately not a Viewbox: that
-            stretches an already-rendered glyph, and text laid out at 48px and blown up four times
-            is soft where text laid out at 192px is sharp.
+            Digital face. The clock is the hero of its tile, so the readout still grows with the box
+            the user drew — but it grows by picking a step of the Windows 11 type ramp (and, past the
+            ramp's top, a multiple of it that keeps Fluent's own line-height ratio) rather than by
+            taking a fraction of the width. See ApplyTypeScale.
+
+            Deliberately not a Viewbox: that stretches an already-rendered glyph, and text laid out
+            at 48px and blown up four times is soft where text laid out at 192px is sharp.
         -->
-        <Grid x:Name="DigitalRoot" HorizontalAlignment="Center" VerticalAlignment="Center">
-            <StackPanel HorizontalAlignment="Center">
-                <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" Spacing="6">
-                    <TextBlock
-                        x:Name="TimeText"
-                        FontWeight="SemiBold"
-                        LineHeight="0"
-                        Foreground="{ThemeResource TextFillColorPrimaryBrush}"
-                        VerticalAlignment="Center"
-                        Text="00:00" />
-                    <TextBlock
-                        x:Name="MeridiemText"
-                        FontWeight="SemiBold"
-                        Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                        VerticalAlignment="Bottom"
-                        Visibility="Collapsed"
-                        Text="AM" />
-                </StackPanel>
+        <StackPanel x:Name="DigitalRoot" HorizontalAlignment="Center" VerticalAlignment="Center">
+            <StackPanel
+                x:Name="TimeRow"
+                Orientation="Horizontal"
+                HorizontalAlignment="Center">
                 <TextBlock
-                    x:Name="DateText"
-                    HorizontalAlignment="Center"
-                    TextTrimming="CharacterEllipsis"
+                    x:Name="TimeText"
+                    Foreground="{ThemeResource TextFillColorPrimaryBrush}"
+                    VerticalAlignment="Bottom"
+                    Text="00:00" />
+                <TextBlock
+                    x:Name="MeridiemText"
                     Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                    Text="" />
+                    VerticalAlignment="Bottom"
+                    Visibility="Collapsed"
+                    Text="AM" />
             </StackPanel>
+            <TextBlock
+                x:Name="DateText"
+                HorizontalAlignment="Center"
+                TextTrimming="CharacterEllipsis"
+                Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                Text="" />
+        </StackPanel>
+
+        <!--
+            Analog face. Built in code at the tile's own pixel scale (see BuildAnalogFace) rather
+            than drawn small and scaled up by a Viewbox: a Windows clock face is hairline ticks and
+            thin hands, and a hairline that has been through a 4x Viewbox is a 4px rule. Everything
+            on it is a named theme brush.
+        -->
+        <Grid x:Name="AnalogRoot" Visibility="Collapsed">
+            <Canvas
+                x:Name="AnalogFace"
+                HorizontalAlignment="Center"
+                VerticalAlignment="Center" />
         </Grid>
-
-        <!-- Analog face. Laid out in a fixed 100x100 space; the Viewbox scales it to fill the tile,
-             which is correct here because it is vector geometry, not text. -->
-        <Viewbox
-            x:Name="AnalogRoot"
-            Stretch="Uniform"
-            Visibility="Collapsed">
-            <Grid Width="100" Height="100">
-                <Ellipse
-                    Stroke="{ThemeResource TextFillColorSecondaryBrush}"
-                    StrokeThickness="1.5"
-                    Fill="Transparent" />
-
-                <Rectangle
-                    x:Name="HourHand"
-                    Width="3.5"
-                    Height="26"
-                    RadiusX="1.75"
-                    RadiusY="1.75"
-                    Fill="{ThemeResource TextFillColorPrimaryBrush}"
-                    HorizontalAlignment="Center"
-                    VerticalAlignment="Center"
-                    RenderTransformOrigin="0.5,1">
-                    <Rectangle.RenderTransform>
-                        <TransformGroup>
-                            <TranslateTransform Y="-13" />
-                            <RotateTransform x:Name="HourRotation" CenterX="1.75" CenterY="26" />
-                        </TransformGroup>
-                    </Rectangle.RenderTransform>
-                </Rectangle>
-
-                <Rectangle
-                    x:Name="MinuteHand"
-                    Width="2.5"
-                    Height="38"
-                    RadiusX="1.25"
-                    RadiusY="1.25"
-                    Fill="{ThemeResource TextFillColorPrimaryBrush}"
-                    HorizontalAlignment="Center"
-                    VerticalAlignment="Center"
-                    RenderTransformOrigin="0.5,1">
-                    <Rectangle.RenderTransform>
-                        <TransformGroup>
-                            <TranslateTransform Y="-19" />
-                            <RotateTransform x:Name="MinuteRotation" CenterX="1.25" CenterY="38" />
-                        </TransformGroup>
-                    </Rectangle.RenderTransform>
-                </Rectangle>
-
-                <Rectangle
-                    x:Name="SecondHand"
-                    Width="1"
-                    Height="42"
-                    Fill="{ThemeResource AccentFillColorDefaultBrush}"
-                    HorizontalAlignment="Center"
-                    VerticalAlignment="Center"
-                    RenderTransformOrigin="0.5,1">
-                    <Rectangle.RenderTransform>
-                        <TransformGroup>
-                            <TranslateTransform Y="-21" />
-                            <RotateTransform x:Name="SecondRotation" CenterX="0.5" CenterY="42" />
-                        </TransformGroup>
-                    </Rectangle.RenderTransform>
-                </Rectangle>
-
-                <Ellipse
-                    Width="6"
-                    Height="6"
-                    Fill="{ThemeResource AccentFillColorDefaultBrush}"
-                    HorizontalAlignment="Center"
-                    VerticalAlignment="Center" />
-            </Grid>
-        </Viewbox>
 
     </Grid>
 </UserControl>

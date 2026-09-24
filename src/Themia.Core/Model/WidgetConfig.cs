@@ -166,6 +166,17 @@ public sealed class DiskConfig : GaugeConfig
     /// <summary>Drive root to report, e.g. <c>C:\</c>. Empty means the system drive.</summary>
     public string Drive { get; set; } = string.Empty;
 
+    /// <summary>
+    /// Off by default, unlike the live meters.
+    /// <para>
+    /// Free space is sampled once a minute, so a sixty-slot window is an hour of history: the
+    /// graph is a bare sliver for most of that hour and a flat line for the rest of it, because
+    /// free space does not move at that cadence. The bar says the same thing immediately and
+    /// truthfully. The setting stays, for a drive that really is filling up.
+    /// </para>
+    /// </summary>
+    public DiskConfig() => ShowGraph = false;
+
     /// <summary>Free space moves slowly; waking every second to watch it would be waste.</summary>
     [JsonIgnore]
     public override TimeSpan TickInterval => TimeSpan.FromMinutes(1);

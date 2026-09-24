@@ -1,9 +1,7 @@
 using Microsoft.UI;
 using Microsoft.UI.Dispatching;
-using Microsoft.UI.Text;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
-using Microsoft.UI.Xaml.Media;
 using Themia.App.Services;
 using Themia.App.Shell;
 using Themia.Core.Diagnostics;
@@ -40,7 +38,6 @@ internal sealed partial class NotesView : Grid, IWidgetView, IWidgetSurfaceAware
 
     /// <summary>The surface this note is drawn on: where it saves and where it asks for the keyboard.</summary>
     private IWidgetSurface? _surface;
-    private readonly FontIcon _icon = new();
     private readonly Grid _header;
     private readonly TextBox _editor = new();
     private readonly DispatcherQueueTimer? _saveTimer;
@@ -58,31 +55,13 @@ internal sealed partial class NotesView : Grid, IWidgetView, IWidgetSurfaceAware
         RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
 
-        var muted = FluentLayout.Themed("TextFillColorSecondaryBrush", Colors.Gray);
-
-        _icon.Glyph = WidgetCatalog.Definition(WidgetKind.Notes).Glyph;
-        _icon.Foreground = muted;
-        _icon.Margin = new Thickness(0, 0, 6, 0);
-
         _title.Text = WidgetCatalog.Definition(WidgetKind.Notes).Label;
-        _title.FontWeight = FontWeights.SemiBold;
-        _title.Foreground = muted;
-        _title.TextTrimming = TextTrimming.CharacterEllipsis;
-        _title.VerticalAlignment = VerticalAlignment.Center;
 
-        Grid.SetColumn(_icon, 0);
-        Grid.SetColumn(_title, 1);
-
-        _header = new Grid
-        {
-            Margin = new Thickness(0, 0, 0, 4),
-            ColumnDefinitions =
-            {
-                new ColumnDefinition { Width = GridLength.Auto },
-                new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) },
-            },
-            Children = { _icon, _title },
-        };
+        // The standard pane header: a 16px icon and a Body Strong title in the secondary text
+        // colour. Fixed, not scaled to the tile — a header that grows with its widget is the web
+        // habit this port came in with.
+        _header = Fluent.Header(WidgetCatalog.Definition(WidgetKind.Notes).Glyph, _title);
+        _header.Margin = new Thickness(0, 0, 0, Fluent.Space2);
 
         BuildEditor();
 
@@ -112,10 +91,11 @@ internal sealed partial class NotesView : Grid, IWidgetView, IWidgetSurfaceAware
     }
 
     /// <summary>
-    /// A text box with its chrome taken off, so the note reads as writing on the card rather than as
-    /// a form field on it.
+    /// A Windows 11 multiline text box with no chrome at rest, so the note reads as writing on the
+    /// card — and with the stock subtle fill under the pointer and the stock accent line when it has
+    /// focus, so it still reads as something you can type in.
     /// <para>
-    /// The brushes are replaced through the control's own resource keys, not through its
+    /// [S-129] The brushes are replaced through the control's own resource keys, not through its
     /// <c>Background</c> property: the stock template's visual states assign the pointer-over and
     /// focused backgrounds straight onto the border element, which outranks any local value set
     /// here, and the field would light up as a solid rectangle the moment the pointer crossed it.
@@ -123,22 +103,22 @@ internal sealed partial class NotesView : Grid, IWidgetView, IWidgetSurfaceAware
     /// </summary>
     private void BuildEditor()
     {
-        var clear = new SolidColorBrush(Colors.Transparent);
+        var clear = FluentLayout.Themed("SubtleFillColorTransparentBrush", Colors.Transparent);
+        var hover = FluentLayout.Themed("SubtleFillColorSecondaryBrush", Colors.Gray);
+        var focus = FluentLayout.Themed("AccentFillColorDefaultBrush", Colors.DodgerBlue);
 
-        foreach (var key in new[]
-        {
-            "TextControlBackground",
-            "TextControlBackgroundPointerOver",
-            "TextControlBackgroundFocused",
-            "TextControlBackgroundDisabled",
-            "TextControlBorderBrush",
-            "TextControlBorderBrushPointerOver",
-            "TextControlBorderBrushFocused",
-            "TextControlBorderBrushDisabled",
-        })
-        {
-            _editor.Resources[key] = clear;
-        }
+        _editor.Resources["TextControlBackground"] = clear;
+        _editor.Resources["TextControlBackgroundPointerOver"] = hover;
+        _editor.Resources["TextControlBackgroundFocused"] = hover;
+        _editor.Resources["TextControlBackgroundDisabled"] = clear;
+
+        _editor.Resources["TextControlBorderBrush"] = clear;
+        _editor.Resources["TextControlBorderBrushPointerOver"] = clear;
+        _editor.Resources["TextControlBorderBrushDisabled"] = clear;
+
+        // The one piece of chrome that stays: Windows draws the accent line under a focused field,
+        // and without it there is nothing on screen saying where the caret went.
+        _editor.Resources["TextControlBorderBrushFocused"] = focus;
 
         _editor.AcceptsReturn = true;
         _editor.TextWrapping = TextWrapping.Wrap;
@@ -146,8 +126,14 @@ internal sealed partial class NotesView : Grid, IWidgetView, IWidgetSurfaceAware
         _editor.IsSpellCheckEnabled = false;
         _editor.IsTextPredictionEnabled = false;
         _editor.BorderThickness = new Thickness(0);
-        _editor.Padding = new Thickness(0);
-        _editor.Margin = new Thickness(-2, 0, -2, 0); // cancels the template's built-in text inset
+        _editor.CornerRadius = new CornerRadius(Fluent.ControlRadius);
+
+        // The fill is inset from the text by one grid unit and the field pulled back out by the
+        // same, so the hover highlight has room to breathe while the words stay exactly where the
+        // card's own inset put them.
+        _editor.Padding = new Thickness(Fluent.Space1);
+        _editor.Margin = new Thickness(-Fluent.Space1);
+
         _editor.HorizontalAlignment = HorizontalAlignment.Stretch;
         _editor.VerticalAlignment = VerticalAlignment.Stretch;
         _editor.VerticalContentAlignment = VerticalAlignment.Top;
@@ -261,14 +247,12 @@ internal sealed partial class NotesView : Grid, IWidgetView, IWidgetSurfaceAware
     }
 
     /// <summary>
-    /// The header tracks the tile; the note does not. [S-03] makes the note's size the user's
-    /// setting, and a note that grew with its widget would change size every time it was resized.
+    /// [S-131] The header is dropped on a short tile and nothing is resized: the header is a fixed
+    /// ramp step and the note's size is the user's own setting [S-03], so a widget that is dragged
+    /// larger shows more note rather than bigger letters.
     /// </summary>
     private void OnSizeChanged(object sender, SizeChangedEventArgs args)
     {
-        _title.FontSize = TypeScale.Fit(ActualWidth, ActualHeight, 0.075, 0.10, 10, 18);
-        _icon.FontSize = _title.FontSize;
-
         // Under about 90 DIPs the title is most of the widget, so the note gets the room instead.
         _header.Visibility = ActualHeight < 90 ? Visibility.Collapsed : Visibility.Visible;
     }

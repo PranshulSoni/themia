@@ -1,8 +1,5 @@
-using Microsoft.UI;
-using Microsoft.UI.Text;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
-using Microsoft.UI.Xaml.Media;
 using Themia.App.Services;
 using Themia.App.Shell;
 using Themia.App.Services.Hearth;
@@ -29,14 +26,24 @@ internal sealed partial class EmailView : Grid, IWidgetView
     private readonly Border _badgeHost;
     private readonly StackPanel _list = new() { Spacing = 0 };
     private readonly ScrollViewer _scroll;
-    private readonly StackPanel _empty = new();
+    private readonly StackPanel _empty;
+    private readonly FontIcon _emptyIcon;
     private readonly TextBlock _emptyText = new();
     private readonly ProgressRing _busy = new();
+
+    // The rows on screen, so a resize can switch them between the two row heights Fluent defines
+    // without asking the hub for the same messages again.
+    private readonly List<Border> _rows = [];
+
+    // One per row, so the hover handlers come off with the row they light. A leaked one keeps the
+    // row alive and re-lights it after teardown.
+    private readonly List<IDisposable> _hovers = [];
 
     private HearthHub? _mail;
     private EmailConfig _config = new();
     private IDisposable? _subscription;
     private bool _refreshing;
+    private bool _loaded;
     private bool _detached;
 
     public EmailView()
@@ -45,60 +52,36 @@ internal sealed partial class EmailView : Grid, IWidgetView
         RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
 
         _title.Text = "Mail";
-        _title.FontSize = 12;
-        _title.FontWeight = FontWeights.SemiBold;
-        _title.Foreground = FluentLayout.Themed("TextFillColorSecondaryBrush", Colors.Gray);
-        _title.VerticalAlignment = VerticalAlignment.Center;
+        _title.TextTrimming = TextTrimming.CharacterEllipsis;
 
-        _badge.FontSize = 10;
-        _badge.FontWeight = FontWeights.Bold;
-        _badge.Foreground = FluentLayout.Themed("TextOnAccentFillColorPrimaryBrush", Colors.White);
+        // The unread count is Fluent's InfoBadge shape, which the design system owns.
+        _badgeHost = Fluent.Badge(_badge);
+        _badgeHost.Visibility = Visibility.Collapsed;
 
-        _badgeHost = new Border
-        {
-            Child = _badge,
-            Background = FluentLayout.Themed("AccentFillColorDefaultBrush", Colors.DodgerBlue),
-            CornerRadius = new CornerRadius(9),
-            Padding = new Thickness(7, 1, 7, 2),
-            VerticalAlignment = VerticalAlignment.Center,
-            Visibility = Visibility.Collapsed,
-        };
-
-        _busy.Width = 14;
-        _busy.Height = 14;
+        _busy.Width = Fluent.IconSize;
+        _busy.Height = Fluent.IconSize;
         _busy.IsActive = false;
         _busy.Visibility = Visibility.Collapsed;
 
-        var header = new Grid
+        var trailing = new StackPanel
         {
-            Margin = new Thickness(WidgetLayout.ContentInset, WidgetLayout.ContentInset, WidgetLayout.ContentInset, 6),
-            ColumnDefinitions =
-            {
-                new ColumnDefinition { Width = GridLength.Auto },
-                new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) },
-                new ColumnDefinition { Width = GridLength.Auto },
-            },
+            Orientation = Orientation.Horizontal,
+            Spacing = Fluent.Space2,
+            VerticalAlignment = VerticalAlignment.Center,
         };
 
-        var icon = new FontIcon { Glyph = "", FontSize = 12, Margin = new Thickness(0, 0, 6, 0) };
-        icon.Foreground = _title.Foreground;
-        Grid.SetColumn(icon, 0);
-        Grid.SetColumn(_title, 1);
-        _title.HorizontalAlignment = HorizontalAlignment.Left;
+        trailing.Children.Add(_busy);
+        trailing.Children.Add(_badgeHost);
 
-        var right = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6 };
-        right.Children.Add(_busy);
-        right.Children.Add(_badgeHost);
-        Grid.SetColumn(right, 2);
-
-        header.Children.Add(icon);
-        header.Children.Add(_title);
-        header.Children.Add(right);
+        var header = Fluent.Header(Glyphs.Mail, _title, trailing);
+        header.Margin = Fluent.HeaderMargin;
         Grid.SetRow(header, 0);
 
         _scroll = new ScrollViewer
         {
-            Padding = WidgetLayout.ListInset,
+            // Nothing either side, so a row reaches both edges of the card and its highlight with
+            // it. The gap above the first row is the header's; this keeps the last one off the edge.
+            Padding = Fluent.ListPadding,
             Content = _list,
             HorizontalScrollMode = ScrollMode.Disabled,
             HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
@@ -107,22 +90,25 @@ internal sealed partial class EmailView : Grid, IWidgetView
 
         Grid.SetRow(_scroll, 1);
 
-        _emptyText.FontSize = 12;
-        _emptyText.TextWrapping = TextWrapping.Wrap;
-        _emptyText.HorizontalAlignment = HorizontalAlignment.Center;
-        _emptyText.TextAlignment = TextAlignment.Center;
-        _emptyText.Foreground = FluentLayout.Themed("TextFillColorTertiaryBrush", Colors.Gray);
-
-        _empty.VerticalAlignment = VerticalAlignment.Center;
-        _empty.Padding = WidgetLayout.SideInset;
-        _empty.Children.Add(_emptyText);
+        // A Windows empty state: an icon over a line of body text in the secondary colour, centred.
+        // Not a shrunken caption, which reads as an error the app is embarrassed about.
+        _empty = Fluent.EmptyState(Glyphs.Mail, _emptyText, out _emptyIcon);
         _empty.Visibility = Visibility.Collapsed;
         Grid.SetRow(_empty, 1);
 
         Children.Add(header);
         Children.Add(_scroll);
         Children.Add(_empty);
+
+        SizeChanged += (_, _) => ApplyDensity();
     }
+
+    /// <summary>
+    /// Whether the tile takes the compact row. Fluent has two list-row heights and a tile shorter
+    /// than five standard rows reads better with the shorter one: this is a density switch between
+    /// two fixed heights, not a row that grows with the tile.
+    /// </summary>
+    private bool Compact => ActualHeight > 0 && ActualHeight < Fluent.CompactBelow;
 
     public void Attach(Ticker ticker, WidgetConfig config)
     {
@@ -173,6 +159,13 @@ internal sealed partial class EmailView : Grid, IWidgetView
         _busy.IsActive = true;
         _busy.Visibility = Visibility.Visible;
 
+        // Until the first reply lands there is nothing to say but that it is coming; a blank tile
+        // with no explanation is one of the states this widget is required to name.
+        if (!_loaded)
+        {
+            ShowMessage("Loading…");
+        }
+
         try
         {
             var messages = await _mail.RecentAsync(
@@ -185,13 +178,14 @@ internal sealed partial class EmailView : Grid, IWidgetView
                 return;
             }
 
+            _loaded = true;
             Render(messages);
         }
         catch (Exception ex)
         {
             // Never let a hub problem take the surface down; say so in the widget instead.
             Log.Error(Scope, "could not refresh the mail list", ex);
-            ShowEmpty("Could not read mail.");
+            ShowMessage("Could not read mail. See themia.log.");
         }
         finally
         {
@@ -203,11 +197,11 @@ internal sealed partial class EmailView : Grid, IWidgetView
 
     private void Render(IReadOnlyList<EmailRecord> messages)
     {
-        _list.Children.Clear();
+        ClearRows();
 
         if (messages.Count == 0)
         {
-            ShowEmpty(EmptyMessage());
+            ShowMessage(EmptyMessage());
             return;
         }
 
@@ -215,6 +209,7 @@ internal sealed partial class EmailView : Grid, IWidgetView
         _scroll.Visibility = Visibility.Visible;
 
         var now = DateTimeOffset.Now;
+        var compact = Compact;
         var unread = 0;
 
         foreach (var message in messages)
@@ -224,35 +219,26 @@ internal sealed partial class EmailView : Grid, IWidgetView
                 unread++;
             }
 
-            _list.Children.Add(BuildRow(message, now));
+            var row = BuildRow(message, now, compact);
+            _rows.Add(row);
+            _list.Children.Add(row);
         }
 
         _badge.Text = unread.ToString(System.Globalization.CultureInfo.InvariantCulture);
         _badgeHost.Visibility = unread > 0 ? Visibility.Visible : Visibility.Collapsed;
     }
 
-    private FrameworkElement BuildRow(EmailRecord message, DateTimeOffset now)
+    private Border BuildRow(EmailRecord message, DateTimeOffset now, bool compact)
     {
-        var who = new TextBlock
-        {
-            Text = message.Who,
-            FontSize = 12,
-            // Unread is carried by weight rather than a dot, which is what every mail list on
-            // Windows does and needs no legend.
-            FontWeight = message.Unread ? FontWeights.SemiBold : FontWeights.Normal,
-            Foreground = FluentLayout.Themed("TextFillColorPrimaryBrush", Colors.White),
-            TextTrimming = TextTrimming.CharacterEllipsis,
-            MaxLines = 1,
-        };
+        // Unread is carried by weight rather than by a dot, which is what every mail list on Windows
+        // does and needs no legend. Both steps are the same 14/20 line, so nothing moves with it.
+        var who = Fluent.Text(message.Unread ? FluentType.BodyStrong : FluentType.Body);
+        who.Text = message.Who;
 
-        var when = new TextBlock
-        {
-            Text = Formatting.Ago(message.When, now),
-            FontSize = 11,
-            Foreground = FluentLayout.Themed("TextFillColorTertiaryBrush", Colors.Gray),
-            VerticalAlignment = VerticalAlignment.Center,
-            Margin = new Thickness(8, 0, 0, 0),
-        };
+        var when = Fluent.Text(FluentType.Caption, "TextFillColorTertiaryBrush");
+        when.Text = Formatting.Ago(message.When, now);
+        when.VerticalAlignment = VerticalAlignment.Center;
+        when.Margin = new Thickness(Fluent.Space2, 0, 0, 0);
 
         Grid.SetColumn(who, 0);
         Grid.SetColumn(when, 1);
@@ -267,78 +253,80 @@ internal sealed partial class EmailView : Grid, IWidgetView
             Children = { who, when },
         };
 
-        var stack = new StackPanel { Spacing = 1 };
+        // No spacing between the lines of a row: each one already carries the line height Fluent
+        // pairs with its size, and a gap on top of that is the web app's look.
+        var stack = new StackPanel { Spacing = 0 };
         stack.Children.Add(top);
 
-        stack.Children.Add(new TextBlock
-        {
-            Text = string.IsNullOrWhiteSpace(message.Subject) ? "(no subject)" : message.Subject,
-            FontSize = 12,
-            Foreground = FluentLayout.Themed("TextFillColorSecondaryBrush", Colors.Gray),
-            TextTrimming = TextTrimming.CharacterEllipsis,
-            MaxLines = 1,
-        });
+        var subject = Fluent.Text(FluentType.Caption, "TextFillColorSecondaryBrush");
+        subject.Text = string.IsNullOrWhiteSpace(message.Subject) ? "(no subject)" : message.Subject;
+        stack.Children.Add(subject);
 
         if (_config.ShowPreview && !string.IsNullOrWhiteSpace(message.Preview))
         {
-            stack.Children.Add(new TextBlock
-            {
-                Text = message.Preview,
-                FontSize = 11,
-                Foreground = FluentLayout.Themed("TextFillColorTertiaryBrush", Colors.Gray),
-                TextTrimming = TextTrimming.CharacterEllipsis,
-                MaxLines = 1,
-            });
+            var preview = Fluent.Text(FluentType.Caption, "TextFillColorTertiaryBrush");
+            preview.Text = message.Preview;
+            stack.Children.Add(preview);
         }
 
-        var row = new Border
-        {
-            Child = stack,
-            Padding = new Thickness(WidgetLayout.ContentInset, 7, WidgetLayout.ContentInset, 7),
-            Background = Transparent,
-            BorderBrush = FluentLayout.Themed("DividerStrokeColorDefaultBrush", Colors.Gray),
-            BorderThickness = new Thickness(0, 0, 0, 1),
-        };
-
-        // Hover, the way every list on Windows does it. Done by hand rather than with a ListView
-        // because the rows are a custom layout, but the brush is the stock one so it tracks the
-        // theme and the accent. PointerExited alone is not enough: the pointer can leave without it
-        // when the list scrolls or the widget is torn down mid-hover, which would strand a row lit.
-        row.PointerEntered += (_, _) => row.Background = FluentLayout.Themed("SubtleFillColorSecondaryBrush", Colors.Gray);
-        row.PointerExited += (_, _) => row.Background = Transparent;
-        row.PointerCaptureLost += (_, _) => row.Background = Transparent;
-        row.PointerCanceled += (_, _) => row.Background = Transparent;
+        var row = Fluent.Row(stack, compact);
+        _hovers.Add(Fluent.Hover(row));
 
         ToolTipService.SetToolTip(row, message.Who + Environment.NewLine + message.Subject);
         return row;
     }
 
     /// <summary>
-    /// A shared transparent brush for the rows' rest state.
-    /// <para>
-    /// Transparent rather than null: a null background is not hit-testable, so the row would never
-    /// raise the pointer events the hover depends on.
-    /// </para>
+    /// Re-fit what is already drawn to the tile: the row height, and whether the empty state has
+    /// room for its icon. No query, and no font size derived from the tile.
     /// </summary>
-    private static readonly SolidColorBrush Transparent = new(Colors.Transparent);
+    private void ApplyDensity()
+    {
+        var compact = Compact;
+
+        foreach (var row in _rows)
+        {
+            Fluent.SetDensity(row, compact);
+        }
+
+        _emptyIcon.Visibility = compact ? Visibility.Collapsed : Visibility.Visible;
+    }
 
     /// <summary>Say what is actually wrong, because every one of these needs a different action.</summary>
     private string EmptyMessage() => _mail?.Status switch
     {
+        null => "Themia is still starting.",
         HearthStatus.NotRunning => "hearth is not running.\nStart it to see your mail here.",
         HearthStatus.Denied => "hearth has not granted Themia access to any mailbox.",
         HearthStatus.Failed => "Could not read from hearth. See themia.log.",
-        HearthStatus.Connecting => "Connecting to hearth…",
+        HearthStatus.Connecting or HearthStatus.Idle => "Connecting to hearth…",
+        _ when (_mail?.MailCollections.Count ?? 0) == 0 => "hearth has granted no mailboxes.",
         _ when _config.UnreadOnly => "Nothing unread.",
         _ => "No messages.",
     };
 
-    private void ShowEmpty(string text)
+    private void ShowMessage(string text)
     {
         _emptyText.Text = text;
         _empty.Visibility = Visibility.Visible;
         _scroll.Visibility = Visibility.Collapsed;
         _badgeHost.Visibility = Visibility.Collapsed;
+    }
+
+    /// <summary>
+    /// Drop the rows and, with them, their hover handlers: a handler left hooked keeps the row it
+    /// lights alive and re-lights it after the list has moved on.
+    /// </summary>
+    private void ClearRows()
+    {
+        foreach (var hover in _hovers)
+        {
+            hover.Dispose();
+        }
+
+        _hovers.Clear();
+        _list.Children.Clear();
+        _rows.Clear();
     }
 
     /// <summary>
@@ -366,6 +354,7 @@ internal sealed partial class EmailView : Grid, IWidgetView
             _mail.Changed -= OnHubChanged;
             _mail = null;
         }
-    }
 
+        ClearRows();
+    }
 }

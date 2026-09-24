@@ -1,5 +1,4 @@
 using Microsoft.UI;
-using Microsoft.UI.Text;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
@@ -22,11 +21,12 @@ namespace Themia.App.Widgets;
 internal sealed partial class CalculatorView : Grid, IWidgetView, IWidgetSurfaceAware
 {
     private readonly TextBlock _title = new();
-    private readonly FontIcon _icon = new();
     private readonly Grid _header;
     private readonly StackPanel _rows = new() { Spacing = 0 };
     private readonly ScrollViewer _historyScroll;
-    private readonly TextBlock _preview = new();
+    private readonly StackPanel _empty;
+    private readonly FontIcon _emptyIcon;
+    private readonly TextBlock _preview;
     private readonly TextBox _input = new();
 
     /// <summary>The surface this widget is drawn on: where it asks for the keyboard.</summary>
@@ -34,7 +34,10 @@ internal sealed partial class CalculatorView : Grid, IWidgetView, IWidgetSurface
     private readonly Border _entryArea;
     private readonly CalculatorHistory _history = new();
 
-    private readonly Brush _resultBrush;
+    /// <summary>One per row. A handler left hooked re-lights a row that is no longer on screen.</summary>
+    private readonly List<IDisposable> _hovers = [];
+
+    private readonly Brush _previewBrush;
     private readonly Brush _errorBrush;
 
     private CalculatorConfig _config = new();
@@ -46,8 +49,7 @@ internal sealed partial class CalculatorView : Grid, IWidgetView, IWidgetSurface
         RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
         RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
 
-        var muted = FluentLayout.Themed("TextFillColorSecondaryBrush", Colors.Gray);
-        _resultBrush = FluentLayout.Themed("TextFillColorPrimaryBrush", Colors.White);
+        _previewBrush = FluentLayout.Themed("TextFillColorSecondaryBrush", Colors.Gray);
 
         // The stock "something is wrong" fill, so the error tracks the theme rather than being a
         // red this file decided on.
@@ -55,29 +57,15 @@ internal sealed partial class CalculatorView : Grid, IWidgetView, IWidgetSurface
 
         var definition = WidgetCatalog.Definition(WidgetKind.Calculator);
 
-        _icon.Glyph = definition.Glyph;
-        _icon.Foreground = muted;
-        _icon.Margin = new Thickness(0, 0, 6, 0);
-
         _title.Text = definition.Label;
-        _title.FontWeight = FontWeights.SemiBold;
-        _title.Foreground = muted;
-        _title.TextTrimming = TextTrimming.CharacterEllipsis;
-        _title.VerticalAlignment = VerticalAlignment.Center;
 
-        Grid.SetColumn(_icon, 0);
-        Grid.SetColumn(_title, 1);
+        // The standard pane header, at a fixed ramp step: a header that grew with the tile is the
+        // web habit this port came in with.
+        _header = Fluent.Header(definition.Glyph, _title);
+        _header.Margin = new Thickness(Fluent.Space4, Fluent.Space4, Fluent.Space4, Fluent.Space2);
 
-        _header = new Grid
-        {
-            Margin = new Thickness(WidgetLayout.ContentInset, WidgetLayout.ContentInset, WidgetLayout.ContentInset, 4),
-            ColumnDefinitions =
-            {
-                new ColumnDefinition { Width = GridLength.Auto },
-                new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) },
-            },
-            Children = { _icon, _title },
-        };
+        // Rows reach both edges of the card, so the list scrolls with no inset of its own.
+        _rows.Margin = WidgetLayout.ListInset;
 
         _historyScroll = new ScrollViewer
         {
@@ -88,31 +76,38 @@ internal sealed partial class CalculatorView : Grid, IWidgetView, IWidgetSurface
             VerticalAlignment = VerticalAlignment.Stretch,
         };
 
+        // [S-03]/[S-04] The running answer is support for the line being typed, not a headline of
+        // its own: Body in the secondary colour, the same as any Windows hint line.
+        _preview = Fluent.Text(FluentType.Body, "TextFillColorSecondaryBrush");
         _preview.HorizontalAlignment = HorizontalAlignment.Right;
-        _preview.Foreground = _resultBrush;
-        _preview.FontWeight = FontWeights.SemiBold;
-        _preview.TextTrimming = TextTrimming.CharacterEllipsis;
-        _preview.Margin = new Thickness(0, 2, 0, 2);
         _preview.Visibility = Visibility.Collapsed; // [S-04] nothing typed, nothing to show
 
+        // A stock Windows 11 text box, styled by the theme rather than by this file.
         _input.PlaceholderText = "2 + 3 * 4";
         _input.IsSpellCheckEnabled = false;
         _input.IsTextPredictionEnabled = false;
         _input.TextAlignment = TextAlignment.Right;
+        _input.CornerRadius = new CornerRadius(Fluent.ControlRadius);
         _input.TextChanged += OnInputChanged;
         _input.KeyDown += OnInputKeyDown;
         _input.GotFocus += OnInputGotFocus;
         _input.LostFocus += OnInputLostFocus;
 
-        // The line being typed is separated from the ones already worked out, as in the original:
-        // the rule is what stops the live preview reading as one more history row.
+        // The line being typed is separated from the ones already worked out. This is the widget's
+        // one rule, and it earns it the way a dialog's command area does: it divides a scrolling
+        // region from a fixed one. The history rows themselves have no dividers at all.
         _entryArea = new Border
         {
             BorderBrush = FluentLayout.Themed("DividerStrokeColorDefaultBrush", Colors.Gray),
             BorderThickness = new Thickness(0, 1, 0, 0),
-            Padding = new Thickness(0, 6, 0, 0),
-            Child = new StackPanel { Spacing = 4, Children = { _preview, _input } },
+            Child = new StackPanel { Spacing = Fluent.Space1, Children = { _preview, _input } },
         };
+
+        // A tall tile with nothing worked out yet was a large blank area above the input, which
+        // reads as something failing to load. Windows Calculator says so in words instead.
+        _empty = Fluent.EmptyState(Glyphs.Calculator, new TextBlock { Text = "No history yet." }, out _emptyIcon);
+        _empty.Visibility = Visibility.Collapsed;
+        Grid.SetRow(_empty, 1);
 
         Grid.SetRow(_header, 0);
         Grid.SetRow(_historyScroll, 1);
@@ -120,9 +115,11 @@ internal sealed partial class CalculatorView : Grid, IWidgetView, IWidgetSurface
 
         Children.Add(_header);
         Children.Add(_historyScroll);
+        Children.Add(_empty);
         Children.Add(_entryArea);
 
         SizeChanged += OnSizeChanged;
+        ApplyLayout();
     }
 
     public void Attach(Ticker ticker, WidgetConfig config)
@@ -178,7 +175,7 @@ internal sealed partial class CalculatorView : Grid, IWidgetView, IWidgetSurface
 
             default:
                 _preview.Visibility = Visibility.Visible;
-                _preview.Foreground = _resultBrush;
+                _preview.Foreground = _previewBrush;
                 _preview.Text = "= " + result.Format(_config.EffectiveDecimalPlaces);
                 break;
         }
@@ -211,7 +208,7 @@ internal sealed partial class CalculatorView : Grid, IWidgetView, IWidgetSurface
 
     private void RedrawHistory()
     {
-        _rows.Children.Clear();
+        ClearRows();
 
         // At most eight rows ([S-09]), so redrawing the lot is cheaper than tracking which changed.
         foreach (var entry in _history.Entries)
@@ -219,31 +216,36 @@ internal sealed partial class CalculatorView : Grid, IWidgetView, IWidgetSurface
             _rows.Children.Add(BuildRow(entry));
         }
 
-        // ApplyTypeScale owns both the sizes and what is shown at this size, so there is one place
-        // that decides how the widget looks at 180x120.
-        ApplyTypeScale();
+        // ApplyLayout owns what is shown at this size, so there is one place that decides how the
+        // widget looks at 180x120.
+        ApplyLayout();
+    }
+
+    /// <summary>
+    /// One history row, in the standard Windows 11 list shape: a fixed 40px height, the content
+    /// inset carried as the row's own padding so the row — and the fill it takes under the pointer —
+    /// reaches both edges of the card, and no divider.
+    /// </summary>
+    /// <summary>Drop the rows and the pointer handlers that belong to them. Safe to call twice.</summary>
+    private void ClearRows()
+    {
+        foreach (var hover in _hovers)
+        {
+            hover.Dispose();
+        }
+
+        _hovers.Clear();
+        _rows.Children.Clear();
     }
 
     private FrameworkElement BuildRow(Calculation entry)
     {
-        var expression = new TextBlock
-        {
-            Text = entry.Expression,
-            Foreground = FluentLayout.Themed("TextFillColorSecondaryBrush", Colors.Gray),
-            TextTrimming = TextTrimming.CharacterEllipsis,
-            MaxLines = 1,
-            VerticalAlignment = VerticalAlignment.Center,
-        };
+        var expression = Fluent.Text(FluentType.Body, "TextFillColorSecondaryBrush");
+        expression.Text = entry.Expression;
 
-        var result = new TextBlock
-        {
-            Text = "= " + entry.Result,
-            Foreground = _resultBrush,
-            TextTrimming = TextTrimming.CharacterEllipsis,
-            MaxLines = 1,
-            Margin = new Thickness(8, 0, 0, 0),
-            VerticalAlignment = VerticalAlignment.Center,
-        };
+        var result = Fluent.Text(FluentType.BodyStrong);
+        result.Text = "= " + entry.Result;
+        result.Margin = new Thickness(Fluent.Space2, 0, 0, 0);
 
         Grid.SetColumn(expression, 0);
         Grid.SetColumn(result, 1);
@@ -258,20 +260,10 @@ internal sealed partial class CalculatorView : Grid, IWidgetView, IWidgetSurface
             Children = { expression, result },
         };
 
-        var row = new Border
-        {
-            Child = layout,
-            Padding = new Thickness(WidgetLayout.ContentInset, 3, WidgetLayout.ContentInset, 3),
-            Background = Transparent,
-            Tag = entry.Result,
-        };
+        var row = Fluent.Row(layout);
+        row.Tag = entry.Result;
 
-        // Hover the way every list on Windows does it, with the stock brush so it follows the theme.
-        // PointerExited alone strands a row lit when the list scrolls or is rebuilt under the mouse.
-        row.PointerEntered += (_, _) => row.Background = FluentLayout.Themed("SubtleFillColorSecondaryBrush", Colors.Gray);
-        row.PointerExited += (_, _) => row.Background = Transparent;
-        row.PointerCaptureLost += (_, _) => row.Background = Transparent;
-        row.PointerCanceled += (_, _) => row.Background = Transparent;
+        _hovers.Add(Fluent.Hover(row));
 
         // [S-11] A past answer is usually the next thing you want to work from.
         row.Tapped += OnRowTapped;
@@ -297,56 +289,41 @@ internal sealed partial class CalculatorView : Grid, IWidgetView, IWidgetSurface
     // Layout
     // -----------------------------------------------------------------------------------------
 
-    private void OnSizeChanged(object sender, SizeChangedEventArgs args) => ApplyTypeScale();
+    private void OnSizeChanged(object sender, SizeChangedEventArgs args) => ApplyLayout();
 
     /// <summary>
-    /// Size everything to the tile, so the widget reads at 180x120 and still fills 800x600 rather
-    /// than leaving a field of empty card under three small lines.
+    /// Decide what a tile this size shows. Nothing here is a size: every piece of type is a fixed
+    /// ramp step and the rows are the standard 40px, so a tile that grows shows <i>more rows</i>
+    /// rather than larger ones — which is what Explorer and Settings do, and what the fractions this
+    /// widget used to compute did not.
     /// </summary>
-    private void ApplyTypeScale()
+    private void ApplyLayout()
     {
-        var width = ActualWidth;
         var height = ActualHeight;
 
-        _title.FontSize = TypeScale.Fit(width, height, 0.075, 0.10, 10, 18);
-        _icon.FontSize = _title.FontSize;
-
-        var body = TypeScale.Fit(width, height, 0.065, 0.085, 10, 22);
-
-        foreach (var child in _rows.Children)
-        {
-            if (child is Border { Child: Grid row })
-            {
-                foreach (var cell in row.Children)
-                {
-                    if (cell is TextBlock text)
-                    {
-                        text.FontSize = body;
-                    }
-                }
-            }
-        }
-
-        _preview.FontSize = TypeScale.Fit(width, height, 0.095, 0.13, 12, 32);
-        _input.FontSize = TypeScale.Fit(width, height, 0.080, 0.11, 11, 26);
-
-        // Below roughly 90 DIPs the title takes the room the sum needs.
+        // [S-131] Below roughly 90 DIPs the title takes the room the sum needs.
         _header.Visibility = height < 90 ? Visibility.Collapsed : Visibility.Visible;
 
-        // The original hides the history under 120px of height, and it is right to: in a 180x120
-        // tile the thing being typed is the whole point, and two clipped rows above it are noise.
-        // A measured height of 0 is a tile that has not been laid out yet, not a short one.
+        // [S-131] The original hides the history under 120px of height, and it is right to: in a
+        // 180x120 tile the thing being typed is the whole point, and two clipped rows above it are
+        // noise. A measured height of 0 is a tile that has not been laid out yet, not a short one.
         var showHistory = _history.Count > 0 && (height >= 120 || height <= 0);
 
         _historyScroll.Visibility = showHistory ? Visibility.Visible : Visibility.Collapsed;
 
+        // The empty state takes the room the history would have had, on a tile tall enough to
+        // have shown it. On a short tile neither appears and the sum has the whole widget.
+        var roomForHistory = height >= 120 || height <= 0;
+        _empty.Visibility = !showHistory && roomForHistory ? Visibility.Visible : Visibility.Collapsed;
+        _emptyIcon.Visibility = height >= 180 ? Visibility.Visible : Visibility.Collapsed;
+
         // With nothing above it the rule would be a line across the top of the widget.
         _entryArea.BorderThickness = new Thickness(0, showHistory ? 1 : 0, 0, 0);
         _entryArea.Padding = new Thickness(
-            WidgetLayout.ContentInset,
-            showHistory ? 6 : 0,
-            WidgetLayout.ContentInset,
-            WidgetLayout.ContentInset);
+            Fluent.Space4,
+            showHistory ? Fluent.Space3 : 0,
+            Fluent.Space4,
+            Fluent.Space4);
     }
 
     /// <inheritdoc />
@@ -386,13 +363,7 @@ internal sealed partial class CalculatorView : Grid, IWidgetView, IWidgetSurface
 
         // [S-09] In-memory only: there is nothing to write out, and nothing is left behind.
         _history.Clear();
-        _rows.Children.Clear();
+        ClearRows();
     }
-
-    /// <summary>
-    /// Transparent rather than null for a row's rest state: a null background is not hit-testable,
-    /// so the row would never raise the pointer events the hover and the click depend on.
-    /// </summary>
-    private static readonly SolidColorBrush Transparent = new(Colors.Transparent);
 
 }
