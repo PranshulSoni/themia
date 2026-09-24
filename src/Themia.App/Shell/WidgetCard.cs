@@ -562,8 +562,8 @@ internal sealed partial class WidgetCard : Grid, IWidgetSurface
 
     private void OnDoubleTapped(object sender, DoubleTappedRoutedEventArgs e)
     {
-        // The tray icon is the documented way in, but a double-click on a widget is the one people
-        // actually try — and it is the fallback if the tray icon failed to register.
+        // Ctrl+Alt+W is the documented way in, but a double-click on a widget is the one people
+        // actually try — and it is the fallback when another program already owns the hotkey.
         _host.RequestEditMode(!_host.EditMode);
         e.Handled = true;
     }

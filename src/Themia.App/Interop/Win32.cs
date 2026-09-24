@@ -148,58 +148,10 @@ internal static partial class Win32
     [LibraryImport("shcore.dll")]
     internal static partial int GetDpiForMonitor(nint hMonitor, int dpiType, out uint dpiX, out uint dpiY);
 
-    // ---- tray icon -------------------------------------------------------------------------
-
-    internal const uint NimAdd = 0x00000000;
-    internal const uint NimModify = 0x00000001;
-    internal const uint NimDelete = 0x00000002;
-    internal const uint NimSetVersion = 0x00000004;
-
-    internal const uint NifMessage = 0x00000001;
-    internal const uint NifIcon = 0x00000002;
-    internal const uint NifTip = 0x00000004;
-
-    [LibraryImport("shell32.dll", EntryPoint = "Shell_NotifyIconW", SetLastError = true)]
-    [return: MarshalAs(UnmanagedType.Bool)]
-    internal static partial bool ShellNotifyIcon(uint dwMessage, ref NotifyIconData lpData);
-
-    // ---- menus ---------------------------------------------------------------------------
-
-    internal const uint MfString = 0x00000000;
-    internal const uint MfSeparator = 0x00000800;
-    internal const uint MfChecked = 0x00000008;
-    internal const uint MfDisabled = 0x00000002;
-    internal const uint MfGrayed = 0x00000001;
-
-    internal const uint TpmRightButton = 0x0002;
-    internal const uint TpmReturnCmd = 0x0100;
-    internal const uint TpmRightAlign = 0x0008;
-    internal const uint TpmBottomAlign = 0x0020;
-
-    [LibraryImport("user32.dll", SetLastError = true)]
-    internal static partial nint CreatePopupMenu();
-
-    [LibraryImport("user32.dll", EntryPoint = "AppendMenuW", SetLastError = true, StringMarshalling = StringMarshalling.Utf16)]
-    [return: MarshalAs(UnmanagedType.Bool)]
-    internal static partial bool AppendMenu(nint hMenu, uint flags, nuint idNewItem, string? lpNewItem);
-
-    [LibraryImport("user32.dll", SetLastError = true)]
-    [return: MarshalAs(UnmanagedType.Bool)]
-    internal static partial bool DestroyMenu(nint hMenu);
-
-    [LibraryImport("user32.dll", SetLastError = true)]
-    internal static partial int TrackPopupMenuEx(nint hMenu, uint flags, int x, int y, nint hWnd, nint lptpm);
-
     // ---- message-only window ----------------------------------------------------------------
 
     internal const uint WmDestroy = 0x0002;
-    internal const uint WmCommand = 0x0111;
-    internal const uint WmUser = 0x0400;
-    internal const uint WmTrayCallback = WmUser + 1;
-
-    internal const uint WmLButtonUp = 0x0202;
-    internal const uint WmRButtonUp = 0x0205;
-    internal const uint WmLButtonDblClk = 0x0203;
+    internal const uint WmHotkey = 0x0312;
 
     internal static readonly nint HwndMessage = -3;
 
@@ -248,26 +200,33 @@ internal static partial class Win32
     [LibraryImport("user32.dll", EntryPoint = "RegisterWindowMessageW", SetLastError = true, StringMarshalling = StringMarshalling.Utf16)]
     internal static partial uint RegisterWindowMessage(string lpString);
 
+    [LibraryImport("user32.dll", EntryPoint = "PostMessageW", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static partial bool PostMessage(nint hWnd, uint msg, nint wParam, nint lParam);
+
+    // ---- global hotkey -----------------------------------------------------------------------
+
+    internal const uint ModAlt = 0x0001;
+    internal const uint ModControl = 0x0002;
+
+    /// <summary>Without this a held key toggles whatever the hotkey does dozens of times a second.</summary>
+    internal const uint ModNoRepeat = 0x4000;
+
+    internal const uint VkW = 0x57;
+
+    [LibraryImport("user32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static partial bool RegisterHotKey(nint hWnd, int id, uint fsModifiers, uint vk);
+
+    [LibraryImport("user32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static partial bool UnregisterHotKey(nint hWnd, int id);
+
     [LibraryImport("user32.dll", EntryPoint = "RegisterClassExW", SetLastError = true)]
     internal static partial ushort RegisterClassEx(ref WndClassEx lpwcx);
 
     [LibraryImport("kernel32.dll", EntryPoint = "GetModuleHandleW", SetLastError = true, StringMarshalling = StringMarshalling.Utf16)]
     internal static partial nint GetModuleHandle(string? lpModuleName);
-
-    [LibraryImport("user32.dll", EntryPoint = "LoadImageW", SetLastError = true, StringMarshalling = StringMarshalling.Utf16)]
-    internal static partial nint LoadImage(nint hInst, string name, uint type, int cx, int cy, uint fuLoad);
-
-    [LibraryImport("user32.dll", EntryPoint = "LoadIconW", SetLastError = true)]
-    internal static partial nint LoadIcon(nint hInstance, nint lpIconName);
-
-    [LibraryImport("user32.dll", SetLastError = true)]
-    [return: MarshalAs(UnmanagedType.Bool)]
-    internal static partial bool DestroyIcon(nint hIcon);
-
-    internal const uint ImageIcon = 1;
-    internal const uint LrLoadFromFile = 0x00000010;
-    internal const uint LrDefaultSize = 0x00000040;
-    internal const uint LrShared = 0x00008000;
 
     // ---- named pipes -------------------------------------------------------------------------
 
@@ -394,34 +353,6 @@ internal static partial class Win32
         }
     }
 
-    [StructLayout(LayoutKind.Sequential)]
-    internal unsafe struct NotifyIconData
-    {
-        public int Size;
-        public nint Wnd;
-        public uint Id;
-        public uint Flags;
-        public uint CallbackMessage;
-        public nint Icon;
-        public fixed char TipBuffer[128];
-        public uint State;
-        public uint StateMask;
-        public fixed char InfoBuffer[256];
-        public uint VersionOrTimeout;
-        public fixed char InfoTitleBuffer[64];
-        public uint InfoFlags;
-        public Guid ItemGuid;
-        public nint BalloonIcon;
-
-        public void SetTip(string value)
-        {
-            fixed (char* tip = TipBuffer)
-            {
-                WriteFixed(tip, 128, value);
-            }
-        }
-    }
-
     /// <summary>Read a possibly-unterminated fixed buffer as a string.</summary>
     private static unsafe string ReadFixed(char* buffer, int capacity)
     {
@@ -435,16 +366,6 @@ internal static partial class Win32
     }
 
     /// <summary>Copy a string into a fixed buffer, truncating to leave room for the terminator.</summary>
-    private static unsafe void WriteFixed(char* buffer, int capacity, string value)
-    {
-        var length = Math.Min(value.Length, capacity - 1);
-        for (var i = 0; i < length; i++)
-        {
-            buffer[i] = value[i];
-        }
-
-        buffer[length] = '\0';
-    }
 
     [StructLayout(LayoutKind.Sequential)]
     internal struct WndClassEx

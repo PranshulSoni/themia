@@ -218,16 +218,32 @@ Owning files: `Themia.Core/Geometry/*`, `Themia.Core/Model/*`, `Themia.Core/Stor
 
 ## Failure rules
 
-- **[S-60]** No Win32 callback may let a managed exception unwind into native code. The tray
-  `WndProc` and the monitor enumeration callback each wrap their whole body and fall through.
+- **[S-60]** No Win32 callback may let a managed exception unwind into native code. The command
+  window's `WndProc` and the monitor enumeration callback each wrap their whole body and fall
+  through.
 - **[S-61]** Every GDI handle is freed on all paths. `SetWindowRgn` takes ownership of the region on
   success, so the handle is deleted only while still owned and on every failure path.
 - **[S-62]** No error is silent. Every catch either handles, logs, or is annotated with why ignoring
   it is correct.
 - **[S-63]** One failing display, widget or tick subscriber must not cost the user the others:
   surface creation, tick dispatch and log sinks all isolate per-item failures.
-- **[S-64]** The tray icon is re-added on the shell's `TaskbarCreated` broadcast, so an explorer
-  restart does not permanently remove the only way in and out of edit mode.
+- **[S-64]** Themia puts **nothing** in the notification area. It is wallpaper with widgets on it,
+  not a program the user runs, and a permanent tray entry says otherwise. That removes the menu the
+  app used to hang everything off, so what it was the only route to has to live somewhere else:
+  edit mode on a global hotkey, and everything that menu offered on the edit toolbar.
+- **[S-65]** **Ctrl+Alt+W** toggles edit mode, registered `MOD_NOREPEAT` so a held key does not
+  toggle it dozens of times a second. Another program may already own the combination; that is
+  logged as an error and leaves a working app, because double-clicking a widget and launching
+  Themia again both still reach edit mode. The hotkey is unregistered on shutdown — one that
+  outlives its window is a combination nothing can claim until the session ends, including the copy
+  the user starts next.
+- **[S-66]** Launching Themia while it is running **activates the running copy** instead of starting
+  a second. Two processes drawing two widget layers over one wallpaper is indistinguishable from
+  one, and with no tray entry there is nothing left to tell them apart by. The running copy is found
+  by its command window's class name, which must therefore stay stable across versions.
+- **[S-67]** Exit is offered in one place, the edit toolbar's overflow, and not beside **Done**: it
+  is the only toolbar action that cannot be undone and **Done** is the one next to it the user
+  presses constantly.
 
 ## Clipboard & transfer between displays
 

@@ -7,7 +7,7 @@ runtime cost: no web view, no JavaScript engine, no JIT.
 **Thirty-six widgets and three containers**, which is everything in the original that does not need
 an account or an API token — plus all the machinery: edit mode, drag and resize, snapping, the widget
 picker, per-widget settings, views, per-display view assignment, copy / cut / paste, dragging a
-widget onto another display, a tray icon, and persistence.
+widget onto another display, a global hotkey, and persistence.
 
 Left out on purpose: the GitHub widgets and Claude usage (they need a token), OneDrive (an account),
 and two that need a browser engine this app does not have — a page-element scraper and an MJPEG
@@ -49,10 +49,17 @@ you, which the ILCompiler needs and does not find on its own):
 powershell -ExecutionPolicy Bypass -File scripts/publish.ps1
 ```
 
-The app has no main window. It starts in the tray:
+The app has no main window and, deliberately, no notification-area icon: it is wallpaper with
+widgets on it, not a program you run. Three ways to reach it:
 
-- **Double-click the tray icon** (or double-click a widget) to toggle edit mode.
-- **Right-click the tray icon** for edit mode, add widget, view switching, settings and exit.
+- **Ctrl+Alt+W** toggles edit mode.
+- **Double-click a widget** does the same — the one people try first, and the fallback when another
+  program already owns the hotkey.
+- **Launching Themia again** hands the request to the copy already running rather than starting a
+  second one. This is the way back in if the hotkey is taken and the view is empty.
+
+Add widget, view switching, settings and exit all live on the edit toolbar (exit is behind the
+**...** button, away from **Done**).
 - In edit mode: drag to move, eight handles to resize, **Alt** to bypass snapping, right-click a
   widget to configure, duplicate or delete.
 - **Ctrl+C / Ctrl+X / Ctrl+V**, **Delete** and **Escape** work in edit mode. Paste lands at the
@@ -73,7 +80,7 @@ src/Themia.Core/      pure logic, no UI, no Windows dependency - all of the test
   Shell/              the z-order decision, as a pure function
   Widgets/            clock, countdown and duration formatting, the expression parser
 src/Themia.App/       WinUI 3 shell
-  Interop/            Win32 (LibraryImport), desktop layering, monitors, tray icon
+  Interop/            Win32 (LibraryImport), desktop layering, monitors, hotkey window
   Services/           app host, shared ticker, startup registration
   Shell/              widget surface, cards, settings, dialogs
   Widgets/            widget catalogue + every widget view

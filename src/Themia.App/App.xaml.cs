@@ -1,5 +1,6 @@
 using Microsoft.UI.Dispatching;
 using Microsoft.UI.Xaml;
+using Themia.App.Interop;
 using Themia.App.Services;
 using Themia.Core.Diagnostics;
 using Themia.Core.Storage;
@@ -21,6 +22,17 @@ public partial class App : Application
     protected override void OnLaunched(LaunchActivatedEventArgs args)
     {
         InstallLogSink();
+
+        // Themia has no tray entry and no window in the taskbar, so launching it again is the
+        // gesture a user reaches for when they want at it. That has to mean "show me the copy I
+        // already have", not "start a second desktop layer on top of it" — there is nothing on
+        // screen that would tell the two apart.
+        if (CommandWindow.TrySignalRunningInstance())
+        {
+            Log.Info(Scope, "already running; handed the request to that copy");
+            Exit();
+            return;
+        }
 
         var store = new AppStateStore(AppStateStore.DefaultPath());
         var load = store.Load();

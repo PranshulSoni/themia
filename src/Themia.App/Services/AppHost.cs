@@ -11,7 +11,7 @@ namespace Themia.App.Services;
 
 /// <summary>
 /// Owns everything with a lifetime: the persisted state, the widget windows, the shared ticker and
-/// the tray icon. There is exactly one, created on the UI thread, and it is the only writer of
+/// the hidden command window. There is exactly one, created on the UI thread, and it is the only writer of
 /// <see cref="State"/> — widgets and windows mutate through the methods here so every change goes
 /// through one save path.
 /// </summary>
@@ -19,16 +19,10 @@ internal sealed class AppHost : IDisposable
 {
     private const string Scope = "host";
 
-    private const uint CmdEditLayout = 1;
-    private const uint CmdSettings = 2;
-    private const uint CmdAddWidget = 3;
-    private const uint CmdExit = 4;
-    private const uint CmdViewBase = 100;
-
     private readonly DispatcherQueue _dispatcher;
     private readonly AppStateStore _store;
     private readonly List<DesktopWindow> _windows = [];
-    private readonly TrayIcon _tray = new();
+    private readonly CommandWindow _command = new();
 
     private ConfigWindow? _config;
     private bool _editMode;
@@ -198,15 +192,13 @@ internal sealed class AppHost : IDisposable
 
     public void Start()
     {
-        var iconPath = Path.Combine(AppContext.BaseDirectory, "Assets", "themia.ico");
-        _tray.MenuProvider = BuildTrayMenu;
-        _tray.CommandInvoked += OnTrayCommand;
-        _tray.Activated += () => SetEditMode(!_editMode);
+        _command.EditModeToggleRequested += () => SetEditMode(!_editMode);
 
-        if (!_tray.Create("Themia", iconPath))
+        if (!_command.Create())
         {
-            // The tray icon is the only way in and out of edit mode, so losing it is not cosmetic.
-            Log.Error(Scope, "tray icon unavailable; edit mode can still be reached by double-clicking a widget");
+            // Without it the hotkey and the second-launch route are both gone, and edit mode is
+            // only reachable by double-clicking a widget the user may not have.
+            Log.Error(Scope, "no command window; edit mode can only be reached by double-clicking a widget");
         }
 
         // Show Desktop raises the desktop window above everything, including anything pinned below
@@ -397,72 +389,14 @@ internal sealed class AppHost : IDisposable
     }
 
     // -----------------------------------------------------------------------------------------
-    // Tray
+    // Lifetime, continued
     // -----------------------------------------------------------------------------------------
 
-    private IReadOnlyList<TrayMenuItem> BuildTrayMenu()
-    {
-        var items = new List<TrayMenuItem>
-        {
-            new(CmdEditLayout, _editMode ? "Done editing" : "Edit layout", Checked: _editMode),
-            new(CmdAddWidget, "Add widget…"),
-            TrayMenuItem.Separator,
-        };
-
-        if (State.Views.Count > 1)
-        {
-            var activeId = State.ActiveView().Id;
-            for (var i = 0; i < State.Views.Count; i++)
-            {
-                var view = State.Views[i];
-                items.Add(new TrayMenuItem(CmdViewBase + (uint)i, view.Name, Checked: view.Id == activeId));
-            }
-
-            items.Add(TrayMenuItem.Separator);
-        }
-
-        items.Add(new TrayMenuItem(CmdSettings, "Settings…"));
-        items.Add(TrayMenuItem.Separator);
-        items.Add(new TrayMenuItem(CmdExit, "Exit Themia"));
-
-        return items;
-    }
-
-    private void OnTrayCommand(uint id)
-    {
-        switch (id)
-        {
-            case CmdEditLayout:
-                SetEditMode(!_editMode);
-                break;
-
-            case CmdAddWidget:
-                ShowConfig(new ConfigTarget.Add());
-                break;
-
-            case CmdSettings:
-                ShowSettings();
-                break;
-
-            case CmdExit:
-                RequestExit();
-                break;
-
-            default:
-                if (id >= CmdViewBase)
-                {
-                    var index = (int)(id - CmdViewBase);
-                    if (index >= 0 && index < State.Views.Count)
-                    {
-                        SwitchView(State.Views[index].Id);
-                    }
-                }
-
-                break;
-        }
-    }
-
-    private void RequestExit()
+    /// <summary>
+    /// Close everything down and quit. Reachable from the edit toolbar, which is the only place it
+    /// is offered: an app with no tray entry has no other chrome to hang it from.
+    /// </summary>
+    public void RequestExit()
     {
         _ = _dispatcher.TryEnqueue(async () =>
         {
@@ -517,6 +451,6 @@ internal sealed class AppHost : IDisposable
 
         _config?.Close();
         Ticker.Dispose();
-        _tray.Dispose();
+        _command.Dispose();
     }
 }

@@ -915,6 +915,17 @@ internal sealed class DesktopWindow : IWidgetCardHost
 
         views.Loaded += (_, _) => views.Flyout = BuildViewFlyout();
 
+        // Quitting lives behind a second click, and away from Done. With no tray entry this is the
+        // only place it is offered, but it is also the one button on the toolbar that cannot be
+        // undone, and Done is the one right next to it that the user presses constantly.
+        var more = new DropDownButton { Content = new FontIcon { Glyph = "\uE712", FontSize = 14 } };
+        ToolTipService.SetToolTip(more, "More");
+
+        // An icon-only button has no text for a screen reader to read, and none for anything
+        // driving the app from outside to find it by either.
+        Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(more, "More");
+        more.Loaded += (_, _) => more.Flyout = BuildMoreFlyout();
+
         var panel = new StackPanel
         {
             Orientation = Orientation.Horizontal,
@@ -924,6 +935,7 @@ internal sealed class DesktopWindow : IWidgetCardHost
                 ToolbarButton("", "Add widget", () => _host.ShowConfig(new ConfigTarget.Add(CurrentViewId))),
                 views,
                 ToolbarButton("", "Settings", _host.ShowSettings),
+                more,
                 new AppBarSeparator(),
                 AccentButton("", "Done", () => _host.SetEditMode(false)),
             },
@@ -942,6 +954,21 @@ internal sealed class DesktopWindow : IWidgetCardHost
             BorderThickness = new Thickness(1),
             Visibility = Visibility.Collapsed,
         };
+    }
+
+    /// <summary>
+    /// The toolbar's overflow. One row today - quitting - which has nowhere else to live now that
+    /// there is no tray menu.
+    /// </summary>
+    private MenuFlyout BuildMoreFlyout()
+    {
+        var flyout = new MenuFlyout();
+
+        var exit = new MenuFlyoutItem { Text = "Exit Themia", Icon = new FontIcon { Glyph = "\uE7E8" } };
+        exit.Click += (_, _) => _host.RequestExit();
+        flyout.Items.Add(exit);
+
+        return flyout;
     }
 
     private MenuFlyout BuildViewFlyout()
