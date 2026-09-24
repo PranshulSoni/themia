@@ -73,6 +73,28 @@ internal static partial class Win32
     [return: MarshalAs(UnmanagedType.Bool)]
     internal static partial bool IsWindow(nint hWnd);
 
+    [LibraryImport("user32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static partial bool IsWindowVisible(nint hWnd);
+
+    // ---- DWM ----------------------------------------------------------------------------------
+
+    /// <summary>Windows 11 draws a 1px border around every top-level window unless told otherwise.</summary>
+    internal const int DwmwaBorderColor = 34;
+
+    /// <summary>The sentinel that means "no border at all", as opposed to a transparent one.</summary>
+    internal const uint DwmwaColorNone = 0xFFFFFFFE;
+
+    [LibraryImport("dwmapi.dll")]
+    internal static partial int DwmSetWindowAttribute(nint hWnd, int attribute, in uint value, int size);
+
+    [LibraryImport("user32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static partial bool ShowWindow(nint hWnd, int nCmdShow);
+
+    /// <summary>Show without stealing focus — the only way this app ever shows a window.</summary>
+    internal const int SwShowNoActivate = 4;
+
     [LibraryImport("user32.dll")]
     internal static partial uint GetDpiForWindow(nint hWnd);
 
@@ -202,6 +224,23 @@ internal static partial class Win32
 
     [LibraryImport("user32.dll", EntryPoint = "DefWindowProcW")]
     internal static partial nint DefWindowProc(nint hWnd, uint msg, nint wParam, nint lParam);
+
+    [LibraryImport("user32.dll", SetLastError = true)]
+    internal static partial nint SetWinEventHook(
+        uint eventMin,
+        uint eventMax,
+        nint hmodWinEventProc,
+        nint lpfnWinEventProc,
+        uint idProcess,
+        uint idThread,
+        uint dwFlags);
+
+    [LibraryImport("user32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static partial bool UnhookWinEvent(nint hWinEventHook);
+
+    [LibraryImport("user32.dll", EntryPoint = "GetClassNameW", SetLastError = true)]
+    internal static unsafe partial int GetClassName(nint hWnd, char* lpClassName, int nMaxCount);
 
     [LibraryImport("user32.dll", EntryPoint = "CallWindowProcW")]
     internal static partial nint CallWindowProc(nint lpPrevWndFunc, nint hWnd, uint msg, nint wParam, nint lParam);

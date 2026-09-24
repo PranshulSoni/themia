@@ -13,10 +13,11 @@ using Windows.Foundation;
 namespace Themia.App.Widgets;
 
 /// <summary>
-/// The readout shared by every system meter: a title, a big number, a bar and a history trace.
+/// The readout shared by every system meter: a title, the reading, and a sparkline of its history.
 /// <para>
-/// One view for four widgets rather than four near-identical ones. What differs between CPU, memory,
-/// disk and battery is only where the number comes from, so that is the only thing the kind selects.
+/// One view for several widgets rather than several near-identical ones. What differs between CPU,
+/// memory, disk and battery is only where the number comes from, so that is the only thing the kind
+/// selects.
 /// </para>
 /// </summary>
 internal sealed partial class MeterView : Grid, IWidgetView
@@ -26,17 +27,19 @@ internal sealed partial class MeterView : Grid, IWidgetView
 
     private readonly WidgetKind _kind;
     private readonly TextBlock _title = new();
-    private readonly FontIcon _icon = new() { FontSize = 12 };
+    private readonly FontIcon _icon = new();
     private readonly TextBlock _primary = new();
     private readonly TextBlock _secondary = new();
     private readonly ProgressBar _bar = new();
-    private readonly Polyline _trace = new();
-    private readonly Grid _traceHost = new();
+    private readonly Polygon _sparkFill = new();
+    private readonly Polyline _sparkLine = new();
+    private readonly Grid _sparkHost = new();
     private readonly Queue<double> _history = new(HistoryLength);
 
     private Ticker? _ticker;
     private WidgetConfig _config;
     private IDisposable? _subscription;
+    private TimeSpan _subscribedInterval = TimeSpan.Zero;
 
     public MeterView(WidgetKind kind)
     {
@@ -47,37 +50,26 @@ internal sealed partial class MeterView : Grid, IWidgetView
         _icon.Glyph = definition.Glyph;
         _title.Text = definition.Label;
 
-        _title.FontSize = 12;
-        _title.Foreground = ThemeBrush("TextFillColorSecondaryBrush", Colors.Gray);
+        var muted = ThemeBrush("TextFillColorSecondaryBrush", Colors.Gray);
+        _title.Foreground = muted;
         _title.VerticalAlignment = VerticalAlignment.Center;
-        _icon.Foreground = _title.Foreground;
+        _icon.Foreground = muted;
 
-        _primary.FontSize = 34;
         _primary.FontWeight = FontWeights.SemiBold;
         _primary.Foreground = ThemeBrush("TextFillColorPrimaryBrush", Colors.White);
         _primary.Text = "--";
+        _primary.VerticalAlignment = VerticalAlignment.Bottom;
 
-        _secondary.FontSize = 11;
         _secondary.Foreground = ThemeBrush("TextFillColorTertiaryBrush", Colors.Gray);
         _secondary.TextTrimming = TextTrimming.CharacterEllipsis;
+        _secondary.VerticalAlignment = VerticalAlignment.Bottom;
+        _secondary.Margin = new Thickness(0, 0, 0, 2);
 
         _bar.Minimum = 0;
         _bar.Maximum = 100;
         _bar.HorizontalAlignment = HorizontalAlignment.Stretch;
-        _bar.Margin = new Thickness(0, 2, 0, 4);
 
-        _trace.Stroke = ThemeBrush("AccentFillColorDefaultBrush", Colors.DodgerBlue);
-        _trace.StrokeThickness = 1.5;
-        _trace.Opacity = 0.45;
-        _trace.IsHitTestVisible = false;
-
-        // Stretch.None: the points are already computed against the host's measured size, so letting
-        // the shape scale them again would distort the trace.
-        _trace.Stretch = Stretch.None;
-
-        _traceHost.Children.Add(_trace);
-        _traceHost.IsHitTestVisible = false;
-        _traceHost.SizeChanged += (_, _) => RedrawTrace();
+        BuildSparkline();
 
         var header = new StackPanel
         {
@@ -86,53 +78,74 @@ internal sealed partial class MeterView : Grid, IWidgetView
             Children = { _icon, _title },
         };
 
-        // Rows: header and footer take what they need, the middle stretches. That is what makes the
-        // meter fill its tile however it is resized — the same shape the original uses, where the
-        // graph is `flex: 1` and the labels are `flex-shrink: 0`.
+        // The reading on its own line, the sparkline below it. Drawing the trace *behind* the number
+        // meant the graph read as decoration and the number was read against a moving background;
+        // neither was easy to look at.
+        var reading = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            Spacing = 8,
+            Children = { _primary, _secondary },
+        };
+
+        RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
         RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
 
         Grid.SetRow(header, 0);
-
-        // The reading sits over the trace rather than beside it, so neither has to give up width.
-        _primary.HorizontalAlignment = HorizontalAlignment.Left;
-        _primary.VerticalAlignment = VerticalAlignment.Center;
-
-        var middle = new Grid { Children = { _traceHost, _primary } };
-        Grid.SetRow(middle, 1);
-
-        var footer = new StackPanel { Children = { _bar, _secondary } };
-        Grid.SetRow(footer, 2);
+        Grid.SetRow(reading, 1);
+        Grid.SetRow(_sparkHost, 2);
+        Grid.SetRow(_bar, 3);
 
         Children.Add(header);
-        Children.Add(middle);
-        Children.Add(footer);
+        Children.Add(reading);
+        Children.Add(_sparkHost);
+        Children.Add(_bar);
 
         SizeChanged += (_, _) => ApplyTypeScale();
     }
 
     /// <summary>
-    /// Size the readout to the tile. The number is the thing that should grow; the title and the
-    /// caption stay close to their natural size, because a meter whose label is as big as its value
-    /// reads as two competing headlines.
+    /// A filled area under a stroked line — the shape a sparkline is expected to have. The fill
+    /// carries the trend at a glance; the line keeps the latest value legible when the tile is small.
+    /// </summary>
+    private void BuildSparkline()
+    {
+        var accent = ThemeBrush("AccentFillColorDefaultBrush", Colors.DodgerBlue);
+
+        _sparkFill.Fill = accent;
+        _sparkFill.Opacity = 0.18;
+        _sparkFill.Stretch = Stretch.None;
+
+        _sparkLine.Stroke = accent;
+        _sparkLine.StrokeThickness = 1.5;
+        _sparkLine.StrokeLineJoin = PenLineJoin.Round;
+        _sparkLine.Stretch = Stretch.None;
+
+        _sparkHost.IsHitTestVisible = false;
+        _sparkHost.MinHeight = 24;
+        _sparkHost.Margin = new Thickness(0, 6, 0, 6);
+        _sparkHost.Children.Add(_sparkFill);
+        _sparkHost.Children.Add(_sparkLine);
+        _sparkHost.SizeChanged += (_, _) => RedrawSparkline();
+    }
+
+    /// <summary>
+    /// Size the readout to the tile. The number grows; the title and caption stay close to their
+    /// natural size, because a meter whose label is as big as its value reads as two headlines.
     /// </summary>
     private void ApplyTypeScale()
     {
         var width = ActualWidth;
         var height = ActualHeight;
 
-        // Four characters at most ("100%"), so the width factor is generous compared to the clock's.
-        _primary.FontSize = TypeScale.Fit(width, height, 0.30, 0.34, 16, 96);
-
+        _primary.FontSize = TypeScale.Fit(width, height, 0.26, 0.30, 16, 88);
         _title.FontSize = TypeScale.Fit(width, height, 0.10, 0.12, 10, 20);
         _icon.FontSize = _title.FontSize;
-        _secondary.FontSize = TypeScale.Fit(width, height, 0.075, 0.09, 9, 16);
+        _secondary.FontSize = TypeScale.Fit(width, height, 0.070, 0.085, 9, 16);
 
-        // The bar is part of the readout, so it thickens with everything else rather than staying a
-        // hairline on a large tile.
-        _bar.Height = Math.Clamp(height * 0.04, 3, 10);
-        _bar.Margin = new Thickness(0, 4, 0, 4);
+        _bar.Height = Math.Clamp(height * 0.035, 3, 8);
     }
 
     public void Attach(Ticker ticker, WidgetConfig config)
@@ -145,29 +158,37 @@ internal sealed partial class MeterView : Grid, IWidgetView
     {
         _config = config.Kind == _kind ? config : WidgetConfig.CreateDefault(_kind);
 
-        var showGraph = _config is GaugeConfig { ShowGraph: true };
-        _traceHost.Visibility = showGraph ? Visibility.Visible : Visibility.Collapsed;
+        // Battery has no meaningful history at a one-minute cadence, and a flat line reads as a
+        // broken graph rather than as a stable charge.
+        var graphable = _config is GaugeConfig { ShowGraph: true } && _config is not BatteryConfig;
 
-        if (_config is BatteryConfig)
-        {
-            // Battery has no meaningful history at a one-minute cadence, and a flat line reads as
-            // a broken graph rather than a stable charge.
-            _traceHost.Visibility = Visibility.Collapsed;
-        }
+        _sparkHost.Visibility = graphable ? Visibility.Visible : Visibility.Collapsed;
+
+        // The bar is the fallback readout: with no sparkline there would otherwise be nothing
+        // showing the value against its range.
+        _bar.Visibility = graphable ? Visibility.Collapsed : Visibility.Visible;
 
         Resubscribe();
     }
 
     private void Resubscribe()
     {
-        _subscription?.Dispose();
-
         var interval = _config switch
         {
             GaugeConfig gauge => gauge.TickInterval,
             _ => TimeSpan.FromSeconds(1),
         };
 
+        // Only when the cadence actually changed. Dropping and remaking the subscription on every
+        // config touch made dragging a settings slider stutter, because each frame tore down the
+        // timer subscription for every widget on the desktop and built it again.
+        if (_subscription is not null && interval == _subscribedInterval)
+        {
+            return;
+        }
+
+        _subscription?.Dispose();
+        _subscribedInterval = interval;
         _subscription = _ticker?.Subscribe(interval, Sample);
     }
 
@@ -210,40 +231,56 @@ internal sealed partial class MeterView : Grid, IWidgetView
             }
 
             _history.Enqueue(fraction);
-            RedrawTrace();
+            RedrawSparkline();
         }
     }
 
     /// <summary>
-    /// Draw the history as a single polyline. The trace is decoration, so it is cheap by
-    /// construction: one visual, at most <see cref="HistoryLength"/> points, redrawn only on a new
-    /// sample or a resize.
+    /// Redraw the trace. Cheap by construction: two visuals, at most <see cref="HistoryLength"/>
+    /// points, rebuilt only on a new sample or a resize.
     /// </summary>
-    private void RedrawTrace()
+    private void RedrawSparkline()
     {
-        if (_traceHost.Visibility != Visibility.Visible || _history.Count < 2)
-        {
-            _trace.Points.Clear();
-            return;
-        }
-
-        var width = _traceHost.ActualWidth;
-        var height = _traceHost.ActualHeight;
-        if (width <= 0 || height <= 0)
+        if (_sparkHost.Visibility != Visibility.Visible)
         {
             return;
         }
 
-        var points = new PointCollection();
+        var width = _sparkHost.ActualWidth;
+        var height = _sparkHost.ActualHeight;
+
+        if (width <= 0 || height <= 0 || _history.Count < 2)
+        {
+            _sparkLine.Points.Clear();
+            _sparkFill.Points.Clear();
+            return;
+        }
+
         var samples = _history.ToArray();
         var step = width / Math.Max(1, samples.Length - 1);
 
+        // Inset by the stroke width so a reading of 0% or 100% is not clipped in half at the edge.
+        var inset = _sparkLine.StrokeThickness;
+        var usable = Math.Max(1, height - inset);
+
+        var line = new PointCollection();
         for (var i = 0; i < samples.Length; i++)
         {
-            points.Add(new Point(i * step, height - (Math.Clamp(samples[i], 0, 1) * height)));
+            var y = (inset / 2) + (usable - (Math.Clamp(samples[i], 0, 1) * usable));
+            line.Add(new Point(i * step, y));
         }
 
-        _trace.Points = points;
+        // The fill is the same trace, closed along the bottom edge.
+        var fill = new PointCollection { new(0, height) };
+        foreach (var point in line)
+        {
+            fill.Add(point);
+        }
+
+        fill.Add(new Point((samples.Length - 1) * step, height));
+
+        _sparkLine.Points = line;
+        _sparkFill.Points = fill;
     }
 
     public void Detach()

@@ -208,6 +208,8 @@ internal static class DesktopLayer
 
         Win32.SetWindowLongPtr(hwnd, Win32.GwlStyle, (nint)wanted);
 
+        RemoveDwmBorder(hwnd);
+
         // SWP_FRAMECHANGED is required here, and only here: the frame genuinely changed, so the
         // non-client area has to be recomputed for the new style to take effect.
         Win32.SetWindowPos(
@@ -215,6 +217,32 @@ internal static class DesktopLayer
             0,
             0, 0, 0, 0,
             Win32.SwpNoMove | Win32.SwpNoSize | Win32.SwpNoZOrder | Win32.SwpNoActivate | Win32.SwpFrameChanged);
+    }
+
+    /// <summary>
+    /// Tell DWM not to draw its border.
+    /// <para>
+    /// Windows 11 outlines every top-level window with a 1px border, drawn by the compositor rather
+    /// than by the window, so clearing <c>WS_BORDER</c> does not remove it. On a transparent
+    /// full-screen surface that border traces a rectangle around the entire display.
+    /// </para>
+    /// </summary>
+    public static void RemoveDwmBorder(nint hwnd)
+    {
+        if (hwnd == 0 || !Win32.IsWindow(hwnd))
+        {
+            return;
+        }
+
+        var none = Win32.DwmwaColorNone;
+        var hr = Win32.DwmSetWindowAttribute(hwnd, Win32.DwmwaBorderColor, in none, sizeof(uint));
+
+        if (hr < 0)
+        {
+            // Older Windows 10 builds do not know this attribute. Not fatal: those builds also do
+            // not draw the border this removes.
+            Log.Debug(Scope, $"DwmSetWindowAttribute(BORDER_COLOR) returned 0x{hr:X8}");
+        }
     }
 
     /// <summary>Drop the mask so the whole window is hittable again (edit mode).</summary>

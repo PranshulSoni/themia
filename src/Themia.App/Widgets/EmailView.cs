@@ -138,8 +138,23 @@ internal sealed partial class EmailView : Grid, IWidgetView
 
     public void ApplyConfig(WidgetConfig config)
     {
-        _config = config as EmailConfig ?? new EmailConfig();
-        _ = RefreshAsync();
+        var next = config as EmailConfig ?? new EmailConfig();
+
+        // Only the fields that change what the hub is asked for warrant a round trip. Without this
+        // check, dragging an unrelated settings slider fired a query per frame.
+        var needsQuery = _config.CollectionId != next.CollectionId
+            || _config.UnreadOnly != next.UnreadOnly
+            || _config.EffectiveMaxCount != next.EffectiveMaxCount;
+
+        var changed = needsQuery || _config.ShowPreview != next.ShowPreview;
+        var neverDrawn = _list.Children.Count == 0;
+
+        _config = next;
+
+        if (changed || neverDrawn)
+        {
+            _ = RefreshAsync();
+        }
     }
 
     private void OnHubChanged() => _ = RefreshAsync();

@@ -490,6 +490,31 @@ internal sealed class DesktopWindow : IWidgetCardHost
         };
     }
 
+    /// <summary>
+    /// Lift the surface while the desktop is fronted, and drop it back afterwards. See
+    /// <see cref="ShowDesktopWatcher"/> for why this does not contradict the desktop-layer rule.
+    /// </summary>
+    public void SetDesktopFronted(bool fronted)
+    {
+        if (_closed)
+        {
+            return;
+        }
+
+        BottomPin.SetPinning(!fronted);
+        DesktopLayer.Apply(_hwnd, fronted ? WidgetLayer.Topmost : WidgetLayer.Desktop, EditMode);
+        ApplyChromeless();
+
+        // Show Desktop does not merely reorder windows, it hides them. Raising the z-order of a
+        // hidden window changes nothing, so the surface has to be shown again explicitly — without
+        // activation, which would steal focus from whatever the user clicks next.
+        if (fronted && !Win32.IsWindowVisible(_hwnd))
+        {
+            Win32.ShowWindow(_hwnd, Win32.SwShowNoActivate);
+        }
+
+    }
+
     public void ShowSurface()
     {
         // Shown without activation: starting the app must not pull focus away from whatever the
@@ -655,11 +680,15 @@ internal sealed class DesktopWindow : IWidgetCardHost
 
         card.SetLiveRect(rect);
 
-        var box = GridGeometry.ToPixels(rect, metrics, Design.WidgetGapPx);
-        Canvas.SetLeft(card, box.X);
-        Canvas.SetTop(card, box.Y);
-        card.Width = box.Width;
-        card.Height = box.Height;
+        // The card occupies the whole CELL. The gap is applied inside it, so the edit outline and
+        // handles trace the cell rather than the painted surface, and changing the gap does not
+        // move or resize anything.
+        var cell = GridGeometry.ToPixels(rect, metrics);
+        Canvas.SetLeft(card, cell.X);
+        Canvas.SetTop(card, cell.Y);
+        card.Width = cell.Width;
+        card.Height = cell.Height;
+        card.ApplyGap(Design.WidgetGapPx);
     }
 
     /// <summary>
@@ -683,7 +712,9 @@ internal sealed class DesktopWindow : IWidgetCardHost
 
         foreach (var card in _cards)
         {
-            var box = GridGeometry.ToPixels(card.Model.Rect, metrics, Design.WidgetGapPx);
+            // The mask traces the PAINTED surface, not the cell: the gap is empty desktop, so a
+            // click there should reach the desktop rather than an invisible widget edge.
+            var box = GridGeometry.Inset(GridGeometry.ToPixels(card.Model.Rect, metrics), Design.WidgetGapPx);
             rects.Add(new Win32.Rect
             {
                 Left = offsetX + (int)Math.Floor(box.X * scale),

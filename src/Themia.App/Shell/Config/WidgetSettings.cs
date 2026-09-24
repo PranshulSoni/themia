@@ -3,6 +3,7 @@ using Microsoft.UI.Xaml.Controls;
 using Themia.App.Services;
 using Themia.App.Services.Hearth;
 using Themia.Core.Model;
+using Themia.App.Shell;
 
 namespace Themia.App.Shell.Config;
 
@@ -20,20 +21,20 @@ internal static class WidgetSettings
     {
         rows.Add(FluentLayout.Header("Clock"));
 
-        rows.Add(FluentLayout.Row("", "Face", "Digital readout or a sweeping analog dial",
+        rows.Add(FluentLayout.Row(Glyphs.Clock, "Face", "Digital readout or a sweeping analog dial",
             FluentLayout.Choice(
                 [(ClockFace.Digital, "Digital"), (ClockFace.Analog, "Analog")],
                 clock.Face,
                 value => { clock.Face = value; save(); })));
 
-        rows.Add(FluentLayout.Row("", "24-hour time", null,
+        rows.Add(FluentLayout.Row(Glyphs.Hours, "24-hour time", null,
             FluentLayout.Toggle(clock.Use24Hour, value => { clock.Use24Hour = value; save(); })));
 
-        rows.Add(FluentLayout.Row("", "Show seconds",
+        rows.Add(FluentLayout.Row(Glyphs.Timer, "Show seconds",
             "Wakes the app once a second instead of once a minute",
             FluentLayout.Toggle(clock.ShowSeconds, value => { clock.ShowSeconds = value; save(); })));
 
-        rows.Add(FluentLayout.Row("", "Show date", null,
+        rows.Add(FluentLayout.Row(Glyphs.Calendar, "Show date", null,
             FluentLayout.Toggle(clock.ShowDate, value => { clock.ShowDate = value; save(); })));
     }
 
@@ -73,7 +74,7 @@ internal static class WidgetSettings
             }
         };
 
-        rows.Add(FluentLayout.Row("", "Drive", "Which volume to report on", combo));
+        rows.Add(FluentLayout.Row(Glyphs.Disk, "Drive", "Which volume to report on", combo));
         AddGraphToggle(rows, disk, save);
     }
 
@@ -81,7 +82,7 @@ internal static class WidgetSettings
     {
         rows.Add(FluentLayout.Header("Battery"));
 
-        rows.Add(FluentLayout.Row("", "Show time remaining",
+        rows.Add(FluentLayout.Row(Glyphs.Timer, "Show time remaining",
             "Windows only estimates this while on battery",
             FluentLayout.Toggle(battery.ShowTimeRemaining, value => { battery.ShowTimeRemaining = value; save(); })));
     }
@@ -132,21 +133,21 @@ internal static class WidgetSettings
             _ => "Accounts are managed in hearth",
         };
 
-        rows.Add(FluentLayout.Row("", "Mailbox", description, combo));
+        rows.Add(FluentLayout.Row(Glyphs.Mail, "Mailbox", description, combo));
 
-        rows.Add(FluentLayout.Row("", "Unread only", null,
+        rows.Add(FluentLayout.Row(Glyphs.Unread, "Unread only", null,
             FluentLayout.Toggle(email.UnreadOnly, value => { email.UnreadOnly = value; save(); })));
 
-        rows.Add(FluentLayout.Row("", "Messages", null,
+        rows.Add(FluentLayout.Row(Glyphs.Count, "Messages", null,
             FluentLayout.Slider(email.EffectiveMaxCount, 1, 50, 1, string.Empty,
                 value => { email.MaxCount = (int)Math.Round(value); save(); })));
 
-        rows.Add(FluentLayout.Row("", "Show preview", "The first line of the message",
+        rows.Add(FluentLayout.Row(Glyphs.Preview, "Show preview", "The first line of the message",
             FluentLayout.Toggle(email.ShowPreview, value => { email.ShowPreview = value; save(); })));
     }
 
     private static void AddGraphToggle(List<FrameworkElement> rows, GaugeConfig gauge, Action save)
-        => rows.Add(FluentLayout.Row("", "Show history",
+        => rows.Add(FluentLayout.Row(Glyphs.Motion, "Show history",
             "Draw recent samples behind the readout",
             FluentLayout.Toggle(gauge.ShowGraph, value => { gauge.ShowGraph = value; save(); })));
 }

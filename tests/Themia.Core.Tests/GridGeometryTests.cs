@@ -130,8 +130,8 @@ public class GridGeometryTests
         var small = new ScreenMetrics(1280, 720);
         var large = new ScreenMetrics(3840, 2160);
 
-        var onSmall = GridGeometry.ToPixels(rect, small, gapPx: 0);
-        var onLarge = GridGeometry.ToPixels(rect, large, gapPx: 0);
+        var onSmall = GridGeometry.ToPixels(rect, small);
+        var onLarge = GridGeometry.ToPixels(rect, large);
 
         Assert.Equal(onLarge.Width / onSmall.Width, large.Width / small.Width, 3);
         Assert.Equal(onLarge.X / onSmall.X, large.Width / small.Width, 3);
@@ -156,22 +156,68 @@ public class GridGeometryTests
         var left = new FracRect(0.0, 0.0, 0.5, 1.0);
         var right = new FracRect(0.5, 0.0, 0.5, 1.0);
 
-        var l = GridGeometry.ToPixels(left, Screen, gapPx: 0);
-        var r = GridGeometry.ToPixels(right, Screen, gapPx: 0);
+        var l = GridGeometry.ToPixels(left, Screen);
+        var r = GridGeometry.ToPixels(right, Screen);
 
         Assert.Equal(l.X + l.Width, r.X, 9);
     }
 
     [Fact]
-    public void S04_the_gap_insets_each_side_by_half_and_never_moves_the_logical_rect()
+    public void S04_the_cell_is_the_same_whatever_the_gap()
     {
+        // The whole point: the gap is padding inside the cell, so moving the gap slider must not
+        // move or resize the widget's geometry.
         var rect = new FracRect(0.25, 0.25, 0.5, 0.5);
 
-        var noGap = GridGeometry.ToPixels(rect, Screen, gapPx: 0);
-        var gapped = GridGeometry.ToPixels(rect, Screen, gapPx: 16);
+        var cell = GridGeometry.ToPixels(rect, Screen);
 
-        Assert.Equal(noGap.X + 8, gapped.X, 9);
-        Assert.Equal(noGap.Width - 16, gapped.Width, 9);
+        Assert.Equal(0.25 * Screen.Width, cell.X, 6);
+        Assert.Equal(0.5 * Screen.Width, cell.Width, 6);
+    }
+
+    [Fact]
+    public void S04_the_gap_insets_the_painted_surface_by_half_on_every_side()
+    {
+        var cell = GridGeometry.ToPixels(new FracRect(0.25, 0.25, 0.5, 0.5), Screen);
+
+        var painted = GridGeometry.Inset(cell, gapPx: 16);
+
+        Assert.Equal(cell.X + 8, painted.X, 9);
+        Assert.Equal(cell.Y + 8, painted.Y, 9);
+        Assert.Equal(cell.Width - 16, painted.Width, 9);
+        Assert.Equal(cell.Height - 16, painted.Height, 9);
+    }
+
+    [Fact]
+    public void S04_two_neighbours_show_a_full_gap_between_their_painted_surfaces()
+    {
+        var left = GridGeometry.Inset(GridGeometry.ToPixels(new FracRect(0, 0, 0.5, 1), Screen), 16);
+        var right = GridGeometry.Inset(GridGeometry.ToPixels(new FracRect(0.5, 0, 0.5, 1), Screen), 16);
+
+        Assert.Equal(16, right.X - (left.X + left.Width), 9);
+    }
+
+    [Fact]
+    public void S04_a_gap_wider_than_the_cell_leaves_something_to_click_rather_than_nothing()
+    {
+        var cell = new PixelRect(100, 100, 20, 20);
+
+        var painted = GridGeometry.Inset(cell, gapPx: 400);
+
+        Assert.True(painted.Width >= 1);
+        Assert.True(painted.Height >= 1);
+        Assert.True(painted.X >= cell.X);
+        Assert.True(painted.X + painted.Width <= cell.X + cell.Width + 0.001);
+    }
+
+    [Fact]
+    public void S04_a_zero_or_nonsense_gap_leaves_the_cell_untouched()
+    {
+        var cell = new PixelRect(10, 20, 300, 200);
+
+        Assert.Equal(cell, GridGeometry.Inset(cell, 0));
+        Assert.Equal(cell, GridGeometry.Inset(cell, -5));
+        Assert.Equal(cell, GridGeometry.Inset(cell, double.NaN));
     }
 
     [Fact]

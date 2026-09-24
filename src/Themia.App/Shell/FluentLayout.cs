@@ -83,7 +83,19 @@ internal static class FluentLayout
 
     public static ToggleSwitch Toggle(bool value, Action<bool> onChanged)
     {
-        var toggle = new ToggleSwitch { IsOn = value, OnContent = null, OffContent = null };
+        // MinWidth 0 matters: the default ToggleSwitch style reserves about 150px for on/off
+        // content. With that content cleared the knob stayed at the left of the reserved block, so
+        // every switch sat visibly short of the right edge that the combo boxes and sliders lined
+        // up against.
+        var toggle = new ToggleSwitch
+        {
+            IsOn = value,
+            OnContent = null,
+            OffContent = null,
+            MinWidth = 0,
+            HorizontalAlignment = HorizontalAlignment.Right,
+        };
+
         toggle.Toggled += (_, _) => onChanged(toggle.IsOn);
         return toggle;
     }

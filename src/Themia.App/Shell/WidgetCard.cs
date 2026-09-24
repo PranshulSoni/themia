@@ -227,6 +227,23 @@ internal sealed partial class WidgetCard : Grid
 
     public void SetLiveRect(FracRect rect) => LiveRect = rect;
 
+    /// <summary>
+    /// Inset the painted surface inside the cell by half the gap.
+    /// <para>
+    /// Applied to the fill and the content only. The edit outline and the handles stay on the cell
+    /// bounds, which is why they sit slightly outside the widget's visible border — they mark the
+    /// space the widget actually owns, and that is the thing being dragged.
+    /// </para>
+    /// </summary>
+    public void ApplyGap(double gapPx)
+    {
+        var half = double.IsFinite(gapPx) && gapPx > 0 ? gapPx / 2 : 0;
+        var inset = new Thickness(half);
+
+        _fill.Margin = inset;
+        _surface.Margin = inset;
+    }
+
     // -----------------------------------------------------------------------------------------
     // Handles
     // -----------------------------------------------------------------------------------------

@@ -44,19 +44,7 @@ internal static class ConfigPages
 
     private static FrameworkElement BuildGeneral(AppHost host)
     {
-        var design = host.State.Design;
-        var rows = new List<FrameworkElement>
-        {
-            FluentLayout.Header("Appearance"),
-
-            FluentLayout.Row("", "Theme", "Follows Windows unless you pick one",
-                FluentLayout.Choice(
-                    [(AppTheme.System, "Use system setting"), (AppTheme.Light, "Light"), (AppTheme.Dark, "Dark")],
-                    design.Theme,
-                    value => host.Mutate(s => s.Design.Theme = value))),
-
-            FluentLayout.Header("System"),
-        };
+        var rows = new List<FrameworkElement> { FluentLayout.Header("System") };
 
         var startup = FluentLayout.Toggle(StartupRegistration.IsEnabled(), value =>
         {
@@ -66,13 +54,21 @@ internal static class ConfigPages
             host.Mutate(s => s.Design.RunAtStartup = achieved, relayout: false);
         });
 
-        rows.Add(FluentLayout.Row("", "Start with Windows", "Adds a per-user startup entry", startup));
+        rows.Add(FluentLayout.Row(Glyphs.Startup, "Start with Windows", "Adds a per-user startup entry", startup));
 
         var editToggle = FluentLayout.Toggle(host.EditMode, host.SetEditMode);
         host.EditModeChanged += editing => editToggle.IsOn = editing;
 
-        rows.Add(FluentLayout.Row("", "Edit layout",
+        rows.Add(FluentLayout.Row(Glyphs.Edit, "Edit layout",
             "Show the drag handles and the snap grid on the desktop", editToggle));
+
+        rows.Add(FluentLayout.Header("Data"));
+
+        var openFolder = new Button { Content = "Open data folder" };
+        openFolder.Click += (_, _) => OpenDataFolder();
+
+        rows.Add(FluentLayout.Row(Glyphs.Info, "Settings and log",
+            "Where the layout, settings and log file live", openFolder));
 
         return Page("General", rows);
     }
@@ -83,25 +79,33 @@ internal static class ConfigPages
 
         var rows = new List<FrameworkElement>
         {
+            FluentLayout.Header("Theme"),
+
+            FluentLayout.Row(Glyphs.Theme, "Theme", "Follows Windows unless you pick one",
+                FluentLayout.Choice(
+                    [(AppTheme.System, "Use system setting"), (AppTheme.Light, "Light"), (AppTheme.Dark, "Dark")],
+                    design.Theme,
+                    value => host.Mutate(s => s.Design.Theme = value))),
+
             FluentLayout.Header("Colours"),
 
-            ColorRow(host, "", "Accent", "Follows the Windows accent colour when empty",
+            ColorRow(host, Glyphs.Palette, "Accent", "Follows the Windows accent colour when empty",
                 design.PrimaryColor, value => host.Mutate(s => s.Design.PrimaryColor = value)),
 
-            ColorRow(host, "", "Widget background", "Uses the theme's surface colour when empty",
+            ColorRow(host, Glyphs.Surface, "Widget background", "Uses the theme's surface colour when empty",
                 design.WidgetBackgroundColor, value => host.Mutate(s => s.Design.WidgetBackgroundColor = value)),
 
-            FluentLayout.Row("", "Widget opacity", null,
+            FluentLayout.Row(Glyphs.Opacity, "Widget opacity", null,
                 FluentLayout.Slider(design.SurfaceOpacity * 100, 20, 100, 5, "%",
                     value => host.Mutate(s => s.Design.SurfaceOpacity = value / 100))),
 
             FluentLayout.Header("Shape"),
 
-            FluentLayout.Row("", "Corner radius", null,
+            FluentLayout.Row(Glyphs.Surface, "Corner radius", null,
                 FluentLayout.Slider(design.CornerRadiusPx, 0, 32, 1, "px",
                     value => host.Mutate(s => s.Design.CornerRadiusPx = value))),
 
-            FluentLayout.Row("", "Border", null,
+            FluentLayout.Row(Glyphs.Grid, "Border", null,
                 FluentLayout.Choice(
                     [
                         (WidgetBorderStyle.None, "None"),
@@ -112,33 +116,33 @@ internal static class ConfigPages
                     design.BorderStyle,
                     value => host.Mutate(s => s.Design.BorderStyle = value))),
 
-            FluentLayout.Row("", "Border width", null,
+            FluentLayout.Row(Glyphs.Grid, "Border width", null,
                 FluentLayout.Slider(design.BorderWidthPx, 0, 8, 1, "px",
                     value => host.Mutate(s => s.Design.BorderWidthPx = value))),
 
-            ColorRow(host, "", "Border colour", "Uses the theme's card stroke when empty",
+            ColorRow(host, Glyphs.Grid, "Border colour", "Uses the theme's card stroke when empty",
                 design.BorderColor, value => host.Mutate(s => s.Design.BorderColor = value)),
 
-            FluentLayout.Row("", "Border opacity", null,
+            FluentLayout.Row(Glyphs.Opacity, "Border opacity", null,
                 FluentLayout.Slider(design.BorderOpacity * 100, 0, 100, 5, "%",
                     value => host.Mutate(s => s.Design.BorderOpacity = value / 100))),
 
             FluentLayout.Header("Text"),
 
-            FluentLayout.Row("", "Font", "Any family installed on this PC",
+            FluentLayout.Row(Glyphs.Font, "Font", "Any family installed on this PC",
                 FontChoice(host, design.FontFamily)),
 
-            FluentLayout.Row("", "Text size", "Multiplies every widget's computed text size",
+            FluentLayout.Row(Glyphs.TextSize, "Text size", "Multiplies every widget's computed text size",
                 FluentLayout.Slider(design.FontScale * 100, 50, 200, 5, "%",
                     value => host.Mutate(s => s.Design.FontScale = value / 100))),
 
-            FluentLayout.Row("", "Widget scale", "Scales widget content without moving the widgets",
+            FluentLayout.Row(Glyphs.Scale, "Widget scale", "Scales widget content without moving the widgets",
                 FluentLayout.Slider(design.UiScale * 100, 50, 300, 5, "%",
                     value => host.Mutate(s => s.Design.UiScale = value / 100))),
 
             FluentLayout.Header("Motion"),
 
-            FluentLayout.Row("", "Intro animation", "Played once when a view appears",
+            FluentLayout.Row(Glyphs.Motion, "Intro animation", "Played once when a view appears",
                 FluentLayout.Choice(
                     [
                         (IntroAnimation.None, "None"),
@@ -149,7 +153,7 @@ internal static class ConfigPages
                     design.IntroAnimation,
                     value => host.Mutate(s => s.Design.IntroAnimation = value))),
 
-            FluentLayout.Row("", "Animation length", null,
+            FluentLayout.Row(Glyphs.Timer, "Animation length", null,
                 FluentLayout.Slider(design.IntroAnimationMs, 0, 1500, 50, "ms",
                     value => host.Mutate(s => s.Design.IntroAnimationMs = value))),
         };
@@ -163,11 +167,11 @@ internal static class ConfigPages
 
         var rows = new List<FrameworkElement>
         {
-            FluentLayout.Row("", "Gap between widgets", null,
+            FluentLayout.Row(Glyphs.Grid, "Gap between widgets", null,
                 FluentLayout.Slider(design.WidgetGapPx, 0, 48, 2, "px",
                     value => host.Mutate(s => s.Design.WidgetGapPx = value))),
 
-            FluentLayout.Row("", "Snap to grid",
+            FluentLayout.Row(Glyphs.Grid, "Snap to grid",
                 "Hold Alt while dragging to place freely",
                 FluentLayout.Toggle(design.GridSnap, value => host.Mutate(s => s.Design.GridSnap = value))),
         };
@@ -182,13 +186,13 @@ internal static class ConfigPages
 
         var rows = new List<FrameworkElement>
         {
-            FluentLayout.Row("", "Themia for WinUI",
+            FluentLayout.Row(Glyphs.Info, "Themia for WinUI",
                 "A minimal native rebuild: WinUI 3 on .NET, compiled ahead of time.", openFolder),
 
-            FluentLayout.Row("", "Widgets", $"{WidgetCatalog.All.Count} available",
+            FluentLayout.Row(Glyphs.View, "Widgets", $"{WidgetCatalog.All.Count} available",
                 new TextBlock { Text = string.Empty }),
 
-            FluentLayout.Row("", "Views", $"{host.State.Views.Count} configured",
+            FluentLayout.Row(Glyphs.View, "Views", $"{host.State.Views.Count} configured",
                 new TextBlock { Text = string.Empty }),
         };
 
@@ -251,8 +255,8 @@ internal static class ConfigPages
 
         var rows = new List<FrameworkElement>
         {
-            FluentLayout.Row("", "Name", null, name),
-            FluentLayout.Row("", "Active view",
+            FluentLayout.Row(Glyphs.Rename, "Name", null, name),
+            FluentLayout.Row(Glyphs.View, "Active view",
                 host.State.ActiveView().Id == viewId ? "This view is showing now" : "Switch the desktop to it",
                 activate),
             FluentLayout.Header("Widgets"),
@@ -282,7 +286,7 @@ internal static class ConfigPages
         rows.Add(add);
 
         rows.Add(FluentLayout.Header("Danger"));
-        rows.Add(FluentLayout.Row("", "Delete this view",
+        rows.Add(FluentLayout.Row(Glyphs.Delete, "Delete this view",
             host.State.Views.Count > 1 ? "Its widgets go with it" : "The last view cannot be deleted",
             delete));
 
@@ -333,8 +337,8 @@ internal static class ConfigPages
 
         var rows = new List<FrameworkElement>
         {
-            FluentLayout.Row("", "Shows", "Which view this display renders", combo),
-            FluentLayout.Row("", "Work area", $"{area.Width} x {area.Height} physical pixels",
+            FluentLayout.Row(Glyphs.View, "Shows", "Which view this display renders", combo),
+            FluentLayout.Row(Glyphs.Display, "Work area", $"{area.Width} x {area.Height} physical pixels",
                 new TextBlock { Text = surface.Monitor.IsPrimary ? "Primary" : string.Empty }),
         };
 
@@ -392,7 +396,7 @@ internal static class ConfigPages
 
         rows.Add(FluentLayout.Header("Appearance"));
 
-        rows.Add(FluentLayout.Row("", "Background", "How this widget's card is filled",
+        rows.Add(FluentLayout.Row(Glyphs.Surface, "Background", "How this widget's card is filled",
             FluentLayout.Choice(
                 [
                     (WidgetSurface.Card, "Card"),
@@ -412,7 +416,7 @@ internal static class ConfigPages
         label.LostFocus += (_, _) => host.Mutate(_ =>
             widget.Label = string.IsNullOrWhiteSpace(label.Text) ? null : label.Text.Trim());
 
-        rows.Add(FluentLayout.Row("", "Title", "Shown in menus; leave blank for the default", label));
+        rows.Add(FluentLayout.Row(Glyphs.Rename, "Title", "Shown in menus; leave blank for the default", label));
 
         rows.Add(FluentLayout.Header("Danger"));
 
@@ -424,7 +428,7 @@ internal static class ConfigPages
             navigate(new ConfigTarget.View(view.Id));
         };
 
-        rows.Add(FluentLayout.Row("", "Delete", $"Removes it from {view.Name}", delete));
+        rows.Add(FluentLayout.Row(Glyphs.Delete, "Delete", $"Removes it from {view.Name}", delete));
 
         return Page(string.IsNullOrWhiteSpace(widget.Label) ? definition.Label : widget.Label!, rows, definition.Description);
     }
@@ -569,7 +573,7 @@ internal static class ConfigPages
 
         var box = new TextBox { Text = value, PlaceholderText = "#RRGGBB", Width = 110 };
 
-        var reset = new Button { Content = new FontIcon { Glyph = "", FontSize = 12 } };
+        var reset = new Button { Content = new FontIcon { Glyph = Glyphs.Reset, FontSize = 12 } };
         ToolTipService.SetToolTip(reset, "Use the theme colour");
 
         void Paint(string hex)

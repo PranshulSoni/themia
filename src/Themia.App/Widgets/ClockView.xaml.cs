@@ -16,6 +16,7 @@ public sealed partial class ClockView : UserControl, IWidgetView
     private Ticker? _ticker;
     private ClockConfig _config = new();
     private IDisposable? _subscription;
+    private TimeSpan _subscribedInterval = TimeSpan.Zero;
 
     public ClockView()
     {
@@ -80,8 +81,19 @@ public sealed partial class ClockView : UserControl, IWidgetView
 
     private void Resubscribe()
     {
+        // Only when the cadence actually changed. Dropping and remaking the subscription on every
+        // config touch is what made dragging a settings slider stutter: each tick tore down the
+        // timer subscription for every widget on the desktop and built it again.
+        var wanted = _config.TickInterval;
+        if (_subscription is not null && wanted == _subscribedInterval)
+        {
+            Render();
+            return;
+        }
+
         _subscription?.Dispose();
-        _subscription = _ticker?.Subscribe(_config.TickInterval, Render);
+        _subscribedInterval = wanted;
+        _subscription = _ticker?.Subscribe(wanted, Render);
     }
 
     private void Render()

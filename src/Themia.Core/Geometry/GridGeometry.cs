@@ -154,24 +154,64 @@ public static class GridGeometry
     }
 
     /// <summary>
-    /// [S-04] Resolve a stored fraction to a pixel rect, inset on every side by half the widget gap
-    /// so neighbours show a gap without changing their logical rect. Logical edges are rounded to a
-    /// shared whole-pixel boundary <i>first</i>, so adjacent widgets still meet exactly.
+    /// [S-04] Resolve a stored fraction to its <b>cell</b> in pixels. The widget gap is deliberately
+    /// not applied here.
+    /// <para>
+    /// The gap is padding <i>inside</i> the cell, never part of the geometry. Folding it in here
+    /// made the stored rect mean something different at every gap setting: the widget's size and
+    /// position changed when the gap slider moved, the edit outline traced the shrunken box instead
+    /// of the cell, and a placement ghost showed a rect the widget would not actually occupy.
+    /// Keeping the cell gap-free means changing the gap changes only how much of the cell is
+    /// painted.
+    /// </para>
+    /// <para>
+    /// Edges are rounded to a shared whole-pixel boundary, so adjacent cells meet exactly.
+    /// </para>
     /// </summary>
-    public static PixelRect ToPixels(FracRect r, ScreenMetrics screen, double gapPx)
+    public static PixelRect ToPixels(FracRect r, ScreenMetrics screen)
     {
         var left = Math.Round(r.X * screen.Width);
         var top = Math.Round(r.Y * screen.Height);
         var right = Math.Round(r.Right * screen.Width);
         var bottom = Math.Round(r.Bottom * screen.Height);
 
-        var half = gapPx / 2;
-        left += half;
-        top += half;
-        right -= half;
-        bottom -= half;
-
         return new PixelRect(left, top, Math.Max(1, right - left), Math.Max(1, bottom - top));
+    }
+
+    /// <summary>
+    /// The painted surface inside a cell: inset on every side by half the gap, so two neighbouring
+    /// widgets show a full gap between them while each keeps its own cell.
+    /// <para>
+    /// Never shrinks below a pixel, so an absurd gap on a small widget leaves something to click
+    /// rather than nothing.
+    /// </para>
+    /// </summary>
+    public static PixelRect Inset(PixelRect cell, double gapPx)
+    {
+        if (!double.IsFinite(gapPx) || gapPx <= 0)
+        {
+            return cell;
+        }
+
+        var half = gapPx / 2;
+        var width = cell.Width - gapPx;
+        var height = cell.Height - gapPx;
+
+        // A gap wider than the cell would invert it; pin to the centre instead.
+        if (width < 1)
+        {
+            half = Math.Max(0, (cell.Width - 1) / 2);
+            width = 1;
+        }
+
+        var halfY = gapPx / 2;
+        if (height < 1)
+        {
+            halfY = Math.Max(0, (cell.Height - 1) / 2);
+            height = 1;
+        }
+
+        return new PixelRect(cell.X + half, cell.Y + halfY, width, height);
     }
 }
 

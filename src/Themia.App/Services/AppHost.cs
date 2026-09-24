@@ -201,11 +201,25 @@ internal sealed class AppHost : IDisposable
             Log.Error(Scope, "tray icon unavailable; edit mode can still be reached by double-clicking a widget");
         }
 
+        // Show Desktop raises the desktop window above everything, including anything pinned
+        // below it, so without this the widgets vanish at the one moment the user asked to see
+        // their desktop.
+        ShowDesktopWatcher.Changed += OnDesktopFronted;
+        ShowDesktopWatcher.Start();
+
         RebuildWindows();
 
         // Seed the file on a fresh profile so the starting layout survives a restart even if the
         // user never touches anything.
         _store.SaveSoon(State);
+    }
+
+    private void OnDesktopFronted(bool fronted)
+    {
+        foreach (var window in _windows)
+        {
+            window.SetDesktopFronted(fronted);
+        }
     }
 
     /// <summary>Create one widget window per display, dropping any whose monitor disappeared.</summary>
@@ -480,6 +494,8 @@ internal sealed class AppHost : IDisposable
         }
 
         _disposed = true;
+        ShowDesktopWatcher.Changed -= OnDesktopFronted;
+        ShowDesktopWatcher.Stop();
         Clipboard.Clear();
         AppServices.Mail = null;
         _ = Mail.DisposeAsync();

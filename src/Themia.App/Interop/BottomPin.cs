@@ -37,6 +37,22 @@ internal static unsafe class BottomPin
 
     private static readonly Lock Gate = new();
     private static readonly Dictionary<nint, nint> OriginalProcs = [];
+    private static bool _pinning = true;
+
+    /// <summary>
+    /// Stop forcing the bottom, without unsubclassing.
+    /// <para>
+    /// Used while the desktop is fronted: the surface is deliberately lifted then, and a pin that
+    /// kept rewriting the z-order would immediately undo it.
+    /// </para>
+    /// </summary>
+    public static void SetPinning(bool pinning)
+    {
+        lock (Gate)
+        {
+            _pinning = pinning;
+        }
+    }
 
     /// <summary>Start forcing <paramref name="hwnd"/> to the bottom. Idempotent.</summary>
     public static void Attach(nint hwnd)
@@ -99,7 +115,13 @@ internal static unsafe class BottomPin
                 }
             }
 
-            if (msg == WmWindowPosChanging && lParam != 0)
+            bool pinning;
+            lock (Gate)
+            {
+                pinning = _pinning;
+            }
+
+            if (pinning && msg == WmWindowPosChanging && lParam != 0)
             {
                 var position = (WindowPos*)lParam;
 
