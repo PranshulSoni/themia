@@ -70,6 +70,10 @@ internal static class Glyphs
     public static readonly string Clear = From(0xE894);
     public static readonly string MoveUp = From(0xE74A);
     public static readonly string MoveDown = From(0xE74B);
+    public static readonly string Folder = From(0xE8B7);
+    public static readonly string File = From(0xE8A5);
+    public static readonly string Hidden = From(0xE890);
+    public static readonly string Open = From(0xE8E5);
 
     private static string From(int codePoint) => char.ConvertFromUtf32(codePoint);
 }

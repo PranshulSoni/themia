@@ -16,8 +16,8 @@ namespace Themia.App.Widgets;
 /// </summary>
 internal static class WidgetLayout
 {
-    /// <summary>The standard content inset, in device-independent pixels.</summary>
-    public const double ContentInset = 12;
+    /// <summary>The standard content inset: Fluent's 16px, not the 12 the web app used.</summary>
+    public const double ContentInset = Fluent.Space4;
 
     /// <summary>The inset on all four sides, for a view whose content is not a list.</summary>
     public static Thickness Inset { get; } = new(ContentInset);

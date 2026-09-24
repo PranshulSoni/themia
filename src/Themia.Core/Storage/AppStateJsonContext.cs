@@ -33,5 +33,6 @@ namespace Themia.Core.Storage;
 [JsonSerializable(typeof(PomodoroConfig))]
 [JsonSerializable(typeof(CalculatorConfig))]
 [JsonSerializable(typeof(SunMoonConfig))]
+[JsonSerializable(typeof(FolderConfig))]
 [JsonSerializable(typeof(DesignState))]
 internal sealed partial class AppStateJsonContext : JsonSerializerContext;

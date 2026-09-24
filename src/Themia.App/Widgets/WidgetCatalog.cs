@@ -96,6 +96,7 @@ internal static class WidgetCatalog
         new(WidgetKind.Pomodoro, "Pomodoro", "A focus and break timer", Glyphs.Pomodoro, 240, 200),
         new(WidgetKind.Calculator, "Calculator", "An arithmetic scratchpad", Glyphs.Calculator, 260, 260),
         new(WidgetKind.SunMoon, "Sun & Moon", "Sunrise, sunset and the moon phase", Glyphs.Sun, 320, 240),
+        new(WidgetKind.Folder, "Folder", "What is in a folder on this PC", Glyphs.Folder, 340, 280),
     ];
 
     public static WidgetDefinition Definition(WidgetKind kind)
@@ -128,6 +129,7 @@ internal static class WidgetCatalog
         WidgetKind.Pomodoro => new PomodoroView(),
         WidgetKind.Calculator => new CalculatorView(),
         WidgetKind.SunMoon => new SunMoonView(),
+        WidgetKind.Folder => new FolderView(),
         _ => new ClockView(),
     };
 }

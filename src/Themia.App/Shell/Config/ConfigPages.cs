@@ -432,6 +432,10 @@ internal static class ConfigPages
                 WidgetSettings.SunMoon(rows, sunMoon, Save);
                 break;
 
+            case FolderConfig folder:
+                WidgetSettings.Folder(rows, folder, Save);
+                break;
+
             default:
                 break;
         }

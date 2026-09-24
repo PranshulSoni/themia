@@ -25,6 +25,7 @@ namespace Themia.Core.Model;
 [JsonDerivedType(typeof(PomodoroConfig), typeDiscriminator: "pomodoro")]
 [JsonDerivedType(typeof(CalculatorConfig), typeDiscriminator: "calculator")]
 [JsonDerivedType(typeof(SunMoonConfig), typeDiscriminator: "sunMoon")]
+[JsonDerivedType(typeof(FolderConfig), typeDiscriminator: "folder")]
 public abstract class WidgetConfig
 {
     /// <summary>The kind this config belongs to. Used to detect a config/kind mismatch on load.</summary>
@@ -51,6 +52,7 @@ public abstract class WidgetConfig
         WidgetKind.Pomodoro => new PomodoroConfig(),
         WidgetKind.Calculator => new CalculatorConfig(),
         WidgetKind.SunMoon => new SunMoonConfig(),
+        WidgetKind.Folder => new FolderConfig(),
         _ => new ClockConfig(),
     };
 

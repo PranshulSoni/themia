@@ -58,6 +58,9 @@ public enum WidgetKind
 
     /// <summary>Sunrise, sunset and the moon phase, computed offline.</summary>
     SunMoon = 16,
+
+    /// <summary>The contents of one folder on this machine.</summary>
+    Folder = 17,
 }
 
 /// <summary>Which column a process list is ranked on.</summary>
