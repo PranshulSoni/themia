@@ -382,12 +382,54 @@ internal static class ConfigPages
                 WidgetSettings.Battery(rows, battery, Save);
                 break;
 
+            // Before GaugeConfig: Ping derives from it, and a base-type case placed first would
+            // swallow the derived one.
+            case PingConfig ping:
+                WidgetSettings.Ping(rows, ping, Save);
+                break;
+
             case GaugeConfig gauge:
                 WidgetSettings.Gauge(rows, gauge, Save);
                 break;
 
             case EmailConfig email:
                 WidgetSettings.Email(rows, email, Save);
+                break;
+
+            case ProcessesConfig processes:
+                WidgetSettings.Processes(rows, processes, Save);
+                break;
+
+            case ContactsConfig contacts:
+                WidgetSettings.Contacts(rows, contacts, Save);
+                break;
+
+            case CalendarConfig calendar:
+                WidgetSettings.Calendar(rows, calendar, Save);
+                break;
+
+            case TasksConfig tasks:
+                WidgetSettings.Tasks(rows, tasks, Save);
+                break;
+
+            case NotesConfig notes:
+                WidgetSettings.Notes(rows, notes, Save);
+                break;
+
+            case CountdownConfig countdown:
+                WidgetSettings.Countdown(rows, countdown, Save);
+                break;
+
+            case PomodoroConfig pomodoro:
+                WidgetSettings.Pomodoro(rows, pomodoro, Save);
+                break;
+
+            case CalculatorConfig calculator:
+                WidgetSettings.Calculator(rows, calculator, Save);
+                break;
+
+            case SunMoonConfig sunMoon:
+                WidgetSettings.SunMoon(rows, sunMoon, Save);
                 break;
 
             default:

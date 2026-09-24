@@ -52,6 +52,22 @@ internal static class Glyphs
     public static readonly string Gpu = From(0xF211);
     public static readonly string Contact = From(0xE77B);
     public static readonly string Task = From(0xE9D5);
+    public static readonly string Ping = From(0xEBC3);
+    public static readonly string Note = From(0xE70B);
+    public static readonly string Countdown = From(0xE81C);
+    public static readonly string Pomodoro = From(0xE945);
+    public static readonly string Calculator = From(0xE8EF);
+    public static readonly string Sun = From(0xE706);
+    public static readonly string Moon = From(0xE708);
+    public static readonly string Place = From(0xE707);
+    public static readonly string Sort = From(0xE8CB);
+    public static readonly string Play = From(0xE768);
+    public static readonly string Pause = From(0xE769);
+    public static readonly string Stop = From(0xE71A);
+    public static readonly string Sound = From(0xE767);
+    public static readonly string Link = From(0xE71B);
+    public static readonly string Wrap = From(0xE7A3);
+    public static readonly string Clear = From(0xE894);
 
     private static string From(int codePoint) => char.ConvertFromUtf32(codePoint);
 }

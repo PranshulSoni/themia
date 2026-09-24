@@ -14,6 +14,17 @@ namespace Themia.Core.Model;
 [JsonDerivedType(typeof(DiskConfig), typeDiscriminator: "disk")]
 [JsonDerivedType(typeof(BatteryConfig), typeDiscriminator: "battery")]
 [JsonDerivedType(typeof(EmailConfig), typeDiscriminator: "email")]
+[JsonDerivedType(typeof(ProcessesConfig), typeDiscriminator: "processes")]
+[JsonDerivedType(typeof(NetworkConfig), typeDiscriminator: "network")]
+[JsonDerivedType(typeof(PingConfig), typeDiscriminator: "ping")]
+[JsonDerivedType(typeof(ContactsConfig), typeDiscriminator: "contacts")]
+[JsonDerivedType(typeof(CalendarConfig), typeDiscriminator: "calendar")]
+[JsonDerivedType(typeof(TasksConfig), typeDiscriminator: "tasks")]
+[JsonDerivedType(typeof(NotesConfig), typeDiscriminator: "notes")]
+[JsonDerivedType(typeof(CountdownConfig), typeDiscriminator: "countdown")]
+[JsonDerivedType(typeof(PomodoroConfig), typeDiscriminator: "pomodoro")]
+[JsonDerivedType(typeof(CalculatorConfig), typeDiscriminator: "calculator")]
+[JsonDerivedType(typeof(SunMoonConfig), typeDiscriminator: "sunMoon")]
 public abstract class WidgetConfig
 {
     /// <summary>The kind this config belongs to. Used to detect a config/kind mismatch on load.</summary>
@@ -29,6 +40,17 @@ public abstract class WidgetConfig
         WidgetKind.Disk => new DiskConfig(),
         WidgetKind.Battery => new BatteryConfig(),
         WidgetKind.Email => new EmailConfig(),
+        WidgetKind.Processes => new ProcessesConfig(),
+        WidgetKind.Network => new NetworkConfig(),
+        WidgetKind.Ping => new PingConfig(),
+        WidgetKind.Contacts => new ContactsConfig(),
+        WidgetKind.Calendar => new CalendarConfig(),
+        WidgetKind.Tasks => new TasksConfig(),
+        WidgetKind.Notes => new NotesConfig(),
+        WidgetKind.Countdown => new CountdownConfig(),
+        WidgetKind.Pomodoro => new PomodoroConfig(),
+        WidgetKind.Calculator => new CalculatorConfig(),
+        WidgetKind.SunMoon => new SunMoonConfig(),
         _ => new ClockConfig(),
     };
 

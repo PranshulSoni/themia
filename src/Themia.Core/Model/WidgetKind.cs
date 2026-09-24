@@ -25,6 +25,78 @@ public enum WidgetKind
 
     /// <summary>Recent mail, read from the hearth hub.</summary>
     Email = 5,
+
+    /// <summary>The busiest running processes, ranked.</summary>
+    Processes = 6,
+
+    /// <summary>Bytes per second across the active adapters.</summary>
+    Network = 7,
+
+    /// <summary>Round-trip time to a host.</summary>
+    Ping = 8,
+
+    /// <summary>People, read from the hearth hub.</summary>
+    Contacts = 9,
+
+    /// <summary>Upcoming events, read from the hearth hub.</summary>
+    Calendar = 10,
+
+    /// <summary>Open tasks, read from the hearth hub.</summary>
+    Tasks = 11,
+
+    /// <summary>A free-text note kept on this machine.</summary>
+    Notes = 12,
+
+    /// <summary>Time left until one or more dated targets.</summary>
+    Countdown = 13,
+
+    /// <summary>A focus/break timer.</summary>
+    Pomodoro = 14,
+
+    /// <summary>An arithmetic scratchpad with a short history.</summary>
+    Calculator = 15,
+
+    /// <summary>Sunrise, sunset and the moon phase, computed offline.</summary>
+    SunMoon = 16,
+}
+
+/// <summary>Which column a process list is ranked on.</summary>
+[JsonConverter(typeof(JsonStringEnumConverter<ProcessSort>))]
+public enum ProcessSort
+{
+    Cpu = 0,
+    Memory = 1,
+}
+
+/// <summary>How a countdown renders the time it has left. [C-11]</summary>
+[JsonConverter(typeof(JsonStringEnumConverter<CountdownFormat>))]
+public enum CountdownFormat
+{
+    /// <summary>Pick the coarsest unit that still says something useful.</summary>
+    Auto = 0,
+
+    /// <summary>Whole days only.</summary>
+    Days = 1,
+
+    /// <summary>Days, hours and minutes.</summary>
+    DaysHoursMinutes = 2,
+
+    /// <summary>Days, hours, minutes and seconds — the only format that needs a one-second tick.</summary>
+    DaysHoursMinutesSeconds = 3,
+}
+
+/// <summary>How much of the sun's path the Sun &amp; Moon widget draws. [S-10]</summary>
+[JsonConverter(typeof(JsonStringEnumConverter<SunPathMode>))]
+public enum SunPathMode
+{
+    /// <summary>The curve with its time labels.</summary>
+    Numbers = 0,
+
+    /// <summary>The curve alone.</summary>
+    Plain = 1,
+
+    /// <summary>No curve; the event rows carry everything.</summary>
+    Hidden = 2,
 }
 
 /// <summary>How the clock renders its face.</summary>

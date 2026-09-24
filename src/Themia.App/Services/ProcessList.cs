@@ -1,15 +1,9 @@
 using System.ComponentModel;
 using System.Diagnostics;
 using Themia.Core.Diagnostics;
+using Themia.Core.Model;
 
 namespace Themia.App.Services;
-
-/// <summary>Which column the list is ranked on.</summary>
-public enum ProcessSort
-{
-    Cpu,
-    Memory,
-}
 
 /// <summary>
 /// One row of the process list.

@@ -15,7 +15,7 @@ namespace Themia.App.Shell.Config;
 /// widget is on the desktop behind the window and the whole point is to watch it change.
 /// </para>
 /// </summary>
-internal static class WidgetSettings
+internal static partial class WidgetSettings
 {
     public static void Clock(List<FrameworkElement> rows, ClockConfig clock, Action save)
     {
@@ -148,6 +148,6 @@ internal static class WidgetSettings
 
     private static void AddGraphToggle(List<FrameworkElement> rows, GaugeConfig gauge, Action save)
         => rows.Add(FluentLayout.Row(Glyphs.Motion, "Show history",
-            "Draw recent samples behind the readout",
+            "Draw a sparkline of the recent samples",
             FluentLayout.Toggle(gauge.ShowGraph, value => { gauge.ShowGraph = value; save(); })));
 }

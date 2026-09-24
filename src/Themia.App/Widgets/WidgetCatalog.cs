@@ -1,5 +1,6 @@
 using Microsoft.UI.Xaml;
 using Themia.App.Services;
+using Themia.App.Shell;
 using Themia.Core.Model;
 
 namespace Themia.App.Widgets;
@@ -39,12 +40,23 @@ internal static class WidgetCatalog
 {
     public static readonly IReadOnlyList<WidgetDefinition> All =
     [
-        new(WidgetKind.Clock, "Clock", "Time and date, digital or analog", "", 280, 140),
-        new(WidgetKind.Cpu, "CPU", "Processor load across all cores", "", 200, 150),
-        new(WidgetKind.Memory, "Memory", "Physical memory in use", "", 200, 150),
-        new(WidgetKind.Disk, "Disk", "Space used on a drive", "", 200, 150),
-        new(WidgetKind.Battery, "Battery", "Charge level and time remaining", "", 200, 150),
-        new(WidgetKind.Email, "Mail", "Recent messages, via the hearth hub", "", 380, 260),
+        new(WidgetKind.Clock, "Clock", "Time and date, digital or analog", Glyphs.Clock, 280, 140),
+        new(WidgetKind.Cpu, "CPU", "Processor load across all cores", Glyphs.Cpu, 200, 150),
+        new(WidgetKind.Memory, "Memory", "Physical memory in use", Glyphs.Memory, 200, 150),
+        new(WidgetKind.Disk, "Disk", "Space used on a drive", Glyphs.Disk, 200, 150),
+        new(WidgetKind.Battery, "Battery", "Charge level and time remaining", Glyphs.Battery, 200, 150),
+        new(WidgetKind.Network, "Network", "Bytes per second across the active adapters", Glyphs.Network, 200, 150),
+        new(WidgetKind.Ping, "Ping", "Round-trip time to a host", Glyphs.Ping, 200, 150),
+        new(WidgetKind.Processes, "Processes", "The busiest processes, ranked", Glyphs.Processes, 320, 240),
+        new(WidgetKind.Email, "Mail", "Recent messages, via the hearth hub", Glyphs.Mail, 380, 260),
+        new(WidgetKind.Calendar, "Calendar", "What is coming up, via the hearth hub", Glyphs.Calendar, 340, 260),
+        new(WidgetKind.Tasks, "Tasks", "Open tasks, via the hearth hub", Glyphs.Task, 320, 240),
+        new(WidgetKind.Contacts, "Contacts", "People, via the hearth hub", Glyphs.Contact, 320, 260),
+        new(WidgetKind.Notes, "Notes", "A note kept on this machine", Glyphs.Note, 300, 220),
+        new(WidgetKind.Countdown, "Countdown", "Time left until the dates you care about", Glyphs.Countdown, 300, 200),
+        new(WidgetKind.Pomodoro, "Pomodoro", "A focus and break timer", Glyphs.Pomodoro, 240, 200),
+        new(WidgetKind.Calculator, "Calculator", "An arithmetic scratchpad", Glyphs.Calculator, 260, 260),
+        new(WidgetKind.SunMoon, "Sun & Moon", "Sunrise, sunset and the moon phase", Glyphs.Sun, 320, 240),
     ];
 
     public static WidgetDefinition Definition(WidgetKind kind)
@@ -65,8 +77,18 @@ internal static class WidgetCatalog
     public static FrameworkElement CreateView(WidgetKind kind) => kind switch
     {
         WidgetKind.Clock => new ClockView(),
-        WidgetKind.Cpu or WidgetKind.Memory or WidgetKind.Disk or WidgetKind.Battery => new MeterView(kind),
+        WidgetKind.Cpu or WidgetKind.Memory or WidgetKind.Disk
+            or WidgetKind.Battery or WidgetKind.Network or WidgetKind.Ping => new MeterView(kind),
+        WidgetKind.Processes => new ProcessesView(),
         WidgetKind.Email => new EmailView(),
+        WidgetKind.Contacts => new ContactsView(),
+        WidgetKind.Calendar => new CalendarView(),
+        WidgetKind.Tasks => new TasksView(),
+        WidgetKind.Notes => new NotesView(),
+        WidgetKind.Countdown => new CountdownView(),
+        WidgetKind.Pomodoro => new PomodoroView(),
+        WidgetKind.Calculator => new CalculatorView(),
+        WidgetKind.SunMoon => new SunMoonView(),
         _ => new ClockView(),
     };
 }
