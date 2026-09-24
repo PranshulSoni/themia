@@ -436,6 +436,90 @@ internal static class ConfigPages
                 WidgetSettings.Folder(rows, folder, Save);
                 break;
 
+            case VolumeConfig volume:
+                WidgetSettings.Volume(rows, volume, Save);
+                break;
+
+            case PowerConfig power:
+                WidgetSettings.Power(rows, power, Save);
+                break;
+
+            case BluetoothConfig bluetooth:
+                WidgetSettings.Bluetooth(rows, bluetooth, Save);
+                break;
+
+            case MusicConfig music:
+                WidgetSettings.Music(rows, music, Save);
+                break;
+
+            case WeatherNowConfig weatherNow:
+                WidgetSettings.WeatherNow(rows, weatherNow, Save);
+                break;
+
+            case WeatherForecastConfig weatherForecast:
+                WidgetSettings.WeatherForecast(rows, weatherForecast, Save);
+                break;
+
+            case StocksConfig stocks:
+                WidgetSettings.Stocks(rows, stocks, Save);
+                break;
+
+            case RssConfig rss:
+                WidgetSettings.Rss(rows, rss, Save);
+                break;
+
+            case AppsConfig apps:
+                WidgetSettings.Apps(rows, apps, Save);
+                break;
+
+            case ShortcutsConfig shortcuts:
+                WidgetSettings.Shortcuts(rows, shortcuts, Save);
+                break;
+
+            case WebSearchConfig webSearch:
+                WidgetSettings.WebSearch(rows, webSearch, Save);
+                break;
+
+            case ClipboardConfig clipboard:
+                WidgetSettings.Clipboard(rows, clipboard, Save);
+                break;
+
+            case ScratchpadConfig scratchpad:
+                WidgetSettings.Scratchpad(rows, scratchpad, Save);
+                break;
+
+            case ColorSwatchConfig colorSwatch:
+                WidgetSettings.ColorSwatch(rows, colorSwatch, Save);
+                break;
+
+            case QuoteConfig quote:
+                WidgetSettings.Quote(rows, quote, Save);
+                break;
+
+            case GalleryConfig gallery:
+                WidgetSettings.Gallery(rows, gallery, Save);
+                break;
+
+            case HabitTrackerConfig habitTracker:
+                WidgetSettings.HabitTracker(rows, habitTracker, Save);
+                break;
+
+            case MoodTrackerConfig moodTracker:
+                WidgetSettings.MoodTracker(rows, moodTracker, Save);
+                break;
+
+            case GroupConfig group:
+                WidgetSettings.Group(rows, group, Save);
+                break;
+
+            case StackConfig stack:
+                WidgetSettings.Stack(rows, stack, Save);
+                break;
+
+            case TabsConfig tabs:
+                WidgetSettings.Tabs(rows, tabs, Save);
+                break;
+
             default:
                 break;
         }

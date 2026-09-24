@@ -26,6 +26,27 @@ namespace Themia.Core.Model;
 [JsonDerivedType(typeof(CalculatorConfig), typeDiscriminator: "calculator")]
 [JsonDerivedType(typeof(SunMoonConfig), typeDiscriminator: "sunMoon")]
 [JsonDerivedType(typeof(FolderConfig), typeDiscriminator: "folder")]
+[JsonDerivedType(typeof(VolumeConfig), typeDiscriminator: "volume")]
+[JsonDerivedType(typeof(PowerConfig), typeDiscriminator: "power")]
+[JsonDerivedType(typeof(BluetoothConfig), typeDiscriminator: "bluetooth")]
+[JsonDerivedType(typeof(MusicConfig), typeDiscriminator: "music")]
+[JsonDerivedType(typeof(WeatherNowConfig), typeDiscriminator: "weatherNow")]
+[JsonDerivedType(typeof(WeatherForecastConfig), typeDiscriminator: "weatherForecast")]
+[JsonDerivedType(typeof(StocksConfig), typeDiscriminator: "stocks")]
+[JsonDerivedType(typeof(RssConfig), typeDiscriminator: "rss")]
+[JsonDerivedType(typeof(AppsConfig), typeDiscriminator: "apps")]
+[JsonDerivedType(typeof(ShortcutsConfig), typeDiscriminator: "shortcuts")]
+[JsonDerivedType(typeof(WebSearchConfig), typeDiscriminator: "webSearch")]
+[JsonDerivedType(typeof(ClipboardConfig), typeDiscriminator: "clipboard")]
+[JsonDerivedType(typeof(ScratchpadConfig), typeDiscriminator: "scratchpad")]
+[JsonDerivedType(typeof(ColorSwatchConfig), typeDiscriminator: "colorSwatch")]
+[JsonDerivedType(typeof(QuoteConfig), typeDiscriminator: "quote")]
+[JsonDerivedType(typeof(GalleryConfig), typeDiscriminator: "gallery")]
+[JsonDerivedType(typeof(HabitTrackerConfig), typeDiscriminator: "habitTracker")]
+[JsonDerivedType(typeof(MoodTrackerConfig), typeDiscriminator: "moodTracker")]
+[JsonDerivedType(typeof(GroupConfig), typeDiscriminator: "group")]
+[JsonDerivedType(typeof(StackConfig), typeDiscriminator: "stack")]
+[JsonDerivedType(typeof(TabsConfig), typeDiscriminator: "tabs")]
 public abstract class WidgetConfig
 {
     /// <summary>The kind this config belongs to. Used to detect a config/kind mismatch on load.</summary>
@@ -53,6 +74,27 @@ public abstract class WidgetConfig
         WidgetKind.Calculator => new CalculatorConfig(),
         WidgetKind.SunMoon => new SunMoonConfig(),
         WidgetKind.Folder => new FolderConfig(),
+        WidgetKind.Volume => new VolumeConfig(),
+        WidgetKind.Power => new PowerConfig(),
+        WidgetKind.Bluetooth => new BluetoothConfig(),
+        WidgetKind.Music => new MusicConfig(),
+        WidgetKind.WeatherNow => new WeatherNowConfig(),
+        WidgetKind.WeatherForecast => new WeatherForecastConfig(),
+        WidgetKind.Stocks => new StocksConfig(),
+        WidgetKind.Rss => new RssConfig(),
+        WidgetKind.Apps => new AppsConfig(),
+        WidgetKind.Shortcuts => new ShortcutsConfig(),
+        WidgetKind.WebSearch => new WebSearchConfig(),
+        WidgetKind.Clipboard => new ClipboardConfig(),
+        WidgetKind.Scratchpad => new ScratchpadConfig(),
+        WidgetKind.ColorSwatch => new ColorSwatchConfig(),
+        WidgetKind.Quote => new QuoteConfig(),
+        WidgetKind.Gallery => new GalleryConfig(),
+        WidgetKind.HabitTracker => new HabitTrackerConfig(),
+        WidgetKind.MoodTracker => new MoodTrackerConfig(),
+        WidgetKind.Group => new GroupConfig(),
+        WidgetKind.Stack => new StackConfig(),
+        WidgetKind.Tabs => new TabsConfig(),
         _ => new ClockConfig(),
     };
 

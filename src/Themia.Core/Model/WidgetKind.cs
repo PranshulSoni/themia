@@ -61,6 +61,69 @@ public enum WidgetKind
 
     /// <summary>The contents of one folder on this machine.</summary>
     Folder = 17,
+
+    /// <summary>Master output level and mute.</summary>
+    Volume = 18,
+
+    /// <summary>Power plan and mains status.</summary>
+    Power = 19,
+
+    /// <summary>Paired devices and their battery.</summary>
+    Bluetooth = 20,
+
+    /// <summary>Whatever Windows is playing.</summary>
+    Music = 21,
+
+    /// <summary>Conditions where you are.</summary>
+    WeatherNow = 22,
+
+    /// <summary>The next few days.</summary>
+    WeatherForecast = 23,
+
+    /// <summary>Tickers and crypto, with a sparkline.</summary>
+    Stocks = 24,
+
+    /// <summary>Headlines from a feed you choose.</summary>
+    Rss = 25,
+
+    /// <summary>Launch an installed application.</summary>
+    Apps = 26,
+
+    /// <summary>Links, files and folders you keep to hand.</summary>
+    Shortcuts = 27,
+
+    /// <summary>Type a query, open it in your browser.</summary>
+    WebSearch = 28,
+
+    /// <summary>What you have copied recently.</summary>
+    Clipboard = 29,
+
+    /// <summary>A place to draw.</summary>
+    Scratchpad = 30,
+
+    /// <summary>A palette you can copy from.</summary>
+    ColorSwatch = 31,
+
+    /// <summary>A line worth rereading.</summary>
+    Quote = 32,
+
+    /// <summary>Pictures from a folder.</summary>
+    Gallery = 33,
+
+    /// <summary>Daily check-offs and streaks.</summary>
+    HabitTracker = 34,
+
+    /// <summary>How you felt, as a heatmap.</summary>
+    MoodTracker = 35,
+
+    /// <summary>An area that holds other widgets.</summary>
+    Group = 36,
+
+    /// <summary>Widgets rolled up to their headers.</summary>
+    Stack = 37,
+
+    /// <summary>Several widgets, one at a time.</summary>
+    Tabs = 38,
 }
 
 /// <summary>Which column a process list is ranked on.</summary>

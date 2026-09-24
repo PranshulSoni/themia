@@ -74,6 +74,26 @@ internal static class Glyphs
     public static readonly string File = From(0xE8A5);
     public static readonly string Hidden = From(0xE890);
     public static readonly string Open = From(0xE8E5);
+    public static readonly string Power = From(0xE7E8);
+    public static readonly string Shortcut = From(0xE71B);
+    public static readonly string Bluetooth = From(0xE702);
+    public static readonly string Weather = From(0xE753);
+    public static readonly string Forecast = From(0xE9CA);
+    public static readonly string Stocks = From(0xEB05);
+    public static readonly string Rss = From(0xE8F1);
+    public static readonly string Apps = From(0xE71D);
+    public static readonly string Search = From(0xE721);
+    public static readonly string Clipboard = From(0xE77F);
+    public static readonly string Scratchpad = From(0xE70F);
+    public static readonly string Color = From(0xE790);
+    public static readonly string Quote = From(0xE9E5);
+    public static readonly string Gallery = From(0xE91B);
+    public static readonly string Habit = From(0xE73E);
+    public static readonly string Mood = From(0xE76E);
+    public static readonly string Music = From(0xE8D6);
+    public static readonly string Group = From(0xF168);
+    public static readonly string Stack = From(0xE81E);
+    public static readonly string Tabs = From(0xE737);
 
     private static string From(int codePoint) => char.ConvertFromUtf32(codePoint);
 }
