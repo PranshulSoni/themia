@@ -80,10 +80,23 @@ public sealed class ViewState
     };
 }
 
-/// <summary>Global look-and-feel. Kept deliberately small; everything here is a "look", not an accessibility choice.</summary>
+/// <summary>
+/// Global look-and-feel, mirroring the original app's design options minus anything tied to an
+/// account. Colours are hex strings; <b>empty means "use the theme's own"</b>, which is what lets a
+/// user override one colour without pinning all the others.
+/// </summary>
 public sealed class DesignState
 {
     public AppTheme Theme { get; set; } = AppTheme.System;
+
+    /// <summary>Scales every widget's content. The user's accessibility choice, not a look.</summary>
+    public double UiScale { get; set; } = 1.0;
+
+    /// <summary>A font-family preset, or the name of any installed family.</summary>
+    public string FontFamily { get; set; } = "system";
+
+    /// <summary>Multiplies the computed font sizes.</summary>
+    public double FontScale { get; set; } = 1.0;
 
     /// <summary>[S-04] Gap between widgets, in device-independent pixels.</summary>
     public double WidgetGapPx { get; set; } = 8;
@@ -94,8 +107,30 @@ public sealed class DesignState
     /// <summary>Corner radius of a widget card, in device-independent pixels.</summary>
     public double CornerRadiusPx { get; set; } = 8;
 
+    /// <summary>Widget card fill, as <c>#RRGGBB</c>. Empty uses the theme's surface colour.</summary>
+    public string WidgetBackgroundColor { get; set; } = string.Empty;
+
     /// <summary>Opacity applied to every widget card, 0.2 to 1.0.</summary>
     public double SurfaceOpacity { get; set; } = 1.0;
+
+    /// <summary>Accent override, as <c>#RRGGBB</c>. Empty follows the Windows accent colour.</summary>
+    public string PrimaryColor { get; set; } = string.Empty;
+
+    public WidgetBorderStyle BorderStyle { get; set; } = WidgetBorderStyle.Solid;
+
+    /// <summary>Border thickness in device-independent pixels, 0 to 8.</summary>
+    public double BorderWidthPx { get; set; } = 1;
+
+    /// <summary>Border colour, as <c>#RRGGBB</c>. Empty uses the theme's card stroke.</summary>
+    public string BorderColor { get; set; } = string.Empty;
+
+    public double BorderOpacity { get; set; } = 1.0;
+
+    /// <summary>The one-shot animation widgets play when a view appears.</summary>
+    public IntroAnimation IntroAnimation { get; set; } = IntroAnimation.Scale;
+
+    /// <summary>Duration of that animation, in milliseconds.</summary>
+    public double IntroAnimationMs { get; set; } = 500;
 
     /// <summary>Launch with Windows, via the per-user Run key.</summary>
     public bool RunAtStartup { get; set; }
@@ -103,10 +138,21 @@ public sealed class DesignState
     public DesignState Clone() => new()
     {
         Theme = Theme,
+        UiScale = UiScale,
+        FontFamily = FontFamily,
+        FontScale = FontScale,
         WidgetGapPx = WidgetGapPx,
         GridSnap = GridSnap,
         CornerRadiusPx = CornerRadiusPx,
+        WidgetBackgroundColor = WidgetBackgroundColor,
         SurfaceOpacity = SurfaceOpacity,
+        PrimaryColor = PrimaryColor,
+        BorderStyle = BorderStyle,
+        BorderWidthPx = BorderWidthPx,
+        BorderColor = BorderColor,
+        BorderOpacity = BorderOpacity,
+        IntroAnimation = IntroAnimation,
+        IntroAnimationMs = IntroAnimationMs,
         RunAtStartup = RunAtStartup,
     };
 }

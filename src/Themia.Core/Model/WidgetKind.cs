@@ -65,3 +65,26 @@ public enum WidgetSurface
     /// <summary>[S-32] No fill at all: content sits directly on the wallpaper.</summary>
     Transparent = 2,
 }
+
+/// <summary>How a widget card's border is drawn.</summary>
+[JsonConverter(typeof(JsonStringEnumConverter<WidgetBorderStyle>))]
+public enum WidgetBorderStyle
+{
+    None = 0,
+    Solid = 1,
+    Dashed = 2,
+    Dotted = 3,
+}
+
+/// <summary>
+/// The one-shot animation widgets play when a view appears. A closed set, because each value picks
+/// a different piece of code rather than a parameter.
+/// </summary>
+[JsonConverter(typeof(JsonStringEnumConverter<IntroAnimation>))]
+public enum IntroAnimation
+{
+    None = 0,
+    Fade = 1,
+    Scale = 2,
+    Slide = 3,
+}

@@ -8,6 +8,7 @@ using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Shapes;
 using Themia.App.Interop;
 using Themia.App.Services;
+using Themia.App.Shell.Config;
 using Themia.App.Widgets;
 using Themia.Core.Diagnostics;
 using Themia.Core.Geometry;
@@ -320,7 +321,8 @@ internal sealed class DesktopWindow : IWidgetCardHost
         args.Handled = true;
     }
 
-    public void RequestConfigure(WidgetCard card) => _ = ShowConfigAsync(card);
+    public void RequestConfigure(WidgetCard card)
+        => _host.ShowConfig(new ConfigTarget.Widget(card.Model.Id));
 
     public void RequestDuplicate(WidgetCard card)
     {
@@ -745,7 +747,7 @@ internal sealed class DesktopWindow : IWidgetCardHost
             Spacing = 8,
             Children =
             {
-                ToolbarButton("", "Add widget", () => _ = ShowPickerAsync()),
+                ToolbarButton("", "Add widget", () => _host.ShowConfig(new ConfigTarget.Add(CurrentViewId))),
                 views,
                 ToolbarButton("", "Settings", _host.ShowSettings),
                 new AppBarSeparator(),
@@ -832,8 +834,8 @@ internal sealed class DesktopWindow : IWidgetCardHost
     // Dialogs
     // -----------------------------------------------------------------------------------------
 
-    /// <summary>[S-11] Drop a new widget at the centre of this monitor.</summary>
-    public void AddWidgetCentred(WidgetKind kind)
+    /// <summary>[S-11] Drop a new widget at the centre of this monitor. Returns its id.</summary>
+    public string AddWidgetCentred(WidgetKind kind, string? intoViewId = null)
     {
         var definition = WidgetCatalog.Definition(kind);
         var rect = GridGeometry.PlaceAt(
@@ -844,39 +846,15 @@ internal sealed class DesktopWindow : IWidgetCardHost
             Metrics,
             Design.GridSnap);
 
-        _host.Mutate(state => ViewForThisMonitor(state).Widgets.Add(WidgetInstance.Create(kind, rect)));
-    }
+        var widget = WidgetInstance.Create(kind, rect);
 
-    private async Task ShowPickerAsync()
-    {
-        try
+        _host.Mutate(state =>
         {
-            var picked = await WidgetPickerDialog.PickAsync(_root.XamlRoot);
-            if (picked is { } kind)
-            {
-                AddWidgetCentred(kind);
-            }
-        }
-        catch (Exception ex)
-        {
-            Log.Error(Scope, "the widget picker failed", ex);
-        }
-    }
+            var view = state.FindView(intoViewId) ?? ViewForThisMonitor(state);
+            view.Widgets.Add(widget);
+        });
 
-    private async Task ShowConfigAsync(WidgetCard card)
-    {
-        try
-        {
-            var changed = await WidgetConfigDialog.EditAsync(_root.XamlRoot, card.Model);
-            if (changed)
-            {
-                _host.Mutate(_ => { });
-            }
-        }
-        catch (Exception ex)
-        {
-            Log.Error(Scope, "the widget config dialog failed", ex);
-        }
+        return widget.Id;
     }
 
     private static Brush Brush(string key, Windows.UI.Color fallback)

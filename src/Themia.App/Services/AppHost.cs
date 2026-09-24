@@ -2,6 +2,7 @@ using Microsoft.UI.Dispatching;
 using Themia.App.Interop;
 using Themia.App.Services.Hearth;
 using Themia.App.Shell;
+using Themia.App.Shell.Config;
 using Themia.Core.Diagnostics;
 using Themia.Core.Model;
 using Themia.Core.Storage;
@@ -29,7 +30,7 @@ internal sealed class AppHost : IDisposable
     private readonly List<DesktopWindow> _windows = [];
     private readonly TrayIcon _tray = new();
 
-    private SettingsWindow? _settings;
+    private ConfigWindow? _config;
     private bool _editMode;
     private bool _disposed;
 
@@ -313,31 +314,76 @@ internal sealed class AppHost : IDisposable
         });
     }
 
-    public void ShowSettings()
+    /// <summary>
+    /// Open the settings window on a particular page, reusing the one window if it is already up.
+    /// A second settings window would let the same widget be edited in two places at once.
+    /// </summary>
+    public void ShowConfig(ConfigTarget target)
     {
-        if (_settings is not null)
+        if (_config is null)
         {
-            _settings.BringToFront();
-            return;
+            _config = new ConfigWindow(this);
+            _config.Closed += () => _config = null;
+            _config.Activate();
         }
 
-        _settings = new SettingsWindow(this);
-        _settings.Closed += () => _settings = null;
-        _settings.Activate();
+        _config.Navigate(target);
     }
 
-    /// <summary>Drop a new widget onto the monitor the pointer is on, centred.</summary>
-    public void AddWidget(WidgetKind kind)
+    public void ShowSettings() => ShowConfig(new ConfigTarget.App());
+
+    /// <summary>Delete a view and everything in it, repairing anything that pointed at it.</summary>
+    public void DeleteView(string viewId)
     {
-        var target = _windows.FirstOrDefault(w => w.IsUnderCursor) ?? _windows.FirstOrDefault();
-        if (target is null)
+        if (State.Views.Count <= 1)
         {
-            Log.Warn(Scope, "no widget surface to add to");
-            return;
+            return; // the last view cannot go: a desktop with no view has nowhere to put a widget
         }
 
-        target.AddWidgetCentred(kind);
+        Mutate(state =>
+        {
+            state.Views.RemoveAll(v => v.Id == viewId);
+
+            foreach (var monitor in state.MonitorViews.Where(kv => kv.Value == viewId).Select(kv => kv.Key).ToList())
+            {
+                state.MonitorViews.Remove(monitor);
+            }
+
+            if (state.ActiveViewId == viewId)
+            {
+                state.ActiveViewId = state.Views[0].Id;
+            }
+        });
+
+        // A display left without an assignment gets a fresh one rather than silently falling back
+        // to whatever view happens to be active.
+        Mutate(state => state.EnsureViewPerDisplay([.. _windows.Select(w => w.Monitor.DeviceName)]));
+    }
+
+    /// <summary>
+    /// Drop a new widget, centred. It lands in <paramref name="intoViewId"/> when given, otherwise on
+    /// whichever display the pointer is over. Returns the new widget's id.
+    /// </summary>
+    public string? AddWidget(WidgetKind kind, string? intoViewId = null)
+    {
+        var surface = _windows.FirstOrDefault(w => w.IsUnderCursor) ?? _windows.FirstOrDefault();
+        if (surface is null)
+        {
+            Log.Warn(Scope, "no widget surface to add to");
+            return null;
+        }
+
+        // Prefer the surface already showing the target view, so the new widget appears where the
+        // user is looking rather than on a display that does not render it.
+        if (intoViewId is not null)
+        {
+            surface = _windows.FirstOrDefault(w => w.CurrentViewId == intoViewId) ?? surface;
+        }
+
+        var id = surface.AddWidgetCentred(kind, intoViewId);
         SetEditMode(true);
+        Select(id);
+        return id;
     }
 
     // -----------------------------------------------------------------------------------------
@@ -381,7 +427,7 @@ internal sealed class AppHost : IDisposable
                 break;
 
             case CmdAddWidget:
-                AddWidget(WidgetKind.Clock);
+                ShowConfig(new ConfigTarget.Add());
                 break;
 
             case CmdSettings:
@@ -445,7 +491,7 @@ internal sealed class AppHost : IDisposable
 
         _windows.Clear();
 
-        _settings?.Close();
+        _config?.Close();
         Ticker.Dispose();
         _tray.Dispose();
     }

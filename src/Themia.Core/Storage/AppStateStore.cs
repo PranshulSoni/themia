@@ -143,9 +143,41 @@ public sealed class AppStateStore : IAsyncDisposable
         state.Views ??= [];
         state.MonitorViews ??= [];
 
-        state.Design.WidgetGapPx = Math.Clamp(Sanitise(state.Design.WidgetGapPx, 8), 0, 64);
-        state.Design.CornerRadiusPx = Math.Clamp(Sanitise(state.Design.CornerRadiusPx, 8), 0, 32);
-        state.Design.SurfaceOpacity = Math.Clamp(Sanitise(state.Design.SurfaceOpacity, 1), 0.2, 1.0);
+        var design = state.Design;
+        design.WidgetGapPx = Math.Clamp(Sanitise(design.WidgetGapPx, 8), 0, 64);
+        design.CornerRadiusPx = Math.Clamp(Sanitise(design.CornerRadiusPx, 8), 0, 32);
+        design.SurfaceOpacity = Math.Clamp(Sanitise(design.SurfaceOpacity, 1), 0.2, 1.0);
+        design.UiScale = Math.Clamp(Sanitise(design.UiScale, 1), 0.5, 3.0);
+        design.FontScale = Math.Clamp(Sanitise(design.FontScale, 1), 0.5, 2.0);
+        design.BorderWidthPx = Math.Clamp(Sanitise(design.BorderWidthPx, 1), 0, 8);
+        design.BorderOpacity = Math.Clamp(Sanitise(design.BorderOpacity, 1), 0, 1);
+        design.IntroAnimationMs = Math.Clamp(Sanitise(design.IntroAnimationMs, 500), 0, 3000);
+
+        // A malformed colour becomes empty, which means "use the theme's own" - the one value that
+        // is always renderable. Keeping the bad string would leave the widget with no fill at all.
+        design.WidgetBackgroundColor = Widgets.HexColor.Normalise(design.WidgetBackgroundColor);
+        design.PrimaryColor = Widgets.HexColor.Normalise(design.PrimaryColor);
+        design.BorderColor = Widgets.HexColor.Normalise(design.BorderColor);
+
+        if (string.IsNullOrWhiteSpace(design.FontFamily))
+        {
+            design.FontFamily = "system";
+        }
+
+        if (!Enum.IsDefined(design.BorderStyle))
+        {
+            design.BorderStyle = Model.WidgetBorderStyle.Solid;
+        }
+
+        if (!Enum.IsDefined(design.IntroAnimation))
+        {
+            design.IntroAnimation = Model.IntroAnimation.Scale;
+        }
+
+        if (!Enum.IsDefined(design.Theme))
+        {
+            design.Theme = Model.AppTheme.System;
+        }
 
         if (state.Views.Count == 0)
         {
