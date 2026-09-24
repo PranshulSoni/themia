@@ -21,6 +21,9 @@ public sealed partial class ClockView : UserControl, IWidgetView
     public ClockView()
     {
         InitializeComponent();
+
+        // The card no longer pads its content; the clock carries its own inset.
+        Root.Padding = WidgetLayout.Inset;
         Root.SizeChanged += (_, _) => ApplyTypeScale();
         Unloaded += (_, _) => Detach();
     }

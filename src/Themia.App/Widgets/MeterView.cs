@@ -52,6 +52,9 @@ internal sealed partial class MeterView : Grid, IWidgetView
 
     public MeterView(WidgetKind kind)
     {
+        // The card no longer pads its content; a view that is not a list carries its own inset.
+        Padding = WidgetLayout.Inset;
+
         _kind = kind;
         _config = WidgetConfig.CreateDefault(kind);
 

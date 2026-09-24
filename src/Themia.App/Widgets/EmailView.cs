@@ -71,7 +71,7 @@ internal sealed partial class EmailView : Grid, IWidgetView
 
         var header = new Grid
         {
-            Margin = new Thickness(0, 0, 0, 6),
+            Margin = new Thickness(WidgetLayout.ContentInset, WidgetLayout.ContentInset, WidgetLayout.ContentInset, 6),
             ColumnDefinitions =
             {
                 new ColumnDefinition { Width = GridLength.Auto },
@@ -98,6 +98,7 @@ internal sealed partial class EmailView : Grid, IWidgetView
 
         _scroll = new ScrollViewer
         {
+            Padding = WidgetLayout.ListInset,
             Content = _list,
             HorizontalScrollMode = ScrollMode.Disabled,
             HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
@@ -113,6 +114,7 @@ internal sealed partial class EmailView : Grid, IWidgetView
         _emptyText.Foreground = FluentLayout.Themed("TextFillColorTertiaryBrush", Colors.Gray);
 
         _empty.VerticalAlignment = VerticalAlignment.Center;
+        _empty.Padding = WidgetLayout.SideInset;
         _empty.Children.Add(_emptyText);
         _empty.Visibility = Visibility.Collapsed;
         Grid.SetRow(_empty, 1);
@@ -292,9 +294,7 @@ internal sealed partial class EmailView : Grid, IWidgetView
         var row = new Border
         {
             Child = stack,
-            Padding = new Thickness(8, 7, 8, 7),
-            Margin = new Thickness(-8, 0, -8, 0),
-            CornerRadius = new CornerRadius(4),
+            Padding = new Thickness(WidgetLayout.ContentInset, 7, WidgetLayout.ContentInset, 7),
             Background = Transparent,
             BorderBrush = FluentLayout.Themed("DividerStrokeColorDefaultBrush", Colors.Gray),
             BorderThickness = new Thickness(0, 0, 0, 1),

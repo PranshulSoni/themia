@@ -106,10 +106,14 @@ internal sealed partial class WidgetCard : Grid, IWidgetSurface
         // without fading the text on it.
         _fill = new Border();
 
+        // No padding: the content area goes edge to edge and each view insets its own parts. A card
+        // that padded everything pushed every list row away from the edge and stopped its hover
+        // highlight short of it, so a row read as a box inside a box rather than as a row. See
+        // WidgetLayout.
         _surface = new Border
         {
             Child = _view,
-            Padding = new Thickness(12),
+            Padding = new Thickness(0),
         };
 
         _editOutline = new Border

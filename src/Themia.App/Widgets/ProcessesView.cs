@@ -70,7 +70,7 @@ internal sealed partial class ProcessesView : Grid, IWidgetView
 
         var header = new Grid
         {
-            Margin = new Thickness(0, 0, 0, 4),
+            Margin = new Thickness(WidgetLayout.ContentInset, WidgetLayout.ContentInset, WidgetLayout.ContentInset, 4),
             ColumnDefinitions =
             {
                 new ColumnDefinition { Width = GridLength.Auto },
@@ -91,6 +91,7 @@ internal sealed partial class ProcessesView : Grid, IWidgetView
         _empty.Foreground = FluentLayout.Themed("TextFillColorTertiaryBrush", Colors.Gray);
         _empty.HorizontalAlignment = HorizontalAlignment.Center;
         _empty.VerticalAlignment = VerticalAlignment.Center;
+        _empty.Padding = WidgetLayout.SideInset;
         _empty.TextAlignment = TextAlignment.Center;
         _empty.TextWrapping = TextWrapping.Wrap;
         _empty.Visibility = Visibility.Collapsed;
@@ -359,10 +360,8 @@ internal sealed partial class ProcessesView : Grid, IWidgetView
             Host = new Border
             {
                 Child = grid,
-                CornerRadius = new CornerRadius(4),
                 Background = Transparent,
-                Padding = new Thickness(6, 0, 6, 0),
-                Margin = new Thickness(-6, 0, -6, 0),
+                Padding = new Thickness(WidgetLayout.ContentInset, 0, WidgetLayout.ContentInset, 0),
             };
 
             // Hover, the way every list on Windows does it — the same treatment as the mail list,
@@ -412,7 +411,11 @@ internal sealed partial class ProcessesView : Grid, IWidgetView
             _cpu.Margin = new Thickness(font * 0.5, 0, 0, 0);
             _memory.Margin = new Thickness(font * 0.5, 0, 0, 0);
 
-            Host.Padding = new Thickness(6, Math.Clamp(rowHeight * 0.08, 0, 6), 6, Math.Clamp(rowHeight * 0.08, 0, 6));
+            Host.Padding = new Thickness(
+                WidgetLayout.ContentInset,
+                Math.Clamp(rowHeight * 0.08, 0, 6),
+                WidgetLayout.ContentInset,
+                Math.Clamp(rowHeight * 0.08, 0, 6));
         }
     }
 }

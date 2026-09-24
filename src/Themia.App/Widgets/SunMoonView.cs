@@ -81,6 +81,9 @@ internal sealed partial class SunMoonView : Grid, IWidgetView
 
     public SunMoonView()
     {
+        // The card no longer pads its content; a view that is not a list carries its own inset.
+        Padding = WidgetLayout.Inset;
+
         _primary = FluentLayout.Themed("TextFillColorPrimaryBrush", Colors.White);
         _muted = FluentLayout.Themed("TextFillColorSecondaryBrush", Colors.Gainsboro);
         _subtle = FluentLayout.Themed("TextFillColorTertiaryBrush", Colors.Gray);

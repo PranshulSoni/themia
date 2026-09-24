@@ -493,3 +493,18 @@ Owning files: `Themia.Core/Geometry/*`, `Themia.Core/Model/*`, `Themia.Core/Stor
   clock for the same reason: there is no culture to read a 12-hour preference from. **Known
   limitation, not a fix**: making it visible per row would need the shared time helper to report
   whether the zone resolved.
+
+## Rows and the card edge
+
+- **[S-190]** The card applies **no** content padding. Each view insets its own parts, and a list row
+  applies the inset as its own *padding*, so the row — and the highlight it draws under the pointer —
+  reaches both edges of the widget while its text stays exactly where it was. A row inset from the
+  card edge reads as a box inside a box, and a highlight that stops short of the edge reads as a
+  button rather than as a row.
+- **[S-190a]** A full-bleed row therefore has no corner radius and no negative margin. The negative
+  margins that used to cancel the card's padding are gone rather than adjusted: something pulling
+  itself back out of a padding that no longer exists would now hang over the edge.
+- **[S-190b]** A separator belongs *between* rows, never after the last one, where it reads as an
+  empty extra row.
+- **[S-191]** Headers, footers, empty states and readouts keep the inset — they are labels, not rows.
+  A day heading in the calendar is a label and lines up with the header above it.

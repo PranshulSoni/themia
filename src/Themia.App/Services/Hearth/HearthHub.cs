@@ -5,6 +5,7 @@ using System.Text.Json;
 using Microsoft.UI.Dispatching;
 using Themia.App.Interop;
 using Themia.Core.Diagnostics;
+using Themia.Core.Ipc;
 
 namespace Themia.App.Services.Hearth;
 
@@ -68,11 +69,18 @@ internal sealed class HearthHub : IHearthConnection, IAsyncDisposable
 
     private readonly DispatcherQueue _dispatcher;
     private readonly SemaphoreSlim _connectGate = new(1, 1);
+
     private readonly Dictionary<long, TaskCompletionSource<JsonElement>> _pending = [];
     private readonly Lock _pendingGate = new();
 
     private NamedPipeClientStream? _pipe;
     private StreamWriter? _writer;
+
+    /// <summary>
+    /// Serialises writes to the pipe. Four widgets share one connection, and a line-delimited
+    /// protocol cannot survive two half-written lines interleaving.
+    /// </summary>
+    private SerialWriter? _sender;
     private CancellationTokenSource? _readLoop;
     private long _nextId;
     private bool _disposed;
@@ -160,6 +168,7 @@ internal sealed class HearthHub : IHearthConnection, IAsyncDisposable
 
             _pipe = pipe;
             _writer = new StreamWriter(pipe, new UTF8Encoding(false)) { AutoFlush = true };
+            _sender = new SerialWriter(_writer.WriteAsync);
             _readLoop = new CancellationTokenSource();
             _ = Task.Run(() => ReadLoopAsync(pipe, _readLoop.Token));
 
@@ -271,7 +280,7 @@ internal sealed class HearthHub : IHearthConnection, IAsyncDisposable
         System.Text.Json.Serialization.Metadata.JsonTypeInfo<HearthRequest<T>> typeInfo,
         TimeSpan? timeout = null)
     {
-        var writer = _writer ?? throw new IOException("not connected to the hub");
+        var sender = _sender ?? throw new IOException("not connected to the hub");
         var id = Interlocked.Increment(ref _nextId);
         var completion = new TaskCompletionSource<JsonElement>(TaskCreationOptions.RunContinuationsAsynchronously);
 
@@ -284,7 +293,22 @@ internal sealed class HearthHub : IHearthConnection, IAsyncDisposable
             new HearthRequest<T> { Id = id, Method = method, Params = parameters },
             typeInfo);
 
-        await writer.WriteAsync(line + "\n").ConfigureAwait(false);
+        // Serialised, because four widgets share this one connection - and deliberately not held
+        // across the reply wait below. SerialWriter carries both halves of the reasoning.
+        try
+        {
+            await sender.WriteAsync(line + "\n").ConfigureAwait(false);
+        }
+        catch
+        {
+            // Nothing will ever complete this one, and leaving it in the table leaks the entry.
+            lock (_pendingGate)
+            {
+                _pending.Remove(id);
+            }
+
+            throw;
+        }
 
         // A hub that never answers must not leave a widget waiting forever.
         var finished = await Task.WhenAny(
@@ -485,6 +509,8 @@ internal sealed class HearthHub : IHearthConnection, IAsyncDisposable
 
         FailPending(new IOException("the hub connection was closed"));
 
+        _sender?.Dispose();
+        _sender = null;
         _writer?.Dispose();
         _writer = null;
         _pipe?.Dispose();

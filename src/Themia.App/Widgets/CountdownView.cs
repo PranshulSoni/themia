@@ -51,7 +51,7 @@ internal sealed partial class CountdownView : Grid, IWidgetView
         var header = new StackPanel
         {
             Orientation = Orientation.Horizontal,
-            Margin = new Thickness(0, 0, 0, 6),
+            Margin = new Thickness(WidgetLayout.ContentInset, WidgetLayout.ContentInset, WidgetLayout.ContentInset, 6),
             Children = { _icon, _title },
         };
 
@@ -59,6 +59,7 @@ internal sealed partial class CountdownView : Grid, IWidgetView
 
         _scroll = new ScrollViewer
         {
+            Padding = WidgetLayout.ListInset,
             Content = _list,
             HorizontalScrollMode = ScrollMode.Disabled,
             HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
@@ -73,6 +74,7 @@ internal sealed partial class CountdownView : Grid, IWidgetView
         _empty.TextAlignment = TextAlignment.Center;
         _empty.HorizontalAlignment = HorizontalAlignment.Center;
         _empty.VerticalAlignment = VerticalAlignment.Center;
+        _empty.Padding = WidgetLayout.SideInset;
         _empty.Foreground = FluentLayout.Themed("TextFillColorTertiaryBrush", Colors.Gray);
         _empty.Visibility = Visibility.Collapsed;
 
@@ -143,6 +145,14 @@ internal sealed partial class CountdownView : Grid, IWidgetView
             var row = new Row(timer);
             _rows.Add(row);
             _list.Children.Add(row.Host);
+
+            // A rule under the last row is a rule under nothing: it reads as an empty extra row.
+            row.Host.BorderThickness = new Thickness(0, 0, 0, 1);
+        }
+
+        if (_rows.Count > 0)
+        {
+            _rows[^1].Host.BorderThickness = new Thickness(0);
         }
 
         ApplyTypeScale();
@@ -271,12 +281,13 @@ internal sealed partial class CountdownView : Grid, IWidgetView
             Host = new Border
             {
                 Child = grid,
-                Padding = new Thickness(8, 6, 8, 6),
-                Margin = new Thickness(-8, 0, -8, 0),
-                CornerRadius = new CornerRadius(4),
+                // The row is the full width of the widget, so the inset is its own padding and there
+                // is no negative margin pulling it back out over a card that no longer pads it.
+                // No corner radius either: a rounded highlight inside a flush list reads as a
+                // button, and these are rows.
+                Padding = new Thickness(WidgetLayout.ContentInset, 6, WidgetLayout.ContentInset, 6),
                 Background = Clear,
                 BorderBrush = FluentLayout.Themed("DividerStrokeColorDefaultBrush", Colors.Gray),
-                BorderThickness = new Thickness(0, 0, 0, 1),
             };
 
             // PointerExited alone is not enough: the pointer can leave without it when the list

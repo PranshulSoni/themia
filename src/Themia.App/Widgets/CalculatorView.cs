@@ -70,7 +70,7 @@ internal sealed partial class CalculatorView : Grid, IWidgetView, IWidgetSurface
 
         _header = new Grid
         {
-            Margin = new Thickness(0, 0, 0, 4),
+            Margin = new Thickness(WidgetLayout.ContentInset, WidgetLayout.ContentInset, WidgetLayout.ContentInset, 4),
             ColumnDefinitions =
             {
                 new ColumnDefinition { Width = GridLength.Auto },
@@ -261,9 +261,7 @@ internal sealed partial class CalculatorView : Grid, IWidgetView, IWidgetSurface
         var row = new Border
         {
             Child = layout,
-            Padding = new Thickness(6, 3, 6, 3),
-            Margin = new Thickness(-6, 0, -6, 0),
-            CornerRadius = new CornerRadius(4),
+            Padding = new Thickness(WidgetLayout.ContentInset, 3, WidgetLayout.ContentInset, 3),
             Background = Transparent,
             Tag = entry.Result,
         };
@@ -344,7 +342,11 @@ internal sealed partial class CalculatorView : Grid, IWidgetView, IWidgetSurface
 
         // With nothing above it the rule would be a line across the top of the widget.
         _entryArea.BorderThickness = new Thickness(0, showHistory ? 1 : 0, 0, 0);
-        _entryArea.Padding = new Thickness(0, showHistory ? 6 : 0, 0, 0);
+        _entryArea.Padding = new Thickness(
+            WidgetLayout.ContentInset,
+            showHistory ? 6 : 0,
+            WidgetLayout.ContentInset,
+            WidgetLayout.ContentInset);
     }
 
     /// <inheritdoc />

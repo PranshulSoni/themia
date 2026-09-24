@@ -52,6 +52,9 @@ internal sealed partial class NotesView : Grid, IWidgetView, IWidgetSurfaceAware
 
     public NotesView()
     {
+        // The card no longer pads its content; a view that is not a list carries its own inset.
+        Padding = WidgetLayout.Inset;
+
         RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
 

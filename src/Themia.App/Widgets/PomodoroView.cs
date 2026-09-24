@@ -56,6 +56,9 @@ internal sealed partial class PomodoroView : Grid, IWidgetView
 
     public PomodoroView()
     {
+        // The card no longer pads its content; a view that is not a list carries its own inset.
+        Padding = WidgetLayout.Inset;
+
         _state = PomodoroCycle.Fresh(_config);
 
         RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });                     // title

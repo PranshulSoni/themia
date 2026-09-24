@@ -118,7 +118,7 @@ internal sealed partial class CalendarView : Grid, IWidgetView
 
         var header = new Grid
         {
-            Margin = new Thickness(0, 0, 0, 6),
+            Margin = new Thickness(WidgetLayout.ContentInset, WidgetLayout.ContentInset, WidgetLayout.ContentInset, 6),
             ColumnDefinitions =
             {
                 new ColumnDefinition { Width = GridLength.Auto },
@@ -137,6 +137,7 @@ internal sealed partial class CalendarView : Grid, IWidgetView
 
         _scroll = new ScrollViewer
         {
+            Padding = WidgetLayout.ListInset,
             Content = _list,
             HorizontalScrollMode = ScrollMode.Disabled,
             HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
@@ -151,6 +152,7 @@ internal sealed partial class CalendarView : Grid, IWidgetView
         _emptyText.Foreground = ThemeBrush("TextFillColorTertiaryBrush", Colors.Gray);
 
         _empty.VerticalAlignment = VerticalAlignment.Center;
+        _empty.Padding = WidgetLayout.SideInset;
         _empty.Children.Add(_emptyText);
         _empty.Visibility = Visibility.Collapsed;
         Grid.SetRow(_empty, 1);
@@ -459,7 +461,6 @@ internal sealed partial class CalendarView : Grid, IWidgetView
         var row = new Border
         {
             Child = body,
-            CornerRadius = new CornerRadius(4),
             Background = Transparent,
             BorderBrush = ThemeBrush("DividerStrokeColorDefaultBrush", Colors.Gray),
             BorderThickness = new Thickness(0, 0, 0, 1),
@@ -584,16 +585,18 @@ internal sealed partial class CalendarView : Grid, IWidgetView
 
         foreach (var host in _dayHeadingHosts)
         {
-            host.Padding = new Thickness(0, pad, 0, pad * 0.4);
+            // A day heading is a label, not a row, so it keeps the inset the rows give up.
+            host.Padding = new Thickness(WidgetLayout.ContentInset, pad, WidgetLayout.ContentInset, pad * 0.4);
         }
 
         foreach (var row in _rows)
         {
-            row.Padding = new Thickness(pad, pad * 0.7, pad, pad * 0.7);
+            // The sides are the standard inset rather than the tile-scaled one, so a row
+            // reaches both edges of the widget and its text still lines up with the header.
+            row.Padding = new Thickness(WidgetLayout.ContentInset, pad * 0.7, WidgetLayout.ContentInset, pad * 0.7);
 
             // Negative side margins so the hover highlight reaches the tile's edge rather than
             // stopping short of it in a box of its own.
-            row.Margin = new Thickness(-pad, 0, -pad, 0);
         }
     }
 
