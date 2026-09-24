@@ -30,7 +30,7 @@ namespace Themia.App.Widgets;
 /// once. [S-302]
 /// </para>
 /// </summary>
-internal sealed partial class GalleryView : Grid, IWidgetView
+internal sealed partial class GalleryView : Grid, IWidgetView, IWidgetHeaderContent, IWidgetSurfaceAware
 {
     private const string Scope = "gallery-view";
 
@@ -47,9 +47,7 @@ internal sealed partial class GalleryView : Grid, IWidgetView
     /// </summary>
     private const int MaxTiles = 24;
 
-    private readonly TextBlock _title = new() { Text = "Gallery" };
     private readonly TextBlock _counter = Fluent.Text(FluentType.Caption, "TextFillColorTertiaryBrush");
-    private readonly Grid _header;
     private readonly Grid _stage = new();
     private readonly Image _slide = new();
     private readonly Grid _tiles = new();
@@ -61,6 +59,9 @@ internal sealed partial class GalleryView : Grid, IWidgetView
 
     private Ticker? _ticker;
     private GalleryConfig _config = new();
+
+    /// <summary>The card this view draws on, which owns the header it names.</summary>
+    private IWidgetSurface? _surface;
     private FolderPathResult _resolved;
     private GalleryScan _scan = GalleryScan.Of(GalleryStatus.Loading);
     private IDisposable? _subscription;
@@ -90,15 +91,10 @@ internal sealed partial class GalleryView : Grid, IWidgetView
 
     public GalleryView()
     {
-        RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
 
         _counter.Margin = new Thickness(Fluent.Space2, 0, 0, 0);
         Microsoft.UI.Xaml.Documents.Typography.SetNumeralAlignment(_counter, FontNumeralAlignment.Tabular);
-
-        _header = Fluent.Header(Glyphs.Gallery, _title, _counter);
-        _header.Margin = Fluent.HeaderMargin;
-        SetRow(_header, 0);
 
         _slide.HorizontalAlignment = HorizontalAlignment.Stretch;
         _slide.VerticalAlignment = VerticalAlignment.Stretch;
@@ -108,7 +104,6 @@ internal sealed partial class GalleryView : Grid, IWidgetView
 
         _stage.Children.Add(_slide);
         _stage.Children.Add(_tiles);
-        SetRow(_stage, 1);
 
         // [S-301] Every outcome with no picture in it names itself. A photo frame showing a blank
         // card is indistinguishable from a broken one, and "no folder chosen", "that folder is
@@ -123,9 +118,6 @@ internal sealed partial class GalleryView : Grid, IWidgetView
             Visibility = Visibility.Collapsed,
         };
 
-        SetRow(_messageHost, 1);
-
-        Children.Add(_header);
         Children.Add(_stage);
         Children.Add(_messageHost);
 
@@ -154,10 +146,23 @@ internal sealed partial class GalleryView : Grid, IWidgetView
         _stage.SizeChanged += OnStageResized;
     }
 
+    /// <summary>
+    /// The "3 of 12" counter, in the card's header. Built in the constructor because the card reads
+    /// this once, when it builds that header.
+    /// </summary>
+    public FrameworkElement? HeaderTrailing => _counter;
+
     public void Attach(Ticker ticker, WidgetConfig config)
     {
         _ticker = ticker;
         ApplyConfig(config);
+    }
+
+    /// <inheritdoc />
+    public void Bind(IWidgetSurface surface)
+    {
+        _surface = surface;
+        PublishTitle();
     }
 
     public void ApplyConfig(WidgetConfig config)
@@ -166,14 +171,13 @@ internal sealed partial class GalleryView : Grid, IWidgetView
         var previous = _config;
         var previouslyResolved = _resolved;
         _config = next;
+        PublishTitle();
 
         // [S-300] The trust boundary, before anything opens a handle. An empty path is not an error
         // here and not a fallback either: it is "no folder chosen", which is its own state.
         _resolved = next.Path.Trim().Length == 0
             ? new FolderPathResult(FolderPathProblem.Empty, string.Empty, false)
             : FolderPath.Validate(next.Path);
-
-        _title.Text = _resolved.IsValid ? FolderPath.DisplayName(_resolved.Path) : "Gallery";
 
         // Only the fields that change what comes back off the disk are worth a rescan. Dragging the
         // count slider must not fire a directory walk per frame.
@@ -365,16 +369,7 @@ internal sealed partial class GalleryView : Grid, IWidgetView
         }
     }
 
-    private void OnSizeChanged(object sender, SizeChangedEventArgs e)
-    {
-        // Under Fluent's floor there is no room for a header above the picture, so it sheds and the
-        // picture gets the card.
-        _header.Visibility = e.NewSize.Height >= Fluent.HeaderHidesBelow
-            ? Visibility.Visible
-            : Visibility.Collapsed;
-
-        Render();
-    }
+    private void OnSizeChanged(object sender, SizeChangedEventArgs e) => Render();
 
     private void OnStageResized(object sender, SizeChangedEventArgs e) => Render();
 
@@ -632,4 +627,15 @@ internal sealed partial class GalleryView : Grid, IWidgetView
         _loader.Clear();
         _ticker = null;
     }
+    /// <summary>
+    /// Tell the card what this widget is about. The catalogue can only say "Weather" or
+    /// "Folder"; the widget knows which place, which folder, which ticker — and on a desktop
+    /// holding three of them, that is the only thing telling them apart.
+    /// </summary>
+    private void PublishTitle()
+    {
+        var title = FolderPath.DisplayName(_config.Path);
+        _surface?.SetHeaderTitle(string.IsNullOrWhiteSpace(title) ? null : title);
+    }
+
 }

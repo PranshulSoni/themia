@@ -24,7 +24,7 @@ namespace Themia.App.Widgets;
 /// short marks in the same place, not seven full-width ones.
 /// </para>
 /// </summary>
-internal sealed partial class WeatherForecastView : Grid, IWidgetView
+internal sealed partial class WeatherForecastView : Grid, IWidgetView, IWidgetHeaderContent, IWidgetSurfaceAware
 {
     private const string Scope = "forecast";
 
@@ -37,9 +37,7 @@ internal sealed partial class WeatherForecastView : Grid, IWidgetView
     /// <summary>The bar's own thickness. Fluent's hairline would read as a scratch at this length.</summary>
     private const double BarHeight = Fluent.Space1;
 
-    private readonly TextBlock _title = Fluent.Text(FluentType.BodyStrong);
     private readonly TextBlock _freshness = Fluent.Text(FluentType.Caption, "TextFillColorTertiaryBrush");
-    private readonly Grid _header;
     private readonly StackPanel _list = new() { Spacing = 0 };
     private readonly ScrollViewer _scroll;
     private readonly StackPanel _emptyState;
@@ -56,6 +54,9 @@ internal sealed partial class WeatherForecastView : Grid, IWidgetView
 
     private Ticker? _ticker;
     private WeatherForecastConfig _config = new();
+
+    /// <summary>The card this view draws on, which owns the header it names.</summary>
+    private IWidgetSurface? _surface;
     private IDisposable? _subscription;
     private TimeSpan _subscribedInterval = TimeSpan.Zero;
     private CancellationTokenSource? _inFlight;
@@ -69,13 +70,7 @@ internal sealed partial class WeatherForecastView : Grid, IWidgetView
 
     public WeatherForecastView()
     {
-        RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
-
-        _title.Text = "Forecast";
-        _header = Fluent.Header(Glyphs.Forecast, _title, _freshness);
-        _header.Margin = Fluent.HeaderMargin;
-        SetRow(_header, 0);
 
         _scroll = new ScrollViewer
         {
@@ -86,18 +81,20 @@ internal sealed partial class WeatherForecastView : Grid, IWidgetView
             VerticalScrollBarVisibility = ScrollBarVisibility.Hidden,
         };
 
-        SetRow(_scroll, 1);
-
         _emptyState = Fluent.EmptyState(Glyphs.Forecast, _emptyMessage, out _);
         _emptyState.Visibility = Visibility.Collapsed;
-        SetRow(_emptyState, 1);
 
-        Children.Add(_header);
         Children.Add(_scroll);
         Children.Add(_emptyState);
 
         SizeChanged += OnSizeChanged;
     }
+
+    /// <summary>
+    /// The age of the forecast, in the card's header. Built in the constructor because the card
+    /// reads this once, when it builds that header.
+    /// </summary>
+    public FrameworkElement? HeaderTrailing => _freshness;
 
     public void Attach(Ticker ticker, WidgetConfig config)
     {
@@ -106,13 +103,19 @@ internal sealed partial class WeatherForecastView : Grid, IWidgetView
         ApplyConfig(config);
     }
 
+    /// <inheritdoc />
+    public void Bind(IWidgetSurface surface)
+    {
+        _surface = surface;
+        PublishTitle();
+    }
+
     public void ApplyConfig(WidgetConfig config)
     {
         var next = config as WeatherForecastConfig ?? new WeatherForecastConfig();
         var previous = _config;
         _config = next;
-
-        _title.Text = string.IsNullOrWhiteSpace(next.LocationName) ? "Forecast" : next.LocationName;
+        PublishTitle();
 
         // Only the fields that change what comes back are worth a re-read. Toggling the
         // precipitation column redraws the days already in hand; it must not fire a request.
@@ -254,10 +257,6 @@ internal sealed partial class WeatherForecastView : Grid, IWidgetView
 
     private void OnSizeChanged(object sender, SizeChangedEventArgs e)
     {
-        _header.Visibility = e.NewSize.Height >= Fluent.HeaderHidesBelow
-            ? Visibility.Visible
-            : Visibility.Collapsed;
-
         var bar = e.NewSize.Width >= BarNeedsWidth;
         var precipitation = e.NewSize.Width >= PrecipitationNeedsWidth;
         var compact = e.NewSize.Height < Fluent.CompactBelow;
@@ -525,4 +524,15 @@ internal sealed partial class WeatherForecastView : Grid, IWidgetView
 
         _ticker = null;
     }
+    /// <summary>
+    /// Tell the card what this widget is about. The catalogue can only say "Weather" or
+    /// "Folder"; the widget knows which place, which folder, which ticker — and on a desktop
+    /// holding three of them, that is the only thing telling them apart.
+    /// </summary>
+    private void PublishTitle()
+    {
+        var title = string.IsNullOrWhiteSpace(_config.Place) ? _config.LocationName : _config.Place;
+        _surface?.SetHeaderTitle(string.IsNullOrWhiteSpace(title) ? null : title);
+    }
+
 }

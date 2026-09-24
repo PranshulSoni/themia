@@ -34,6 +34,10 @@ internal static partial class WidgetSettings
 
     public static void Scratchpad(List<FrameworkElement> rows, ScratchpadConfig config, Action save)
     {
+        ArgumentNullException.ThrowIfNull(rows);
+        ArgumentNullException.ThrowIfNull(config);
+        ArgumentNullException.ThrowIfNull(save);
+
         rows.Add(FluentLayout.Header("Pen"));
 
         rows.Add(FluentLayout.Row(Glyphs.Palette, "Ink", "What the pen draws with",
@@ -50,7 +54,7 @@ internal static partial class WidgetSettings
                 "px",
                 value => { config.PenWidth = value; save(); })));
 
-        rows.Add(FluentLayout.Header("Widget"));
+        rows.Add(FluentLayout.Header("Tools"));
 
         rows.Add(FluentLayout.Row(Glyphs.Edit, "Show tools",
             "The eraser, undo and clear buttons in the widget's header",

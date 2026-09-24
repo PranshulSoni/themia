@@ -26,7 +26,7 @@ namespace Themia.App.Widgets;
 /// chrome follows light, dark and high contrast while the colours stay exactly what the user typed.
 /// </para>
 /// </summary>
-internal sealed partial class ColorSwatchView : Grid, IWidgetView, IWidgetSurfaceAware
+internal sealed partial class ColorSwatchView : Grid, IWidgetView
 {
     private const string Scope = "color-swatch";
 
@@ -42,10 +42,6 @@ internal sealed partial class ColorSwatchView : Grid, IWidgetView, IWidgetSurfac
     /// <summary>Under this width there is no room for the value beside the name; the chip and the name stay.</summary>
     private const double ValueHidesBelow = 150;
 
-    private readonly TextBlock _title = new();
-    private string _label = WidgetCatalog.Definition(WidgetKind.ColorSwatch).Label;
-
-    private readonly Grid _header;
     private readonly Grid _columns = new();
     private readonly ScrollViewer _scroller;
     private readonly StackPanel _empty;
@@ -62,12 +58,7 @@ internal sealed partial class ColorSwatchView : Grid, IWidgetView, IWidgetSurfac
 
     public ColorSwatchView()
     {
-        RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
-
-        _title.Text = _label;
-        _header = Fluent.Header(WidgetCatalog.Definition(WidgetKind.ColorSwatch).Glyph, _title);
-        _header.Margin = Fluent.HeaderMargin;
 
         _scroller = new ScrollViewer
         {
@@ -84,25 +75,10 @@ internal sealed partial class ColorSwatchView : Grid, IWidgetView, IWidgetSurfac
 
         _empty.Visibility = Visibility.Collapsed;
 
-        SetRow(_header, 0);
-        SetRow(_scroller, 1);
-        SetRow(_empty, 1);
-
-        Children.Add(_header);
         Children.Add(_scroller);
         Children.Add(_empty);
 
         SizeChanged += OnSizeChanged;
-    }
-
-    /// <inheritdoc />
-    public void Bind(IWidgetSurface surface)
-    {
-        _label = string.IsNullOrWhiteSpace(surface.Label)
-            ? WidgetCatalog.Definition(WidgetKind.ColorSwatch).Label
-            : surface.Label;
-
-        _title.Text = _label;
     }
 
     public void Attach(Ticker ticker, WidgetConfig config)
@@ -133,8 +109,6 @@ internal sealed partial class ColorSwatchView : Grid, IWidgetView, IWidgetSurfac
         {
             return;
         }
-
-        _header.Visibility = ActualHeight >= Fluent.HeaderHidesBelow ? Visibility.Visible : Visibility.Collapsed;
 
         var swatches = _config.EffectiveSwatches;
 

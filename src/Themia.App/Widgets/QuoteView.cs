@@ -23,20 +23,8 @@ namespace Themia.App.Widgets;
 /// per click for something that is supposed to come back to today's quote in the morning.
 /// </para>
 /// </summary>
-internal sealed partial class QuoteView : Grid, IWidgetView, IWidgetSurfaceAware
+internal sealed partial class QuoteView : Grid, IWidgetView, IWidgetHeaderContent
 {
-    /// <summary>
-    /// Under this width the header keeps its icon and drops its words. Four commands and a title in
-    /// 180px leaves the title two characters and an ellipsis, which says less than nothing.
-    /// </summary>
-    private const double TitleHidesBelow = 240;
-
-    private readonly TextBlock _title = new();
-
-    /// <summary>The title the header shows when it has room for words. Kept because the header drops it on a narrow tile.</summary>
-    private string _label = WidgetCatalog.Definition(WidgetKind.Quote).Label;
-
-    private readonly Grid _header;
     private readonly Button _next;
 
     private readonly TextBlock _text = Fluent.Text(FluentType.Body);
@@ -60,16 +48,10 @@ internal sealed partial class QuoteView : Grid, IWidgetView, IWidgetSurfaceAware
 
     public QuoteView()
     {
-        RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
-
-        _title.Text = _label;
 
         _next = CommandButton(Glyphs.Reset, "Show another quote");
         _next.Click += OnNextClicked;
-
-        _header = Fluent.Header(WidgetCatalog.Definition(WidgetKind.Quote).Glyph, _title, _next);
-        _header.Margin = Fluent.HeaderMargin;
 
         _body = BuildBody();
 
@@ -80,11 +62,6 @@ internal sealed partial class QuoteView : Grid, IWidgetView, IWidgetSurfaceAware
 
         _empty.Visibility = Visibility.Collapsed;
 
-        SetRow(_header, 0);
-        SetRow(_body, 1);
-        SetRow(_empty, 1);
-
-        Children.Add(_header);
         Children.Add(_body);
         Children.Add(_empty);
 
@@ -163,16 +140,11 @@ internal sealed partial class QuoteView : Grid, IWidgetView, IWidgetSurfaceAware
         return button;
     }
 
-    /// <inheritdoc />
-    public void Bind(IWidgetSurface surface)
-    {
-        // [S-02] The widget's own title when the user set one, so a desktop of quotes is readable.
-        _label = string.IsNullOrWhiteSpace(surface.Label)
-            ? WidgetCatalog.Definition(WidgetKind.Quote).Label
-            : surface.Label;
-
-        _title.Text = _label;
-    }
+    /// <summary>
+    /// The "show another quote" command, in the card's header. Built in the constructor because the
+    /// card reads this once, when it builds that header.
+    /// </summary>
+    public FrameworkElement? HeaderTrailing => _next;
 
     public void Attach(Ticker ticker, WidgetConfig config)
     {
@@ -279,16 +251,10 @@ internal sealed partial class QuoteView : Grid, IWidgetView, IWidgetSurfaceAware
     /// </summary>
     private void Resize()
     {
-        var hasHeader = ActualHeight >= Fluent.HeaderHidesBelow;
-        _header.Visibility = hasHeader ? Visibility.Visible : Visibility.Collapsed;
-        _title.Text = ActualWidth < TitleHidesBelow ? string.Empty : _label;
-
         var width = ActualWidth - (WidgetLayout.ContentInset * 2);
 
-        // The header is a fixed ramp step plus its own margin; what is left is the quote's.
-        var headerHeight = hasHeader ? Fluent.RowHeight : 0;
         var authorHeight = _author.Visibility == Visibility.Visible ? FluentType.Body.LineHeight + Fluent.Space2 : 0;
-        var height = ActualHeight - headerHeight - authorHeight - WidgetLayout.ContentInset;
+        var height = ActualHeight - authorHeight - WidgetLayout.ContentInset;
 
         if (!double.IsFinite(width) || !double.IsFinite(height))
         {

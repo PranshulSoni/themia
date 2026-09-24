@@ -354,11 +354,39 @@ internal sealed class DesktopWindow : IWidgetCardHost
         _host.Mutate(state =>
         {
             var view = ViewForThisMonitor(state);
+
+            // Removing a container hands its children to whatever held it rather than taking
+            // them with it. Deleting the box is not deleting the things in it, and the
+            // alternative is a dozen widgets gone on one click with no undo.
+            view.Dissolve(card.Model.Id);
             view.Widgets.RemoveAll(w => w.Id == card.Model.Id);
         });
     }
 
     public void RequestEditMode(bool enabled) => _host.SetEditMode(enabled);
+
+    /// <inheritdoc />
+    public ViewState? ViewForCards => _closed ? null : ViewForThisMonitor(_host.State);
+
+    /// <inheritdoc />
+    public void RequestReparent(WidgetCard card, string? containerId)
+    {
+        ArgumentNullException.ThrowIfNull(card);
+
+        var id = card.Model.Id;
+
+        _host.Mutate(state =>
+        {
+            var view = ViewForThisMonitor(state);
+
+            // Refused rather than forced: the tree decides what may hold what, and a move it will
+            // not accept leaves the widget exactly where it was.
+            if (!view.Reparent(id, containerId))
+            {
+                Log.Warn(Scope, $"refused to move widget '{id}' into '{containerId ?? "the desktop"}'");
+            }
+        });
+    }
 
     /// <summary>A widget edited its own config. Persist it, but do not re-lay-out: see [S-128].</summary>
     public void RequestSaveConfig() => _host.SaveGeometryOnly();
@@ -640,6 +668,77 @@ internal sealed class DesktopWindow : IWidgetCardHost
         }
     }
 
+    /// <summary>
+    /// Hand every container the cards it holds, and take those cards off the grid.
+    /// <para>
+    /// Containers are handled after the cards exist and before anything is positioned, because a
+    /// container needs its children as finished cards and the grid needs to know which children it
+    /// is no longer responsible for. The container does not create them: a widget inside a stack is
+    /// the same object with the same lifetime as one on the desktop, so nothing has to be
+    /// special-cased to keep it ticking.
+    /// </para>
+    /// </summary>
+    private void ArrangeContainers(ViewState view)
+    {
+        // Cleared first: a widget that has just left a stack would otherwise keep the suppressed
+        // header the stack gave it, and nothing would ever give it back.
+        foreach (var card in _cards)
+        {
+            card.SuppressHeader(false);
+        }
+
+        foreach (var card in _cards)
+        {
+            if (card.View is not IWidgetContainerView container)
+            {
+                continue;
+            }
+
+            var owns = WidgetTree.OwnsChildGeometry(WidgetTree.ContainerOf(card.Model.Kind));
+            var children = new List<FrameworkElement>();
+
+            foreach (var child in view.ChildrenOf(card.Model.Id))
+            {
+                var childCard = _cards.Find(c => ReferenceEquals(c.Model, child));
+                if (childCard is null)
+                {
+                    continue;
+                }
+
+                // An element has one parent in the visual tree, so a child a container is about to
+                // draw has to leave the widget layer first.
+                if (owns)
+                {
+                    _widgetLayer.Children.Remove(childCard);
+                }
+
+                // A stack row and a tab already carry the widget's name, so the card must not
+                // repeat it. A group does not name its children, so theirs stays.
+                childCard.SuppressHeader(owns);
+
+                children.Add(childCard);
+            }
+
+            container.SetChildren(children);
+
+            // A group draws behind the widgets it holds, so it has to be behind them in the visual
+            // tree: the widget layer paints in child order and a group added after its members
+            // would cover them.
+            if (!owns && _widgetLayer.Children.Contains(card))
+            {
+                _widgetLayer.Children.Remove(card);
+                _widgetLayer.Children.Insert(0, card);
+            }
+        }
+    }
+
+    /// <summary>Whether a container draws this widget, rather than the grid placing it.</summary>
+    private static bool IsArrangedByContainer(ViewState view, WidgetInstance widget)
+    {
+        var parent = view.Find(widget.ParentId);
+        return parent is not null && WidgetTree.OwnsChildGeometry(WidgetTree.ContainerOf(parent.Kind));
+    }
+
     /// <summary>Rebuild the cards for this monitor's view and position them.</summary>
     private void Relayout()
     {
@@ -685,11 +784,20 @@ internal sealed class DesktopWindow : IWidgetCardHost
         _cards.Clear();
         _cards.AddRange(kept);
 
+        ArrangeContainers(view);
+
         foreach (var card in _cards)
         {
             card.ApplyEditMode(EditMode);
             card.ApplySelection();
-            PositionCard(card, card.Model.Rect);
+
+            // A widget a stack or a tab strip has taken over is drawn by that container, inside
+            // its rect. Positioning it on the grid as well would leave a second copy somewhere
+            // else on the desktop.
+            if (!IsArrangedByContainer(view, card.Model))
+            {
+                PositionCard(card, card.Model.Rect);
+            }
         }
 
         Log.Debug(Scope, $"relayout {_monitor.DeviceName}: view='{view.Name}' widgets={wanted.Count} " +

@@ -50,6 +50,12 @@ internal interface IWidgetCardHost
 
     void RequestPaste();
 
+    /// <summary>The view these cards belong to, so a card can ask what it may be moved into.</summary>
+    ViewState? ViewForCards { get; }
+
+    /// <summary>Put a widget into a container, or back on the desktop with a null container.</summary>
+    void RequestReparent(WidgetCard card, string? containerId);
+
     bool CanPaste { get; }
 
     /// <summary>A widget changed its own config: persist it without re-running layout.</summary>
@@ -75,6 +81,15 @@ internal sealed partial class WidgetCard : Grid, IWidgetSurface
     private readonly Border _fill;
     private readonly Border _tint;
     private readonly Border _surface;
+    private readonly Grid _headerHost;
+    private readonly Grid _header;
+    private readonly TextBlock _headerTitle;
+
+    /// <summary>A title the view worked out for itself, beaten only by one the user typed.</summary>
+    private string? _viewTitle;
+
+    /// <summary>Set by a container that names this widget itself. Not the user's choice, so not persisted.</summary>
+    private bool _headerSuppressed;
     private readonly Border _editOutline;
     private readonly Grid _handles;
     private readonly FrameworkElement _view;
@@ -91,8 +106,25 @@ internal sealed partial class WidgetCard : Grid, IWidgetSurface
 
         _view = WidgetCatalog.CreateView(model.Kind);
 
-        // Bound before Attach, so a view that reads its label or saves during Attach already has
-        // somewhere to read and write.
+        // The header belongs to the card, not to the view. One builder means one look, and it is
+        // the only way a "put it at the bottom" setting can exist without asking every widget to
+        // honour it. The view contributes its trailing element and nothing else.
+        _headerTitle = new TextBlock();
+        _header = Fluent.Header(
+            WidgetCatalog.Definition(model.Kind).Glyph,
+            _headerTitle,
+            (_view as IWidgetHeaderContent)?.HeaderTrailing);
+
+        _headerHost = new Grid
+        {
+            Children = { _header },
+            Margin = Fluent.HeaderMargin,
+        };
+
+        // The view is bound and attached only once the header exists. A view that names itself
+        // during Attach - a weather tile knows its place, a folder listing knows its folder -
+        // calls straight back into SetHeaderTitle, and doing that before these fields were built
+        // threw a NullReferenceException on the UI thread that took the whole surface down.
         if (_view is IWidgetSurfaceAware aware)
         {
             aware.Bind(this);
@@ -123,9 +155,25 @@ internal sealed partial class WidgetCard : Grid, IWidgetSurface
         // that padded everything pushed every list row away from the edge and stopped its hover
         // highlight short of it, so a row read as a box inside a box rather than as a row. See
         // WidgetLayout.
+        // Two rows, one of which is always empty: the header sits in whichever one its placement
+        // asks for, so switching it costs a row index rather than a rebuild.
+        var content = new Grid
+        {
+            RowDefinitions =
+            {
+                new RowDefinition { Height = GridLength.Auto },
+                new RowDefinition { Height = new GridLength(1, GridUnitType.Star) },
+                new RowDefinition { Height = GridLength.Auto },
+            },
+        };
+
+        Grid.SetRow(_view, 1);
+        content.Children.Add(_headerHost);
+        content.Children.Add(_view);
+
         _surface = new Border
         {
-            Child = _view,
+            Child = content,
             Padding = new Thickness(0),
         };
 
@@ -152,8 +200,12 @@ internal sealed partial class WidgetCard : Grid, IWidgetSurface
         // focusable in the tree no KeyDown is raised at all, and the edit-mode shortcuts never fire.
         IsTabStop = true;
         UseSystemFocusVisuals = false;
+        ApplyHeader();
         ApplyDesign();
         ApplyEditMode(host.EditMode);
+
+        // The header sheds by height, so it has to be reconsidered when the height changes.
+        SizeChanged += (_, _) => ApplyHeader();
 
         PointerPressed += OnPointerPressed;
         PointerMoved += OnPointerMoved;
@@ -165,12 +217,71 @@ internal sealed partial class WidgetCard : Grid, IWidgetSurface
 
     public WidgetInstance Model { get; }
 
+    /// <summary>The widget's own view, so the surface can ask whether it is a container.</summary>
+    public FrameworkElement View => _view;
+
     /// <summary>The rect the card is currently showing, which during a drag leads the persisted model.</summary>
     public FracRect LiveRect { get; private set; }
 
     // -----------------------------------------------------------------------------------------
     // Appearance
     // -----------------------------------------------------------------------------------------
+
+    /// <summary>
+    /// Put the header where the widget asks for it, and name it.
+    /// <para>
+    /// The title is the user's own when they set one, otherwise the catalogue's. Bottom placement
+    /// flips the margin as well as the row, or the gap would end up on the wrong side of it.
+    /// </para>
+    /// </summary>
+    public void ApplyHeader()
+    {
+        // The user's own label, then whatever the view knows about itself, then the catalogue.
+        _headerTitle.Text = !string.IsNullOrWhiteSpace(Model.Label) ? Model.Label
+            : !string.IsNullOrWhiteSpace(_viewTitle) ? _viewTitle
+            : WidgetCatalog.Definition(Model.Kind).Label;
+
+        // Shed it on a tile too short to carry it, here rather than in twenty views: below this
+        // the label is taking the room the content needs, and every widget drew the same
+        // conclusion separately with a slightly different threshold. A height of zero is a card
+        // that has not been measured yet, not a short one.
+        var tooShort = ActualHeight > 0 && ActualHeight < Fluent.HeaderHidesBelow;
+        var hidden = Model.Header == HeaderPlacement.Hidden || tooShort || _headerSuppressed;
+
+        _headerHost.Visibility = hidden ? Visibility.Collapsed : Visibility.Visible;
+
+        if (hidden)
+        {
+            return;
+        }
+
+        var bottom = Model.Header == HeaderPlacement.Bottom;
+        Grid.SetRow(_headerHost, bottom ? 2 : 0);
+
+        _headerHost.Margin = bottom
+            ? new Thickness(Fluent.Space4, Fluent.Space2, Fluent.Space4, Fluent.Space4)
+            : Fluent.HeaderMargin;
+    }
+
+    /// <summary>
+    /// Hide the header because a container is already naming this widget.
+    /// <para>
+    /// A stack row and a tab both carry the widget's name, so the card repeating it underneath is
+    /// the same word twice in eighty pixels. This is the container's doing rather than the user's,
+    /// so it is a flag on the card and never touches the placement they chose — take the widget out
+    /// again and its header comes back exactly as they left it.
+    /// </para>
+    /// </summary>
+    public void SuppressHeader(bool suppressed)
+    {
+        if (_headerSuppressed == suppressed)
+        {
+            return;
+        }
+
+        _headerSuppressed = suppressed;
+        ApplyHeader();
+    }
 
     public void ApplyDesign()
     {
@@ -258,6 +369,9 @@ internal sealed partial class WidgetCard : Grid, IWidgetSurface
             widgetView.ApplyConfig(Model.Config);
         }
 
+        // The title and the placement live on the instance, not the config, so a rename or a
+        // move to the bottom arrives here too.
+        ApplyHeader();
         ApplyDesign();
     }
 
@@ -454,6 +568,57 @@ internal sealed partial class WidgetCard : Grid, IWidgetSurface
         e.Handled = true;
     }
 
+    /// <summary>
+    /// The "Move into" submenu, or null when there is nowhere to move to.
+    /// <para>
+    /// Built from what the tree will actually accept rather than from every container on the
+    /// desktop, so a container that would make a cycle or nest too deep is simply not offered. An
+    /// option that refuses itself when clicked is worse than no option.
+    /// </para>
+    /// </summary>
+    private MenuFlyoutSubItem? BuildMoveMenu()
+    {
+        var view = _host.ViewForCards;
+        if (view is null)
+        {
+            return null;
+        }
+
+        var submenu = new MenuFlyoutSubItem { Text = "Move into" };
+
+        if (Model.ParentId is not null)
+        {
+            var out_ = new MenuFlyoutItem { Text = "The desktop" };
+            out_.Click += (_, _) => _host.RequestReparent(this, null);
+            submenu.Items.Add(out_);
+            submenu.Items.Add(new MenuFlyoutSeparator());
+        }
+
+        foreach (var candidate in view.Widgets)
+        {
+            if (!WidgetTree.IsContainer(candidate.Kind) || !view.CanReparent(Model.Id, candidate.Id))
+            {
+                continue;
+            }
+
+            if (string.Equals(candidate.Id, Model.ParentId, StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            var label = string.IsNullOrWhiteSpace(candidate.Label)
+                ? WidgetCatalog.Definition(candidate.Kind).Label
+                : candidate.Label;
+
+            var id = candidate.Id;
+            var item = new MenuFlyoutItem { Text = label };
+            item.Click += (_, _) => _host.RequestReparent(this, id);
+            submenu.Items.Add(item);
+        }
+
+        return submenu.Items.Count > 0 ? submenu : null;
+    }
+
     private void OnRightTapped(object sender, RightTappedRoutedEventArgs e)
     {
         try
@@ -464,6 +629,13 @@ internal sealed partial class WidgetCard : Grid, IWidgetSurface
 
             menu.Items.Add(Item("", "Configure…", () => _host.RequestConfigure(this)));
             menu.Items.Add(new MenuFlyoutSeparator());
+
+            var move = BuildMoveMenu();
+            if (move is not null)
+            {
+                menu.Items.Add(move);
+                menu.Items.Add(new MenuFlyoutSeparator());
+            }
 
             menu.Items.Add(Item("", "Copy", () => _host.RequestCopy(this), "Ctrl+C"));
             menu.Items.Add(Item("", "Cut", () => _host.RequestCut(this), "Ctrl+X"));
@@ -539,5 +711,17 @@ internal sealed partial class WidgetCard : Grid, IWidgetSurface
 
     /// <inheritdoc />
     void IWidgetSurface.RequestTextInput(bool wanted) => _host.RequestTextInput(this, wanted);
+
+    /// <inheritdoc />
+    void IWidgetSurface.SetHeaderTitle(string? title)
+    {
+        if (string.Equals(_viewTitle, title, StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        _viewTitle = title;
+        ApplyHeader();
+    }
 
 }

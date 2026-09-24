@@ -1,7 +1,5 @@
-using Microsoft.UI;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
-using Themia.App.Widgets;
 using Themia.Core.Model;
 using Themia.Core.Widgets;
 using Windows.System;
@@ -30,12 +28,7 @@ internal static partial class WidgetSettings
 
         rows.Add(FluentLayout.Header("Search"));
 
-        var status = new TextBlock
-        {
-            FontSize = 12,
-            TextWrapping = TextWrapping.Wrap,
-            Margin = new Thickness(Fluent.Space4, Fluent.Space1, Fluent.Space4, 0),
-        };
+        var verdict = FluentLayout.Verdict();
 
         var box = new TextBox
         {
@@ -48,36 +41,41 @@ internal static partial class WidgetSettings
             IsTextPredictionEnabled = false,
         };
 
-        var templateRow = FluentLayout.Row(Glyphs.Link, "Search address",
-            "Your own search, with %s where the words go", box);
+        var templateRow = FluentLayout.FieldRow(Glyphs.Link, "Search address",
+            "Your own search, with %s where the words go", box, verdict);
 
-        void ShowStatus()
+        void ShowVerdict()
         {
-            var visible = config.EffectiveEngine == SearchEngine.Custom;
+            // The whole row goes when the engine is one of the built-in ones: there is no template
+            // to judge, so there is nothing for the row to say.
+            var custom = config.EffectiveEngine == SearchEngine.Custom;
+            templateRow.Visibility = custom ? Visibility.Visible : Visibility.Collapsed;
 
-            templateRow.Visibility = visible ? Visibility.Visible : Visibility.Collapsed;
-            status.Visibility = visible ? Visibility.Visible : Visibility.Collapsed;
-
-            if (!visible)
+            if (!custom)
             {
                 return;
             }
 
             var problem = SearchEngines.CheckTemplate(config.CustomTemplate);
 
-            if (problem == SearchProblem.None)
+            if (problem != SearchProblem.None)
             {
-                // Confirming is worth as much as refusing: a template that looks accepted but
-                // searches somewhere else is the failure this check exists to prevent.
-                var example = SearchEngines.Build(SearchEngine.Custom, config.CustomTemplate, "hello world");
-
-                status.Text = example.IsValid ? $"Searches {example.Url}" : SearchEngines.ProblemMessage(example.Problem);
-                status.Foreground = FluentLayout.Themed("TextFillColorTertiaryBrush", Colors.Gray);
+                FluentLayout.Refuse(verdict, SearchEngines.ProblemMessage(problem));
                 return;
             }
 
-            status.Text = SearchEngines.ProblemMessage(problem);
-            status.Foreground = FluentLayout.Themed("SystemFillColorCriticalBrush", Colors.Red);
+            // Confirming is worth as much as refusing: a template that looks accepted but searches
+            // somewhere else is the failure this check exists to prevent.
+            var example = SearchEngines.Build(SearchEngine.Custom, config.CustomTemplate, "hello world");
+
+            if (example.IsValid)
+            {
+                FluentLayout.Confirm(verdict, $"Searches {example.Url}");
+            }
+            else
+            {
+                FluentLayout.Refuse(verdict, SearchEngines.ProblemMessage(example.Problem));
+            }
         }
 
         void Commit()
@@ -92,7 +90,7 @@ internal static partial class WidgetSettings
                 save();
             }
 
-            ShowStatus();
+            ShowVerdict();
         }
 
         // On commit, not per keystroke: a URL is only ever valid once it has been fully typed, so
@@ -113,15 +111,17 @@ internal static partial class WidgetSettings
             {
                 config.Engine = value;
                 save();
-                ShowStatus();
+                ShowVerdict();
             })));
 
         rows.Add(templateRow);
-        rows.Add(status);
 
-        rows.Add(FluentLayout.Row(Glyphs.Clear, "Empty the box after searching", null,
+        rows.Add(FluentLayout.Header("Behaviour"));
+
+        rows.Add(FluentLayout.Row(Glyphs.Clear, "Empty the box after searching",
+            "Off, the words stay there to be edited",
             FluentLayout.Toggle(config.ClearAfterSearch, value => { config.ClearAfterSearch = value; save(); })));
 
-        ShowStatus();
+        ShowVerdict();
     }
 }

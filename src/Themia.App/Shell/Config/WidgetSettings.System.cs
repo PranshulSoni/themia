@@ -1,9 +1,7 @@
-using Microsoft.UI;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Themia.Core.Model;
 using Themia.Core.Widgets;
-using Themia.App.Shell;
 
 namespace Themia.App.Shell.Config;
 
@@ -19,6 +17,10 @@ internal static partial class WidgetSettings
 {
     public static void Processes(List<FrameworkElement> rows, ProcessesConfig config, Action save)
     {
+        ArgumentNullException.ThrowIfNull(rows);
+        ArgumentNullException.ThrowIfNull(config);
+        ArgumentNullException.ThrowIfNull(save);
+
         rows.Add(FluentLayout.Header("Processes"));
 
         rows.Add(FluentLayout.Row(Glyphs.Sort, "Rank by", "Which column the list is ordered on",
@@ -27,25 +29,28 @@ internal static partial class WidgetSettings
                 config.Sort,
                 value => { config.Sort = value; save(); })));
 
-        rows.Add(FluentLayout.Row(Glyphs.Count, "Rows",
-            "A short widget shows as many of these as it can render legibly",
-            FluentLayout.Slider(config.EffectiveMaxCount, 1, 20, 1, string.Empty,
-                value => { config.MaxCount = (int)Math.Round(value); save(); })));
-
         rows.Add(FluentLayout.Row(Glyphs.Memory, "Show memory", "A second column beside the processor share",
             FluentLayout.Toggle(config.ShowMemory, value => { config.ShowMemory = value; save(); })));
+
+        rows.Add(FluentLayout.Row(Glyphs.Count, "Processes",
+            "How many the list holds; a short widget shows fewer",
+            FluentLayout.Slider(config.EffectiveMaxCount, 1, 20, 1, string.Empty,
+                value => { config.MaxCount = (int)Math.Round(value); save(); })));
     }
 
     public static void Ping(List<FrameworkElement> rows, PingConfig config, Action save)
     {
+        ArgumentNullException.ThrowIfNull(rows);
+        ArgumentNullException.ThrowIfNull(config);
+        ArgumentNullException.ThrowIfNull(save);
+
         rows.Add(FluentLayout.Header("Ping"));
-        rows.Add(FluentLayout.Row(Glyphs.Link, "Host", "A name or an IP address to measure against", HostBox(config, save)));
 
-        rows.Add(FluentLayout.Row(Glyphs.Timer, "Every", "Seconds between probes",
-            FluentLayout.Slider(config.IntervalSeconds, 1, 300, 1, "s",
-                value => { config.IntervalSeconds = (int)Math.Round(value); save(); })));
-
+        AddHostRow(rows, config, save);
         AddGraphToggle(rows, config, save);
+
+        FluentLayout.RefreshSeconds(rows, "the host is probed", config.IntervalSeconds, 1, 300, 1,
+            value => { config.IntervalSeconds = value; save(); });
     }
 
     /// <summary>
@@ -63,7 +68,7 @@ internal static partial class WidgetSettings
     /// something the user has to infer from a blank field.
     /// </para>
     /// </summary>
-    private static FrameworkElement HostBox(PingConfig config, Action save)
+    private static void AddHostRow(List<FrameworkElement> rows, PingConfig config, Action save)
     {
         var box = new TextBox
         {
@@ -72,14 +77,7 @@ internal static partial class WidgetSettings
             MinWidth = 200,
         };
 
-        var verdict = new TextBlock
-        {
-            FontSize = 12,
-            TextWrapping = TextWrapping.Wrap,
-            HorizontalAlignment = HorizontalAlignment.Right,
-            TextAlignment = TextAlignment.Right,
-            MaxWidth = 200,
-        };
+        var verdict = FluentLayout.Verdict();
 
         void Judge(bool writeThrough)
         {
@@ -87,8 +85,7 @@ internal static partial class WidgetSettings
 
             if (typed.Length == 0)
             {
-                verdict.Text = $"Measuring {PingConfig.DefaultHost}";
-                verdict.Foreground = FluentLayout.Themed("TextFillColorTertiaryBrush", Colors.Gray);
+                FluentLayout.Confirm(verdict, $"Measuring {PingConfig.DefaultHost}");
 
                 if (writeThrough && config.Host.Length != 0)
                 {
@@ -101,12 +98,11 @@ internal static partial class WidgetSettings
 
             if (!HostAddress.IsPlausible(typed))
             {
-                verdict.Text = "Not a host name or address";
-                verdict.Foreground = FluentLayout.Themed("SystemFillColorCautionBrush", Colors.Goldenrod);
+                FluentLayout.Refuse(verdict, "Not a host name or address");
                 return;
             }
 
-            verdict.Text = string.Empty;
+            FluentLayout.Confirm(verdict, string.Empty);
 
             if (writeThrough && config.Host != typed)
             {
@@ -124,12 +120,7 @@ internal static partial class WidgetSettings
         // untouched field must not be able to rewrite the config just by being shown.
         Judge(writeThrough: false);
 
-        return new StackPanel
-        {
-            Spacing = 4,
-            HorizontalAlignment = HorizontalAlignment.Right,
-            Children = { box, verdict },
-        };
+        rows.Add(FluentLayout.FieldRow(Glyphs.Link, "Host",
+            "A name or an IP address to measure against", box, verdict));
     }
-
 }

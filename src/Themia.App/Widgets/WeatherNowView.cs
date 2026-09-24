@@ -24,7 +24,7 @@ namespace Themia.App.Widgets;
 /// Tuesday's conditions on Friday is the specific way this kind of widget misleads somebody.
 /// </para>
 /// </summary>
-internal sealed partial class WeatherNowView : Grid, IWidgetView
+internal sealed partial class WeatherNowView : Grid, IWidgetView, IWidgetHeaderContent, IWidgetSurfaceAware
 {
     private const string Scope = "weather";
 
@@ -34,13 +34,11 @@ internal sealed partial class WeatherNowView : Grid, IWidgetView
     /// <summary>The widest reading this widget prints, in characters — "-18°F". Stable, so the step is.</summary>
     private const double ReadingCharacters = 5;
 
-    private readonly TextBlock _title = Fluent.Text(FluentType.BodyStrong);
     private readonly TextBlock _freshness = Fluent.Text(FluentType.Caption, "TextFillColorTertiaryBrush");
     private readonly TextBlock _temperature = Fluent.Text(FluentType.Subtitle);
     private readonly TextBlock _condition = Fluent.Text(FluentType.Body, "TextFillColorSecondaryBrush");
     private readonly TextBlock _detail = Fluent.Text(FluentType.Caption, "TextFillColorSecondaryBrush");
     private readonly FontIcon _look = Fluent.Icon(Glyphs.Weather, "TextFillColorSecondaryBrush", Fluent.Space6);
-    private readonly Grid _header;
     private readonly Grid _readout = new();
     private readonly Border _detailHost;
     private readonly StackPanel _emptyState;
@@ -56,6 +54,9 @@ internal sealed partial class WeatherNowView : Grid, IWidgetView
 
     private Ticker? _ticker;
     private WeatherNowConfig _config = new();
+
+    /// <summary>The card this view draws on, which owns the header it names.</summary>
+    private IWidgetSurface? _surface;
     private IDisposable? _subscription;
     private TimeSpan _subscribedInterval = TimeSpan.Zero;
     private CancellationTokenSource? _inFlight;
@@ -72,14 +73,8 @@ internal sealed partial class WeatherNowView : Grid, IWidgetView
 
     public WeatherNowView()
     {
-        RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
         RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-
-        _title.Text = "Weather";
-        _header = Fluent.Header(Glyphs.Weather, _title, _freshness);
-        _header.Margin = Fluent.HeaderMargin;
-        SetRow(_header, 0);
 
         _look.Margin = new Thickness(0, 0, Fluent.Space3, 0);
         _temperature.VerticalAlignment = VerticalAlignment.Center;
@@ -102,7 +97,6 @@ internal sealed partial class WeatherNowView : Grid, IWidgetView
         _readout.Children.Add(_look);
         _readout.Children.Add(_temperature);
         _readout.Children.Add(_condition);
-        SetRow(_readout, 1);
 
         _detailHost = new Border
         {
@@ -110,19 +104,23 @@ internal sealed partial class WeatherNowView : Grid, IWidgetView
             Padding = new Thickness(Fluent.Space4, 0, Fluent.Space4, Fluent.Space4),
         };
 
-        SetRow(_detailHost, 2);
+        SetRow(_detailHost, 1);
 
         _emptyState = Fluent.EmptyState(Glyphs.Weather, _emptyMessage, out _emptyIcon);
         _emptyState.Visibility = Visibility.Collapsed;
-        SetRow(_emptyState, 1);
 
-        Children.Add(_header);
         Children.Add(_readout);
         Children.Add(_detailHost);
         Children.Add(_emptyState);
 
         SizeChanged += OnSizeChanged;
     }
+
+    /// <summary>
+    /// The age of the reading, in the card's header. Built in the constructor because the card
+    /// reads this once, when it builds that header.
+    /// </summary>
+    public FrameworkElement? HeaderTrailing => _freshness;
 
     public void Attach(Ticker ticker, WidgetConfig config)
     {
@@ -131,13 +129,19 @@ internal sealed partial class WeatherNowView : Grid, IWidgetView
         ApplyConfig(config);
     }
 
+    /// <inheritdoc />
+    public void Bind(IWidgetSurface surface)
+    {
+        _surface = surface;
+        PublishTitle();
+    }
+
     public void ApplyConfig(WidgetConfig config)
     {
         var next = config as WeatherNowConfig ?? new WeatherNowConfig();
         var previous = _config;
         _config = next;
-
-        _title.Text = string.IsNullOrWhiteSpace(next.LocationName) ? "Weather" : next.LocationName;
+        PublishTitle();
 
         var placeChanged = previous.Latitude != next.Latitude
             || previous.Longitude != next.Longitude
@@ -292,10 +296,6 @@ internal sealed partial class WeatherNowView : Grid, IWidgetView
 
     private void OnSizeChanged(object sender, SizeChangedEventArgs e)
     {
-        _header.Visibility = e.NewSize.Height >= Fluent.HeaderHidesBelow
-            ? Visibility.Visible
-            : Visibility.Collapsed;
-
         ApplyTypeScale();
         UpdateDetailVisibility();
     }
@@ -432,4 +432,15 @@ internal sealed partial class WeatherNowView : Grid, IWidgetView
 
         _ticker = null;
     }
+    /// <summary>
+    /// Tell the card what this widget is about. The catalogue can only say "Weather" or
+    /// "Folder"; the widget knows which place, which folder, which ticker — and on a desktop
+    /// holding three of them, that is the only thing telling them apart.
+    /// </summary>
+    private void PublishTitle()
+    {
+        var title = string.IsNullOrWhiteSpace(_config.Place) ? _config.LocationName : _config.Place;
+        _surface?.SetHeaderTitle(string.IsNullOrWhiteSpace(title) ? null : title);
+    }
+
 }

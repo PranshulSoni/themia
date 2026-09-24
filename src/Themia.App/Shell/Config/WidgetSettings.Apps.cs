@@ -21,22 +21,24 @@ internal static partial class WidgetSettings
 
         rows.Add(FluentLayout.Header("Apps"));
 
-        rows.Add(FluentLayout.Row(Glyphs.Search, "Filter box",
+        rows.Add(FluentLayout.Row(Glyphs.Search, "Show the filter box",
             "Hidden automatically when the widget is too short for it",
             FluentLayout.Toggle(config.ShowFilter, value => { config.ShowFilter = value; save(); })));
 
-        rows.Add(FluentLayout.Row(Glyphs.Folder, "Show Start menu folder",
+        rows.Add(FluentLayout.Row(Glyphs.Folder, "Show the Start menu folder",
             "Hidden automatically when the widget is too narrow",
             FluentLayout.Toggle(config.ShowCategory, value => { config.ShowCategory = value; save(); })));
+
+        rows.Add(FluentLayout.Row(Glyphs.Count, "Apps", "How many the list holds",
+            FluentLayout.Slider(config.EffectiveMaxCount, 10, 1000, 10, string.Empty,
+                value => { config.MaxCount = (int)Math.Round(value); save(); })));
+
+        rows.Add(FluentLayout.Header("Behaviour"));
 
         // Off by default, and this says plainly what turning it on costs: the widget sits under
         // every other window, on the path the pointer takes across the desktop.
         rows.Add(FluentLayout.Row(Glyphs.Open, "Open on one click",
             "Off, an app opens on a double-click. A single click is easy to do by accident on the desktop",
             FluentLayout.Toggle(config.OpenOnSingleClick, value => { config.OpenOnSingleClick = value; save(); })));
-
-        rows.Add(FluentLayout.Row(Glyphs.Count, "Apps", "How many the list holds",
-            FluentLayout.Slider(config.EffectiveMaxCount, 10, 1000, 10, string.Empty,
-                value => { config.MaxCount = (int)Math.Round(value); save(); })));
     }
 }

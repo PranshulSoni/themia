@@ -26,8 +26,6 @@ internal sealed partial class PomodoroView : Grid, IWidgetView
     /// <summary>The Fluent icon size, everywhere one appears in this widget.</summary>
     private const double IconSize = 16;
 
-    private readonly TextBlock _title = new();
-    private readonly Grid _header;
     private readonly TextBlock _phase;
     private readonly FontIcon _phaseIcon = new();
     private readonly StackPanel _phaseRow;
@@ -71,20 +69,10 @@ internal sealed partial class PomodoroView : Grid, IWidgetView
 
         _state = PomodoroCycle.Fresh(_config);
 
-        RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });                     // title
         RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });                     // phase
         RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) }); // clock
         RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });                     // progress
         RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });                     // controls
-
-        _title.Text = "Pomodoro";
-
-        // The standard pane header: a 16px icon and a Body Strong title in the secondary text
-        // colour, at a fixed ramp step rather than a fraction of the tile.
-        _header = Fluent.Header(Glyphs.Pomodoro, _title);
-        _header.Margin = new Thickness(0, 0, 0, Fluent.Space2);
-
-        Grid.SetRow(_header, 0);
 
         // The phase reads as a Fluent badge line — a 16px icon and one Body Strong word in the
         // phase's own theme colour — rather than as a pill this file drew for itself.
@@ -102,7 +90,7 @@ internal sealed partial class PomodoroView : Grid, IWidgetView
             Children = { _phaseIcon, _phase },
         };
 
-        Grid.SetRow(_phaseRow, 1);
+        Grid.SetRow(_phaseRow, 0);
 
         // The countdown is the hero of the tile: the largest ramp step that fits, and past the top
         // of the ramp a multiple of its Display step that keeps Fluent's own line-height ratio.
@@ -118,7 +106,7 @@ internal sealed partial class PomodoroView : Grid, IWidgetView
         _clockHost.Children.Add(_clock);
         _clockHost.SizeChanged += (_, _) => ApplyTypeScale();
 
-        Grid.SetRow(_clockHost, 2);
+        Grid.SetRow(_clockHost, 1);
 
         // [S-04] The bar is the elapsed fraction of the phase, so a glance says how far in you are
         // without reading the digits. A stock ProgressBar: its height, track and corner radius are
@@ -127,7 +115,7 @@ internal sealed partial class PomodoroView : Grid, IWidgetView
         _progress.Maximum = 100;
         _progress.HorizontalAlignment = HorizontalAlignment.Stretch;
 
-        Grid.SetRow(_progress, 3);
+        Grid.SetRow(_progress, 2);
 
         // Stock Windows 11 buttons with a 16px FontIcon for content, square on the 4px grid. The
         // primary action takes the accent style, the way the confirming button of any Windows
@@ -163,9 +151,8 @@ internal sealed partial class PomodoroView : Grid, IWidgetView
             Children = { _runButton, _resetButton },
         };
 
-        Grid.SetRow(_controls, 4);
+        Grid.SetRow(_controls, 3);
 
-        Children.Add(_header);
         Children.Add(_phaseRow);
         Children.Add(_clockHost);
         Children.Add(_progress);
@@ -308,9 +295,7 @@ internal sealed partial class PomodoroView : Grid, IWidgetView
     {
         var height = ActualHeight;
 
-        // Under about 90 DIPs the title is most of the widget; under 140 the phase word is
-        // competing with the digits for the last usable line.
-        _header.Visibility = height < 90 ? Visibility.Collapsed : Visibility.Visible;
+        // Under 140 DIPs the phase word is competing with the digits for the last usable line.
         _phaseRow.Visibility = height < 140 ? Visibility.Collapsed : Visibility.Visible;
 
         var roomy = height >= 140;

@@ -1,4 +1,3 @@
-using Microsoft.UI;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Themia.Core.Model;
@@ -7,16 +6,31 @@ using Windows.System;
 
 namespace Themia.App.Shell.Config;
 
+/// <summary>
+/// The Stocks widget's settings rows.
+/// <para>
+/// The symbol box is the trust boundary on this page: it is composed into a request to a quote
+/// service, so it is checked before it is written and the reason it was refused is shown under the
+/// box rather than swallowed. It is never repaired into something that works.
+/// </para>
+/// </summary>
 internal static partial class WidgetSettings
 {
     public static void Stocks(List<FrameworkElement> rows, StocksConfig config, Action save)
     {
+        ArgumentNullException.ThrowIfNull(rows);
+        ArgumentNullException.ThrowIfNull(config);
+        ArgumentNullException.ThrowIfNull(save);
+
         rows.Add(FluentLayout.Header("Instrument"));
 
         var market = FluentLayout.Choice(
             [(QuoteMarket.Listed, "Listed"), (QuoteMarket.Crypto, "Crypto")],
             config.Market,
             value => { config.Market = value; save(); });
+
+        rows.Add(FluentLayout.Row(Glyphs.Stocks, "Market",
+            "Listed covers shares, funds, indices, currencies and futures", market));
 
         var symbol = new TextBox
         {
@@ -26,13 +40,7 @@ internal static partial class WidgetSettings
             PlaceholderText = config.Market == QuoteMarket.Crypto ? "bitcoin" : "AAPL",
         };
 
-        var problem = new TextBlock
-        {
-            FontSize = 12,
-            TextWrapping = TextWrapping.Wrap,
-            Visibility = Visibility.Collapsed,
-            Foreground = FluentLayout.Themed("SystemFillColorCriticalBrush", Colors.IndianRed),
-        };
+        var verdict = FluentLayout.Verdict();
 
         void Commit()
         {
@@ -48,12 +56,11 @@ internal static partial class WidgetSettings
             // and the user could not see the difference.
             if (typed.Length > 0 && !WebInput.IsPlausibleSymbol(typed))
             {
-                problem.Text = "Letters, digits and . - ^ = only";
-                problem.Visibility = Visibility.Visible;
+                FluentLayout.Refuse(verdict, "Letters, digits and . - ^ = only");
                 return;
             }
 
-            problem.Visibility = Visibility.Collapsed;
+            FluentLayout.Confirm(verdict, string.Empty);
             config.Symbol = typed;
             save();
         }
@@ -71,12 +78,8 @@ internal static partial class WidgetSettings
 
         symbol.LostFocus += (_, _) => Commit();
 
-        rows.Add(FluentLayout.Row(Glyphs.Stocks, "Market",
-            "Listed covers shares, funds, indices, currencies and futures", market));
-
-        rows.Add(FluentLayout.Row(Glyphs.Search, "Symbol",
-            "A ticker like AAPL or ^GSPC, or a coin id like bitcoin",
-            new StackPanel { Spacing = 4, Children = { symbol, problem } }));
+        rows.Add(FluentLayout.FieldRow(Glyphs.Search, "Symbol",
+            "A ticker like AAPL or ^GSPC, or a coin id like bitcoin", symbol, verdict));
 
         var name = new TextBox { Text = config.DisplayName, Width = 200, PlaceholderText = "Optional" };
 
@@ -94,6 +97,10 @@ internal static partial class WidgetSettings
         };
 
         rows.Add(FluentLayout.Row(Glyphs.Rename, "Name", "Shown instead of the symbol", name));
+
+        rows.Add(FluentLayout.Row(Glyphs.Moon, "Say when the market is shut",
+            "Listed instruments only — crypto trades every day",
+            FluentLayout.Toggle(config.ShowMarketState, value => { config.ShowMarketState = value; save(); })));
 
         rows.Add(FluentLayout.Header("Chart"));
 
@@ -116,10 +123,6 @@ internal static partial class WidgetSettings
                 config.Range,
                 value => { config.Range = value; save(); })));
 
-        rows.Add(FluentLayout.Row(Glyphs.Moon, "Say when the market is shut",
-            "Listed instruments only — crypto trades every day",
-            FluentLayout.Toggle(config.ShowMarketState, value => { config.ShowMarketState = value; save(); })));
-
-        AddRefreshChoice(rows, config.RefreshMinutes, value => { config.RefreshMinutes = value; save(); }, fast: true);
+        FluentLayout.RefreshChoice(rows, config.RefreshMinutes, value => { config.RefreshMinutes = value; save(); }, fast: true);
     }
 }

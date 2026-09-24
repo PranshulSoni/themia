@@ -45,11 +45,9 @@ internal sealed partial class VolumeView : Grid, IWidgetView
         From(0xE995), // high
     ];
 
-    private readonly TextBlock _title = new();
     private readonly TextBlock _readout = Fluent.Text(FluentType.Subtitle);
     private readonly TextBlock _caption = Fluent.Text(FluentType.Caption, "TextFillColorTertiaryBrush");
     private readonly Grid _reading = new();
-    private readonly Grid _header;
     private readonly Slider _slider = new();
     private readonly Button _mute = new();
     private readonly FontIcon _muteIcon;
@@ -97,16 +95,10 @@ internal sealed partial class VolumeView : Grid, IWidgetView
 
     public VolumeView()
     {
-        RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
         RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
 
         var definition = WidgetCatalog.Definition(WidgetKind.Volume);
-        _title.Text = definition.Label;
-
-        _header = Fluent.Header(definition.Glyph, _title);
-        _header.Margin = Fluent.HeaderMargin;
-        SetRow(_header, 0);
 
         _readout.Text = "--";
         _readout.Foreground = _readingBrush;
@@ -130,7 +122,6 @@ internal sealed partial class VolumeView : Grid, IWidgetView
         SetColumn(_caption, 1);
         _reading.Children.Add(_readout);
         _reading.Children.Add(_caption);
-        SetRow(_reading, 1);
 
         _muteIcon = Fluent.Icon(LevelGlyphs[(int)VolumeLevel.High], "TextFillColorPrimaryBrush");
         _mute.Content = _muteIcon;
@@ -167,14 +158,12 @@ internal sealed partial class VolumeView : Grid, IWidgetView
         SetColumn(_slider, 1);
         _band.Children.Add(_mute);
         _band.Children.Add(_slider);
-        SetRow(_band, 2);
+        SetRow(_band, 1);
 
         var message = new TextBlock { Text = "No output device" };
         _empty = Fluent.EmptyState(definition.Glyph, message, out _);
         _empty.Visibility = Visibility.Collapsed;
-        SetRow(_empty, 1);
 
-        Children.Add(_header);
         Children.Add(_reading);
         Children.Add(_band);
         Children.Add(_empty);
@@ -290,10 +279,6 @@ internal sealed partial class VolumeView : Grid, IWidgetView
         _slider.IsEnabled = _config.AllowControl;
         _mute.IsEnabled = _config.AllowControl;
 
-        _header.Visibility = ActualHeight > 0 && ActualHeight < Fluent.HeaderHidesBelow
-            ? Visibility.Collapsed
-            : Visibility.Visible;
-
         _caption.Visibility = _captionVisible && !absent ? Visibility.Visible : Visibility.Collapsed;
 
         ApplyTypeScale();
@@ -322,10 +307,8 @@ internal sealed partial class VolumeView : Grid, IWidgetView
     {
         var width = ActualWidth - (Fluent.Space4 * 2);
 
-        // What the number gets once the header, the slider band and the gaps have taken theirs.
-        var chrome = (_header.Visibility == Visibility.Visible
-                ? FluentType.BodyStrong.LineHeight + Fluent.Space4 + Fluent.Space2
-                : Fluent.Space4)
+        // What the number gets once the slider band and the gaps have taken theirs.
+        var chrome = Fluent.Space4
             + (_band.Visibility == Visibility.Visible ? Fluent.RowHeightCompact + Fluent.Space4 : Fluent.Space4);
 
         // The caption shares the line, so the number gets at most half of it. Letting it take the

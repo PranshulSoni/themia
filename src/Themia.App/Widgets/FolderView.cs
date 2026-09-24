@@ -23,7 +23,7 @@ namespace Themia.App.Widgets;
 /// a confirmation and a recycle bin.
 /// </para>
 /// </summary>
-internal sealed partial class FolderView : Grid, IWidgetView
+internal sealed partial class FolderView : Grid, IWidgetView, IWidgetHeaderContent, IWidgetSurfaceAware
 {
     /// <summary>
     /// Below this the tile is too narrow for a name and two detail columns, so the detail is
@@ -39,7 +39,6 @@ internal sealed partial class FolderView : Grid, IWidgetView
     private static readonly string ProfileFolder =
         Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
 
-    private readonly TextBlock _title = Fluent.Text(FluentType.BodyStrong);
     private readonly ProgressRing _busy = new();
     private readonly StackPanel _list = new() { Spacing = 0 };
     private readonly ScrollViewer _scroll;
@@ -52,6 +51,9 @@ internal sealed partial class FolderView : Grid, IWidgetView
 
     private Ticker? _ticker;
     private FolderConfig _config = new();
+
+    /// <summary>The card this view draws on, which owns the header it names.</summary>
+    private IWidgetSurface? _surface;
     private FolderPathResult _resolved;
     private FolderSnapshot _snapshot = FolderSnapshot.Of(FolderListingStatus.Loading);
     private IDisposable? _subscription;
@@ -71,17 +73,14 @@ internal sealed partial class FolderView : Grid, IWidgetView
 
     public FolderView()
     {
-        RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
 
+        // The ring rides on the card's header, which reads it once when it builds it — so it is
+        // built here rather than on first use.
         _busy.Width = 14;
         _busy.Height = 14;
         _busy.IsActive = false;
         _busy.Visibility = Visibility.Collapsed;
-
-        var header = Fluent.Header(Glyphs.Folder, _title, _busy);
-        header.Margin = Fluent.HeaderMargin;
-        SetRow(header, 0);
 
         _scroll = new ScrollViewer
         {
@@ -92,7 +91,7 @@ internal sealed partial class FolderView : Grid, IWidgetView
             VerticalScrollBarVisibility = ScrollBarVisibility.Hidden,
         };
 
-        SetRow(_scroll, 1);
+        SetRow(_scroll, 0);
 
         _message = Fluent.Text(FluentType.Body, "TextFillColorTertiaryBrush");
         _message.TextWrapping = TextWrapping.Wrap;
@@ -107,9 +106,8 @@ internal sealed partial class FolderView : Grid, IWidgetView
             Visibility = Visibility.Collapsed,
         };
 
-        SetRow(_messageHost, 1);
+        SetRow(_messageHost, 0);
 
-        Children.Add(header);
         Children.Add(_scroll);
         Children.Add(_messageHost);
 
@@ -118,10 +116,20 @@ internal sealed partial class FolderView : Grid, IWidgetView
         SizeChanged += OnSizeChanged;
     }
 
+    /// <inheritdoc />
+    public FrameworkElement? HeaderTrailing => _busy;
+
     public void Attach(Ticker ticker, WidgetConfig config)
     {
         _ticker = ticker;
         ApplyConfig(config);
+    }
+
+    /// <inheritdoc />
+    public void Bind(IWidgetSurface surface)
+    {
+        _surface = surface;
+        PublishTitle();
     }
 
     public void ApplyConfig(WidgetConfig config)
@@ -130,12 +138,11 @@ internal sealed partial class FolderView : Grid, IWidgetView
         var previous = _config;
 
         _config = next;
+        PublishTitle();
 
         var resolved = FolderPath.Resolve(next.Path, ProfileFolder);
         var pathChanged = resolved.Path != _resolved.Path || resolved.Problem != _resolved.Problem;
         _resolved = resolved;
-
-        _title.Text = resolved.IsValid ? FolderPath.DisplayName(resolved.Path) : "Folder";
 
         // Only the fields that change what comes back off the disk are worth a re-read. Everything
         // else re-draws what is already in hand — dragging the row-count slider must not fire a
@@ -437,4 +444,15 @@ internal sealed partial class FolderView : Grid, IWidgetView
 
         _ticker = null;
     }
+    /// <summary>
+    /// Tell the card what this widget is about. The catalogue can only say "Weather" or
+    /// "Folder"; the widget knows which place, which folder, which ticker — and on a desktop
+    /// holding three of them, that is the only thing telling them apart.
+    /// </summary>
+    private void PublishTitle()
+    {
+        var title = FolderPath.DisplayName(_config.Path);
+        _surface?.SetHeaderTitle(string.IsNullOrWhiteSpace(title) ? null : title);
+    }
+
 }

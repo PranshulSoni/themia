@@ -41,20 +41,13 @@ namespace Themia.App.Widgets;
 /// actually saw: a press it never sees the end of was a widget being dragged, and is discarded.
 /// </para>
 /// </summary>
-internal sealed partial class ScratchpadView : Grid, IWidgetView, IWidgetSurfaceAware
+internal sealed partial class ScratchpadView : Grid, IWidgetView, IWidgetSurfaceAware, IWidgetHeaderContent
 {
     private const string Scope = "scratchpad";
-
-    /// <summary>Under this width the header keeps its icon and its commands and drops its words.</summary>
-    private const double TitleHidesBelow = 260;
 
     /// <summary>How many steps back the pad remembers. Enough to undo a bad minute, not a session.</summary>
     private const int UndoDepth = 32;
 
-    private readonly TextBlock _title = new();
-    private string _label = WidgetCatalog.Definition(WidgetKind.Scratchpad).Label;
-
-    private readonly Grid _header;
     private readonly StackPanel _tools;
     private readonly ToggleButton _eraser;
     private readonly Button _undoButton;
@@ -83,10 +76,7 @@ internal sealed partial class ScratchpadView : Grid, IWidgetView, IWidgetSurface
 
     public ScratchpadView()
     {
-        RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
-
-        _title.Text = _label;
 
         _eraser = ToggleCommand(Glyphs.Clear, "Erase strokes");
         _eraser.Checked += OnEraserToggled;
@@ -106,9 +96,6 @@ internal sealed partial class ScratchpadView : Grid, IWidgetView, IWidgetSurface
             Children = { _eraser, _undoButton, _clearButton },
         };
 
-        _header = Fluent.Header(WidgetCatalog.Definition(WidgetKind.Scratchpad).Glyph, _title, _tools);
-        _header.Margin = Fluent.HeaderMargin;
-
         // A transparent brush rather than no brush: a panel with a null background is not
         // hit-testable at all, and the pad would never see a pointer. The card does the same thing
         // for its own drag area.
@@ -123,11 +110,6 @@ internal sealed partial class ScratchpadView : Grid, IWidgetView, IWidgetSurface
         // even when it starts on top of the words.
         _hint.IsHitTestVisible = false;
 
-        SetRow(_header, 0);
-        SetRow(_pad, 1);
-        SetRow(_hint, 1);
-
-        Children.Add(_header);
         Children.Add(_pad);
         Children.Add(_hint);
 
@@ -272,17 +254,14 @@ internal sealed partial class ScratchpadView : Grid, IWidgetView, IWidgetSurface
     // Lifecycle
     // -----------------------------------------------------------------------------------------
 
+    /// <summary>
+    /// The pad's own commands — erase, undo, clear — in the card's header. Built in the constructor
+    /// because the card reads this once, when it builds that header.
+    /// </summary>
+    public FrameworkElement? HeaderTrailing => _tools;
+
     /// <inheritdoc />
-    public void Bind(IWidgetSurface surface)
-    {
-        _surface = surface;
-
-        _label = string.IsNullOrWhiteSpace(surface.Label)
-            ? WidgetCatalog.Definition(WidgetKind.Scratchpad).Label
-            : surface.Label;
-
-        _title.Text = _label;
-    }
+    public void Bind(IWidgetSurface surface) => _surface = surface;
 
     public void Attach(Ticker ticker, WidgetConfig config)
     {
@@ -715,9 +694,6 @@ internal sealed partial class ScratchpadView : Grid, IWidgetView, IWidgetSurface
 
     private void OnSizeChanged(object sender, SizeChangedEventArgs args)
     {
-        _header.Visibility = ActualHeight >= Fluent.HeaderHidesBelow ? Visibility.Visible : Visibility.Collapsed;
-        _title.Text = ActualWidth < TitleHidesBelow ? string.Empty : _label;
-
         // The drawing is in pad units, so a resize is a re-plot, not a resample: this is the whole
         // reason the strokes are geometry.
         RenderAll();

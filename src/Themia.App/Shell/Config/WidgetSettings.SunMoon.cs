@@ -1,8 +1,6 @@
 using System.Globalization;
-using Microsoft.UI;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
-using Microsoft.UI.Xaml.Media;
 using Themia.Core.Model;
 
 namespace Themia.App.Shell.Config;
@@ -87,8 +85,8 @@ internal static partial class WidgetSettings
     /// <para>
     /// Deliberately not a <c>NumberBox</c> and not <c>double.TryParse</c> with a fallback: coercing
     /// unreadable input to 0 would quietly move the user to the Gulf of Guinea and then report
-    /// sunrise there as though nothing had happened. Bad input keeps the last good value, says so,
-    /// and writes nothing.
+    /// sunrise there as though nothing had happened. Bad input keeps the last good value, says so
+    /// on the same line under the box every other refused field uses, and writes nothing.
     /// </para>
     /// </summary>
     private static FrameworkElement CoordinateRow(
@@ -106,17 +104,7 @@ internal static partial class WidgetSettings
             HorizontalAlignment = HorizontalAlignment.Right,
         };
 
-        var error = new TextBlock
-        {
-            FontSize = 12,
-            Visibility = Visibility.Collapsed,
-            HorizontalAlignment = HorizontalAlignment.Right,
-            Foreground = SunMoonThemeBrush("SystemFillColorCriticalBrush", Colors.Crimson),
-            Text = $"Enter a number between {FormatCoordinate(minimum)} and {FormatCoordinate(maximum)}",
-            TextWrapping = TextWrapping.Wrap,
-        };
-
-        var control = new StackPanel { Spacing = 4, Children = { box, error } };
+        var verdict = FluentLayout.Verdict();
 
         void Commit()
         {
@@ -127,15 +115,17 @@ internal static partial class WidgetSettings
                 && value >= minimum
                 && value <= maximum)
             {
-                error.Visibility = Visibility.Collapsed;
+                FluentLayout.Confirm(verdict, string.Empty);
                 box.Text = FormatCoordinate(value);
                 onChanged(value);
                 return;
             }
 
-            // Reject: keep the setting where it was, and leave what was typed on screen next to the
+            // Refused: keep the setting where it was, and leave what was typed on screen next to the
             // reason, so the user can correct it rather than hunt for what changed.
-            error.Visibility = Visibility.Visible;
+            FluentLayout.Refuse(
+                verdict,
+                $"Enter a number between {FormatCoordinate(minimum)} and {FormatCoordinate(maximum)}");
         }
 
         box.LostFocus += (_, _) => Commit();
@@ -149,13 +139,8 @@ internal static partial class WidgetSettings
             }
         };
 
-        return FluentLayout.Row(Glyphs.Grid, title, description, control);
+        return FluentLayout.FieldRow(Glyphs.Grid, title, description, box, verdict);
     }
 
     private static string FormatCoordinate(double value) => value.ToString("0.####", CultureInfo.InvariantCulture);
-
-    private static Brush SunMoonThemeBrush(string key, Windows.UI.Color fallback)
-        => Application.Current.Resources.TryGetValue(key, out var value) && value is Brush brush
-            ? brush
-            : new SolidColorBrush(fallback);
 }

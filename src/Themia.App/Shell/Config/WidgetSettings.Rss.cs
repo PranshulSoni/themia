@@ -1,4 +1,3 @@
-using Microsoft.UI;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Themia.Core.Model;
@@ -7,10 +6,22 @@ using Windows.System;
 
 namespace Themia.App.Shell.Config;
 
+/// <summary>
+/// The Rss widget's settings rows.
+/// <para>
+/// The address box is the trust boundary on this page: whatever is typed is fetched on every tick,
+/// so it is checked by <see cref="WebInput"/> before it is written and the reason it was refused is
+/// shown under the box rather than swallowed. It is never repaired into something that works.
+/// </para>
+/// </summary>
 internal static partial class WidgetSettings
 {
     public static void Rss(List<FrameworkElement> rows, RssConfig config, Action save)
     {
+        ArgumentNullException.ThrowIfNull(rows);
+        ArgumentNullException.ThrowIfNull(config);
+        ArgumentNullException.ThrowIfNull(save);
+
         rows.Add(FluentLayout.Header("Feed"));
 
         var address = new TextBox
@@ -21,13 +32,7 @@ internal static partial class WidgetSettings
             PlaceholderText = "https://example.com/feed.xml",
         };
 
-        var problem = new TextBlock
-        {
-            FontSize = 12,
-            TextWrapping = TextWrapping.Wrap,
-            Visibility = Visibility.Collapsed,
-            Foreground = FluentLayout.Themed("SystemFillColorCriticalBrush", Colors.IndianRed),
-        };
+        var verdict = FluentLayout.Verdict();
 
         void Commit()
         {
@@ -46,16 +51,17 @@ internal static partial class WidgetSettings
             // something the settings do not say.
             if (typed.Length > 0 && !checkedUrl.IsValid)
             {
-                problem.Text = WebInput.Explain(checkedUrl.Problem);
-                problem.Visibility = Visibility.Visible;
+                FluentLayout.Refuse(verdict, WebInput.Explain(checkedUrl.Problem));
                 return;
             }
 
-            problem.Visibility = Visibility.Collapsed;
+            FluentLayout.Confirm(verdict, string.Empty);
             config.FeedUrl = typed;
             save();
         }
 
+        // On commit, not per keystroke: a URL is only ever valid once it has been fully typed, so
+        // validating each character would spend the whole time saying it is wrong.
         address.KeyDown += (_, args) =>
         {
             if (args.Key == VirtualKey.Enter)
@@ -67,8 +73,8 @@ internal static partial class WidgetSettings
 
         address.LostFocus += (_, _) => Commit();
 
-        rows.Add(FluentLayout.Row(Glyphs.Link, "Address", "An RSS or Atom feed, http or https",
-            new StackPanel { Spacing = 4, Children = { address, problem } }));
+        rows.Add(FluentLayout.FieldRow(Glyphs.Link, "Address",
+            "An RSS or Atom feed, http or https", address, verdict));
 
         var title = new TextBox { Text = config.Title, Width = 200, PlaceholderText = "Optional" };
 
@@ -89,11 +95,6 @@ internal static partial class WidgetSettings
 
         rows.Add(FluentLayout.Header("Articles"));
 
-        rows.Add(FluentLayout.Row(Glyphs.Count, "Show at most",
-            "A display cap, not a fetch count: a feed that publishes ten can never fill fifty",
-            FluentLayout.Slider(config.EffectiveMaxItems, 5, 50, 1, string.Empty,
-                value => { config.MaxItems = (int)Math.Round(value); save(); })));
-
         rows.Add(FluentLayout.Row(Glyphs.Link, "Show source", "The site each article came from",
             FluentLayout.Toggle(config.ShowSource, value => { config.ShowSource = value; save(); })));
 
@@ -103,6 +104,11 @@ internal static partial class WidgetSettings
         rows.Add(FluentLayout.Row(Glyphs.Clock, "Show date", "How long ago it was published",
             FluentLayout.Toggle(config.ShowDate, value => { config.ShowDate = value; save(); })));
 
-        AddRefreshChoice(rows, config.RefreshMinutes, value => { config.RefreshMinutes = value; save(); });
+        rows.Add(FluentLayout.Row(Glyphs.Count, "Articles",
+            "How many the list holds. A display cap, not a fetch count: a feed that publishes ten can never fill fifty",
+            FluentLayout.Slider(config.EffectiveMaxItems, 5, 50, 1, string.Empty,
+                value => { config.MaxItems = (int)Math.Round(value); save(); })));
+
+        FluentLayout.RefreshChoice(rows, config.RefreshMinutes, value => { config.RefreshMinutes = value; save(); });
     }
 }

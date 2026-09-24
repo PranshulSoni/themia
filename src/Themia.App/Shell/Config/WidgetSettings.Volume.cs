@@ -15,11 +15,17 @@ internal static partial class WidgetSettings
 {
     public static void Volume(List<FrameworkElement> rows, VolumeConfig config, Action save)
     {
+        ArgumentNullException.ThrowIfNull(rows);
+        ArgumentNullException.ThrowIfNull(config);
+        ArgumentNullException.ThrowIfNull(save);
+
         rows.Add(FluentLayout.Header("Volume"));
 
         rows.Add(FluentLayout.Row(Glyphs.Sound, "Show the slider",
             "With it off the tile is a readout",
             FluentLayout.Toggle(config.ShowSlider, value => { config.ShowSlider = value; save(); })));
+
+        rows.Add(FluentLayout.Header("Behaviour"));
 
         // Named for what it does rather than "read-only": a desktop widget sits under the path of
         // every pointer on the screen, and somebody who wants a gauge and not a control should be
@@ -28,9 +34,7 @@ internal static partial class WidgetSettings
             "Let this tile move the system volume",
             FluentLayout.Toggle(config.AllowControl, value => { config.AllowControl = value; save(); })));
 
-        rows.Add(FluentLayout.Row(Glyphs.Timer, "Every",
-            "Seconds between reads of the output device",
-            FluentLayout.Slider(config.IntervalSeconds, 1, 30, 1, "s",
-                value => { config.IntervalSeconds = (int)Math.Round(value); save(); })));
+        FluentLayout.RefreshSeconds(rows, "the output device is read", config.IntervalSeconds, 1, 30, 1,
+            value => { config.IntervalSeconds = value; save(); });
     }
 }

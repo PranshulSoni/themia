@@ -65,8 +65,6 @@ internal sealed partial class MoodTrackerView : Grid, IWidgetView, IWidgetSurfac
 
     private const double StatsHideBelow = 160;
 
-    private readonly TextBlock _title = new() { Text = "Mood" };
-    private readonly Grid _header;
     private readonly Grid _picker = new();
     private readonly LevelButton[] _levels = new LevelButton[MoodRules.MaxLevel];
     private readonly Border _mapHost;
@@ -104,17 +102,12 @@ internal sealed partial class MoodTrackerView : Grid, IWidgetView, IWidgetSurfac
     public MoodTrackerView()
     {
         RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-        RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
         RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
 
-        _header = Fluent.Header(Glyphs.Mood, _title);
-        _header.Margin = Fluent.HeaderMargin;
-        SetRow(_header, 0);
-
         BuildPicker();
-        SetRow(_picker, 1);
+        SetRow(_picker, 0);
 
         _headers.HorizontalAlignment = HorizontalAlignment.Center;
         _cells.HorizontalAlignment = HorizontalAlignment.Center;
@@ -133,16 +126,15 @@ internal sealed partial class MoodTrackerView : Grid, IWidgetView, IWidgetSurfac
             Padding = WidgetLayout.SideInset,
         };
 
-        SetRow(_mapHost, 2);
+        SetRow(_mapHost, 1);
 
         BuildNote();
-        SetRow(_note, 3);
+        SetRow(_note, 2);
 
         _stats.Margin = new Thickness(Fluent.Space4, Fluent.Space1, Fluent.Space4, Fluent.Space4);
         _stats.TextAlignment = TextAlignment.Center;
-        SetRow(_stats, 4);
+        SetRow(_stats, 3);
 
-        Children.Add(_header);
         Children.Add(_picker);
         Children.Add(_mapHost);
         Children.Add(_note);
@@ -225,14 +217,7 @@ internal sealed partial class MoodTrackerView : Grid, IWidgetView, IWidgetSurfac
     }
 
     /// <inheritdoc />
-    public void Bind(IWidgetSurface surface)
-    {
-        _surface = surface;
-
-        _title.Text = string.IsNullOrWhiteSpace(surface.Label)
-            ? WidgetCatalog.Definition(WidgetKind.MoodTracker).Label
-            : surface.Label;
-    }
+    public void Bind(IWidgetSurface surface) => _surface = surface;
 
     public void Attach(Ticker ticker, WidgetConfig config)
     {
@@ -317,7 +302,6 @@ internal sealed partial class MoodTrackerView : Grid, IWidgetView, IWidgetSurfac
     {
         var height = ActualHeight;
 
-        _header.Visibility = height >= Fluent.HeaderHidesBelow ? Visibility.Visible : Visibility.Collapsed;
         _note.Visibility = _config.ShowNote && height >= NoteHidesBelow ? Visibility.Visible : Visibility.Collapsed;
         _stats.Visibility = _config.ShowStats && height >= StatsHideBelow ? Visibility.Visible : Visibility.Collapsed;
     }

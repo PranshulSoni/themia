@@ -39,7 +39,6 @@ internal sealed partial class MeterView : Grid, IWidgetView
     private const double BarHeight = Fluent.Space1;
 
     private readonly WidgetKind _kind;
-    private readonly TextBlock _title = new();
     private readonly TextBlock _primary = Fluent.Text(FluentType.Subtitle);
     private readonly TextBlock _secondary = Fluent.Text(FluentType.Caption, "TextFillColorTertiaryBrush");
     private readonly Grid _reading = new();
@@ -91,7 +90,6 @@ internal sealed partial class MeterView : Grid, IWidgetView
         _config = WidgetConfig.CreateDefault(kind);
 
         var definition = WidgetCatalog.Definition(kind);
-        _title.Text = definition.Label;
 
         _heroStep = FluentType.Subtitle;
         _captionStep = FluentType.Caption;
@@ -117,8 +115,6 @@ internal sealed partial class MeterView : Grid, IWidgetView
         // be read a moment ago, which is [S-82]'s dimmed "--" rather than an empty state.
         _absentState = kind == WidgetKind.Battery ? BuildAbsentState(definition.Glyph) : null;
 
-        var header = Fluent.Header(definition.Glyph, _title);
-
         // The reading on its own line, the sparkline below it. Drawing the trace *behind* the number
         // meant the graph read as decoration and the number was read against a moving background;
         // neither was easy to look at.
@@ -141,31 +137,27 @@ internal sealed partial class MeterView : Grid, IWidgetView
         // right-hand slots and the bottom half of the scale, so the tile read as mostly empty
         // with a number stranded at the top. The graph is a band of bounded height at the foot,
         // which is the proportion Windows gives a chart under a readout.
-        // Three rows, not four: the graph and the bar are alternatives - one is showing exactly
+        // Two rows, not three: the graph and the bar are alternatives - one is showing exactly
         // when the other is not - so they share the last row. As separate rows, the grid's row
         // spacing still sat between them, which put an 8px gap under a graph that is supposed to
         // reach the bottom edge of the card. A collapsed row has no height; it still has a gap.
-        RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
         RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
 
-        header.Margin = new Thickness(Fluent.Space4, Fluent.Space4, Fluent.Space4, 0);
-        Grid.SetRow(header, 0);
         _reading.VerticalAlignment = VerticalAlignment.Center;
         _reading.Margin = WidgetLayout.SideInset;
-        Grid.SetRow(_reading, 1);
-        Grid.SetRow(_sparkHost, 2);
-        Grid.SetRow(_bar, 2);
+        Grid.SetRow(_reading, 0);
+        Grid.SetRow(_sparkHost, 1);
+        Grid.SetRow(_bar, 1);
 
-        Children.Add(header);
         Children.Add(_reading);
         Children.Add(_sparkHost);
         Children.Add(_bar);
 
         if (_absentState is not null)
         {
-            // The star row, so the empty state is centred in what is left under the header.
-            Grid.SetRow(_absentState, 1);
+            // The star row, so the empty state is centred in what the graph leaves.
+            Grid.SetRow(_absentState, 0);
             Children.Add(_absentState);
         }
 
@@ -227,9 +219,9 @@ internal sealed partial class MeterView : Grid, IWidgetView
     }
 
     /// <summary>
-    /// Step the readout to the tile. The reading is the only thing that grows: the header and the
-    /// caption stay where Fluent puts them, because a meter whose label is as big as its value reads
-    /// as two headlines.
+    /// Step the readout to the tile. The reading is the only thing that grows: the caption stays
+    /// where Fluent puts it, because a meter whose label is as big as its value reads as two
+    /// headlines.
     /// <para>
     /// A step, not a fraction of the tile. The reading moves Subtitle → Title → TitleLarge → Display
     /// as the tile grows and stops there: the ramp is where Windows stops having anything larger to
@@ -249,10 +241,10 @@ internal sealed partial class MeterView : Grid, IWidgetView
         var band = Math.Clamp(height * SparklineShare, SparklineHeight, SparklineMaxHeight);
         _sparkHost.Height = band;
 
-        // What is left for the reading once the header line, the two gaps above and below it, and
-        // whichever of the graph and the bar is showing have had their fixed share.
-        var reserved = FluentType.BodyStrong.LineHeight
-            + (Fluent.Space2 * 2)
+        // What is left for the reading once the gap below it and whichever of the graph and the bar
+        // is showing have had their fixed share. The header is the card's now and sits outside this
+        // box, so it no longer takes anything out of it.
+        var reserved = Fluent.Space2
             + (_sparkHost.Visibility == Visibility.Visible ? band : BarHeight);
 
         // The caption shares the line with the reading, so the reading gets at most half of it.
@@ -266,7 +258,7 @@ internal sealed partial class MeterView : Grid, IWidgetView
             ReadingCharacters(_kind));
 
         // Never below Subtitle: the reading is the point of the tile and must not end up smaller
-        // than the header above it.
+        // than the card's own header label.
         if (hero.FontSize < FluentType.Subtitle.FontSize)
         {
             hero = FluentType.Subtitle;

@@ -11,6 +11,10 @@ internal static partial class WidgetSettings
 {
     public static void Power(List<FrameworkElement> rows, PowerConfig config, Action save)
     {
+        ArgumentNullException.ThrowIfNull(rows);
+        ArgumentNullException.ThrowIfNull(config);
+        ArgumentNullException.ThrowIfNull(save);
+
         rows.Add(FluentLayout.Header("Power"));
 
         rows.Add(FluentLayout.Row(Glyphs.Pomodoro, "Show the power plan",
@@ -25,9 +29,7 @@ internal static partial class WidgetSettings
             "Windows only estimates this while on battery",
             FluentLayout.Toggle(config.ShowTimeRemaining, value => { config.ShowTimeRemaining = value; save(); })));
 
-        rows.Add(FluentLayout.Row(Glyphs.Motion, "Every",
-            "Seconds between reads",
-            FluentLayout.Slider(config.IntervalSeconds, 5, 300, 5, "s",
-                value => { config.IntervalSeconds = (int)Math.Round(value); save(); })));
+        FluentLayout.RefreshSeconds(rows, "the power state is read", config.IntervalSeconds, 5, 300, 5,
+            value => { config.IntervalSeconds = value; save(); });
     }
 }

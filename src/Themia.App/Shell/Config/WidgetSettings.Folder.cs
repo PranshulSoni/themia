@@ -1,7 +1,5 @@
-using Microsoft.UI;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
-using Microsoft.UI.Xaml.Input;
 using Themia.App.Interop;
 using Themia.App.Services;
 using Themia.App.Widgets;
@@ -27,14 +25,13 @@ internal static partial class WidgetSettings
 
     public static void Folder(List<FrameworkElement> rows, FolderConfig config, Action save)
     {
+        ArgumentNullException.ThrowIfNull(rows);
+        ArgumentNullException.ThrowIfNull(config);
+        ArgumentNullException.ThrowIfNull(save);
+
         rows.Add(FluentLayout.Header("Folder"));
 
-        var status = new TextBlock
-        {
-            FontSize = 12,
-            TextWrapping = TextWrapping.Wrap,
-            Margin = new Thickness(Fluent.Space4, Fluent.Space1, Fluent.Space4, 0),
-        };
+        var verdict = FluentLayout.Verdict();
 
         var box = new TextBox
         {
@@ -62,7 +59,7 @@ internal static partial class WidgetSettings
                 save();
             }
 
-            ShowStatus(status, config, typed, result);
+            ShowFolderVerdict(verdict, config, typed, result);
         }
 
         // On commit, not per keystroke: a path is only ever valid once it has been fully typed, so
@@ -80,21 +77,19 @@ internal static partial class WidgetSettings
 
         browse.Click += (_, _) => _ = BrowseAsync(box, Commit);
 
-        ShowStatus(status, config, config.Path, FolderPath.Resolve(config.Path, string.Empty));
+        ShowFolderVerdict(verdict, config, config.Path, FolderPath.Resolve(config.Path, string.Empty));
 
-        var picker = new StackPanel
-        {
-            Orientation = Orientation.Horizontal,
-            Spacing = Fluent.Space2,
-            Children = { box, browse },
-        };
+        rows.Add(FluentLayout.FieldRow(Glyphs.Folder, "Folder",
+            "Which folder to list. Leave it empty for your user folder",
+            new StackPanel
+            {
+                Orientation = Orientation.Horizontal,
+                Spacing = Fluent.Space2,
+                Children = { box, browse },
+            },
+            verdict));
 
-        rows.Add(FluentLayout.Row(Glyphs.Folder, "Folder",
-            "Which folder to list. Leave it empty for your user folder.", picker));
-
-        rows.Add(status);
-
-        rows.Add(FluentLayout.Row(Glyphs.Sort, "Sort by", null,
+        rows.Add(FluentLayout.Row(Glyphs.Sort, "Sort by", "Which column the list is ordered on",
             FluentLayout.Choice(
                 [(FolderSort.Name, "Name"), (FolderSort.Modified, "Date modified"), (FolderSort.Size, "Size")],
                 config.Sort,
@@ -115,7 +110,7 @@ internal static partial class WidgetSettings
             "Hidden automatically when the widget is too narrow for it",
             FluentLayout.Toggle(config.ShowDetail, value => { config.ShowDetail = value; save(); })));
 
-        rows.Add(FluentLayout.Row(Glyphs.Count, "Items", "How many entries the list shows",
+        rows.Add(FluentLayout.Row(Glyphs.Count, "Items", "How many the list holds; a short widget shows fewer",
             FluentLayout.Slider(config.EffectiveMaxCount, 1, 100, 1, string.Empty,
                 value => { config.MaxCount = (int)Math.Round(value); save(); })));
 
@@ -140,25 +135,22 @@ internal static partial class WidgetSettings
     /// that looks accepted but silently lists somewhere else is the failure this whole check exists
     /// to prevent.
     /// </summary>
-    private static void ShowStatus(TextBlock status, FolderConfig config, string typed, FolderPathResult result)
+    private static void ShowFolderVerdict(TextBlock verdict, FolderConfig config, string typed, FolderPathResult result)
     {
         if (typed.Trim().Length == 0)
         {
-            status.Text = $"Empty: listing {ProfilePlaceholder()}";
-            status.Foreground = FluentLayout.Themed("TextFillColorTertiaryBrush", Colors.Gray);
+            FluentLayout.Confirm(verdict, $"Empty: listing {ProfilePlaceholder()}");
             return;
         }
 
         if (result.IsValid)
         {
-            status.Text = $"Listing {FolderPath.DisplayName(config.Path)}";
-            status.Foreground = FluentLayout.Themed("TextFillColorTertiaryBrush", Colors.Gray);
+            FluentLayout.Confirm(verdict, $"Listing {FolderPath.DisplayName(config.Path)}");
             return;
         }
 
         // Refused, and the box keeps what was typed so it can be corrected rather than retyped.
-        status.Text = FolderFormatting.PathMessage(result.Problem);
-        status.Foreground = FluentLayout.Themed("SystemFillColorCriticalBrush", Colors.Red);
+        FluentLayout.Refuse(verdict, FolderFormatting.PathMessage(result.Problem));
     }
 
     /// <summary>

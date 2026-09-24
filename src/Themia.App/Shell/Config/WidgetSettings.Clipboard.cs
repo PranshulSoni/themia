@@ -1,7 +1,6 @@
 using Microsoft.UI;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
-using Themia.App.Widgets;
 using Themia.Core.Model;
 using Themia.Core.Widgets;
 
@@ -27,21 +26,19 @@ internal static partial class WidgetSettings
 
         rows.Add(FluentLayout.Header("Clipboard"));
 
-        rows.Add(new TextBlock
-        {
-            Text = "This widget keeps copied text in memory only, for as long as the app is running. "
-                + "Nothing is written to disk, and copied files and images are never read. "
-                + "Closing Themia forgets the lot.",
-            FontSize = 12,
-            TextWrapping = TextWrapping.Wrap,
-            Foreground = FluentLayout.Themed("TextFillColorTertiaryBrush", Colors.Gray),
-            Margin = new Thickness(Fluent.Space4, Fluent.Space1, Fluent.Space4, Fluent.Space2),
-        });
+        rows.Add(FluentLayout.Note(
+            "This widget keeps copied text in memory only, for as long as the app is running. "
+            + "Nothing is written to disk, and copied files and images are never read. "
+            + "Closing Themia forgets the lot."));
+
+        rows.Add(FluentLayout.Row(Glyphs.Clock, "Show when it was copied",
+            "Hidden automatically when the widget is too narrow",
+            FluentLayout.Toggle(config.ShowTimestamp, value => { config.ShowTimestamp = value; save(); })));
 
         // The one setting here that genuinely changes exposure, so it says so: fewer entries kept
         // is less sitting in memory.
         rows.Add(FluentLayout.Row(Glyphs.Count, "Entries",
-            "How much history to keep. Lowering it forgets the oldest straight away",
+            "How many the list holds. Lowering it forgets the oldest straight away",
             FluentLayout.Slider(
                 config.EffectiveCapacity,
                 ClipboardHistory.MinCapacity,
@@ -50,12 +47,13 @@ internal static partial class WidgetSettings
                 string.Empty,
                 value => { config.Capacity = (int)Math.Round(value); save(); })));
 
-        rows.Add(FluentLayout.Row(Glyphs.Clock, "Show when it was copied",
-            "Hidden automatically when the widget is too narrow",
-            FluentLayout.Toggle(config.ShowTimestamp, value => { config.ShowTimestamp = value; save(); })));
-
-        rows.Add(FluentLayout.Row(Glyphs.Delete, "Clear history",
-            "Use the bin button on the widget itself; it asks first", new TextBlock
+        // A signpost rather than a second button. Clearing lives on the widget, behind the same
+        // confirmation every destructive action in the app uses, and two ways to destroy the same
+        // thing is one too many. It is still marked as a danger row so it lands with the rest of
+        // them at the bottom of the page, where somebody looking for it will look.
+        rows.Add(FluentLayout.DangerRow(Glyphs.Clear, "Clear history",
+            "Use the bin button on the widget itself; it asks first",
+            new TextBlock
             {
                 Text = "On the widget",
                 FontSize = 12,

@@ -4,11 +4,14 @@ A minimal native rebuild of [Themia](https://github.com/crazy-rabbit-software/th
 widget app — on **WinUI 3 / .NET 10, compiled ahead of time**. The point of the exercise is the
 runtime cost: no web view, no JavaScript engine, no JIT.
 
-It is a slice of the catalogue, not all of it: **seventeen widgets** — clock, CPU, memory, disk,
-battery, network, ping, processes, mail, calendar, tasks, contacts, notes, countdown, pomodoro,
-calculator and sun &amp; moon — plus all the machinery: edit mode, drag and resize, snapping, the widget
+**Thirty-six widgets and three containers**, which is everything in the original that does not need
+an account or an API token — plus all the machinery: edit mode, drag and resize, snapping, the widget
 picker, per-widget settings, views, per-display view assignment, copy / cut / paste, dragging a
 widget onto another display, a tray icon, and persistence.
+
+Left out on purpose: the GitHub widgets and Claude usage (they need a token), OneDrive (an account),
+and two that need a browser engine this app does not have — a page-element scraper and an MJPEG
+camera feed.
 
 ![the clock widget in edit mode](docs/edit-mode.png)
 
@@ -18,7 +21,7 @@ Measured on this machine (Windows 11, 3840x2160 at 150%, two displays), one cloc
 
 | | |
 |---|---|
-| Executable | **10.3 MB** single native binary |
+| Executable | **18.7 MB** single native binary |
 | Managed DLLs shipped | **0** — no CoreCLR, no `System.*.dll` |
 | Working set | **~95 MB** across two displays |
 | Idle CPU | **~0.3% of one core** |
@@ -131,9 +134,8 @@ are excluded, which they must be, because Show Desktop cannot hide one anyway (`
 
 These are choices or known platform limits, not oversights:
 
-- **Seventeen widget types**, out of the original's fifty-odd. The registry (`WidgetCatalog`) and the
-  persisted discriminator (`WidgetKind`) are built for more; adding one is an enum member, a config,
-  a catalogue entry, a view and a settings section.
+- **No account-backed widgets** beyond what the hearth hub already provides. Nothing here asks for a
+  token, and nothing stores a credential.
 - **Notes is the plain-text core of the original**, not the whole widget: one note, stored in the
   widget's own config. No markdown, no multi-note store, no sync.
 - **Pomodoro has one alarm cue**, not the original's twelve ringtones and a volume slider.

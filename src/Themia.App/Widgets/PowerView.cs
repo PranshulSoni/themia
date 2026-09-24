@@ -42,11 +42,9 @@ internal sealed partial class PowerView : Grid, IWidgetView
     private static readonly string PlanGlyph = From(0xE945);   // Lightning
     private static readonly string SaverGlyph = From(0xEBC0);  // BatterySaver
 
-    private readonly TextBlock _title = new();
     private readonly TextBlock _readout = Fluent.Text(FluentType.Subtitle);
     private readonly TextBlock _caption = Fluent.Text(FluentType.Caption, "TextFillColorTertiaryBrush");
     private readonly Grid _reading = new();
-    private readonly Grid _header;
     private readonly StackPanel _list = new() { Spacing = 0 };
     private readonly StackPanel _empty;
 
@@ -70,16 +68,10 @@ internal sealed partial class PowerView : Grid, IWidgetView
 
     public PowerView()
     {
-        RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
         RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
 
         var definition = WidgetCatalog.Definition(WidgetKind.Power);
-        _title.Text = definition.Label;
-
-        _header = Fluent.Header(definition.Glyph, _title);
-        _header.Margin = Fluent.HeaderMargin;
-        SetRow(_header, 0);
 
         _readout.Text = "--";
         _readout.Foreground = _readingBrush;
@@ -100,7 +92,6 @@ internal sealed partial class PowerView : Grid, IWidgetView
         SetColumn(_caption, 1);
         _reading.Children.Add(_readout);
         _reading.Children.Add(_caption);
-        SetRow(_reading, 1);
 
         _source = BuildRow(definition.Glyph, "Source");
         _plan = BuildRow(PlanGlyph, "Plan");
@@ -110,14 +101,12 @@ internal sealed partial class PowerView : Grid, IWidgetView
         _list.Children.Add(_source.Root);
         _list.Children.Add(_saver.Root);
         _list.Margin = WidgetLayout.ListInset;
-        SetRow(_list, 2);
+        SetRow(_list, 1);
 
         var message = new TextBlock { Text = PowerRules.UnreadableMessage };
         _empty = Fluent.EmptyState(definition.Glyph, message, out _);
         _empty.Visibility = Visibility.Collapsed;
-        SetRow(_empty, 1);
 
-        Children.Add(_header);
         Children.Add(_reading);
         Children.Add(_list);
         Children.Add(_empty);
@@ -270,9 +259,6 @@ internal sealed partial class PowerView : Grid, IWidgetView
         var width = ActualWidth;
         var height = ActualHeight;
 
-        var showHeader = height <= 0 || height >= Fluent.HeaderHidesBelow;
-        _header.Visibility = showHeader ? Visibility.Visible : Visibility.Collapsed;
-
         var compact = height > 0 && height < Fluent.CompactBelow;
         var rowHeight = compact ? Fluent.RowHeightCompact : Fluent.RowHeight;
 
@@ -299,9 +285,9 @@ internal sealed partial class PowerView : Grid, IWidgetView
             wanted.Add(Fact.Saver);
         }
 
-        // What is left under the header once the readout has its floor. The rows give way to the
-        // number rather than the other way round: the number is what the tile is read for.
-        var chrome = (showHeader ? FluentType.BodyStrong.LineHeight + Fluent.Space4 + Fluent.Space2 : Fluent.Space4)
+        // What is left once the readout has its floor. The rows give way to the number rather than
+        // the other way round: the number is what the tile is read for.
+        var chrome = Fluent.Space4
             + FluentType.Subtitle.LineHeight
             + Fluent.Space4;
 
@@ -343,9 +329,7 @@ internal sealed partial class PowerView : Grid, IWidgetView
     {
         var width = ActualWidth - (Fluent.Space4 * 2);
 
-        var chrome = (_header.Visibility == Visibility.Visible
-                ? FluentType.BodyStrong.LineHeight + Fluent.Space4 + Fluent.Space2
-                : Fluent.Space4)
+        var chrome = Fluent.Space4
             + rowsHeight
             + Fluent.Space4;
 

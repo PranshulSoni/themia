@@ -392,8 +392,9 @@ Owning files: `Themia.Core/Geometry/*`, `Themia.Core/Model/*`, `Themia.Core/Stor
   local value, so the field would light up solid on hover.
 - **[S-130]** "Clear notes" confirms in a dialog. The text is unrecoverable, so one click is not
   enough, and failing to show the dialog leaves the note alone.
-- **[S-131]** Both widgets drop their header under roughly 90 DIPs of height, and the calculator
-  drops its history under 120, so a small tile shows the thing being typed rather than clipped rows.
+- **[S-131]** The calculator drops its history under 120 DIPs of height, so a small tile shows the
+  sum being typed rather than two clipped rows above it. The header rule that used to live here is
+  the card's now ([S-402]) — every widget had reached the same conclusion with its own threshold.
 
 ## Countdown and pomodoro
 
@@ -554,3 +555,53 @@ Owning files: `Themia.Core/Geometry/*`, `Themia.Core/Model/*`, `Themia.Core/Stor
 - **[S-216]** A meter whose history moves slower than its window can fill draws no graph by default.
   Free space sampled once a minute is a bare sliver for most of an hour and a flat line for the rest;
   the bar says the same thing immediately. The setting stays, for a drive that really is filling up.
+
+## The widget header
+
+- **[S-400]** The header belongs to the **card**, not to the widget. One builder means one look; the
+  alternative was thirty-odd widgets each with their own chance to disagree about its margin, its
+  shedding threshold and its title — and nowhere to put a setting like "draw it at the bottom" that
+  every one of them would have had to honour.
+- **[S-400a]** The card knows the icon (the catalogue has it) and the title (the instance has it).
+  The only thing it cannot know is what goes on the right — a badge, a count, a busy ring — so that
+  is the whole of what a view contributes, through `IWidgetHeaderContent`. It is read **once**, when
+  the header is built, so the element has to exist by then.
+- **[S-401]** Header placement is per widget: top, bottom, or hidden. Switching it moves a row index,
+  not a rebuild, so it costs nothing and cannot restart what the widget is doing.
+- **[S-402]** The header sheds on a tile too short to carry it, **once**, in the card. Every widget
+  had independently drawn that conclusion with a slightly different threshold.
+- **[S-403]** The title is the user's own when they set one, otherwise the catalogue's. A widget has
+  no say in it: a view that wants to label itself differently is a view that has drifted.
+
+## Containers
+
+- **[S-410]** Group, Stack and Tabs hold other widgets. Membership is a `ParentId` on the child, never
+  a list of children on the container, so a widget cannot be in two containers at once and a
+  container cannot name a child that has been deleted.
+- **[S-411]** A **group** does not lay its children out. They keep the place on the grid the user
+  chose and the group draws behind them, which is why dropping a widget into a group does not move
+  it. A **stack** and a **tab strip** own their children's geometry outright.
+- **[S-411a]** Neither ever writes back to a child's stored rect, so a widget taken out of one
+  returns to exactly the place it had before it went in.
+- **[S-412]** A container does not create its children — the surface does, exactly as it creates
+  every other card. A widget inside a stack is the same object with the same lifetime as one on the
+  desktop, so nothing has to be special-cased to keep it ticking, and nothing restarts when it moves.
+- **[S-413]** A group collapses by **hiding** its children, never by rearranging them, so expanding
+  puts every one back where it was.
+- **[S-414]** A closed stack row and an unselected tab **collapse** their child rather than merely
+  covering it: a widget nobody can see should not be measuring itself on every layout pass.
+- **[S-415]** A group is moved to the back of the widget layer, because the layer paints in child
+  order and a group added after its members would cover them.
+- **[S-416]** "Move into" is built from what the tree will actually accept, not from every container
+  on the desktop. An option that refuses itself when clicked is worse than no option.
+- **[S-417]** Deleting a container **keeps** its children and hands them to whatever held it.
+  Removing the box is not removing the things in it, and the alternative is a dozen widgets gone on
+  one click on a surface with no undo.
+- **[S-418]** A container cannot be put inside itself or inside its own descendant — that detaches a
+  branch into a ring nothing can reach and no layout pass terminates on — and a branch is measured by
+  its own height when it moves, because it moves as a whole. Nesting stops at a depth.
+- **[S-419]** The state file can name a parent that is gone, a parent that is not a container, or a
+  cycle: none of which the UI can produce, all of which a hand edit or a partial write can leave
+  behind. Loading repairs each to a widget on the desktop — a state the layout can always draw — and
+  says how many rather than repairing silently. Membership is repaired **last**, after ids are known
+  unique, because the tree is walked by id.

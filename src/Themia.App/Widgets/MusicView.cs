@@ -57,9 +57,6 @@ internal sealed partial class MusicView : Grid, IWidgetView
     private static readonly string PreviousGlyph = From(0xE892);
     private static readonly string NextGlyph = From(0xE893);
 
-    private readonly TextBlock _title = new();
-    private readonly Grid _header;
-
     private readonly Border _artHost;
     private readonly Image _art = new();
     private readonly FontIcon _artPlaceholder;
@@ -104,16 +101,10 @@ internal sealed partial class MusicView : Grid, IWidgetView
 
     public MusicView()
     {
-        RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
         RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
 
         var definition = WidgetCatalog.Definition(WidgetKind.Music);
-        _title.Text = definition.Label;
-
-        _header = Fluent.Header(definition.Glyph, _title);
-        _header.Margin = Fluent.HeaderMargin;
-        SetRow(_header, 0);
 
         _artPlaceholder = BuildArtPlaceholder(definition.Glyph);
         _artHost = BuildArt(_artPlaceholder, _art);
@@ -146,16 +137,13 @@ internal sealed partial class MusicView : Grid, IWidgetView
         _body.Children.Add(_artHost);
         _body.Children.Add(lines);
         _body.Children.Add(_transport);
-        SetRow(_body, 1);
 
         BuildFooter();
 
         _emptyMessage.Text = MusicRules.StatusMessage(MusicState.Loading);
         _empty = Fluent.EmptyState(definition.Glyph, _emptyMessage, out _);
         _empty.Visibility = Visibility.Collapsed;
-        SetRow(_empty, 1);
 
-        Children.Add(_header);
         Children.Add(_body);
         Children.Add(_empty);
 
@@ -262,7 +250,7 @@ internal sealed partial class MusicView : Grid, IWidgetView
         _times.Children.Add(_total);
 
         var footer = new StackPanel { Spacing = 0, Children = { _times, _progress } };
-        SetRow(footer, 2);
+        SetRow(footer, 1);
         Children.Add(footer);
     }
 
@@ -615,17 +603,14 @@ internal sealed partial class MusicView : Grid, IWidgetView
     /// What fits, and at what step.
     /// <para>
     /// The parts drop in the order they stop being worth their space: first the art, then the time
-    /// labels, then the transport, then the header. The title never drops — it is what the tile is
-    /// for — and it steps the ramp rather than being scaled to the tile.
+    /// labels, then the transport. The title never drops — it is what the tile is for — and it
+    /// steps the ramp rather than being scaled to the tile.
     /// </para>
     /// </summary>
     private void ApplyLayout()
     {
         var width = ActualWidth;
         var height = ActualHeight;
-
-        var showHeader = height <= 0 || height >= Fluent.HeaderHidesBelow;
-        _header.Visibility = showHeader ? Visibility.Visible : Visibility.Collapsed;
 
         var showArt = _config.ShowAlbumArt && (width <= 0 || width >= ArtMinimumWidth);
         _artHost.Visibility = showArt ? Visibility.Visible : Visibility.Collapsed;
@@ -677,7 +662,7 @@ internal sealed partial class MusicView : Grid, IWidgetView
         // has rather than against the string in it: fitting to the live title would change the
         // type size on every track.
         var room = ActualHeight
-            - (_header.Visibility == Visibility.Visible ? FluentType.BodyStrong.LineHeight + Fluent.Space6 : Fluent.Space4)
+            - Fluent.Space4
             - (_progress.Visibility == Visibility.Visible ? Fluent.Space4 : 0)
             - (_times.Visibility == Visibility.Visible ? FluentType.Caption.LineHeight + Fluent.Space2 : 0);
 

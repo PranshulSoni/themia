@@ -32,8 +32,6 @@ internal sealed partial class CountdownView : Grid, IWidgetView
 
     private const double CompactHeight = 170;
 
-    private readonly TextBlock _title = new() { Text = "Countdowns", TextTrimming = TextTrimming.CharacterEllipsis };
-    private readonly Grid _header;
     private readonly StackPanel _list = new() { Spacing = 0 };
     private readonly ScrollViewer _scroll;
     private readonly TextBlock _empty = Fluent.Text(FluentType.Body, "TextFillColorTertiaryBrush");
@@ -47,11 +45,7 @@ internal sealed partial class CountdownView : Grid, IWidgetView
 
     public CountdownView()
     {
-        RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
-
-        _header = Fluent.Header(Glyphs.Countdown, _title);
-        Grid.SetRow(_header, 0);
 
         _scroll = new ScrollViewer
         {
@@ -64,7 +58,7 @@ internal sealed partial class CountdownView : Grid, IWidgetView
             VerticalScrollBarVisibility = ScrollBarVisibility.Hidden,
         };
 
-        Grid.SetRow(_scroll, 1);
+        Grid.SetRow(_scroll, 0);
 
         // [C-02] Says what to do about it, rather than just that there is nothing.
         _empty.Text = "No timers.\nAdd one in this widget's settings.";
@@ -75,9 +69,8 @@ internal sealed partial class CountdownView : Grid, IWidgetView
         _empty.Padding = WidgetLayout.SideInset;
         _empty.Visibility = Visibility.Collapsed;
 
-        Grid.SetRow(_empty, 1);
+        Grid.SetRow(_empty, 0);
 
-        Children.Add(_header);
         Children.Add(_scroll);
         Children.Add(_empty);
 
@@ -170,7 +163,7 @@ internal sealed partial class CountdownView : Grid, IWidgetView
     }
 
     /// <summary>
-    /// Pick the row density for this tile, and shed the header when there is no room above the list.
+    /// Pick the row density for this tile.
     /// <para>
     /// This is the whole of the widget's responsiveness, and deliberately so: the type is the ramp's
     /// list-row steps at every size, because a Windows list does not grow its text with the window —
@@ -185,16 +178,6 @@ internal sealed partial class CountdownView : Grid, IWidgetView
         var measured = width > 0 && height > 0;
 
         _compact = measured && (width < CompactWidth || height < CompactHeight);
-
-        // Under Fluent's header floor there is no room for a header above the list, so it sheds.
-        _header.Visibility = !measured || height >= Fluent.HeaderHidesBelow
-            ? Visibility.Visible
-            : Visibility.Collapsed;
-        _header.Margin = new Thickness(
-            Fluent.Space4,
-            _compact ? Fluent.Space2 : Fluent.Space4,
-            Fluent.Space4,
-            Fluent.Space1);
 
         foreach (var row in _rows)
         {

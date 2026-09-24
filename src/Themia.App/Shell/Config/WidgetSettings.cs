@@ -19,6 +19,10 @@ internal static partial class WidgetSettings
 {
     public static void Clock(List<FrameworkElement> rows, ClockConfig clock, Action save)
     {
+        ArgumentNullException.ThrowIfNull(rows);
+        ArgumentNullException.ThrowIfNull(clock);
+        ArgumentNullException.ThrowIfNull(save);
+
         rows.Add(FluentLayout.Header("Clock"));
 
         rows.Add(FluentLayout.Row(Glyphs.Clock, "Face", "Digital readout or a sweeping analog dial",
@@ -40,12 +44,20 @@ internal static partial class WidgetSettings
 
     public static void Gauge(List<FrameworkElement> rows, GaugeConfig gauge, Action save)
     {
+        ArgumentNullException.ThrowIfNull(rows);
+        ArgumentNullException.ThrowIfNull(gauge);
+        ArgumentNullException.ThrowIfNull(save);
+
         rows.Add(FluentLayout.Header("Meter"));
         AddGraphToggle(rows, gauge, save);
     }
 
     public static void Disk(List<FrameworkElement> rows, DiskConfig disk, Action save)
     {
+        ArgumentNullException.ThrowIfNull(rows);
+        ArgumentNullException.ThrowIfNull(disk);
+        ArgumentNullException.ThrowIfNull(save);
+
         rows.Add(FluentLayout.Header("Disk"));
 
         var drives = SystemMetrics.FixedDrives();
@@ -80,6 +92,10 @@ internal static partial class WidgetSettings
 
     public static void Battery(List<FrameworkElement> rows, BatteryConfig battery, Action save)
     {
+        ArgumentNullException.ThrowIfNull(rows);
+        ArgumentNullException.ThrowIfNull(battery);
+        ArgumentNullException.ThrowIfNull(save);
+
         rows.Add(FluentLayout.Header("Battery"));
 
         rows.Add(FluentLayout.Row(Glyphs.Timer, "Show time remaining",
@@ -89,6 +105,10 @@ internal static partial class WidgetSettings
 
     public static void Email(List<FrameworkElement> rows, EmailConfig email, Action save)
     {
+        ArgumentNullException.ThrowIfNull(rows);
+        ArgumentNullException.ThrowIfNull(email);
+        ArgumentNullException.ThrowIfNull(save);
+
         rows.Add(FluentLayout.Header("Mail"));
 
         var mail = AppServices.Hub;
@@ -138,12 +158,14 @@ internal static partial class WidgetSettings
         rows.Add(FluentLayout.Row(Glyphs.Unread, "Unread only", null,
             FluentLayout.Toggle(email.UnreadOnly, value => { email.UnreadOnly = value; save(); })));
 
-        rows.Add(FluentLayout.Row(Glyphs.Count, "Messages", null,
+        rows.Add(FluentLayout.Row(Glyphs.Preview, "Show preview", "The first line of the message",
+            FluentLayout.Toggle(email.ShowPreview, value => { email.ShowPreview = value; save(); })));
+
+        rows.Add(FluentLayout.Row(Glyphs.Count, "Messages",
+            "How many the list holds; a short widget shows fewer",
             FluentLayout.Slider(email.EffectiveMaxCount, 1, 50, 1, string.Empty,
                 value => { email.MaxCount = (int)Math.Round(value); save(); })));
 
-        rows.Add(FluentLayout.Row(Glyphs.Preview, "Show preview", "The first line of the message",
-            FluentLayout.Toggle(email.ShowPreview, value => { email.ShowPreview = value; save(); })));
     }
 
     private static void AddGraphToggle(List<FrameworkElement> rows, GaugeConfig gauge, Action save)

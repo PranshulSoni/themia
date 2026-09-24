@@ -11,6 +11,10 @@ internal static partial class WidgetSettings
 {
     public static void Bluetooth(List<FrameworkElement> rows, BluetoothConfig config, Action save)
     {
+        ArgumentNullException.ThrowIfNull(rows);
+        ArgumentNullException.ThrowIfNull(config);
+        ArgumentNullException.ThrowIfNull(save);
+
         rows.Add(FluentLayout.Header("Bluetooth"));
 
         rows.Add(FluentLayout.Row(Glyphs.Link, "Connected only",
@@ -23,14 +27,12 @@ internal static partial class WidgetSettings
             "Opens a connection to each device; slows the refresh",
             FluentLayout.Toggle(config.ShowBattery, value => { config.ShowBattery = value; save(); })));
 
-        rows.Add(FluentLayout.Row(Glyphs.Count, "Rows",
-            "A short widget shows as many of these as it can render legibly",
+        rows.Add(FluentLayout.Row(Glyphs.Count, "Devices",
+            "How many the list holds; a short widget shows fewer",
             FluentLayout.Slider(config.EffectiveMaxCount, 1, 20, 1, string.Empty,
                 value => { config.MaxCount = (int)Math.Round(value); save(); })));
 
-        rows.Add(FluentLayout.Row(Glyphs.Timer, "Every",
-            "Seconds between enumerations",
-            FluentLayout.Slider(config.IntervalSeconds, 5, 300, 5, "s",
-                value => { config.IntervalSeconds = (int)Math.Round(value); save(); })));
+        FluentLayout.RefreshSeconds(rows, "the devices are enumerated", config.IntervalSeconds, 5, 300, 5,
+            value => { config.IntervalSeconds = value; save(); });
     }
 }

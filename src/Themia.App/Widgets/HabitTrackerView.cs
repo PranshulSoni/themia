@@ -26,7 +26,7 @@ namespace Themia.App.Widgets;
 /// squares of history grow in number rather than in size. There is no rule between rows.
 /// </para>
 /// </summary>
-internal sealed partial class HabitTrackerView : Grid, IWidgetView, IWidgetSurfaceAware
+internal sealed partial class HabitTrackerView : Grid, IWidgetView, IWidgetSurfaceAware, IWidgetHeaderContent
 {
     private const string Scope = "habits";
 
@@ -48,9 +48,7 @@ internal sealed partial class HabitTrackerView : Grid, IWidgetView, IWidgetSurfa
     /// <summary>And below this the streak is a bare number rather than a number and its unit.</summary>
     private const double StreakWordMinimumWidth = 360;
 
-    private readonly TextBlock _title = new() { Text = "Habits" };
     private readonly TextBlock _done = Fluent.Text(FluentType.Caption, "TextFillColorTertiaryBrush");
-    private readonly Grid _header;
     private readonly StackPanel _list = new() { Spacing = 0 };
     private readonly ScrollViewer _scroll;
     private readonly Border _emptyHost;
@@ -72,13 +70,9 @@ internal sealed partial class HabitTrackerView : Grid, IWidgetView, IWidgetSurfa
 
     public HabitTrackerView()
     {
-        RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
 
         Microsoft.UI.Xaml.Documents.Typography.SetNumeralAlignment(_done, FontNumeralAlignment.Tabular);
-
-        _header = Fluent.Header(Glyphs.Habit, _title, _done);
-        SetRow(_header, 0);
 
         _scroll = new ScrollViewer
         {
@@ -88,8 +82,6 @@ internal sealed partial class HabitTrackerView : Grid, IWidgetView, IWidgetSurfa
             HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
             VerticalScrollBarVisibility = ScrollBarVisibility.Hidden,
         };
-
-        SetRow(_scroll, 1);
 
         // Says what to do about it, not merely that there is nothing: the habits are added in the
         // settings window, which is not otherwise discoverable from an empty card.
@@ -103,9 +95,6 @@ internal sealed partial class HabitTrackerView : Grid, IWidgetView, IWidgetSurfa
             Visibility = Visibility.Collapsed,
         };
 
-        SetRow(_emptyHost, 1);
-
-        Children.Add(_header);
         Children.Add(_scroll);
         Children.Add(_emptyHost);
 
@@ -127,17 +116,14 @@ internal sealed partial class HabitTrackerView : Grid, IWidgetView, IWidgetSurfa
         SizeChanged += OnSizeChanged;
     }
 
-    /// <inheritdoc />
-    public void Bind(IWidgetSurface surface)
-    {
-        _surface = surface;
+    /// <summary>
+    /// The "3/5 done" count, in the card's header. Built in the constructor because the card reads
+    /// this once, when it builds that header.
+    /// </summary>
+    public FrameworkElement? HeaderTrailing => _done;
 
-        // The widget's own title when the user set one, so a desktop of habit lists is readable
-        // without opening each of them.
-        _title.Text = string.IsNullOrWhiteSpace(surface.Label)
-            ? WidgetCatalog.Definition(WidgetKind.HabitTracker).Label
-            : surface.Label;
-    }
+    /// <inheritdoc />
+    public void Bind(IWidgetSurface surface) => _surface = surface;
 
     public void Attach(Ticker ticker, WidgetConfig config)
     {
@@ -222,16 +208,9 @@ internal sealed partial class HabitTrackerView : Grid, IWidgetView, IWidgetSurfa
         var width = args.NewSize.Width;
         var height = args.NewSize.Height;
 
-        _header.Visibility = height >= Fluent.HeaderHidesBelow ? Visibility.Visible : Visibility.Collapsed;
         _emptyIcon.Visibility = height >= Fluent.HeaderHidesBelow ? Visibility.Visible : Visibility.Collapsed;
 
         _compact = width < CompactWidth || height < CompactHeight;
-
-        _header.Margin = new Thickness(
-            Fluent.Space4,
-            _compact ? Fluent.Space2 : Fluent.Space4,
-            Fluent.Space4,
-            Fluent.Space1);
 
         // Re-lays what is already drawn rather than rebuilding it: a rebuild would drop the row
         // under the pointer and re-run every streak count for a drag that changed only a width.

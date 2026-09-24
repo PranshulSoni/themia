@@ -1,4 +1,3 @@
-using Microsoft.UI;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Themia.App.Widgets;
@@ -33,12 +32,7 @@ internal static partial class WidgetSettings
 
         rows.Add(FluentLayout.Header("Gallery"));
 
-        var status = new TextBlock
-        {
-            FontSize = 12,
-            TextWrapping = TextWrapping.Wrap,
-            Margin = new Thickness(Fluent.Space4, Fluent.Space1, Fluent.Space4, 0),
-        };
+        var verdict = FluentLayout.Verdict();
 
         var box = new TextBox
         {
@@ -64,7 +58,7 @@ internal static partial class WidgetSettings
                 save();
             }
 
-            ShowGalleryStatus(status, config, blank, result);
+            ShowGalleryVerdict(verdict, config, blank, result);
         }
 
         // On commit, not per keystroke: a path is only ever valid once it has been fully typed, so
@@ -84,22 +78,22 @@ internal static partial class WidgetSettings
         // setting rather than two that can disagree about what a valid path is.
         browse.Click += (_, _) => _ = BrowseAsync(box, Commit);
 
-        ShowGalleryStatus(status, config, config.Path.Trim().Length == 0, FolderPath.Validate(config.Path));
+        ShowGalleryVerdict(verdict, config, config.Path.Trim().Length == 0, FolderPath.Validate(config.Path));
 
-        rows.Add(FluentLayout.Row(Glyphs.Gallery, "Folder", "Where the pictures come from", new StackPanel
-        {
-            Orientation = Orientation.Horizontal,
-            Spacing = Fluent.Space2,
-            Children = { box, browse },
-        }));
-
-        rows.Add(status);
+        rows.Add(FluentLayout.FieldRow(Glyphs.Gallery, "Folder", "Where the pictures come from",
+            new StackPanel
+            {
+                Orientation = Orientation.Horizontal,
+                Spacing = Fluent.Space2,
+                Children = { box, browse },
+            },
+            verdict));
 
         rows.Add(FluentLayout.Row(Glyphs.Folder, "Include subfolders",
             "Look in the folders below this one too",
             FluentLayout.Toggle(config.Recursive, value => { config.Recursive = value; save(); })));
 
-        rows.Add(FluentLayout.Row(Glyphs.Grid, "Layout", null,
+        rows.Add(FluentLayout.Row(Glyphs.Grid, "Layout", "A slideshow of one, or a grid of many",
             FluentLayout.Choice(
                 [(GalleryLayout.Slideshow, "Slideshow"), (GalleryLayout.Grid, "Grid")],
                 config.Layout,
@@ -111,19 +105,6 @@ internal static partial class WidgetSettings
                 [(GalleryFit.Fill, "Fill"), (GalleryFit.Fit, "Fit")],
                 config.Fit,
                 value => { config.Fit = value; save(); })));
-
-        rows.Add(FluentLayout.Row(Glyphs.Motion, "Shuffle",
-            "Take a different selection each time the folder is read",
-            FluentLayout.Toggle(config.Shuffle, value => { config.Shuffle = value; save(); })));
-
-        rows.Add(FluentLayout.Row(Glyphs.Timer, "Seconds a picture", "How long the slideshow holds each one",
-            FluentLayout.Slider(
-                config.EffectiveSlideshowSeconds,
-                GalleryConfig.MinSlideSeconds,
-                120,
-                1,
-                "s",
-                value => { config.SlideshowSeconds = (int)Math.Round(value); save(); })));
 
         rows.Add(FluentLayout.Row(Glyphs.Count, "Pictures", "How many are taken from the folder",
             FluentLayout.Slider(
@@ -148,7 +129,17 @@ internal static partial class WidgetSettings
 
         // The widget will not move, rename or delete anything, so this is the way out to the place
         // that will.
-        rows.Add(FluentLayout.Row(Glyphs.Open, "Pictures", "This widget only shows them; manage them in Explorer", open));
+        rows.Add(FluentLayout.Row(Glyphs.Open, "Files", "This widget only shows them; manage them in Explorer", open));
+
+        rows.Add(FluentLayout.Header("Behaviour"));
+
+        rows.Add(FluentLayout.Row(Glyphs.Shuffle, "Shuffle",
+            "Take a different selection each time the folder is read",
+            FluentLayout.Toggle(config.Shuffle, value => { config.Shuffle = value; save(); })));
+
+        FluentLayout.RefreshSeconds(rows, "the slideshow moves on", config.EffectiveSlideshowSeconds,
+            GalleryConfig.MinSlideSeconds, 120, 1,
+            value => { config.SlideshowSeconds = value; save(); });
     }
 
     /// <summary>
@@ -156,24 +147,21 @@ internal static partial class WidgetSettings
     /// looks accepted but silently reads somewhere else is the failure the whole check exists to
     /// prevent.
     /// </summary>
-    private static void ShowGalleryStatus(TextBlock status, GalleryConfig config, bool blank, FolderPathResult result)
+    private static void ShowGalleryVerdict(TextBlock verdict, GalleryConfig config, bool blank, FolderPathResult result)
     {
         if (blank)
         {
-            status.Text = "No folder chosen yet.";
-            status.Foreground = FluentLayout.Themed("TextFillColorTertiaryBrush", Colors.Gray);
+            FluentLayout.Confirm(verdict, "No folder chosen yet.");
             return;
         }
 
         if (result.IsValid)
         {
-            status.Text = $"Showing {FolderPath.DisplayName(config.Path)}";
-            status.Foreground = FluentLayout.Themed("TextFillColorTertiaryBrush", Colors.Gray);
+            FluentLayout.Confirm(verdict, $"Showing {FolderPath.DisplayName(config.Path)}");
             return;
         }
 
         // Refused, and the box keeps what was typed so it can be corrected rather than retyped.
-        status.Text = FolderFormatting.PathMessage(result.Problem);
-        status.Foreground = FluentLayout.Themed("SystemFillColorCriticalBrush", Colors.Red);
+        FluentLayout.Refuse(verdict, FolderFormatting.PathMessage(result.Problem));
     }
 }

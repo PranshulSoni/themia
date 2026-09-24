@@ -20,8 +20,6 @@ namespace Themia.App.Widgets;
 /// </summary>
 internal sealed partial class CalculatorView : Grid, IWidgetView, IWidgetSurfaceAware
 {
-    private readonly TextBlock _title = new();
-    private readonly Grid _header;
     private readonly StackPanel _rows = new() { Spacing = 0 };
     private readonly ScrollViewer _historyScroll;
     private readonly StackPanel _empty;
@@ -45,7 +43,6 @@ internal sealed partial class CalculatorView : Grid, IWidgetView, IWidgetSurface
 
     public CalculatorView()
     {
-        RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
         RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
 
@@ -54,15 +51,6 @@ internal sealed partial class CalculatorView : Grid, IWidgetView, IWidgetSurface
         // The stock "something is wrong" fill, so the error tracks the theme rather than being a
         // red this file decided on.
         _errorBrush = FluentLayout.Themed("SystemFillColorCriticalBrush", Colors.IndianRed);
-
-        var definition = WidgetCatalog.Definition(WidgetKind.Calculator);
-
-        _title.Text = definition.Label;
-
-        // The standard pane header, at a fixed ramp step: a header that grew with the tile is the
-        // web habit this port came in with.
-        _header = Fluent.Header(definition.Glyph, _title);
-        _header.Margin = new Thickness(Fluent.Space4, Fluent.Space4, Fluent.Space4, Fluent.Space2);
 
         // Rows reach both edges of the card, so the list scrolls with no inset of its own.
         _rows.Margin = WidgetLayout.ListInset;
@@ -107,13 +95,11 @@ internal sealed partial class CalculatorView : Grid, IWidgetView, IWidgetSurface
         // reads as something failing to load. Windows Calculator says so in words instead.
         _empty = Fluent.EmptyState(Glyphs.Calculator, new TextBlock { Text = "No history yet." }, out _emptyIcon);
         _empty.Visibility = Visibility.Collapsed;
-        Grid.SetRow(_empty, 1);
+        Grid.SetRow(_empty, 0);
 
-        Grid.SetRow(_header, 0);
-        Grid.SetRow(_historyScroll, 1);
-        Grid.SetRow(_entryArea, 2);
+        Grid.SetRow(_historyScroll, 0);
+        Grid.SetRow(_entryArea, 1);
 
-        Children.Add(_header);
         Children.Add(_historyScroll);
         Children.Add(_empty);
         Children.Add(_entryArea);
@@ -300,9 +286,6 @@ internal sealed partial class CalculatorView : Grid, IWidgetView, IWidgetSurface
     private void ApplyLayout()
     {
         var height = ActualHeight;
-
-        // [S-131] Below roughly 90 DIPs the title takes the room the sum needs.
-        _header.Visibility = height < 90 ? Visibility.Collapsed : Visibility.Visible;
 
         // [S-131] The original hides the history under 120px of height, and it is right to: in a
         // 180x120 tile the thing being typed is the whole point, and two clipped rows above it are

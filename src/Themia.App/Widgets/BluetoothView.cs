@@ -29,7 +29,7 @@ namespace Themia.App.Widgets;
 /// throws away the only useful thing the widget knew.
 /// </para>
 /// </summary>
-internal sealed partial class BluetoothView : Grid, IWidgetView
+internal sealed partial class BluetoothView : Grid, IWidgetView, IWidgetHeaderContent
 {
     private const string Scope = "bluetooth";
 
@@ -52,11 +52,10 @@ internal sealed partial class BluetoothView : Grid, IWidgetView
         From(0xE916), // watch    - Stopwatch
     ];
 
-    private readonly TextBlock _title = new();
     private readonly TextBlock _count = new();
     private readonly Border _badge;
     private readonly ProgressRing _busy = new();
-    private readonly Grid _header;
+    private readonly StackPanel _trailing;
     private readonly StackPanel _list = new() { Spacing = 0 };
     private readonly ScrollViewer _scroll;
     private readonly TextBlock _message;
@@ -88,11 +87,7 @@ internal sealed partial class BluetoothView : Grid, IWidgetView
 
     public BluetoothView()
     {
-        RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
-
-        var definition = WidgetCatalog.Definition(WidgetKind.Bluetooth);
-        _title.Text = definition.Label;
 
         _busy.Width = 14;
         _busy.Height = 14;
@@ -103,19 +98,15 @@ internal sealed partial class BluetoothView : Grid, IWidgetView
         _badge.Visibility = Visibility.Collapsed;
         _badge.Margin = new Thickness(0, 0, Fluent.Space2, 0);
 
-        // Both sit in the header's trailing slot: the ring while a pass is out, the count once one
-        // has landed. A panel rather than swapping the slot's child, so neither has to know about
-        // the other.
-        var trailing = new StackPanel
+        // Both sit in the card header's trailing slot: the ring while a pass is out, the count once
+        // one has landed. A panel rather than swapping the slot's child, so neither has to know
+        // about the other. Built here because the card reads it once, when it builds the header.
+        _trailing = new StackPanel
         {
             Orientation = Orientation.Horizontal,
             VerticalAlignment = VerticalAlignment.Center,
             Children = { _badge, _busy },
         };
-
-        _header = Fluent.Header(definition.Glyph, _title, trailing);
-        _header.Margin = Fluent.HeaderMargin;
-        SetRow(_header, 0);
 
         _scroll = new ScrollViewer
         {
@@ -125,8 +116,6 @@ internal sealed partial class BluetoothView : Grid, IWidgetView
             HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
             VerticalScrollBarVisibility = ScrollBarVisibility.Hidden,
         };
-
-        SetRow(_scroll, 1);
 
         _message = Fluent.Text(FluentType.Body, "TextFillColorTertiaryBrush");
         _message.TextWrapping = TextWrapping.Wrap;
@@ -141,14 +130,14 @@ internal sealed partial class BluetoothView : Grid, IWidgetView
             Visibility = Visibility.Collapsed,
         };
 
-        SetRow(_messageHost, 1);
-
-        Children.Add(_header);
         Children.Add(_scroll);
         Children.Add(_messageHost);
 
         SizeChanged += OnSizeChanged;
     }
+
+    /// <inheritdoc />
+    public FrameworkElement? HeaderTrailing => _trailing;
 
     public void Attach(Ticker ticker, WidgetConfig config)
     {
@@ -283,10 +272,6 @@ internal sealed partial class BluetoothView : Grid, IWidgetView
     private void OnSizeChanged(object sender, SizeChangedEventArgs args)
     {
         var wanted = args.NewSize.Width >= StatusWordMinimumWidth;
-
-        _header.Visibility = args.NewSize.Height >= Fluent.HeaderHidesBelow
-            ? Visibility.Visible
-            : Visibility.Collapsed;
 
         if (wanted == _statusWords)
         {

@@ -19,7 +19,7 @@ namespace Themia.App.Widgets;
 /// blinked twice a second even when nothing about it had changed.
 /// </para>
 /// </summary>
-internal sealed partial class ProcessesView : Grid, IWidgetView
+internal sealed partial class ProcessesView : Grid, IWidgetView, IWidgetHeaderContent
 {
     private const string Scope = "processes-widget";
 
@@ -36,7 +36,6 @@ internal sealed partial class ProcessesView : Grid, IWidgetView
     /// </summary>
     private const double RowHeight = Fluent.RowHeightCompact;
 
-    private readonly TextBlock _title = new();
     private readonly TextBlock _caption = Fluent.Text(FluentType.Caption, "TextFillColorTertiaryBrush");
 
     // The Grid is what the rows are measured against: it is stretched by its star row, so its height
@@ -56,16 +55,10 @@ internal sealed partial class ProcessesView : Grid, IWidgetView
 
     public ProcessesView()
     {
-        var definition = WidgetCatalog.Definition(WidgetKind.Processes);
-
-        _title.Text = definition.Label;
-
         // Which column the ranking is on. Without it the list is ambiguous the moment two processes
-        // have similar numbers in both columns.
+        // have similar numbers in both columns. It rides on the card's header, which reads it once
+        // at construction — so it is built here, not on first use.
         _caption.HorizontalAlignment = HorizontalAlignment.Right;
-
-        var header = Fluent.Header(definition.Glyph, _title, _caption);
-        header.Margin = Fluent.HeaderMargin;
 
         _stack.VerticalAlignment = VerticalAlignment.Top;
         _list.Children.Add(_stack);
@@ -78,14 +71,11 @@ internal sealed partial class ProcessesView : Grid, IWidgetView
         _empty.TextAlignment = TextAlignment.Center;
         _empty.Visibility = Visibility.Collapsed;
 
-        RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
 
-        Grid.SetRow(header, 0);
-        Grid.SetRow(_list, 1);
-        Grid.SetRow(_empty, 1);
+        Grid.SetRow(_list, 0);
+        Grid.SetRow(_empty, 0);
 
-        Children.Add(header);
         Children.Add(_list);
         Children.Add(_empty);
 
@@ -96,6 +86,9 @@ internal sealed partial class ProcessesView : Grid, IWidgetView
         // previous layout's. This one carries the height the rows actually got.
         _list.SizeChanged += OnSizeChanged;
     }
+
+    /// <inheritdoc />
+    public FrameworkElement? HeaderTrailing => _caption;
 
     public void Attach(Ticker ticker, WidgetConfig config)
     {

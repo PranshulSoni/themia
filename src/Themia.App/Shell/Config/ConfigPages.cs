@@ -524,7 +524,25 @@ internal static class ConfigPages
                 break;
         }
 
+        // Every widget page is laid out the same way: what it shows, then how it behaves, then how
+        // often it updates, then the card itself, and destructive actions last. The widget's own
+        // rows cover the first three; a row it built with FluentLayout.DangerRow is lifted out of
+        // wherever it sat and into the one danger section below, so nothing that cannot be undone
+        // is left sitting between two switches.
+        var danger = rows.FindAll(FluentLayout.IsDanger);
+        rows.RemoveAll(FluentLayout.IsDanger);
+
         rows.Add(FluentLayout.Header("Appearance"));
+
+        rows.Add(FluentLayout.Row(Glyphs.View, "Header", "Where the widget's name and icon sit",
+            FluentLayout.Choice(
+                [
+                    (HeaderPlacement.Top, "Top"),
+                    (HeaderPlacement.Bottom, "Bottom"),
+                    (HeaderPlacement.Hidden, "Hidden"),
+                ],
+                widget.Header,
+                value => host.Mutate(_ => widget.Header = value))));
 
         rows.Add(FluentLayout.Row(Glyphs.Surface, "Background", "How this widget's card is filled",
             FluentLayout.Choice(
@@ -549,6 +567,7 @@ internal static class ConfigPages
         rows.Add(FluentLayout.Row(Glyphs.Rename, "Title", "Shown in menus; leave blank for the default", label));
 
         rows.Add(FluentLayout.Header("Danger"));
+        rows.AddRange(danger);
 
         var delete = new Button { Content = "Delete widget" };
         delete.Click += (_, _) =>

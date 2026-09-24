@@ -23,7 +23,7 @@ namespace Themia.App.Widgets;
 /// clicking it does nothing, because the scope asked for cannot write one back.
 /// </para>
 /// </summary>
-internal sealed partial class TasksView : Grid, IWidgetView
+internal sealed partial class TasksView : Grid, IWidgetView, IWidgetHeaderContent
 {
     private const string Scope = "tasks-widget";
 
@@ -32,10 +32,10 @@ internal sealed partial class TasksView : Grid, IWidgetView
     private static readonly string[] MonthNames =
         ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
-    private readonly TextBlock _title = new();
     private readonly TextBlock _badge = new();
     private readonly Border _badgeHost;
     private readonly ProgressRing _busy = new();
+    private readonly StackPanel _trailing;
     private readonly StackPanel _list = new() { Spacing = 0 };
     private readonly ScrollViewer _scroll;
     private readonly FontIcon _emptyIcon;
@@ -66,11 +66,7 @@ internal sealed partial class TasksView : Grid, IWidgetView
 
     public TasksView()
     {
-        RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
-
-        _title.Text = "Tasks";
-        _title.TextTrimming = TextTrimming.CharacterEllipsis;
 
         // The open count is Fluent's InfoBadge shape, which the design system owns.
         _badgeHost = Fluent.Badge(_badge);
@@ -81,24 +77,23 @@ internal sealed partial class TasksView : Grid, IWidgetView
         _busy.IsActive = false;
         _busy.Visibility = Visibility.Collapsed;
 
-        var trailing = new StackPanel
+        // The busy ring and the open count ride on the card's header. The card reads this once when
+        // it builds the header, so it exists from construction rather than on first use.
+        _trailing = new StackPanel
         {
             Orientation = Orientation.Horizontal,
             Spacing = Fluent.Space2,
             VerticalAlignment = VerticalAlignment.Center,
         };
 
-        trailing.Children.Add(_busy);
-        trailing.Children.Add(_badgeHost);
-
-        var header = Fluent.Header(Glyphs.Task, _title, trailing);
-        header.Margin = Fluent.HeaderMargin;
-        Grid.SetRow(header, 0);
+        _trailing.Children.Add(_busy);
+        _trailing.Children.Add(_badgeHost);
 
         _scroll = new ScrollViewer
         {
             // Nothing either side, so a row reaches both edges of the card and its highlight with
-            // it. The gap above the first row is the header's; this keeps the last one off the edge.
+            // it. The gap above the first row is the card header's; this keeps the last one off
+            // the edge.
             Padding = Fluent.ListPadding,
             Content = _list,
             HorizontalScrollMode = ScrollMode.Disabled,
@@ -106,20 +101,22 @@ internal sealed partial class TasksView : Grid, IWidgetView
             VerticalScrollBarVisibility = ScrollBarVisibility.Hidden,
         };
 
-        Grid.SetRow(_scroll, 1);
+        Grid.SetRow(_scroll, 0);
 
         // A Windows empty state: an icon over a line of body text in the secondary colour, centred.
         // Not a shrunken caption, which reads as an error the app is embarrassed about.
         _empty = Fluent.EmptyState(Glyphs.Task, _emptyText, out _emptyIcon);
         _empty.Visibility = Visibility.Collapsed;
-        Grid.SetRow(_empty, 1);
+        Grid.SetRow(_empty, 0);
 
-        Children.Add(header);
         Children.Add(_scroll);
         Children.Add(_empty);
 
         SizeChanged += (_, _) => ApplyDensity();
     }
+
+    /// <inheritdoc />
+    public FrameworkElement? HeaderTrailing => _trailing;
 
     /// <summary>
     /// Whether the tile takes the compact row. Fluent has two list-row heights and a tile shorter

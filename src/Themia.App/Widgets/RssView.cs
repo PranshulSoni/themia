@@ -27,16 +27,14 @@ namespace Themia.App.Widgets;
 /// hazard.
 /// </para>
 /// </summary>
-internal sealed partial class RssView : Grid, IWidgetView
+internal sealed partial class RssView : Grid, IWidgetView, IWidgetHeaderContent, IWidgetSurfaceAware
 {
     private const string Scope = "rss";
 
     /// <summary>Under this width the source line is dropped; the headline is what the widget is for.</summary>
     private const double SourceNeedsWidth = 220;
 
-    private readonly TextBlock _title = Fluent.Text(FluentType.BodyStrong);
     private readonly TextBlock _freshness = Fluent.Text(FluentType.Caption, "TextFillColorTertiaryBrush");
-    private readonly Grid _header;
     private readonly StackPanel _list = new() { Spacing = 0 };
     private readonly ScrollViewer _scroll;
     private readonly StackPanel _emptyState;
@@ -51,6 +49,9 @@ internal sealed partial class RssView : Grid, IWidgetView
 
     private Ticker? _ticker;
     private RssConfig _config = new();
+
+    /// <summary>The card this view draws on, which owns the header it names.</summary>
+    private IWidgetSurface? _surface;
     private IDisposable? _subscription;
     private TimeSpan _subscribedInterval = TimeSpan.Zero;
     private CancellationTokenSource? _inFlight;
@@ -62,13 +63,7 @@ internal sealed partial class RssView : Grid, IWidgetView
 
     public RssView()
     {
-        RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
-
-        _title.Text = "Feed";
-        _header = Fluent.Header(Glyphs.Rss, _title, _freshness);
-        _header.Margin = Fluent.HeaderMargin;
-        SetRow(_header, 0);
 
         _scroll = new ScrollViewer
         {
@@ -79,18 +74,20 @@ internal sealed partial class RssView : Grid, IWidgetView
             VerticalScrollBarVisibility = ScrollBarVisibility.Hidden,
         };
 
-        SetRow(_scroll, 1);
-
         _emptyState = Fluent.EmptyState(Glyphs.Rss, _emptyMessage, out _);
         _emptyState.Visibility = Visibility.Collapsed;
-        SetRow(_emptyState, 1);
 
-        Children.Add(_header);
         Children.Add(_scroll);
         Children.Add(_emptyState);
 
         SizeChanged += OnSizeChanged;
     }
+
+    /// <summary>
+    /// The age of the feed, in the card's header. Built in the constructor because the card reads
+    /// this once, when it builds that header.
+    /// </summary>
+    public FrameworkElement? HeaderTrailing => _freshness;
 
     public void Attach(Ticker ticker, WidgetConfig config)
     {
@@ -99,11 +96,19 @@ internal sealed partial class RssView : Grid, IWidgetView
         ApplyConfig(config);
     }
 
+    /// <inheritdoc />
+    public void Bind(IWidgetSurface surface)
+    {
+        _surface = surface;
+        PublishTitle();
+    }
+
     public void ApplyConfig(WidgetConfig config)
     {
         var next = config as RssConfig ?? new RssConfig();
         var previous = _config;
         _config = next;
+        PublishTitle();
 
         // Only the address and the cap change what comes back. Toggling the preview or the source
         // line redraws what is already in hand — it must not fetch the feed again.
@@ -243,10 +248,6 @@ internal sealed partial class RssView : Grid, IWidgetView
 
     private void OnSizeChanged(object sender, SizeChangedEventArgs e)
     {
-        _header.Visibility = e.NewSize.Height >= Fluent.HeaderHidesBelow
-            ? Visibility.Visible
-            : Visibility.Collapsed;
-
         var source = e.NewSize.Width >= SourceNeedsWidth;
 
         if (source == _showSource)
@@ -292,25 +293,12 @@ internal sealed partial class RssView : Grid, IWidgetView
         _emptyState.Visibility = Visibility.Collapsed;
         _scroll.Visibility = Visibility.Visible;
 
-        _title.Text = Heading(document);
-
         foreach (var entry in document.Entries)
         {
             _list.Children.Add(BuildRow(entry, now));
         }
 
         UpdateFreshness(held!, now);
-    }
-
-    /// <summary>The user's own name for the feed, else the feed's own title, else a generic label.</summary>
-    private string Heading(FeedDocument document)
-    {
-        if (!string.IsNullOrWhiteSpace(_config.Title))
-        {
-            return _config.Title.Trim();
-        }
-
-        return !string.IsNullOrWhiteSpace(document.Title) ? document.Title : "Feed";
     }
 
     private void UpdateFreshness(Fetched<FeedDocument> held, DateTimeOffset now)
@@ -463,4 +451,15 @@ internal sealed partial class RssView : Grid, IWidgetView
 
         _ticker = null;
     }
+    /// <summary>
+    /// Tell the card what this widget is about. The catalogue can only say "Weather" or
+    /// "Folder"; the widget knows which place, which folder, which ticker — and on a desktop
+    /// holding three of them, that is the only thing telling them apart.
+    /// </summary>
+    private void PublishTitle()
+    {
+        var title = _config.Title;
+        _surface?.SetHeaderTitle(string.IsNullOrWhiteSpace(title) ? null : title);
+    }
+
 }

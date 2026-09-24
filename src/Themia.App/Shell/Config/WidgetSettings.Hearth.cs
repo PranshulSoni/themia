@@ -19,6 +19,10 @@ internal static partial class WidgetSettings
 {
     public static void Contacts(List<FrameworkElement> rows, ContactsConfig config, Action save)
     {
+        ArgumentNullException.ThrowIfNull(rows);
+        ArgumentNullException.ThrowIfNull(config);
+        ArgumentNullException.ThrowIfNull(save);
+
         rows.Add(FluentLayout.Header("Contacts"));
 
         rows.Add(CollectionRow(
@@ -30,10 +34,6 @@ internal static partial class WidgetSettings
             config,
             save));
 
-        rows.Add(FluentLayout.Row(Glyphs.Count, "People", null,
-            FluentLayout.Slider(config.EffectiveMaxCount, 1, 50, 1, string.Empty,
-                value => { config.MaxCount = (int)Math.Round(value); save(); })));
-
         rows.Add(FluentLayout.Row(Glyphs.Preview, "Show details",
             "The first email address or phone number under each name",
             FluentLayout.Toggle(config.ShowDetail, value => { config.ShowDetail = value; save(); })));
@@ -41,10 +41,20 @@ internal static partial class WidgetSettings
         rows.Add(FluentLayout.Row(Glyphs.View, "Show initials",
             "A round monogram beside each name",
             FluentLayout.Toggle(config.ShowAvatar, value => { config.ShowAvatar = value; save(); })));
+
+        rows.Add(FluentLayout.Row(Glyphs.Count, "People",
+            "How many the list holds; a short widget shows fewer",
+            FluentLayout.Slider(config.EffectiveMaxCount, 1, 50, 1, string.Empty,
+                value => { config.MaxCount = (int)Math.Round(value); save(); })));
+
     }
 
     public static void Calendar(List<FrameworkElement> rows, CalendarConfig config, Action save)
     {
+        ArgumentNullException.ThrowIfNull(rows);
+        ArgumentNullException.ThrowIfNull(config);
+        ArgumentNullException.ThrowIfNull(save);
+
         rows.Add(FluentLayout.Header("Calendar"));
 
         rows.Add(CollectionRow(
@@ -60,10 +70,6 @@ internal static partial class WidgetSettings
             FluentLayout.Slider(config.EffectiveDaysAhead, 1, 90, 1, " days",
                 value => { config.DaysAhead = (int)Math.Round(value); save(); })));
 
-        rows.Add(FluentLayout.Row(Glyphs.Count, "Events", null,
-            FluentLayout.Slider(config.EffectiveMaxCount, 1, 50, 1, string.Empty,
-                value => { config.MaxCount = (int)Math.Round(value); save(); })));
-
         rows.Add(FluentLayout.Row(Glyphs.Clock, "Show all-day events",
             "Events that occupy a whole day rather than a time",
             FluentLayout.Toggle(config.ShowAllDay, value => { config.ShowAllDay = value; save(); })));
@@ -71,10 +77,20 @@ internal static partial class WidgetSettings
         rows.Add(FluentLayout.Row(Glyphs.Place, "Show location",
             "Where the event is, when hearth has one for it",
             FluentLayout.Toggle(config.ShowLocation, value => { config.ShowLocation = value; save(); })));
+
+        rows.Add(FluentLayout.Row(Glyphs.Count, "Events",
+            "How many the list holds; a short widget shows fewer",
+            FluentLayout.Slider(config.EffectiveMaxCount, 1, 50, 1, string.Empty,
+                value => { config.MaxCount = (int)Math.Round(value); save(); })));
+
     }
 
     public static void Tasks(List<FrameworkElement> rows, TasksConfig config, Action save)
     {
+        ArgumentNullException.ThrowIfNull(rows);
+        ArgumentNullException.ThrowIfNull(config);
+        ArgumentNullException.ThrowIfNull(save);
+
         rows.Add(FluentLayout.Header("Tasks"));
 
         rows.Add(CollectionRow(
@@ -86,10 +102,6 @@ internal static partial class WidgetSettings
             config,
             save));
 
-        rows.Add(FluentLayout.Row(Glyphs.Count, "Tasks", null,
-            FluentLayout.Slider(config.EffectiveMaxCount, 1, 50, 1, string.Empty,
-                value => { config.MaxCount = (int)Math.Round(value); save(); })));
-
         rows.Add(FluentLayout.Row(Glyphs.Done, "Show completed",
             "List finished tasks after the open ones",
             FluentLayout.Toggle(config.ShowCompleted, value => { config.ShowCompleted = value; save(); })));
@@ -97,6 +109,12 @@ internal static partial class WidgetSettings
         rows.Add(FluentLayout.Row(Glyphs.Calendar, "Show due date",
             "Overdue dates are marked",
             FluentLayout.Toggle(config.ShowDueDate, value => { config.ShowDueDate = value; save(); })));
+
+        rows.Add(FluentLayout.Row(Glyphs.Count, "Tasks",
+            "How many the list holds; a short widget shows fewer",
+            FluentLayout.Slider(config.EffectiveMaxCount, 1, 50, 1, string.Empty,
+                value => { config.MaxCount = (int)Math.Round(value); save(); })));
+
     }
 
     /// <summary>

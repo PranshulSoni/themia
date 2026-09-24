@@ -29,7 +29,7 @@ namespace Themia.App.Widgets;
 /// than a shortcut, and it is deliberately not ported.
 /// </para>
 /// </summary>
-internal sealed partial class ShortcutsView : Grid, IWidgetView, IWidgetSurfaceAware
+internal sealed partial class ShortcutsView : Grid, IWidgetView
 {
     /// <summary>Below this width the target column is dropped; the name is what the row is for.</summary>
     private const double TargetMinimumWidth = 340;
@@ -37,8 +37,6 @@ internal sealed partial class ShortcutsView : Grid, IWidgetView, IWidgetSurfaceA
     /// <summary>How wide the target column may grow before it starts taking room from the name.</summary>
     private const double TargetWidth = 160;
 
-    private readonly TextBlock _title = Fluent.Text(FluentType.BodyStrong);
-    private readonly Grid _header;
     private readonly StackPanel _list = new() { Spacing = 0 };
     private readonly ScrollViewer _scroll;
     private readonly StackPanel _empty;
@@ -47,7 +45,6 @@ internal sealed partial class ShortcutsView : Grid, IWidgetView, IWidgetSurfaceA
     /// <summary>One per row, so the hover handlers come off with the rows they light.</summary>
     private readonly List<IDisposable> _hovers = [];
 
-    private IWidgetSurface? _surface;
     private ShortcutsConfig _config = new();
     private bool _detached;
     private bool _compact;
@@ -55,14 +52,7 @@ internal sealed partial class ShortcutsView : Grid, IWidgetView, IWidgetSurfaceA
 
     public ShortcutsView()
     {
-        RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
-
-        _title.Text = "Shortcuts";
-
-        _header = Fluent.Header(Glyphs.Shortcut, _title);
-        _header.Margin = Fluent.HeaderMargin;
-        SetRow(_header, 0);
 
         _scroll = new ScrollViewer
         {
@@ -73,34 +63,17 @@ internal sealed partial class ShortcutsView : Grid, IWidgetView, IWidgetSurfaceA
             VerticalScrollBarVisibility = ScrollBarVisibility.Hidden,
         };
 
-        SetRow(_scroll, 1);
-
         _empty = Fluent.EmptyState(
             Glyphs.Shortcut,
             new TextBlock { Text = "No shortcuts yet. Add them in this widget's settings." },
             out _emptyIcon);
 
         _empty.Visibility = Visibility.Collapsed;
-        SetRow(_empty, 1);
 
-        Children.Add(_header);
         Children.Add(_scroll);
         Children.Add(_empty);
 
         SizeChanged += OnSizeChanged;
-    }
-
-    /// <inheritdoc />
-    public void Bind(IWidgetSurface surface)
-    {
-        _surface = surface;
-
-        var label = surface.Label;
-
-        if (!string.IsNullOrWhiteSpace(label))
-        {
-            _title.Text = label;
-        }
     }
 
     public void Attach(Ticker ticker, WidgetConfig config)
@@ -137,10 +110,6 @@ internal sealed partial class ShortcutsView : Grid, IWidgetView, IWidgetSurfaceA
     {
         var height = ActualHeight;
         var measured = height > 0;
-
-        _header.Visibility = measured && height < Fluent.HeaderHidesBelow
-            ? Visibility.Collapsed
-            : Visibility.Visible;
 
         _emptyIcon.Visibility = measured && height < 180 ? Visibility.Collapsed : Visibility.Visible;
     }
@@ -306,7 +275,5 @@ internal sealed partial class ShortcutsView : Grid, IWidgetView, IWidgetSurfaceA
 
         SizeChanged -= OnSizeChanged;
         ClearRows();
-
-        _surface = null;
     }
 }

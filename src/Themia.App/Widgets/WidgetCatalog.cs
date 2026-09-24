@@ -20,6 +20,17 @@ public interface IWidgetSurface
     string? Label { get; }
 
     /// <summary>
+    /// Offer a title the widget knows and the catalogue cannot: the place a Sun &amp; Moon tile is
+    /// computed for, the folder a listing is showing.
+    /// <para>
+    /// Pushed rather than pulled, because it changes when the widget's own state changes and the
+    /// card has no way to know when that is. The user's own label still wins: a title they typed
+    /// is never overruled by one the widget worked out.
+    /// </para>
+    /// </summary>
+    void SetHeaderTitle(string? title);
+
+    /// <summary>
     /// Persist the config this view has just changed. Must not re-run layout: a relayout would push
     /// the config back into the control the user is typing in.
     /// </summary>
@@ -42,6 +53,41 @@ public interface IWidgetSurface
 public interface IWidgetSurfaceAware
 {
     void Bind(IWidgetSurface surface);
+}
+
+/// <summary>
+/// What a view puts on the right of the header the card draws for it — an unread badge, a count,
+/// a busy ring.
+/// <para>
+/// The header itself belongs to the card, not to the view. Twenty-odd widgets each building their
+/// own meant twenty-odd chances to disagree about its size, colour, spacing and behaviour, and it
+/// left nowhere to put a setting like "draw it at the bottom instead" without asking every one of
+/// them to honour it. The card knows the icon and the title already — the catalogue has one and the
+/// instance has the other — so the only thing it cannot know is this.
+/// </para>
+/// </summary>
+public interface IWidgetHeaderContent
+{
+    /// <summary>The trailing element, or null. Read once when the card builds its header.</summary>
+    FrameworkElement? HeaderTrailing { get; }
+}
+
+/// <summary>
+/// A view that holds other widgets.
+/// <para>
+/// The container does not create its children — the surface does, exactly as it creates every other
+/// card, so a widget inside a stack is the same object with the same lifetime as one on the desktop
+/// and nothing has to be special-cased to keep it ticking. What a container gets is the finished
+/// cards and the job of arranging them.
+/// </para>
+/// </summary>
+public interface IWidgetContainerView
+{
+    /// <summary>
+    /// Take the children this container now holds, in view order. Called on every layout pass, so
+    /// it must be cheap when nothing changed and must not restart anything the children are doing.
+    /// </summary>
+    void SetChildren(IReadOnlyList<FrameworkElement> children);
 }
 
 /// <summary>What every widget view can do. Kept tiny on purpose: the card owns chrome and input.</summary>

@@ -26,7 +26,7 @@ namespace Themia.App.Widgets;
 /// interval however many widgets want it, and a failure backs off rather than retrying.
 /// </para>
 /// </summary>
-internal sealed partial class StocksView : Grid, IWidgetView
+internal sealed partial class StocksView : Grid, IWidgetView, IWidgetHeaderContent, IWidgetSurfaceAware
 {
     private const string Scope = "stocks";
 
@@ -42,7 +42,6 @@ internal sealed partial class StocksView : Grid, IWidgetView
     /// <summary>The widest price this widget prints, in characters — "123,456.7890".</summary>
     private const double ReadingCharacters = 12;
 
-    private readonly TextBlock _title = Fluent.Text(FluentType.BodyStrong);
     private readonly TextBlock _freshness = Fluent.Text(FluentType.Caption, "TextFillColorTertiaryBrush");
     private readonly TextBlock _price = Fluent.Text(FluentType.Subtitle);
     private readonly TextBlock _change = Fluent.Text(FluentType.Body);
@@ -50,7 +49,6 @@ internal sealed partial class StocksView : Grid, IWidgetView
     private readonly TextBlock _phase = Fluent.Text(FluentType.Caption, "TextFillColorTertiaryBrush");
     private readonly FontIcon _phaseIcon = Fluent.Icon(Glyphs.Moon, "TextFillColorTertiaryBrush", 12);
     private readonly StackPanel _phaseBadge = new() { Orientation = Orientation.Horizontal, Spacing = Fluent.Space1 };
-    private readonly Grid _header;
     private readonly Grid _readout = new();
     private readonly Grid _sparkHost = new();
     private readonly Polyline _sparkLine = new();
@@ -68,6 +66,9 @@ internal sealed partial class StocksView : Grid, IWidgetView
 
     private Ticker? _ticker;
     private StocksConfig _config = new();
+
+    /// <summary>The card this view draws on, which owns the header it names.</summary>
+    private IWidgetSurface? _surface;
     private IDisposable? _subscription;
     private TimeSpan _subscribedInterval = TimeSpan.Zero;
     private CancellationTokenSource? _inFlight;
@@ -81,29 +82,27 @@ internal sealed partial class StocksView : Grid, IWidgetView
     {
         // No padding on the view: the chart is a full-bleed band and has to reach the card edge on
         // three sides. Text carries the inset instead, exactly as a list row does.
-        RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
         RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-
-        _title.Text = "Stocks";
-        _header = Fluent.Header(Glyphs.Stocks, _title, _freshness);
-        _header.Margin = Fluent.HeaderMargin;
-        SetRow(_header, 0);
 
         BuildReadout();
         BuildSparkline();
 
         _emptyState = Fluent.EmptyState(Glyphs.Stocks, _emptyMessage, out _);
         _emptyState.Visibility = Visibility.Collapsed;
-        SetRow(_emptyState, 1);
 
-        Children.Add(_header);
         Children.Add(_readout);
         Children.Add(_sparkHost);
         Children.Add(_emptyState);
 
         SizeChanged += OnSizeChanged;
     }
+
+    /// <summary>
+    /// The age of the quote, in the card's header. Built in the constructor because the card reads
+    /// this once, when it builds that header.
+    /// </summary>
+    public FrameworkElement? HeaderTrailing => _freshness;
 
     private void BuildReadout()
     {
@@ -143,7 +142,6 @@ internal sealed partial class StocksView : Grid, IWidgetView
         _readout.Children.Add(_change);
         _readout.Children.Add(_currency);
         _readout.Children.Add(_phaseBadge);
-        SetRow(_readout, 1);
     }
 
     /// <summary>
@@ -168,7 +166,7 @@ internal sealed partial class StocksView : Grid, IWidgetView
         _sparkHost.Children.Add(_sparkFill);
         _sparkHost.Children.Add(_sparkLine);
         _sparkHost.SizeChanged += (_, _) => RedrawSparkline();
-        SetRow(_sparkHost, 2);
+        SetRow(_sparkHost, 1);
     }
 
     public void Attach(Ticker ticker, WidgetConfig config)
@@ -178,11 +176,19 @@ internal sealed partial class StocksView : Grid, IWidgetView
         ApplyConfig(config);
     }
 
+    /// <inheritdoc />
+    public void Bind(IWidgetSurface surface)
+    {
+        _surface = surface;
+        PublishTitle();
+    }
+
     public void ApplyConfig(WidgetConfig config)
     {
         var next = config as StocksConfig ?? new StocksConfig();
         var previous = _config;
         _config = next;
+        PublishTitle();
 
         var needsFetch = previous.EffectiveSymbol != next.EffectiveSymbol
             || previous.Market != next.Market
@@ -326,10 +332,6 @@ internal sealed partial class StocksView : Grid, IWidgetView
 
     private void OnSizeChanged(object sender, SizeChangedEventArgs e)
     {
-        _header.Visibility = e.NewSize.Height >= Fluent.HeaderHidesBelow
-            ? Visibility.Visible
-            : Visibility.Collapsed;
-
         ApplyTypeScale();
     }
 
@@ -349,8 +351,7 @@ internal sealed partial class StocksView : Grid, IWidgetView
         var band = Math.Clamp(height * SparklineShare, SparklineHeight, SparklineMaxHeight);
         _sparkHost.Height = _sparkHost.Visibility == Visibility.Visible ? band : 0;
 
-        var reserved = (_header.Visibility == Visibility.Visible ? FluentType.BodyStrong.LineHeight + Fluent.Space6 : 0)
-            + (_sparkHost.Visibility == Visibility.Visible ? band : 0);
+        var reserved = _sparkHost.Visibility == Visibility.Visible ? band : 0;
 
         // The change and the currency share the line with the price, so the price gets at most
         // two thirds of it. Letting the number take the whole line is how a narrow tile ends up
@@ -408,7 +409,6 @@ internal sealed partial class StocksView : Grid, IWidgetView
         _emptyState.Visibility = Visibility.Collapsed;
         _readout.Visibility = Visibility.Visible;
 
-        _title.Text = Heading(quote);
         _price.Text = MarketQuote.Price(quote.Price, quote.PriceHint);
         _change.Text = MarketQuote.ChangePercent(quote.ChangePercent);
         _currency.Text = quote.Currency;
@@ -436,17 +436,6 @@ internal sealed partial class StocksView : Grid, IWidgetView
         }
 
         ApplyTypeScale();
-    }
-
-    /// <summary>What the header says: the user's own name for it, else the service's, else the symbol.</summary>
-    private string Heading(TickerQuote quote)
-    {
-        if (!string.IsNullOrWhiteSpace(_config.DisplayName))
-        {
-            return _config.DisplayName.Trim();
-        }
-
-        return !string.IsNullOrWhiteSpace(quote.Name) ? quote.Name : quote.Symbol;
     }
 
     /// <summary>
@@ -565,4 +554,15 @@ internal sealed partial class StocksView : Grid, IWidgetView
 
         _ticker = null;
     }
+    /// <summary>
+    /// Tell the card what this widget is about. The catalogue can only say "Weather" or
+    /// "Folder"; the widget knows which place, which folder, which ticker — and on a desktop
+    /// holding three of them, that is the only thing telling them apart.
+    /// </summary>
+    private void PublishTitle()
+    {
+        var title = string.IsNullOrWhiteSpace(_config.DisplayName) ? _config.EffectiveSymbol : _config.DisplayName;
+        _surface?.SetHeaderTitle(string.IsNullOrWhiteSpace(title) ? null : title);
+    }
+
 }

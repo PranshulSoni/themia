@@ -1,7 +1,7 @@
-using Microsoft.UI;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Themia.App.Services.Web;
+using Themia.App.Widgets;
 using Themia.Core.Diagnostics;
 using Themia.Core.Model;
 using Themia.Core.Widgets;
@@ -9,12 +9,19 @@ using Windows.System;
 
 namespace Themia.App.Shell.Config;
 
+/// <summary>
+/// The current-conditions widget's settings rows, and the place picker both weather widgets share.
+/// </summary>
 internal static partial class WidgetSettings
 {
     private const string WeatherScope = "weather";
 
     public static void WeatherNow(List<FrameworkElement> rows, WeatherNowConfig config, Action save)
     {
+        ArgumentNullException.ThrowIfNull(rows);
+        ArgumentNullException.ThrowIfNull(config);
+        ArgumentNullException.ThrowIfNull(save);
+
         rows.Add(FluentLayout.Header("Place"));
         AddPlacePicker(rows, config, save);
 
@@ -30,11 +37,11 @@ internal static partial class WidgetSettings
             "Feels-like, humidity and wind under the temperature",
             FluentLayout.Toggle(config.ShowDetails, value => { config.ShowDetails = value; save(); })));
 
-        AddRefreshChoice(rows, config.RefreshMinutes, value => { config.RefreshMinutes = value; save(); });
+        FluentLayout.RefreshChoice(rows, config.RefreshMinutes, value => { config.RefreshMinutes = value; save(); });
     }
 
     /// <summary>
-    /// The place row, shared by both weather widgets.
+    /// The place rows, shared by both weather widgets.
     /// <para>
     /// A search box that resolves a name to coordinates <b>once</b>, at the moment the user picks a
     /// result, rather than a free-text place that is re-geocoded on every refresh. Re-geocoding
@@ -52,14 +59,6 @@ internal static partial class WidgetSettings
             MaxLength = WebInput.MaxPlaceLength,
         };
 
-        var status = new TextBlock
-        {
-            FontSize = 12,
-            TextWrapping = TextWrapping.Wrap,
-            Visibility = Visibility.Collapsed,
-            Foreground = FluentLayout.Themed("TextFillColorSecondaryBrush", Colors.Gray),
-        };
-
         var results = new ComboBox
         {
             Width = 260,
@@ -67,20 +66,11 @@ internal static partial class WidgetSettings
             Visibility = Visibility.Collapsed,
         };
 
-        var panel = new StackPanel { Spacing = 4, Children = { box, results, status } };
+        var verdict = FluentLayout.Verdict();
 
         // One search at a time. Typing a new query while the last is still out cancels it, so a
         // slow answer for "par" cannot land on top of the results for "paris".
         CancellationTokenSource? search = null;
-
-        void Report(string message, bool bad)
-        {
-            status.Text = message;
-            status.Visibility = message.Length == 0 ? Visibility.Collapsed : Visibility.Visible;
-            status.Foreground = bad
-                ? FluentLayout.Themed("SystemFillColorCriticalBrush", Colors.IndianRed)
-                : FluentLayout.Themed("TextFillColorSecondaryBrush", Colors.Gray);
-        }
 
         async Task RunAsync(string query)
         {
@@ -91,7 +81,7 @@ internal static partial class WidgetSettings
 
             results.Items.Clear();
             results.Visibility = Visibility.Collapsed;
-            Report("Searching…", bad: false);
+            FluentLayout.Confirm(verdict, "Searching…");
 
             try
             {
@@ -109,14 +99,14 @@ internal static partial class WidgetSettings
                 // things from the person who just typed.
                 if (fetchStatus == FetchStatus.Empty)
                 {
-                    Report($"No place called \"{query}\"", bad: false);
+                    FluentLayout.Confirm(verdict, $"No place called \"{query}\"");
                     return;
                 }
 
                 if (fetchStatus != FetchStatus.Ok)
                 {
                     Log.Warn(WeatherScope, $"place search failed: {FetchState.Message(fetchStatus)} {detail}".TrimEnd());
-                    Report(FetchState.Message(fetchStatus), bad: true);
+                    FluentLayout.Refuse(verdict, FetchState.Message(fetchStatus));
                     return;
                 }
 
@@ -126,7 +116,7 @@ internal static partial class WidgetSettings
                 }
 
                 results.Visibility = Visibility.Visible;
-                Report($"{places.Count} matches — pick one", bad: false);
+                FluentLayout.Confirm(verdict, $"{places.Count} matches — pick one");
             }
             catch (OperationCanceledException)
             {
@@ -158,7 +148,16 @@ internal static partial class WidgetSettings
             {
                 results.Items.Clear();
                 results.Visibility = Visibility.Collapsed;
-                Report(query.Length == 0 ? string.Empty : "Type a place name", bad: query.Length > 0);
+
+                if (query.Length == 0)
+                {
+                    FluentLayout.Confirm(verdict, string.Empty);
+                }
+                else
+                {
+                    FluentLayout.Refuse(verdict, "Type a place name");
+                }
+
                 return;
             }
 
@@ -178,13 +177,9 @@ internal static partial class WidgetSettings
 
         box.LostFocus += (_, _) => Start();
 
-        var chosen = new TextBlock
-        {
-            Text = config.HasLocation ? config.LocationName : "No place chosen",
-            FontSize = 12,
-            TextWrapping = TextWrapping.Wrap,
-            Foreground = FluentLayout.Themed("TextFillColorSecondaryBrush", Colors.Gray),
-        };
+        var chosen = FluentLayout.Note(config.HasLocation ? config.LocationName : "No place chosen");
+        chosen.Margin = new Thickness(0);
+        chosen.VerticalAlignment = VerticalAlignment.Center;
 
         results.SelectionChanged += (_, _) =>
         {
@@ -197,7 +192,7 @@ internal static partial class WidgetSettings
             config.Longitude = place.Longitude;
             config.LocationName = place.Name;
             chosen.Text = place.Name;
-            Report(string.Empty, bad: false);
+            FluentLayout.Confirm(verdict, string.Empty);
             save();
         };
 
@@ -215,55 +210,24 @@ internal static partial class WidgetSettings
             chosen.Text = "No place chosen";
             results.Items.Clear();
             results.Visibility = Visibility.Collapsed;
-            Report(string.Empty, bad: false);
+            FluentLayout.Confirm(verdict, string.Empty);
             save();
         };
 
-        rows.Add(FluentLayout.Row(Glyphs.Search, "Search", "Type a city and press Enter", panel));
+        rows.Add(FluentLayout.FieldRow(Glyphs.Search, "Search", "Type a city and press Enter",
+            new StackPanel
+            {
+                Spacing = Fluent.Space1,
+                HorizontalAlignment = HorizontalAlignment.Right,
+                Children = { box, results },
+            },
+            verdict));
+
         rows.Add(FluentLayout.Row(Glyphs.Place, "Location", null, new StackPanel
         {
             Orientation = Orientation.Horizontal,
-            Spacing = 8,
+            Spacing = Fluent.Space2,
             Children = { chosen, clear },
         }));
-    }
-
-    /// <summary>
-    /// The cadence row, shared by all four network widgets.
-    /// <para>
-    /// A fixed set rather than a free number, and nothing under a minute anywhere. Every service
-    /// behind these widgets is free, shared and unauthenticated, and a slider that goes to "every
-    /// second" is an invitation to get the whole app blocked.
-    /// </para>
-    /// </summary>
-    private static void AddRefreshChoice(
-        List<FrameworkElement> rows,
-        int current,
-        Action<int> onChanged,
-        bool fast = false)
-    {
-        (int Value, string Label)[] options = fast
-            ? [(1, "Every minute"), (5, "Every 5 minutes"), (15, "Every 15 minutes"), (30, "Every 30 minutes")]
-            : [(5, "Every 5 minutes"), (15, "Every 15 minutes"), (30, "Every 30 minutes"), (60, "Every hour")];
-
-        // A persisted value outside the set — hand-edited, or left over from an older build —
-        // would otherwise leave the box blank and the setting pointing at nothing visible.
-        var selected = current;
-        var known = false;
-
-        foreach (var (value, _) in options)
-        {
-            known |= value == selected;
-        }
-
-        if (!known)
-        {
-            // The second entry either way: five minutes on a fast widget, fifteen on a slow one.
-            selected = options[1].Value;
-            onChanged(selected);
-        }
-
-        rows.Add(FluentLayout.Row(Glyphs.Timer, "Refresh", "How often to ask the service",
-            FluentLayout.Choice(options, selected, onChanged)));
     }
 }

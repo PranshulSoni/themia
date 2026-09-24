@@ -1,6 +1,4 @@
 using Microsoft.UI.Xaml;
-using Microsoft.UI.Xaml.Controls;
-using Themia.Core.Diagnostics;
 using Themia.Core.Model;
 using Themia.Core.Widgets;
 
@@ -17,10 +15,12 @@ namespace Themia.App.Shell.Config;
 /// </summary>
 internal static partial class WidgetSettings
 {
-    private const string DeskScope = "widget-settings";
-
     public static void Notes(List<FrameworkElement> rows, NotesConfig config, Action save)
     {
+        ArgumentNullException.ThrowIfNull(rows);
+        ArgumentNullException.ThrowIfNull(config);
+        ArgumentNullException.ThrowIfNull(save);
+
         rows.Add(FluentLayout.Header("Notes"));
 
         // [S-05] The note's own size, not a scale factor: it is the one piece of formatting a
@@ -35,73 +35,36 @@ internal static partial class WidgetSettings
             "Off scrolls sideways instead of breaking long lines",
             FluentLayout.Toggle(config.WrapText, value => { config.WrapText = value; save(); })));
 
-        var clear = new Button { Content = "Clear notes" };
-
         // [S-06] The text is gone for good afterwards — there is no undo, no bin and no second copy
         // — so this asks first. A single click that silently empties a note the user has been
         // keeping for months is not a button, it is a trap.
-        clear.Click += (_, _) => _ = ConfirmClearAsync(clear, config, save);
-
-        rows.Add(FluentLayout.Row(Glyphs.Clear, "Clear notes", "Empties this note. This cannot be undone", clear));
+        rows.Add(FluentLayout.ConfirmRow(
+            Glyphs.Clear,
+            "Clear notes",
+            "Empties this note. This cannot be undone",
+            "Clear",
+            "Clear this note?",
+            () => string.IsNullOrEmpty(config.Text)
+                ? null
+                : "Everything written in it is deleted. This cannot be undone.",
+            () =>
+            {
+                config.Text = string.Empty;
+                save();
+            }));
     }
 
     public static void Calculator(List<FrameworkElement> rows, CalculatorConfig config, Action save)
     {
+        ArgumentNullException.ThrowIfNull(rows);
+        ArgumentNullException.ThrowIfNull(config);
+        ArgumentNullException.ThrowIfNull(save);
+
         rows.Add(FluentLayout.Header("Calculator"));
 
         // [S-05] Applied to the live result and to every row already in the history.
         rows.Add(FluentLayout.Row(Glyphs.Calculator, "Decimal places", "Digits shown after the point",
             FluentLayout.Slider(config.EffectiveDecimalPlaces, 0, ExpressionResult.MaxDecimalPlaces, 1, string.Empty,
                 value => { config.DecimalPlaces = (int)Math.Round(value); save(); })));
-    }
-
-    /// <summary>
-    /// Ask, then clear. Awaited rather than fired and forgotten so a failure to show the dialog can
-    /// never be mistaken for the user saying yes.
-    /// </summary>
-    private static async Task ConfirmClearAsync(Button source, NotesConfig config, Action save)
-    {
-        var root = source.XamlRoot;
-
-        if (root is null)
-        {
-            // No window to put a dialog in. Refusing beats clearing unasked.
-            Log.Warn(DeskScope, "no XamlRoot for the clear-notes confirmation; the note was left alone");
-            return;
-        }
-
-        if (string.IsNullOrEmpty(config.Text))
-        {
-            return;
-        }
-
-        var dialog = new ContentDialog
-        {
-            XamlRoot = root,
-            RequestedTheme = source.ActualTheme,
-            Title = "Clear this note?",
-            Content = "Everything written in it is deleted. This cannot be undone.",
-            PrimaryButtonText = "Clear",
-            CloseButtonText = "Cancel",
-            DefaultButton = ContentDialogButton.Close,
-        };
-
-        try
-        {
-            if (await dialog.ShowAsync() != ContentDialogResult.Primary)
-            {
-                return;
-            }
-        }
-        catch (Exception ex)
-        {
-            // ShowAsync throws when another dialog already owns this window. Say so and change
-            // nothing.
-            Log.Error(DeskScope, "could not show the clear-notes confirmation", ex);
-            return;
-        }
-
-        config.Text = string.Empty;
-        save();
     }
 }

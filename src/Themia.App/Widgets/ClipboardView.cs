@@ -25,7 +25,7 @@ namespace Themia.App.Widgets;
 /// Windows says it changed and at no other time.
 /// </para>
 /// </summary>
-internal sealed partial class ClipboardView : Grid, IWidgetView, IWidgetSurfaceAware
+internal sealed partial class ClipboardView : Grid, IWidgetView, IWidgetHeaderContent
 {
     private const string Scope = "clipboard-widget";
 
@@ -38,8 +38,6 @@ internal sealed partial class ClipboardView : Grid, IWidgetView, IWidgetSurfaceA
     /// <summary>What the "when" column reserves, so the times line up down the list.</summary>
     private const double TimestampWidth = 40;
 
-    private readonly TextBlock _title = Fluent.Text(FluentType.BodyStrong);
-    private readonly Grid _header;
     private readonly Button _clear;
     private readonly StackPanel _list = new() { Spacing = 0 };
     private readonly ScrollViewer _scroll;
@@ -62,10 +60,7 @@ internal sealed partial class ClipboardView : Grid, IWidgetView, IWidgetSurfaceA
 
     public ClipboardView()
     {
-        RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
-
-        _title.Text = "Clipboard";
 
         _clear = new Button
         {
@@ -77,10 +72,6 @@ internal sealed partial class ClipboardView : Grid, IWidgetView, IWidgetSurfaceA
         _clear.Click += OnClearClicked;
         ToolTipService.SetToolTip(_clear, "Clear history");
 
-        _header = Fluent.Header(Glyphs.Clipboard, _title, _clear);
-        _header.Margin = Fluent.HeaderMargin;
-        SetRow(_header, 0);
-
         _scroll = new ScrollViewer
         {
             Content = _list,
@@ -90,25 +81,19 @@ internal sealed partial class ClipboardView : Grid, IWidgetView, IWidgetSurfaceA
             VerticalScrollBarVisibility = ScrollBarVisibility.Hidden,
         };
 
-        SetRow(_scroll, 1);
-
         _empty = Fluent.EmptyState(Glyphs.Clipboard, _emptyText, out _emptyIcon);
-        SetRow(_empty, 1);
 
-        Children.Add(_header);
         Children.Add(_scroll);
         Children.Add(_empty);
 
         SizeChanged += OnSizeChanged;
     }
 
-    /// <inheritdoc />
-    public void Bind(IWidgetSurface surface)
-    {
-        ArgumentNullException.ThrowIfNull(surface);
-
-        _title.Text = string.IsNullOrWhiteSpace(surface.Label) ? "Clipboard" : surface.Label;
-    }
+    /// <summary>
+    /// The clear-history button, in the card's header. Built in the constructor because the card
+    /// reads this once, when it builds that header.
+    /// </summary>
+    public FrameworkElement? HeaderTrailing => _clear;
 
     public void Attach(Ticker ticker, WidgetConfig config)
     {
@@ -185,12 +170,6 @@ internal sealed partial class ClipboardView : Grid, IWidgetView, IWidgetSurfaceA
     {
         var height = ActualHeight;
         var measured = height > 0;
-
-        // With the header gone so is the clear button, which is the only control on it. That is the
-        // right trade at 180x120: the list is the widget, and clearing is a settings action too.
-        _header.Visibility = measured && height < Fluent.HeaderHidesBelow
-            ? Visibility.Collapsed
-            : Visibility.Visible;
 
         _emptyIcon.Visibility = measured && height < 180 ? Visibility.Collapsed : Visibility.Visible;
     }

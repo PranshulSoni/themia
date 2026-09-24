@@ -1,7 +1,5 @@
+using System.Globalization;
 using Microsoft.UI.Xaml;
-using Microsoft.UI.Xaml.Controls;
-using Themia.App.Widgets;
-using Themia.Core.Diagnostics;
 using Themia.Core.Model;
 
 namespace Themia.App.Shell.Config;
@@ -44,6 +42,14 @@ internal static partial class WidgetSettings
                 config.WeekStart,
                 value => { config.WeekStart = value; save(); })));
 
+        rows.Add(FluentLayout.Row(Glyphs.Note, "Show the thought box",
+            "A line about today's mood, kept with it",
+            FluentLayout.Toggle(config.ShowNote, value => { config.ShowNote = value; save(); })));
+
+        rows.Add(FluentLayout.Row(Glyphs.Preview, "Show the run and average",
+            "Hidden automatically when the widget is too short for it",
+            FluentLayout.Toggle(config.ShowStats, value => { config.ShowStats = value; save(); })));
+
         rows.Add(FluentLayout.Row(Glyphs.Count, "Weeks of history",
             "The most the rolling heatmap shows; a small widget shows fewer",
             FluentLayout.Slider(
@@ -54,81 +60,21 @@ internal static partial class WidgetSettings
                 string.Empty,
                 value => { config.HistoryWeeks = (int)Math.Round(value); save(); })));
 
-        rows.Add(FluentLayout.Row(Glyphs.Note, "Show the thought box",
-            "A line about today's mood, kept with it",
-            FluentLayout.Toggle(config.ShowNote, value => { config.ShowNote = value; save(); })));
-
-        rows.Add(FluentLayout.Row(Glyphs.Preview, "Show the run and average",
-            "Hidden automatically when the widget is too short for it",
-            FluentLayout.Toggle(config.ShowStats, value => { config.ShowStats = value; save(); })));
-
-        var clear = new Button
-        {
-            Content = "Clear history",
-
-            // Disabled rather than merely ineffective: a button that can only tell you there was
-            // nothing to do is a button that should not have been offered.
-            IsEnabled = config.Entries.Count > 0,
-        };
-
-        clear.Click += (_, _) => _ = ConfirmClearMoodsAsync(clear, config, save);
-
-        rows.Add(FluentLayout.Row(Glyphs.Clear, "Clear history",
-            "Deletes every mood logged in this widget. This cannot be undone", clear));
-    }
-
-    /// <summary>
-    /// Ask, then clear. Awaited rather than fired and forgotten, so a dialog that could not be shown
-    /// is never mistaken for the user saying yes.
-    /// </summary>
-    private static async Task ConfirmClearMoodsAsync(Button source, MoodTrackerConfig config, Action save)
-    {
-        var root = source.XamlRoot;
-
-        if (root is null)
-        {
-            // No window to put a dialog in. Refusing beats clearing unasked.
-            Log.Warn(DeskScope, "no XamlRoot for the clear-moods confirmation; the history was left alone");
-            return;
-        }
-
-        if (config.Entries.Count == 0)
-        {
-            return;
-        }
-
-        var count = config.Entries.Count.ToString(System.Globalization.CultureInfo.InvariantCulture);
-
-        var dialog = new ContentDialog
-        {
-            XamlRoot = root,
-            RequestedTheme = source.ActualTheme,
-            Title = "Clear every mood?",
-            Content = $"All {count} logged moods and their notes are deleted. This cannot be undone.",
-            PrimaryButtonText = "Clear",
-            CloseButtonText = "Cancel",
-            DefaultButton = ContentDialogButton.Close,
-        };
-
-        try
-        {
-            if (await dialog.ShowAsync() != ContentDialogResult.Primary)
+        rows.Add(FluentLayout.ConfirmRow(
+            Glyphs.Clear,
+            "Clear history",
+            "Deletes every mood logged in this widget. This cannot be undone",
+            "Clear",
+            "Clear every mood?",
+            () => config.Entries.Count == 0
+                ? null
+                : $"All {config.Entries.Count.ToString(CultureInfo.InvariantCulture)} logged moods and their notes are deleted. This cannot be undone.",
+            () =>
             {
-                return;
-            }
-        }
-        catch (Exception ex)
-        {
-            // ShowAsync throws when another dialog already owns this window. Say so and change
-            // nothing.
-            Log.Error(DeskScope, "could not show the clear-moods confirmation", ex);
-            return;
-        }
-
-        // Cleared in place rather than replaced: the list is the config's own and a new one would
-        // leave the widget holding the old.
-        config.Entries.Clear();
-        source.IsEnabled = false;
-        save();
+                // Cleared in place rather than replaced: the list is the config's own and a new one
+                // would leave the widget holding the old.
+                config.Entries.Clear();
+                save();
+            }));
     }
 }

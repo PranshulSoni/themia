@@ -38,7 +38,7 @@ namespace Themia.App.Widgets;
 /// so this file only turns numbers into shapes.
 /// </para>
 /// </summary>
-internal sealed partial class SunMoonView : Grid, IWidgetView
+internal sealed partial class SunMoonView : Grid, IWidgetView, IWidgetSurfaceAware
 {
     /// <summary>[S-170] The graphic is never dropped; below this it is simply drawn smaller.</summary>
     private const double GraphicFloor = 46;
@@ -47,9 +47,6 @@ internal sealed partial class SunMoonView : Grid, IWidgetView
     private const double CompactWidth = 260;
 
     private const double CompactHeight = 220;
-
-    private readonly TextBlock _place = new() { TextTrimming = TextTrimming.CharacterEllipsis };
-    private readonly Grid _header;
 
     private readonly Canvas _canvas = new();
     private readonly Polygon _elapsedFill = new();
@@ -87,6 +84,9 @@ internal sealed partial class SunMoonView : Grid, IWidgetView
     private readonly Brush _divider = FluentLayout.Themed("DividerStrokeColorDefaultBrush", Colors.Gray);
 
     private SunMoonConfig _config = new();
+
+    /// <summary>The card this view draws on, which owns the header it names.</summary>
+    private IWidgetSurface? _surface;
     private Ticker? _ticker;
     private IDisposable? _subscription;
     private TimeSpan _subscribedInterval = TimeSpan.Zero;
@@ -94,10 +94,6 @@ internal sealed partial class SunMoonView : Grid, IWidgetView
 
     public SunMoonView()
     {
-        _place.Text = "Sun & Moon";
-        _header = Fluent.Header(Glyphs.Place, _place);
-        _header.Margin = Fluent.HeaderMargin;
-
         BuildCanvas();
 
         _riseLabel = new StripLabel(Glyphs.Sun);
@@ -153,15 +149,12 @@ internal sealed partial class SunMoonView : Grid, IWidgetView
         _body.Children.Add(graphicColumn);
         _body.Children.Add(_moonPanel);
 
-        RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
         RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
 
-        SetRow(_header, 0);
-        SetRow(_body, 1);
-        SetRow(_rowList, 2);
+        SetRow(_body, 0);
+        SetRow(_rowList, 1);
 
-        Children.Add(_header);
         Children.Add(_body);
         Children.Add(_rowList);
 
@@ -260,11 +253,17 @@ internal sealed partial class SunMoonView : Grid, IWidgetView
         ApplyConfig(config);
     }
 
+    /// <inheritdoc />
+    public void Bind(IWidgetSurface surface)
+    {
+        _surface = surface;
+        PublishTitle();
+    }
+
     public void ApplyConfig(WidgetConfig config)
     {
         _config = config as SunMoonConfig ?? new SunMoonConfig();
-
-        _place.Text = string.IsNullOrWhiteSpace(_config.Place) ? "Sun & Moon" : _config.Place.Trim();
+        PublishTitle();
 
         Resubscribe();
 
@@ -312,9 +311,9 @@ internal sealed partial class SunMoonView : Grid, IWidgetView
     /// <para>
     /// How many rows appear is no longer a set of height thresholds picked by hand: rows are a fixed
     /// 40px, or 32 on a small tile, so the widget simply works out how many of that height are left
-    /// once the header and the graphic's floor have taken their share, and shows that many — moon
-    /// first to go, then daylight, then the two events. With the graphic hidden all four stay, since
-    /// a widget showing nothing is never the answer.
+    /// once the graphic's floor has taken its share, and shows that many — moon first to go, then
+    /// daylight, then the two events. With the graphic hidden all four stay, since a widget showing
+    /// nothing is never the answer.
     /// </para>
     /// </summary>
     private void ApplyLayout()
@@ -339,12 +338,9 @@ internal sealed partial class SunMoonView : Grid, IWidgetView
         var showDaylightLabel = width >= 140;
         var showSmallExtras = width >= 160;
 
-        var showHeader = height >= 110 && width >= 100;
-
-        // What is left for rows once the header and the graphic's floor have taken theirs.
-        var chrome = Fluent.Space4 + Fluent.Space2
-            + (showHeader ? FluentType.BodyStrong.LineHeight + Fluent.Space2 : 0)
-            + (graphic ? GraphicFloor : 0);
+        // What is left for rows once the graphic's floor has taken its share. The header belongs to
+        // the card and sits outside this box, so it takes nothing out of it.
+        var chrome = Fluent.Space4 + Fluent.Space2 + (graphic ? GraphicFloor : 0);
 
         var room = height - chrome;
         var fit = room > 0 ? (int)Math.Floor(room / rowHeight) : 0;
@@ -353,15 +349,14 @@ internal sealed partial class SunMoonView : Grid, IWidgetView
         var showDaylightRow = rows && (!graphic || fit >= 3);
         var showMoonRow = rows && (!graphic || fit >= 4);
 
-        _header.Visibility = Show(showHeader);
         _canvas.Visibility = Show(graphic);
         _moonPanel.Visibility = Show(graphic);
         _body.Visibility = Show(graphic);
 
         // Under a graphic the rows sit at the bottom; on their own they sit at the top, because
         // nothing above them is pushing them down.
-        RowDefinitions[1].Height = graphic ? new GridLength(1, GridUnitType.Star) : GridLength.Auto;
-        RowDefinitions[2].Height = graphic ? GridLength.Auto : new GridLength(1, GridUnitType.Star);
+        RowDefinitions[0].Height = graphic ? new GridLength(1, GridUnitType.Star) : GridLength.Auto;
+        RowDefinitions[1].Height = graphic ? GridLength.Auto : new GridLength(1, GridUnitType.Star);
         _rowList.VerticalAlignment = graphic ? VerticalAlignment.Bottom : VerticalAlignment.Top;
         _strip.Visibility = Show(showStrip);
         _rowList.Visibility = Show(showEventRows || showDaylightRow || showMoonRow);
@@ -401,8 +396,8 @@ internal sealed partial class SunMoonView : Grid, IWidgetView
     /// Pick the ramp steps and the drawn sizes for this tile.
     /// <para>
     /// Only the number strip actually scales, because it is the graphic's readout and a large tile
-    /// should say it loudly. The rows and the header stay on their list-row steps at every size:
-    /// Windows grows a list by showing more of it, not by growing its type.
+    /// should say it loudly. The rows stay on their list-row steps at every size: Windows grows a
+    /// list by showing more of it, not by growing its type.
     /// </para>
     /// </summary>
     private void ApplyType(double width, double height)
@@ -800,4 +795,15 @@ internal sealed partial class SunMoonView : Grid, IWidgetView
             _value.Foreground = isNext ? _accentText : _primary;
         }
     }
+    /// <summary>
+    /// Tell the card what this widget is about. The catalogue can only say "Weather" or
+    /// "Folder"; the widget knows which place, which folder, which ticker — and on a desktop
+    /// holding three of them, that is the only thing telling them apart.
+    /// </summary>
+    private void PublishTitle()
+    {
+        var title = _config.Place;
+        _surface?.SetHeaderTitle(string.IsNullOrWhiteSpace(title) ? null : title);
+    }
+
 }

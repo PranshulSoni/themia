@@ -14,6 +14,10 @@ internal static partial class WidgetSettings
 {
     public static void Music(List<FrameworkElement> rows, MusicConfig config, Action save)
     {
+        ArgumentNullException.ThrowIfNull(rows);
+        ArgumentNullException.ThrowIfNull(config);
+        ArgumentNullException.ThrowIfNull(save);
+
         rows.Add(FluentLayout.Header("Now playing"));
 
         rows.Add(FluentLayout.Row(Glyphs.Gallery, "Show album art",

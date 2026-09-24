@@ -21,7 +21,7 @@ namespace Themia.App.Widgets;
 /// path and the only thing that decides what may be launched.
 /// </para>
 /// </summary>
-internal sealed partial class AppsView : Grid, IWidgetView, IWidgetSurfaceAware
+internal sealed partial class AppsView : Grid, IWidgetView, IWidgetSurfaceAware, IWidgetHeaderContent
 {
     /// <summary>Below this width the folder column is dropped: the name is what a launcher is for.</summary>
     private const double CategoryMinimumWidth = 320;
@@ -35,8 +35,6 @@ internal sealed partial class AppsView : Grid, IWidgetView, IWidgetSurfaceAware
     /// <summary>How many characters of a folder name the detail column shows.</summary>
     private const double CategoryWidth = 96;
 
-    private readonly TextBlock _title = Fluent.Text(FluentType.BodyStrong);
-    private readonly Grid _header;
     private readonly ProgressRing _busy = new();
     private readonly TextBox _filter = new();
     private readonly Border _filterHost;
@@ -71,19 +69,12 @@ internal sealed partial class AppsView : Grid, IWidgetView, IWidgetSurfaceAware
     public AppsView()
     {
         RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-        RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
-
-        _title.Text = "Apps";
 
         _busy.Width = 14;
         _busy.Height = 14;
         _busy.IsActive = false;
         _busy.Visibility = Visibility.Collapsed;
-
-        _header = Fluent.Header(Glyphs.Apps, _title, _busy);
-        _header.Margin = Fluent.HeaderMargin;
-        SetRow(_header, 0);
 
         _filter.PlaceholderText = "Filter";
         _filter.IsSpellCheckEnabled = false;
@@ -104,7 +95,7 @@ internal sealed partial class AppsView : Grid, IWidgetView, IWidgetSurfaceAware
             Padding = new Thickness(Fluent.Space4, 0, Fluent.Space4, Fluent.Space2),
         };
 
-        SetRow(_filterHost, 1);
+        SetRow(_filterHost, 0);
 
         _scroll = new ScrollViewer
         {
@@ -115,13 +106,12 @@ internal sealed partial class AppsView : Grid, IWidgetView, IWidgetSurfaceAware
             VerticalScrollBarVisibility = ScrollBarVisibility.Hidden,
         };
 
-        SetRow(_scroll, 2);
+        SetRow(_scroll, 1);
 
         _empty = Fluent.EmptyState(Glyphs.Apps, _emptyText, out _emptyIcon);
         _empty.Visibility = Visibility.Collapsed;
-        SetRow(_empty, 2);
+        SetRow(_empty, 1);
 
-        Children.Add(_header);
         Children.Add(_filterHost);
         Children.Add(_scroll);
         Children.Add(_empty);
@@ -129,18 +119,14 @@ internal sealed partial class AppsView : Grid, IWidgetView, IWidgetSurfaceAware
         SizeChanged += OnSizeChanged;
     }
 
+    /// <summary>
+    /// The ring that spins while the app list is being enumerated, in the card's header. Built in
+    /// the constructor because the card reads this once, when it builds that header.
+    /// </summary>
+    public FrameworkElement? HeaderTrailing => _busy;
+
     /// <inheritdoc />
-    public void Bind(IWidgetSurface surface)
-    {
-        _surface = surface;
-
-        var label = surface.Label;
-
-        if (!string.IsNullOrWhiteSpace(label))
-        {
-            _title.Text = label;
-        }
-    }
+    public void Bind(IWidgetSurface surface) => _surface = surface;
 
     public void Attach(Ticker ticker, WidgetConfig config)
     {
@@ -317,10 +303,6 @@ internal sealed partial class AppsView : Grid, IWidgetView, IWidgetSurfaceAware
     {
         var height = ActualHeight;
         var measured = height > 0;
-
-        _header.Visibility = measured && height < Fluent.HeaderHidesBelow
-            ? Visibility.Collapsed
-            : Visibility.Visible;
 
         var room = !measured || height >= FilterHidesBelow;
 

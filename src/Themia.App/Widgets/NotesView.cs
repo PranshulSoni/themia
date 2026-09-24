@@ -34,11 +34,8 @@ internal sealed partial class NotesView : Grid, IWidgetView, IWidgetSurfaceAware
     /// </summary>
     private static readonly TimeSpan SaveDebounce = TimeSpan.FromMilliseconds(600);
 
-    private readonly TextBlock _title = new();
-
     /// <summary>The surface this note is drawn on: where it saves and where it asks for the keyboard.</summary>
     private IWidgetSurface? _surface;
-    private readonly Grid _header;
     private readonly TextBox _editor = new();
     private readonly DispatcherQueueTimer? _saveTimer;
 
@@ -52,23 +49,12 @@ internal sealed partial class NotesView : Grid, IWidgetView, IWidgetSurfaceAware
         // The card no longer pads its content; a view that is not a list carries its own inset.
         Padding = WidgetLayout.Inset;
 
-        RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
-
-        _title.Text = WidgetCatalog.Definition(WidgetKind.Notes).Label;
-
-        // The standard pane header: a 16px icon and a Body Strong title in the secondary text
-        // colour. Fixed, not scaled to the tile — a header that grows with its widget is the web
-        // habit this port came in with.
-        _header = Fluent.Header(WidgetCatalog.Definition(WidgetKind.Notes).Glyph, _title);
-        _header.Margin = new Thickness(0, 0, 0, Fluent.Space2);
 
         BuildEditor();
 
-        Grid.SetRow(_header, 0);
-        Grid.SetRow(_editor, 1);
+        Grid.SetRow(_editor, 0);
 
-        Children.Add(_header);
         Children.Add(_editor);
 
         // The dispatcher timer is the debounce. Where there is no dispatcher queue (a design-time
@@ -86,8 +72,6 @@ internal sealed partial class NotesView : Grid, IWidgetView, IWidgetSurfaceAware
             _saveTimer.IsRepeating = false;
             _saveTimer.Tick += OnSaveTick;
         }
-
-        SizeChanged += OnSizeChanged;
     }
 
     /// <summary>
@@ -148,16 +132,7 @@ internal sealed partial class NotesView : Grid, IWidgetView, IWidgetSurfaceAware
     }
 
     /// <inheritdoc />
-    public void Bind(IWidgetSurface surface)
-    {
-        _surface = surface;
-
-        // [S-02] The widget's own title when the user set one, so a desktop of notes is readable
-        // without opening each of them.
-        _title.Text = string.IsNullOrWhiteSpace(surface.Label)
-            ? WidgetCatalog.Definition(WidgetKind.Notes).Label
-            : surface.Label;
-    }
+    public void Bind(IWidgetSurface surface) => _surface = surface;
 
     public void Attach(Ticker ticker, WidgetConfig config)
     {
@@ -246,17 +221,6 @@ internal sealed partial class NotesView : Grid, IWidgetView, IWidgetSurfaceAware
         _surface?.RequestSave();
     }
 
-    /// <summary>
-    /// [S-131] The header is dropped on a short tile and nothing is resized: the header is a fixed
-    /// ramp step and the note's size is the user's own setting [S-03], so a widget that is dragged
-    /// larger shows more note rather than bigger letters.
-    /// </summary>
-    private void OnSizeChanged(object sender, SizeChangedEventArgs args)
-    {
-        // Under about 90 DIPs the title is most of the widget, so the note gets the room instead.
-        _header.Visibility = ActualHeight < 90 ? Visibility.Collapsed : Visibility.Visible;
-    }
-
     public void Detach()
     {
         if (_detached)
@@ -278,7 +242,6 @@ internal sealed partial class NotesView : Grid, IWidgetView, IWidgetSurfaceAware
         _editor.GotFocus -= OnGotFocus;
         _editor.LostFocus -= OnLostFocus;
         _surface?.RequestTextInput(false);
-        SizeChanged -= OnSizeChanged;
     }
 
 }

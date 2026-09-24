@@ -155,7 +155,14 @@ internal sealed class AppHost : IDisposable
         }
 
         var id = widget.Id;
-        Mutate(_ => view.Widgets.RemoveAll(w => w.Id == id));
+
+        Mutate(_ =>
+        {
+            // A container gives up its children rather than taking them with it. See
+            // WidgetTree.Dissolve.
+            view.Dissolve(id);
+            view.Widgets.RemoveAll(w => w.Id == id);
+        });
         Select(null);
     }
 
