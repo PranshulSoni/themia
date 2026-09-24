@@ -4,8 +4,8 @@ A minimal native rebuild of [Themia](https://github.com/crazy-rabbit-software/th
 widget app — on **WinUI 3 / .NET 10, compiled ahead of time**. The point of the exercise is the
 runtime cost: no web view, no JavaScript engine, no JIT.
 
-It is a vertical slice, not a port of the catalogue: **one widget (a clock)**, but all the machinery
-around it — edit mode, drag and resize, snapping, the widget picker, per-widget settings, views,
+It is a vertical slice, not a port of the catalogue: **six widgets** - clock, CPU, memory, disk,
+battery and mail - plus all the machinery — edit mode, drag and resize, snapping, the widget picker, per-widget settings, views,
 per-display view assignment, copy / cut / paste, dragging a widget onto another display, a tray icon,
 and persistence.
 
@@ -19,7 +19,7 @@ Measured on this machine (Windows 11, 3840x2160 at 150%, two displays), one cloc
 |---|---|
 | Executable | **7.1 MB** single native binary |
 | Managed DLLs shipped | **0** — no CoreCLR, no `System.*.dll` |
-| Working set | **~90 MB** (two full-screen widget surfaces + WinUI compositor) |
+| Working set | **~90 MB** with one widget, **~141 MB** with six across two displays |
 | Idle CPU | **~0.3% of one core** |
 | Wakes per minute | **1** (a clock without seconds asks for a 1-minute cadence) |
 
@@ -77,6 +77,19 @@ tests/                xUnit over Themia.Core
 The split is deliberate: everything with a rule in it lives in `Themia.Core`, which has no UI types,
 so the geometry, persistence and scheduling rules are tested without needing a window.
 
+### Widgets
+
+The system meters - CPU, memory, disk, battery - read straight from Win32 rather than through
+`PerformanceCounter`, which is not trim-safe and slow to its first value. Each samples at the cadence
+its number actually changes at: CPU and memory once a second, disk and battery once a minute.
+
+**Mail comes from [hearth](../hearth-app), and this app contains no provider code at all** - no
+account, no token, no Graph, no IMAP, no sync. Hearth owns all of that behind one local pipe with
+per-app consent; the widget asks for the `email` scope, lists what it is granted, and re-queries when
+the hub pushes a change. The wire types are declared here with a source-generated JSON context rather
+than by referencing `Hearth.Client`, because the SDK serialises reflectively and would not survive
+AOT (`[S-93]`).
+
 ### The three ideas worth knowing
 
 **Geometry is fractional.** A widget stores `x, y, w, h` as fractions of its screen, never pixels
@@ -99,8 +112,10 @@ desktop is actually visible.** If another window covers it, it cannot be clicked
 
 These are choices or known platform limits, not oversights:
 
-- **One widget type.** The registry (`WidgetCatalog`) and the persisted discriminator (`WidgetKind`)
-  are built for more; adding one is an enum member plus a catalogue entry plus a view.
+- **Six widget types.** The registry (`WidgetCatalog`) and the persisted discriminator
+  (`WidgetKind`) are built for more; adding one is an enum member plus a catalogue entry plus a view.
+- **The mail widget is read-only** and needs the hearth hub running. It asks for the `email` scope
+  alone, never `email.send`, and shows an empty state naming what is missing when it cannot read.
 - **Mixed-DPI multi-monitor is untested.** Placement uses each monitor's physical work area and
   layout uses the window's own rasterization scale, so it should be correct, but this machine runs
   both displays at 150% and I could not exercise the mixed case.

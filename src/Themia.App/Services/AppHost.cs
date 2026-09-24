@@ -1,5 +1,6 @@
 using Microsoft.UI.Dispatching;
 using Themia.App.Interop;
+using Themia.App.Services.Hearth;
 using Themia.App.Shell;
 using Themia.Core.Diagnostics;
 using Themia.Core.Model;
@@ -38,11 +39,16 @@ internal sealed class AppHost : IDisposable
         _store = store;
         State = state;
         Ticker = new Ticker(dispatcher);
+        Mail = new HearthMailService(dispatcher);
+        AppServices.Mail = Mail;
     }
 
     public AppState State { get; }
 
     public Ticker Ticker { get; }
+
+    /// <summary>The app's one connection to the hearth hub, shared by every mail widget.</summary>
+    public HearthMailService Mail { get; }
 
     /// <summary>Raised when anything that affects rendering changed. Windows re-read <see cref="State"/>.</summary>
     public event Action? StateChanged;
@@ -419,6 +425,8 @@ internal sealed class AppHost : IDisposable
 
         _disposed = true;
         Clipboard.Clear();
+        AppServices.Mail = null;
+        _ = Mail.DisposeAsync();
 
         foreach (var window in _windows)
         {

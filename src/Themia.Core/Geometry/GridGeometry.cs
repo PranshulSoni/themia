@@ -7,10 +7,16 @@ namespace Themia.Core.Geometry;
 public static class GridGeometry
 {
     /// <summary>[S-08] Minimum on-screen widget size, in device-independent pixels.</summary>
-    public const double MinWidgetPx = 64;
+    public const double MinWidgetPx = 32;
 
-    /// <summary>Target size of one snap cell, in device-independent pixels.</summary>
-    public const double MinCellPx = 40;
+    /// <summary>
+    /// Target size of one snap cell, in device-independent pixels.
+    /// <para>
+    /// A fine ~10px snap, matching the original app. This only sets how many snap lines exist; the
+    /// rendered cell is screen/cols, so the pitch follows the display.
+    /// </para>
+    /// </summary>
+    public const double MinCellPx = 10;
 
     /// <summary>
     /// [S-06] Snap-grid granularity for a screen. The grid is an <b>aid</b>, never storage: it only

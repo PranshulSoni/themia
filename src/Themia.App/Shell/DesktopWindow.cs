@@ -56,9 +56,11 @@ internal sealed class DesktopWindow : IWidgetCardHost
         {
             // Tertiary text, not a control stroke: the stroke brushes are low-alpha overlays meant
             // for an opaque window, and over a transparent surface they disappear entirely.
+            // Kept very faint because the mesh is fine (~10px cells); at a heavier alpha this many
+            // lines reads as a grey wash over the desktop rather than as a grid.
             Stroke = Brush("TextFillColorTertiaryBrush", Colors.Gray),
             StrokeThickness = 1,
-            Opacity = 0.5,
+            Opacity = 0.18,
             IsHitTestVisible = false,
             Visibility = Visibility.Collapsed,
         };

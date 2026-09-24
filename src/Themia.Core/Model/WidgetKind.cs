@@ -10,6 +10,21 @@ namespace Themia.Core.Model;
 public enum WidgetKind
 {
     Clock = 0,
+
+    /// <summary>Processor load across all cores.</summary>
+    Cpu = 1,
+
+    /// <summary>Physical memory in use.</summary>
+    Memory = 2,
+
+    /// <summary>Space used on one drive.</summary>
+    Disk = 3,
+
+    /// <summary>Charge level and whether it is on mains.</summary>
+    Battery = 4,
+
+    /// <summary>Recent mail, read from the hearth hub.</summary>
+    Email = 5,
 }
 
 /// <summary>How the clock renders its face.</summary>

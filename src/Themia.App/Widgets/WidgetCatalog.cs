@@ -40,6 +40,11 @@ internal static class WidgetCatalog
     public static readonly IReadOnlyList<WidgetDefinition> All =
     [
         new(WidgetKind.Clock, "Clock", "Time and date, digital or analog", "", 280, 140),
+        new(WidgetKind.Cpu, "CPU", "Processor load across all cores", "", 200, 150),
+        new(WidgetKind.Memory, "Memory", "Physical memory in use", "", 200, 150),
+        new(WidgetKind.Disk, "Disk", "Space used on a drive", "", 200, 150),
+        new(WidgetKind.Battery, "Battery", "Charge level and time remaining", "", 200, 150),
+        new(WidgetKind.Email, "Mail", "Recent messages, via the hearth hub", "", 380, 260),
     ];
 
     public static WidgetDefinition Definition(WidgetKind kind)
@@ -60,6 +65,8 @@ internal static class WidgetCatalog
     public static FrameworkElement CreateView(WidgetKind kind) => kind switch
     {
         WidgetKind.Clock => new ClockView(),
+        WidgetKind.Cpu or WidgetKind.Memory or WidgetKind.Disk or WidgetKind.Battery => new MeterView(kind),
+        WidgetKind.Email => new EmailView(),
         _ => new ClockView(),
     };
 }

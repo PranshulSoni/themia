@@ -17,5 +17,10 @@ namespace Themia.Core.Storage;
 [JsonSerializable(typeof(WidgetInstance))]
 [JsonSerializable(typeof(WidgetConfig))]
 [JsonSerializable(typeof(ClockConfig))]
+[JsonSerializable(typeof(CpuConfig))]
+[JsonSerializable(typeof(MemoryConfig))]
+[JsonSerializable(typeof(DiskConfig))]
+[JsonSerializable(typeof(BatteryConfig))]
+[JsonSerializable(typeof(EmailConfig))]
 [JsonSerializable(typeof(DesignState))]
 internal sealed partial class AppStateJsonContext : JsonSerializerContext;

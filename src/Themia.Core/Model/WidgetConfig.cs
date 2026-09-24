@@ -9,6 +9,11 @@ namespace Themia.Core.Model;
 /// </summary>
 [JsonPolymorphic(TypeDiscriminatorPropertyName = "kind", UnknownDerivedTypeHandling = JsonUnknownDerivedTypeHandling.FailSerialization)]
 [JsonDerivedType(typeof(ClockConfig), typeDiscriminator: "clock")]
+[JsonDerivedType(typeof(CpuConfig), typeDiscriminator: "cpu")]
+[JsonDerivedType(typeof(MemoryConfig), typeDiscriminator: "memory")]
+[JsonDerivedType(typeof(DiskConfig), typeDiscriminator: "disk")]
+[JsonDerivedType(typeof(BatteryConfig), typeDiscriminator: "battery")]
+[JsonDerivedType(typeof(EmailConfig), typeDiscriminator: "email")]
 public abstract class WidgetConfig
 {
     /// <summary>The kind this config belongs to. Used to detect a config/kind mismatch on load.</summary>
@@ -19,6 +24,11 @@ public abstract class WidgetConfig
     public static WidgetConfig CreateDefault(WidgetKind kind) => kind switch
     {
         WidgetKind.Clock => new ClockConfig(),
+        WidgetKind.Cpu => new CpuConfig(),
+        WidgetKind.Memory => new MemoryConfig(),
+        WidgetKind.Disk => new DiskConfig(),
+        WidgetKind.Battery => new BatteryConfig(),
+        WidgetKind.Email => new EmailConfig(),
         _ => new ClockConfig(),
     };
 
@@ -83,4 +93,123 @@ public sealed class ClockConfig : WidgetConfig
     public TimeSpan TickInterval => ShowSeconds || Face == ClockFace.Analog
         ? TimeSpan.FromSeconds(1)
         : TimeSpan.FromMinutes(1);
+}
+
+/// <summary>Settings shared by the readout widgets that draw a bar and a number.</summary>
+public abstract class GaugeConfig : WidgetConfig
+{
+    /// <summary>Show the recent history behind the readout.</summary>
+    public bool ShowGraph { get; set; } = true;
+
+    protected void CopyTo(GaugeConfig other) => other.ShowGraph = ShowGraph;
+
+    /// <summary>A live meter is only honest at a one-second cadence.</summary>
+    [JsonIgnore]
+    public virtual TimeSpan TickInterval => TimeSpan.FromSeconds(1);
+}
+
+public sealed class CpuConfig : GaugeConfig
+{
+    [JsonIgnore]
+    public override WidgetKind Kind => WidgetKind.Cpu;
+
+    public override WidgetConfig Clone()
+    {
+        var copy = new CpuConfig();
+        CopyTo(copy);
+        return copy;
+    }
+}
+
+public sealed class MemoryConfig : GaugeConfig
+{
+    [JsonIgnore]
+    public override WidgetKind Kind => WidgetKind.Memory;
+
+    public override WidgetConfig Clone()
+    {
+        var copy = new MemoryConfig();
+        CopyTo(copy);
+        return copy;
+    }
+}
+
+public sealed class DiskConfig : GaugeConfig
+{
+    [JsonIgnore]
+    public override WidgetKind Kind => WidgetKind.Disk;
+
+    /// <summary>Drive root to report, e.g. <c>C:\</c>. Empty means the system drive.</summary>
+    public string Drive { get; set; } = string.Empty;
+
+    /// <summary>Free space moves slowly; waking every second to watch it would be waste.</summary>
+    [JsonIgnore]
+    public override TimeSpan TickInterval => TimeSpan.FromMinutes(1);
+
+    public override WidgetConfig Clone()
+    {
+        var copy = new DiskConfig { Drive = Drive };
+        CopyTo(copy);
+        return copy;
+    }
+}
+
+public sealed class BatteryConfig : GaugeConfig
+{
+    [JsonIgnore]
+    public override WidgetKind Kind => WidgetKind.Battery;
+
+    /// <summary>Show the estimated time remaining under the percentage.</summary>
+    public bool ShowTimeRemaining { get; set; } = true;
+
+    /// <summary>Charge moves slowly, so this widget costs one wake a minute.</summary>
+    [JsonIgnore]
+    public override TimeSpan TickInterval => TimeSpan.FromMinutes(1);
+
+    public override WidgetConfig Clone()
+    {
+        var copy = new BatteryConfig { ShowTimeRemaining = ShowTimeRemaining };
+        CopyTo(copy);
+        return copy;
+    }
+}
+
+/// <summary>
+/// Recent mail. No account settings of its own: the hearth hub owns the accounts, the sync and the
+/// consent, so this only says which of the collections hearth has granted to show.
+/// </summary>
+public sealed class EmailConfig : WidgetConfig
+{
+    [JsonIgnore]
+    public override WidgetKind Kind => WidgetKind.Email;
+
+    /// <summary>Hearth collection id, or empty for every collection the app may read.</summary>
+    public string CollectionId { get; set; } = string.Empty;
+
+    /// <summary>Hide messages that have already been read.</summary>
+    public bool UnreadOnly { get; set; }
+
+    /// <summary>How many messages to list, 1 to 50.</summary>
+    public int MaxCount { get; set; } = 10;
+
+    /// <summary>Show the one-line preview hearth derives from the body.</summary>
+    public bool ShowPreview { get; set; } = true;
+
+    /// <summary>
+    /// The list is refreshed by hearth's change events, not by polling, so the timer is only a
+    /// backstop that keeps the relative timestamps ("4m", "3h") honest.
+    /// </summary>
+    [JsonIgnore]
+    public TimeSpan TickInterval => TimeSpan.FromMinutes(1);
+
+    public override WidgetConfig Clone() => new EmailConfig
+    {
+        CollectionId = CollectionId,
+        UnreadOnly = UnreadOnly,
+        MaxCount = MaxCount,
+        ShowPreview = ShowPreview,
+    };
+
+    /// <summary>Clamp the count into the supported range; a persisted zero would show an empty widget.</summary>
+    public int EffectiveMaxCount => Math.Clamp(MaxCount, 1, 50);
 }

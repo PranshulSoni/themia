@@ -230,6 +230,81 @@ internal static partial class Win32
     internal const uint LrDefaultSize = 0x00000040;
     internal const uint LrShared = 0x00008000;
 
+    // ---- named pipes -------------------------------------------------------------------------
+
+    /// <summary>
+    /// The process serving a pipe. A client uses it to check it is talking to the program it thinks
+    /// it is before handing over anything that implies trust.
+    /// </summary>
+    [LibraryImport("kernel32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static partial bool GetNamedPipeServerProcessId(nint pipe, out uint serverProcessId);
+
+    // ---- system metrics ----------------------------------------------------------------------
+
+    [LibraryImport("kernel32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static partial bool GetSystemTimes(out FileTime idleTime, out FileTime kernelTime, out FileTime userTime);
+
+    [LibraryImport("kernel32.dll", EntryPoint = "GlobalMemoryStatusEx", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static partial bool GlobalMemoryStatusEx(ref MemoryStatusEx lpBuffer);
+
+    [LibraryImport("kernel32.dll", EntryPoint = "GetDiskFreeSpaceExW", SetLastError = true, StringMarshalling = StringMarshalling.Utf16)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static partial bool GetDiskFreeSpaceEx(
+        string lpDirectoryName,
+        out ulong lpFreeBytesAvailableToCaller,
+        out ulong lpTotalNumberOfBytes,
+        out ulong lpTotalNumberOfFreeBytes);
+
+    [LibraryImport("kernel32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static partial bool GetSystemPowerStatus(out SystemPowerStatus lpSystemPowerStatus);
+
+    /// <summary>A FILETIME as a pair of 32-bit halves; the tick count is the two joined.</summary>
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct FileTime
+    {
+        public uint Low;
+        public uint High;
+
+        public readonly ulong ToUInt64() => ((ulong)High << 32) | Low;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct MemoryStatusEx
+    {
+        public uint Length;
+        public uint MemoryLoad;
+        public ulong TotalPhys;
+        public ulong AvailPhys;
+        public ulong TotalPageFile;
+        public ulong AvailPageFile;
+        public ulong TotalVirtual;
+        public ulong AvailVirtual;
+        public ulong AvailExtendedVirtual;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct SystemPowerStatus
+    {
+        /// <summary>0 offline, 1 online, 255 unknown.</summary>
+        public byte ACLineStatus;
+
+        public byte BatteryFlag;
+
+        /// <summary>0-100, or 255 for unknown (which is what a machine with no battery reports).</summary>
+        public byte BatteryLifePercent;
+
+        public byte SystemStatusFlag;
+
+        /// <summary>Seconds remaining, or -1 (0xFFFFFFFF) when unknown.</summary>
+        public uint BatteryLifeTime;
+
+        public uint BatteryFullLifeTime;
+    }
+
     // ---- structs ---------------------------------------------------------------------------
 
     [StructLayout(LayoutKind.Sequential)]

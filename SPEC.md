@@ -41,6 +41,10 @@ Owning files: `Themia.Core/Geometry/*`, `Themia.Core/Model/*`, `Themia.Core/Stor
 - **[S-06]** The grid is an **aid**, never storage. `design.gridSnap` (default on) rounds the rect
   chosen during drag, resize and placement to the nearest grid line. Holding **Alt** suspends it for
   the duration of the gesture. Storage is always the raw fraction.
+- **[S-06b]** The cell target is **10 DIP**, and the minimum widget **32 DIP**, matching the
+  original app. This only sets how many snap lines exist; the drawn pitch is screen/cols, so it
+  follows the display. At that density the overlay stroke has to be very faint, or the mesh reads as
+  a grey wash over the desktop rather than as a grid.
 - **[S-06a]** The cell overlay is drawn only in edit mode, and only when `gridSnap` is on.
 
 ## Constraints
@@ -202,3 +206,49 @@ Owning files: `Themia.Core/Geometry/*`, `Themia.Core/Model/*`, `Themia.Core/Stor
   rewrote its position against the wrong screen.
 - **[S-77]** The drop **point**, not the dragged rect, decides the destination: the rect is clamped
   to its own screen ([S-09]) and so can never reach across the display boundary.
+
+## System meters
+
+- **[S-80]** CPU, memory, disk and battery read straight from Win32 (`GetSystemTimes`,
+  `GlobalMemoryStatusEx`, `GetDiskFreeSpaceEx`, `GetSystemPowerStatus`), not from
+  `PerformanceCounter`: that pulls in the whole perf-counter stack, is slow to its first value and is
+  not trim-safe, none of which a widget sampling one number a second can justify.
+- **[S-81]** CPU load is a **delta** between two samples of the system's cumulative timers, so the
+  first tick has nothing to subtract and reports 0 rather than inventing a figure. `GetSystemTimes`
+  already counts idle inside its kernel total, so busy is `(kernel + user) - idle`.
+- **[S-82]** A meter that cannot be read says so (`--`, dimmed) rather than showing 0%. A machine
+  with no battery reports 255 for the charge, which is "unknown", not "empty".
+- **[S-83]** Cadence follows what the number actually does: CPU and memory once a second, disk and
+  battery once a minute. Battery draws no history - at a one-minute cadence a flat line reads as a
+  broken graph rather than a stable charge.
+- **[S-84]** Byte sizes use **binary** units, because that is what Windows reports; a widget
+  disagreeing with File Explorer about the size of the same drive reads as a bug. A percentage never
+  rounds a non-zero load down to 0% nor an incomplete one up to 100%, because both read as "nothing
+  is happening" when something is.
+
+## Mail, via the hearth hub
+
+- **[S-90]** The mail widget holds **no account, token, provider or sync code**. The hearth hub owns
+  all of it; this widget asks for the `email` scope, lists what it is granted, and refreshes when the
+  hub says something changed.
+- **[S-91]** The scope asked for is `email` **alone**, never `email.send`, so the worst the widget
+  can do with a granted mailbox is show it.
+- **[S-92]** There is **one** connection for the whole app, shared by every mail widget. Hearth
+  identifies an app by its process and grants consent to that process, so a second connection would
+  mean a second consent prompt for the same app.
+- **[S-93]** The wire types are declared in Themia with a **source-generated** JSON context rather
+  than by referencing `Hearth.Client`. The SDK serialises reflectively
+  (`JsonSerializer.Serialize(value, value.GetType(), ...)`), which is neither trim- nor AOT-safe, so
+  referencing it would fail this build or throw once trimmed. Requests stay exactly on schema because
+  hearth rejects unknown members inbound; replies may carry more than is declared.
+- **[S-94]** The server process is checked (`GetNamedPipeServerProcessId`) before `hello` is sent.
+  The hub is what draws the consent prompt, so consenting to an impostor would mean consenting to
+  nothing.
+- **[S-95]** `hello` waits at **human speed** (5 minutes), not the 30 seconds an ordinary call gets:
+  the hub does not answer until the user has answered its consent prompt, and a prompt sitting on
+  screen is not a hung hub.
+- **[S-96]** The hub is **never started** by this widget. Launching another application's executable
+  is not a widget's business, so an absent hub is an empty state that says so.
+- **[S-97]** A change event carries no data - it is a nudge to re-query, so a missed one costs
+  nothing. The empty state names which of "not running", "not granted" and "nothing to show" is
+  true, because each needs a different action from the user.
