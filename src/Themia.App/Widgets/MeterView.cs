@@ -141,9 +141,12 @@ internal sealed partial class MeterView : Grid, IWidgetView
         // right-hand slots and the bottom half of the scale, so the tile read as mostly empty
         // with a number stranded at the top. The graph is a band of bounded height at the foot,
         // which is the proportion Windows gives a chart under a readout.
+        // Three rows, not four: the graph and the bar are alternatives - one is showing exactly
+        // when the other is not - so they share the last row. As separate rows, the grid's row
+        // spacing still sat between them, which put an 8px gap under a graph that is supposed to
+        // reach the bottom edge of the card. A collapsed row has no height; it still has a gap.
         RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
-        RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
 
         header.Margin = new Thickness(Fluent.Space4, Fluent.Space4, Fluent.Space4, 0);
@@ -152,7 +155,7 @@ internal sealed partial class MeterView : Grid, IWidgetView
         _reading.Margin = WidgetLayout.SideInset;
         Grid.SetRow(_reading, 1);
         Grid.SetRow(_sparkHost, 2);
-        Grid.SetRow(_bar, 3);
+        Grid.SetRow(_bar, 2);
 
         Children.Add(header);
         Children.Add(_reading);
@@ -236,9 +239,9 @@ internal sealed partial class MeterView : Grid, IWidgetView
     private void ApplyTypeScale()
     {
         // The text is inset even though the view is not, so the width it has is still the tile
-        // less both insets. The height is the whole tile now: the graph reaches the bottom.
+        // less both insets. The height is the whole tile: the graph runs to the bottom edge.
         var width = ActualWidth - (Fluent.Space4 * 2);
-        var height = ActualHeight - Fluent.Space4;
+        var height = ActualHeight;
 
         // The graph is a proportion of the tile between a readable floor and a ceiling, rather
         // than whatever is left over. Left over is how it ended up taller than the number it is

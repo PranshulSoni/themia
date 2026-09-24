@@ -544,6 +544,10 @@ Owning files: `Themia.Core/Geometry/*`, `Themia.Core/Model/*`, `Themia.Core/Stor
 - **[S-215]** A chart is **full-bleed**: it reaches the card's left, right and bottom edges, and is
   clipped to its corner radius. A chart floating inside a margin reads as a picture of a chart. Text
   carries the inset instead, exactly as a list row does.
+- **[S-215b]** The graph and the bar share one grid row rather than taking one each. They are
+  alternatives — one shows exactly when the other does not — and as separate rows the grid's row
+  spacing still sat between them, leaving a gap under a chart that is supposed to touch the
+  bottom of the card. A collapsed row has no height; it still has a gap.
 - **[S-215a]** The chart is a band of bounded height at the foot of the tile, and the **reading**
   takes the slack. Giving the graph the slack put a 350px band on a tall tile that a young trace had
   no way to fill, with the number stranded at the top.
