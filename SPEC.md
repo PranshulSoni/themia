@@ -342,6 +342,19 @@ Owning files: `Themia.Core/Geometry/*`, `Themia.Core/Model/*`, `Themia.Core/Stor
 - **[S-110]** The latency bar is scaled against a 300 ms ceiling, not the adapter's link speed: a
   negotiated line rate says nothing about round-trip time and would pin every reading at the bottom.
 
+- **[S-111a]** A sparkline's x-axis is a fixed window of slots, not "spread whatever samples are held
+  across the full width". The newest sample is pinned to the right edge and each older one steps left
+  by exactly one slot, so the trace grows in from the right and reaches the left edge only when the
+  window is full. Spreading them instead makes the graph rescale on every sample for the first
+  minute of a widget's life, which reads as the data moving when only the buffer is filling. The
+  original app carries the same note against the same bug.
+- **[S-111b]** The y-axis is the full range, never the range actually observed. A meter rescaled to
+  its own recent minimum and maximum turns a steady 47% into a dramatic zigzag of noise, which is the
+  opposite of what a glanceable readout is for.
+- **[S-111c]** A meter's caption is laid out in a star column, not a horizontal stack. A stack
+  measures its children with unbounded width, so the caption never learns how much room it has and
+  its trimming never fires: on a narrow tile it ran past the edge of the card and was cut mid-word.
+
 ## Notes and calculator
 
 - **[S-120]** The calculator's arithmetic is a hand-written recursive-descent parser in

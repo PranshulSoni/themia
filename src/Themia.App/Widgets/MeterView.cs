@@ -90,12 +90,25 @@ internal sealed partial class MeterView : Grid, IWidgetView
         // The reading on its own line, the sparkline below it. Drawing the trace *behind* the number
         // meant the graph read as decoration and the number was read against a moving background;
         // neither was easy to look at.
-        var reading = new StackPanel
+        //
+        // A Grid, not a StackPanel: a horizontal StackPanel measures its children with unbounded
+        // width, so the caption never learns how much room it has and TextTrimming never fires. On a
+        // narrow tile it simply ran past the edge of the card and was cut mid-word — "up 105 KB/".
+        // The star column hands it exactly what is left over, so it ellipsises instead.
+        var reading = new Grid
         {
-            Orientation = Orientation.Horizontal,
-            Spacing = 8,
-            Children = { _primary, _secondary },
+            ColumnSpacing = 8,
+            ColumnDefinitions =
+            {
+                new ColumnDefinition { Width = GridLength.Auto },
+                new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) },
+            },
         };
+
+        Grid.SetColumn(_primary, 0);
+        Grid.SetColumn(_secondary, 1);
+        reading.Children.Add(_primary);
+        reading.Children.Add(_secondary);
 
         RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
@@ -416,27 +429,31 @@ internal sealed partial class MeterView : Grid, IWidgetView
         }
 
         var samples = _history.ToArray();
-        var step = width / Math.Max(1, samples.Length - 1);
 
         // Inset by the stroke width so a reading of 0% or 100% is not clipped in half at the edge.
         var inset = _sparkLine.StrokeThickness;
         var usable = Math.Max(1, height - inset);
 
+        // X comes from Sparkline, which pins the newest sample to the right edge and steps left one
+        // fixed slot per sample. Spreading however many samples are held across the full width
+        // instead would make the trace rescale every second for the first minute of the widget's
+        // life, which reads as the data moving when only the buffer is filling.
         var line = new PointCollection();
         for (var i = 0; i < samples.Length; i++)
         {
-            var y = (inset / 2) + (usable - (Math.Clamp(samples[i], 0, 1) * usable));
-            line.Add(new Point(i * step, y));
+            var x = Sparkline.SampleX(i, samples.Length, HistoryLength) * width;
+            var y = (inset / 2) + (Sparkline.SampleY(samples[i]) * usable);
+            line.Add(new Point(x, y));
         }
 
-        // The fill is the same trace, closed along the bottom edge.
-        var fill = new PointCollection { new(0, height) };
+        // The fill is the same trace, closed down to the baseline at each end.
+        var fill = new PointCollection { new(line[0].X, height) };
         foreach (var point in line)
         {
             fill.Add(point);
         }
 
-        fill.Add(new Point((samples.Length - 1) * step, height));
+        fill.Add(new Point(line[^1].X, height));
 
         _sparkLine.Points = line;
         _sparkFill.Points = fill;
