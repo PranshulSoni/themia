@@ -1,12 +1,95 @@
 using System.Text.Json.Serialization;
+using Themia.Core.Widgets;
 
 namespace Themia.Core.Model;
 
-/// <summary>Placeholder: the real Stocks settings replace this file wholesale.</summary>
+/// <summary>
+/// Which of the two quote services a symbol belongs to.
+/// <para>
+/// A closed set with its own discriminator rather than a string, because it selects the endpoint:
+/// a coin id is not a Yahoo symbol and asking the wrong service for it produces a confident 404.
+/// What the instrument <i>is</i> — equity, index, currency, commodity — is a presentation question
+/// answered by <see cref="MarketQuote.Classify"/>, and does not change which service is called.
+/// </para>
+/// </summary>
+[JsonConverter(typeof(JsonStringEnumConverter<QuoteMarket>))]
+public enum QuoteMarket
+{
+    /// <summary>Anything Yahoo's chart endpoint quotes: shares, ETFs, funds, indices, FX, futures.</summary>
+    Listed = 0,
+
+    /// <summary>A CoinGecko coin id.</summary>
+    Crypto = 1,
+}
+
+/// <summary>How much history the sparkline covers.</summary>
+[JsonConverter(typeof(JsonStringEnumConverter<QuoteRange>))]
+public enum QuoteRange
+{
+    Day = 0,
+    FiveDays = 1,
+    Month = 2,
+    ThreeMonths = 3,
+    SixMonths = 4,
+    Year = 5,
+    TwoYears = 6,
+    FiveYears = 7,
+    TenYears = 8,
+}
+
+/// <summary>
+/// One instrument's price, change and recent shape.
+/// <para>
+/// One symbol per widget, as in the original: a list of tickers in a 180px tile is four lines of
+/// four-point type, and a desktop that wants three prices can hold three widgets, each of which can
+/// then be the size its reader wants.
+/// </para>
+/// </summary>
 public sealed class StocksConfig : WidgetConfig
 {
     [JsonIgnore]
     public override WidgetKind Kind => WidgetKind.Stocks;
 
-    public override WidgetConfig Clone() => new StocksConfig();
+    /// <summary>The Yahoo symbol or CoinGecko id. Empty until the user sets one.</summary>
+    public string Symbol { get; set; } = string.Empty;
+
+    /// <summary>Which service quotes it.</summary>
+    public QuoteMarket Market { get; set; } = QuoteMarket.Listed;
+
+    /// <summary>A name to show instead of the symbol. Empty means show the symbol.</summary>
+    public string DisplayName { get; set; } = string.Empty;
+
+    public QuoteRange Range { get; set; } = QuoteRange.Day;
+
+    public bool ShowSparkline { get; set; } = true;
+
+    /// <summary>Say so when the listing exchange is shut. Crypto is never marked: it trades all week.</summary>
+    public bool ShowMarketState { get; set; } = true;
+
+    /// <summary>How often to ask, in minutes.</summary>
+    public int RefreshMinutes { get; set; } = 5;
+
+    /// <summary>The symbol as it is sent and displayed, or empty when it is not usable.</summary>
+    [JsonIgnore]
+    public string EffectiveSymbol => WebInput.IsPlausibleSymbol(Symbol)
+        ? WebInput.NormaliseSymbol(Symbol, Market == QuoteMarket.Crypto)
+        : string.Empty;
+
+    /// <summary>
+    /// The cadence, clamped. One minute is the floor: both quote services are free and
+    /// unauthenticated, and a desktop of widgets asking every second is how an app gets blocked.
+    /// </summary>
+    [JsonIgnore]
+    public TimeSpan TickInterval => TimeSpan.FromMinutes(Math.Clamp(RefreshMinutes, 1, 120));
+
+    public override WidgetConfig Clone() => new StocksConfig
+    {
+        Symbol = Symbol,
+        Market = Market,
+        DisplayName = DisplayName,
+        Range = Range,
+        ShowSparkline = ShowSparkline,
+        ShowMarketState = ShowMarketState,
+        RefreshMinutes = RefreshMinutes,
+    };
 }

@@ -87,11 +87,19 @@ public static class PowerRules
             _ => PowerSource.Unknown,
         };
 
-        // Two different absences. The flag is definitive — a desktop sets bit 7 — while a 255
-        // percentage on a machine that did not set that bit is a battery Windows momentarily
-        // cannot measure, which is still a battery.
-        var hasBattery = (batteryFlag & NoSystemBattery) == 0 && batteryFlag != Unknown
-            || batteryLifePercent <= 100;
+        // Three states packed into two bytes, and only one of them is "there is no battery".
+        //
+        //  - bit 7 of the flag, with a flag that is not itself the unknown sentinel and no usable
+        //    percentage, is a desktop: Windows is stating the absence.
+        //  - a flag of 255 is Windows saying it does not know, which is not the same claim. That
+        //    machine keeps its battery row and shows "--", rather than being told it is a desktop.
+        //  - a real percentage outranks the flag either way: something that reports 80% charge has
+        //    a battery whatever else it set.
+        var noBattery = batteryFlag != Unknown
+            && (batteryFlag & NoSystemBattery) != 0
+            && batteryLifePercent > 100;
+
+        var hasBattery = !noBattery;
 
         int? percent = hasBattery && batteryLifePercent <= 100 ? batteryLifePercent : null;
 

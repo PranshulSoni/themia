@@ -76,9 +76,37 @@ internal static class Glyphs
     public static readonly string Open = From(0xE8E5);
     public static readonly string Power = From(0xE7E8);
     public static readonly string Shortcut = From(0xE71B);
+    public static readonly string Warning = From(0xE7BA);
+    public static readonly string Undo = From(0xE7A7);
+    public static readonly string Eraser = From(0xED60);
+    public static readonly string Shuffle = From(0xE8B1);
+    public static readonly string Mute = From(0xE74F);
+    public static readonly string Volume0 = From(0xE992);
+    public static readonly string Volume1 = From(0xE993);
+    public static readonly string Volume2 = From(0xE994);
+    public static readonly string Volume3 = From(0xE995);
+    public static readonly string Previous = From(0xE892);
+    public static readonly string Next = From(0xE893);
+    public static readonly string Headphone = From(0xE7F6);
+    public static readonly string Mouse = From(0xE962);
+    public static readonly string Keyboard = From(0xE765);
+    public static readonly string Phone = From(0xE8EA);
+    public static readonly string Game = From(0xE7FC);
+    public static readonly string Pen = From(0xE929);
+    public static readonly string Lightning = From(0xE945);
+    public static readonly string BatterySaver = From(0xEBC0);
     public static readonly string Bluetooth = From(0xE702);
     public static readonly string Weather = From(0xE753);
     public static readonly string Forecast = From(0xE9CA);
+
+    // The weather set. These code points are the least certain in this file: a wrong one renders
+    // as a hollow box rather than failing, so they are checked against a screenshot rather than
+    // trusted.
+    public static readonly string Cloudy = From(0xE9BF);
+    public static readonly string Fog = From(0xE9CB);
+    public static readonly string Rain = From(0xE9C4);
+    public static readonly string Snow = From(0xE9C8);
+    public static readonly string Thunderstorm = From(0xE9C6);
     public static readonly string Stocks = From(0xEB05);
     public static readonly string Rss = From(0xE8F1);
     public static readonly string Apps = From(0xE71D);
