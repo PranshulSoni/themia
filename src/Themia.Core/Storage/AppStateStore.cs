@@ -265,12 +265,28 @@ public sealed class AppStateStore : IAsyncDisposable
                 repairs.Add($"widget '{widget.Id}' had an unknown surface");
             }
 
+            if (!Enum.IsDefined(widget.Header))
+            {
+                widget.Header = HeaderPlacement.Top;
+                repairs.Add($"widget '{widget.Id}' had an unknown header placement");
+            }
+
             var settled = GridGeometry.Clamp(widget.Rect, unit);
             if (settled != widget.Rect)
             {
                 widget.Rect = settled;
                 repairs.Add($"widget '{widget.Id}' was off-screen or below the size floor");
             }
+        }
+
+        // Membership last, and only once every widget above is known good: the tree is walked by
+        // id, so it has to be walked over ids that exist and are unique. A hand-edited file can
+        // name a parent that is gone, a parent that is not a container, or a cycle - none of
+        // which the UI can produce and all of which would otherwise reach a layout pass.
+        var reparented = view.RepairTree();
+        if (reparented > 0)
+        {
+            repairs.Add($"{reparented} widget(s) named a container that could not hold them");
         }
 
         return repairs;

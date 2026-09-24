@@ -23,6 +23,20 @@ public sealed class WidgetInstance
 
     public WidgetSurface Surface { get; set; } = WidgetSurface.Card;
 
+    /// <summary>
+    /// The container this widget belongs to, or null for one sitting directly on the desktop.
+    /// <para>
+    /// A parent id rather than a list of children on the container: membership is then stated in
+    /// exactly one place, so a widget cannot be in two containers at once and a container cannot
+    /// list a widget that no longer exists. The cost is that finding a container's children is a
+    /// scan of the view, which at a desktop's worth of widgets is nothing.
+    /// </para>
+    /// </summary>
+    public string? ParentId { get; set; }
+
+    /// <summary>Where the widget's header sits. A per-widget choice, like the surface.</summary>
+    public HeaderPlacement Header { get; set; } = HeaderPlacement.Top;
+
     /// <summary>Never null after a successful load; a missing or mismatched config is repaired to the kind's default.</summary>
     public required WidgetConfig Config { get; set; }
 
@@ -56,6 +70,8 @@ public sealed class WidgetInstance
         Kind = Kind,
         Label = Label,
         Surface = Surface,
+        ParentId = ParentId,
+        Header = Header,
         Config = Config.Clone(),
         X = X,
         Y = Y,

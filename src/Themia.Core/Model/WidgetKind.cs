@@ -165,6 +165,40 @@ public enum SunPathMode
     Hidden = 2,
 }
 
+/// <summary>Where a widget draws its header.</summary>
+[JsonConverter(typeof(JsonStringEnumConverter<HeaderPlacement>))]
+public enum HeaderPlacement
+{
+    Top = 0,
+    Bottom = 1,
+
+    /// <summary>No header. The widget is the content and nothing else.</summary>
+    Hidden = 2,
+}
+
+/// <summary>
+/// The container kinds. Kept as a set rather than a flag on the definition because what a
+/// container does with its children differs per kind, and the layout has to branch on it.
+/// </summary>
+[JsonConverter(typeof(JsonStringEnumConverter<ContainerKind>))]
+public enum ContainerKind
+{
+    /// <summary>Not a container.</summary>
+    None = 0,
+
+    /// <summary>
+    /// A labelled area. Children keep their own place on the grid and are laid out normally; the
+    /// group draws behind them and hides them when it is collapsed.
+    /// </summary>
+    Group = 1,
+
+    /// <summary>Children are rolled up to their header rows inside the container's rect.</summary>
+    Stack = 2,
+
+    /// <summary>Children share the container's rect and exactly one is shown at a time.</summary>
+    Tabs = 3,
+}
+
 /// <summary>How the clock renders its face.</summary>
 [JsonConverter(typeof(JsonStringEnumConverter<ClockFace>))]
 public enum ClockFace
