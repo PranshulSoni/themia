@@ -40,6 +40,12 @@ internal sealed class DesktopWindow : IWidgetCardHost
     private readonly Grid _root;
     private readonly List<WidgetCard> _cards = [];
 
+    /// <summary>
+    /// The cards currently asking for the keyboard. A set rather than a flag because two widgets on
+    /// one surface can each be typed into, and the last one to finish is the one that gives it back.
+    /// </summary>
+    private readonly HashSet<WidgetCard> _textInputWanted = [];
+
     private MonitorTarget _monitor;
     private nint _hwnd;
     private AppWindow? _appWindow;
@@ -354,6 +360,54 @@ internal sealed class DesktopWindow : IWidgetCardHost
 
     public void RequestEditMode(bool enabled) => _host.SetEditMode(enabled);
 
+    /// <summary>A widget edited its own config. Persist it, but do not re-lay-out: see [S-128].</summary>
+    public void RequestSaveConfig() => _host.SaveGeometryOnly();
+
+    /// <summary>
+    /// A widget asked for the keyboard, or gave it up.
+    /// <para>
+    /// The surface carries <c>WS_EX_NOACTIVATE</c> so that clicking a widget never pulls focus off
+    /// the user's work — which is right for every widget except the ones you type into, where it
+    /// means the caret blinks and the letters go somewhere else. Rather than a second mechanism,
+    /// this feeds the same <c>interactive</c> flag edit mode already uses: the surface becomes
+    /// activatable for exactly as long as some widget wants typing, and the z-order controller keeps
+    /// it on the desktop regardless, so it still never rises above another window.
+    /// </para>
+    /// </summary>
+    public void RequestTextInput(WidgetCard card, bool wanted)
+    {
+        if (_closed)
+        {
+            return;
+        }
+
+        var changed = wanted ? _textInputWanted.Add(card) : _textInputWanted.Remove(card);
+        if (!changed)
+        {
+            return;
+        }
+
+        ApplyInteractivity();
+
+        // Asking is not enough: the surface has to actually be the foreground window before Windows
+        // routes a keystroke to it.
+        if (wanted && _textInputWanted.Count == 1 && !_host.EditMode)
+        {
+            Win32.SetForegroundWindow(_hwnd);
+        }
+    }
+
+    /// <summary>
+    /// The one place that decides whether the surface takes focus. Edit mode and a widget being
+    /// typed into are two reasons for the same thing, so they share the flag rather than each
+    /// setting the style themselves and overwriting each other.
+    /// </summary>
+    private void ApplyInteractivity()
+    {
+        DesktopLayer.Apply(_hwnd, interactive: _host.EditMode || _textInputWanted.Count > 0);
+        ApplyChromeless();
+    }
+
     public bool IsSelected(WidgetCard card) => _host.SelectedWidgetId == card.Model.Id;
 
     public void RequestSelect(WidgetCard card) => _host.Select(card.Model.Id);
@@ -399,10 +453,11 @@ internal sealed class DesktopWindow : IWidgetCardHost
 
         ApplyTheme();
 
-        // Pin to the bottom for good: edit mode makes the window activatable, and an activatable
-        // window is raised above its neighbours when clicked unless something says otherwise.
-        BottomPin.Attach(_hwnd);
-        DesktopLayer.Apply(_hwnd, WidgetLayer.Desktop, interactive: false);
+        // Hand the surface to the z-order controller for good: edit mode makes the window
+        // activatable, and an activatable window is raised above its neighbours when clicked unless
+        // something says otherwise.
+        DesktopZOrder.Track(_hwnd);
+        DesktopLayer.Apply(_hwnd, interactive: false);
     }
 
     /// <summary>
@@ -490,31 +545,6 @@ internal sealed class DesktopWindow : IWidgetCardHost
         };
     }
 
-    /// <summary>
-    /// Lift the surface while the desktop is fronted, and drop it back afterwards. See
-    /// <see cref="ShowDesktopWatcher"/> for why this does not contradict the desktop-layer rule.
-    /// </summary>
-    public void SetDesktopFronted(bool fronted)
-    {
-        if (_closed)
-        {
-            return;
-        }
-
-        BottomPin.SetPinning(!fronted);
-        DesktopLayer.Apply(_hwnd, fronted ? WidgetLayer.Topmost : WidgetLayer.Desktop, EditMode);
-        ApplyChromeless();
-
-        // Show Desktop does not merely reorder windows, it hides them. Raising the z-order of a
-        // hidden window changes nothing, so the surface has to be shown again explicitly — without
-        // activation, which would steal focus from whatever the user clicks next.
-        if (fronted && !Win32.IsWindowVisible(_hwnd))
-        {
-            Win32.ShowWindow(_hwnd, Win32.SwShowNoActivate);
-        }
-
-    }
-
     public void ShowSurface()
     {
         // Shown without activation: starting the app must not pull focus away from whatever the
@@ -522,7 +552,7 @@ internal sealed class DesktopWindow : IWidgetCardHost
         var windowId = Win32Interop.GetWindowIdFromWindow(_hwnd);
         AppWindow.GetFromWindowId(windowId).Show(activateWindow: false);
 
-        DesktopLayer.Reassert(_hwnd, WidgetLayer.Desktop, interactive: false);
+        DesktopZOrder.Reconcile();
         Relayout();
     }
 
@@ -534,7 +564,7 @@ internal sealed class DesktopWindow : IWidgetCardHost
         }
 
         _closed = true;
-        BottomPin.Detach(_hwnd);
+        DesktopZOrder.Forget(_hwnd);
         _host.StateChanged -= OnStateChanged;
         _host.EditModeChanged -= OnEditModeChanged;
         _host.SelectionChanged -= OnSelectionChanged;
@@ -543,6 +573,8 @@ internal sealed class DesktopWindow : IWidgetCardHost
         {
             card.Detach();
         }
+
+        _textInputWanted.Clear();
 
         _cards.Clear();
         _window.Close();
@@ -592,10 +624,9 @@ internal sealed class DesktopWindow : IWidgetCardHost
             card.ApplyEditMode(editing);
         }
 
-        // Edit mode needs real focus for keyboard input and must float above other windows; normal
-        // mode goes back to being part of the desktop.
-        DesktopLayer.Apply(_hwnd, WidgetLayer.Desktop, interactive: editing);
-        ApplyChromeless();
+        // Edit mode needs real focus for the keyboard shortcuts; normal mode goes back to being
+        // part of the desktop, unless a widget is being typed into.
+        ApplyInteractivity();
 
         if (editing)
         {
@@ -645,6 +676,10 @@ internal sealed class DesktopWindow : IWidgetCardHost
         {
             stale.Detach();
             _widgetLayer.Children.Remove(stale);
+
+            // A card that wanted the keyboard and is now gone must not keep the surface focusable
+            // forever.
+            RequestTextInput(stale, wanted: false);
         }
 
         _cards.Clear();

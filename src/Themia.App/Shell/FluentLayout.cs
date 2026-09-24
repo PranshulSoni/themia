@@ -3,6 +3,7 @@ using Microsoft.UI.Text;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
+using Themia.Core.Diagnostics;
 
 namespace Themia.App.Shell;
 
@@ -17,6 +18,8 @@ namespace Themia.App.Shell;
 /// </summary>
 internal static class FluentLayout
 {
+    private const string Scope = "layout";
+
     /// <summary>A settings row: icon, title, optional description, and a control on the right.</summary>
     public static Border Row(string glyph, string title, string? description, FrameworkElement control)
     {
@@ -67,8 +70,8 @@ internal static class FluentLayout
             Child = grid,
             Padding = new Thickness(16, 12, 16, 12),
             CornerRadius = new CornerRadius(4),
-            Background = Brush("CardBackgroundFillColorDefaultBrush", Colors.Transparent),
-            BorderBrush = Brush("CardStrokeColorDefaultBrush", Colors.Gray),
+            Background = Themed("CardBackgroundFillColorDefaultBrush", Colors.Transparent),
+            BorderBrush = Themed("CardStrokeColorDefaultBrush", Colors.Gray),
             BorderThickness = new Thickness(1),
         };
     }
@@ -165,8 +168,25 @@ internal static class FluentLayout
         };
     }
 
-    private static Brush Brush(string key, Windows.UI.Color fallback)
-        => Application.Current.Resources.TryGetValue(key, out var value) && value is Brush brush
-            ? brush
-            : new SolidColorBrush(fallback);
+    /// <summary>
+    /// A stock Fluent brush by resource key, with a fallback colour for the case where the key is
+    /// missing.
+    /// <para>
+    /// Public because every settings file and every widget view wants it, and four private copies of
+    /// the same four lines is four places for the fallback to drift. Looking the brush up by key is
+    /// what makes a surface follow the theme; a literal colour is a surface that does not.
+    /// </para>
+    /// </summary>
+    public static Brush Themed(string key, Windows.UI.Color fallback)
+    {
+        if (Application.Current.Resources.TryGetValue(key, out var value) && value is Brush brush)
+        {
+            return brush;
+        }
+
+        // A missing key is a typo or a renamed system resource, and the literal that replaces it is
+        // a colour that will not follow the theme. Worth saying out loud rather than quietly wrong.
+        Log.Warn(Scope, $"theme resource '{key}' missing; using a literal colour");
+        return new SolidColorBrush(fallback);
+    }
 }

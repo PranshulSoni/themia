@@ -3,19 +3,6 @@ using Themia.Core.Diagnostics;
 
 namespace Themia.App.Interop;
 
-/// <summary>Where the widget surface sits in the window z-order.</summary>
-internal enum WidgetLayer
-{
-    /// <summary>On the desktop: below every ordinary window, never activated, never in the taskbar.</summary>
-    Desktop = 0,
-
-    /// <summary>An ordinary window that still never takes focus.</summary>
-    Normal = 1,
-
-    /// <summary>Above everything.</summary>
-    Topmost = 2,
-}
-
 /// <summary>
 /// Turns a plain WinUI window into a desktop widget surface: no taskbar entry, never steals focus,
 /// parked in the requested z-band, and — critically — click-through everywhere except the widgets
@@ -33,8 +20,14 @@ internal static class DesktopLayer
     /// <c>WS_EX_TOOLWINDOW</c> keeps it out of the taskbar and Alt-Tab. In edit mode the surface has
     /// to accept keyboard input, so NOACTIVATE is lifted for the duration.
     /// </para>
+    /// <para>
+    /// Styles only. Where the surface sits in the z-order — including the brief lift while Windows is
+    /// showing the desktop — belongs to <see cref="DesktopZOrder"/>, which is the one place that
+    /// decides it. Touching <c>WS_EX_TOPMOST</c> here as well would mean two things fighting over one
+    /// bit, and the loser is whichever ran first.
+    /// </para>
     /// </summary>
-    public static void Apply(nint hwnd, WidgetLayer layer, bool interactive)
+    public static void Apply(nint hwnd, bool interactive)
     {
         if (hwnd == 0 || !Win32.IsWindow(hwnd))
         {
@@ -55,56 +48,14 @@ internal static class DesktopLayer
             ex |= Win32.WsExNoActivate;
         }
 
-        // The surface is NEVER topmost, not even while editing. It is a desktop layer: widgets
-        // belong under the user's windows, and editing them does not change that. Edit mode only
-        // drops WS_EX_NOACTIVATE so the surface can take keyboard focus for the shortcuts — and
-        // because an activatable window gets raised when clicked, BottomPin rewrites every
-        // z-order change back to the bottom.
-        if (layer == WidgetLayer.Topmost)
-        {
-            ex |= Win32.WsExTopmost;
-        }
-        else
-        {
-            ex &= ~Win32.WsExTopmost;
-        }
-
         if (Win32.SetWindowLongPtr(hwnd, Win32.GwlExStyle, (nint)ex) == 0 && Marshal.GetLastWin32Error() != 0)
         {
             Log.Warn(Scope, $"SetWindowLongPtr(GWL_EXSTYLE) failed (win32 {Marshal.GetLastWin32Error()})");
         }
 
-        Reassert(hwnd, layer, interactive);
-    }
-
-    /// <summary>
-    /// Park the window in its z-band. Cheap enough to re-run whenever something might have
-    /// reshuffled the z-order (a display change, a return from edit mode).
-    /// </summary>
-    public static void Reassert(nint hwnd, WidgetLayer layer, bool interactive)
-    {
-        if (hwnd == 0 || !Win32.IsWindow(hwnd))
-        {
-            return;
-        }
-
-        var insertAfter = (layer, interactive) switch
-        {
-            (WidgetLayer.Topmost, _) => Win32.HwndTopmost,
-            (WidgetLayer.Desktop, _) => Win32.HwndBottom,
-            _ => Win32.HwndNoTopmost,
-        };
-
-        // Deliberately no SWP_FRAMECHANGED: it forces a non-client area recalculation, and that is
-        // what made Windows hand the borderless surface its title bar and border back the moment
-        // edit mode toggled. Only the z-order and activation flags change here, so the frame does
-        // not need recomputing.
-        const uint Flags = Win32.SwpNoMove | Win32.SwpNoSize | Win32.SwpNoActivate | Win32.SwpNoOwnerZOrder;
-
-        if (!Win32.SetWindowPos(hwnd, insertAfter, 0, 0, 0, 0, Flags))
-        {
-            Log.Warn(Scope, $"SetWindowPos failed (win32 {Marshal.GetLastWin32Error()})");
-        }
+        // Changing the activation style is exactly the kind of thing that reshuffles a window, so
+        // let the controller put it back where it belongs.
+        DesktopZOrder.Reconcile();
     }
 
     /// <summary>

@@ -5,6 +5,7 @@ using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Shapes;
 using Themia.App.Services;
+using Themia.App.Shell;
 using Themia.Core.Diagnostics;
 using Themia.Core.Model;
 using Themia.Core.Widgets;
@@ -41,6 +42,14 @@ internal sealed partial class MeterView : Grid, IWidgetView
     private IDisposable? _subscription;
     private TimeSpan _subscribedInterval = TimeSpan.Zero;
 
+    // Ping is the one reading that cannot be taken synchronously: a probe takes up to two seconds
+    // and Sample() runs on the UI thread. The token source is both the cancel handle and the
+    // "a probe is already out" flag — one piece of state, so the two can never disagree.
+    private CancellationTokenSource? _probe;
+    private string? _probeHost;
+    private string? _probeDetail;
+    private bool _detached;
+
     public MeterView(WidgetKind kind)
     {
         _kind = kind;
@@ -50,17 +59,17 @@ internal sealed partial class MeterView : Grid, IWidgetView
         _icon.Glyph = definition.Glyph;
         _title.Text = definition.Label;
 
-        var muted = ThemeBrush("TextFillColorSecondaryBrush", Colors.Gray);
+        var muted = FluentLayout.Themed("TextFillColorSecondaryBrush", Colors.Gray);
         _title.Foreground = muted;
         _title.VerticalAlignment = VerticalAlignment.Center;
         _icon.Foreground = muted;
 
         _primary.FontWeight = FontWeights.SemiBold;
-        _primary.Foreground = ThemeBrush("TextFillColorPrimaryBrush", Colors.White);
+        _primary.Foreground = FluentLayout.Themed("TextFillColorPrimaryBrush", Colors.White);
         _primary.Text = "--";
         _primary.VerticalAlignment = VerticalAlignment.Bottom;
 
-        _secondary.Foreground = ThemeBrush("TextFillColorTertiaryBrush", Colors.Gray);
+        _secondary.Foreground = FluentLayout.Themed("TextFillColorTertiaryBrush", Colors.Gray);
         _secondary.TextTrimming = TextTrimming.CharacterEllipsis;
         _secondary.VerticalAlignment = VerticalAlignment.Bottom;
         _secondary.Margin = new Thickness(0, 0, 0, 2);
@@ -112,7 +121,7 @@ internal sealed partial class MeterView : Grid, IWidgetView
     /// </summary>
     private void BuildSparkline()
     {
-        var accent = ThemeBrush("AccentFillColorDefaultBrush", Colors.DodgerBlue);
+        var accent = FluentLayout.Themed("AccentFillColorDefaultBrush", Colors.DodgerBlue);
 
         _sparkFill.Fill = accent;
         _sparkFill.Opacity = 0.18;
@@ -151,6 +160,7 @@ internal sealed partial class MeterView : Grid, IWidgetView
     public void Attach(Ticker ticker, WidgetConfig config)
     {
         _ticker = ticker;
+        _detached = false;
         ApplyConfig(config);
     }
 
@@ -168,10 +178,40 @@ internal sealed partial class MeterView : Grid, IWidgetView
         // showing the value against its range.
         _bar.Visibility = graphable ? Visibility.Collapsed : Visibility.Visible;
 
-        Resubscribe();
+        var previousHost = _probeHost;
+        _probeHost = (_config as PingConfig)?.EffectiveHost;
+
+        var hostChanged = _probeHost is not null && _probeHost != previousHost;
+
+        // Before Resubscribe, which fires a tick of its own and would start a probe on the new
+        // host — cancelling afterwards would kill exactly that probe and leave the tile waiting out
+        // a whole interval for the next one.
+        if (hostChanged)
+        {
+            CancelProbe();
+
+            // A different host is a different measurement, so the samples already on the sparkline
+            // belong to something else. On the first config there is nothing to clear.
+            if (previousHost is not null)
+            {
+                _history.Clear();
+                RedrawSparkline();
+            }
+        }
+
+        var resubscribed = Resubscribe();
+
+        // Only a host change at an unchanged cadence still needs a push. Without it, editing the
+        // host would show nothing until the old interval elapsed, which at five minutes reads as a
+        // broken widget.
+        if (hostChanged && !resubscribed)
+        {
+            Sample();
+        }
     }
 
-    private void Resubscribe()
+    /// <summary>True when the subscription was rebuilt, which also fires an immediate tick.</summary>
+    private bool Resubscribe()
     {
         var interval = _config switch
         {
@@ -184,16 +224,26 @@ internal sealed partial class MeterView : Grid, IWidgetView
         // timer subscription for every widget on the desktop and built it again.
         if (_subscription is not null && interval == _subscribedInterval)
         {
-            return;
+            return false;
         }
 
         _subscription?.Dispose();
         _subscribedInterval = interval;
         _subscription = _ticker?.Subscribe(interval, Sample);
+        return _subscription is not null;
     }
 
     private void Sample()
     {
+        // Ping cannot answer inside the tick — it is a network round trip. Blocking on it here
+        // would block the dispatcher that its own continuation needs, so this starts the probe and
+        // the reading lands later.
+        if (_kind == WidgetKind.Ping)
+        {
+            StartProbe();
+            return;
+        }
+
         MeterReading reading;
 
         try
@@ -204,6 +254,7 @@ internal sealed partial class MeterView : Grid, IWidgetView
                 WidgetKind.Memory => SystemMetrics.Memory(),
                 WidgetKind.Disk => SystemMetrics.Disk((_config as DiskConfig)?.Drive ?? string.Empty),
                 WidgetKind.Battery => SystemMetrics.Battery((_config as BatteryConfig)?.ShowTimeRemaining ?? true),
+                WidgetKind.Network => NetworkMetrics.Network(),
                 _ => MeterReading.Unavailable("unsupported"),
             };
         }
@@ -215,6 +266,114 @@ internal sealed partial class MeterView : Grid, IWidgetView
             reading = MeterReading.Unavailable("error");
         }
 
+        Present(reading);
+    }
+
+    /// <summary>
+    /// Send one probe, unless the last one is still out.
+    /// <para>
+    /// A dead host takes the full two-second timeout to answer, which at a one-second cadence would
+    /// mean two probes in flight, then three; the queue grows for as long as the host stays down and
+    /// every reading the tile shows is older than the last tick. One at a time means a slow host
+    /// simply updates more slowly, which is the truth.
+    /// </para>
+    /// </summary>
+    private void StartProbe()
+    {
+        if (_probe is not null || _detached)
+        {
+            return;
+        }
+
+        var host = (_config as PingConfig)?.EffectiveHost ?? PingConfig.DefaultHost;
+        var probe = new CancellationTokenSource();
+        _probe = probe;
+
+        _ = ProbeAsync(host, probe);
+    }
+
+    private async Task ProbeAsync(string host, CancellationTokenSource probe)
+    {
+        try
+        {
+            var outcome = await NetworkMetrics.PingAsync(host, probe.Token).ConfigureAwait(true);
+
+            // A late answer from a detached view, or from a probe aimed at a host the user has
+            // since changed, is not a reading — it is a stale fact about something else.
+            if (_detached || !ReferenceEquals(_probe, probe))
+            {
+                return;
+            }
+
+            NoteProbeState(outcome.Detail);
+            Present(outcome.Reading);
+        }
+        catch (OperationCanceledException)
+        {
+            // ignore: cancelled by Detach or by a host change, so there is nothing left to show to
+        }
+        catch (Exception ex)
+        {
+            Log.Error(Scope, $"could not probe {host}", ex);
+
+            if (!_detached && ReferenceEquals(_probe, probe))
+            {
+                Present(MeterReading.Unavailable("error"));
+            }
+        }
+        finally
+        {
+            // The task that created the source owns it, on every path: cancelling elsewhere only
+            // clears the field, so exactly one Dispose can ever run for one source.
+            if (ReferenceEquals(_probe, probe))
+            {
+                _probe = null;
+            }
+
+            probe.Dispose();
+        }
+    }
+
+    /// <summary>
+    /// Log a probe only when it says something the previous one did not.
+    /// <para>
+    /// An unreachable host answers identically on every tick, for as long as it stays unreachable.
+    /// Logging each one would bury everything else in the file within an hour and tell the reader
+    /// nothing they could not learn from the first line and the last.
+    /// </para>
+    /// </summary>
+    private void NoteProbeState(string? detail)
+    {
+        if (detail == _probeDetail)
+        {
+            return;
+        }
+
+        var recovered = detail is null;
+        _probeDetail = detail;
+
+        if (recovered)
+        {
+            Log.Info(Scope, $"ping answering again: {_probeHost}");
+            return;
+        }
+
+        Log.Warn(Scope, detail!);
+    }
+
+    private void CancelProbe()
+    {
+        var probe = _probe;
+        _probe = null;
+
+        // Cancel only. Disposal belongs to ProbeAsync's finally, which runs on the continuation
+        // this cancel is about to release.
+        probe?.Cancel();
+    }
+
+    /// <summary>Put one reading on screen, wherever it came from.</summary>
+    private void Present(MeterReading reading)
+    {
         _primary.Text = reading.Primary;
         _secondary.Text = reading.Secondary ?? string.Empty;
         _secondary.Visibility = string.IsNullOrEmpty(reading.Secondary) ? Visibility.Collapsed : Visibility.Visible;
@@ -285,12 +444,10 @@ internal sealed partial class MeterView : Grid, IWidgetView
 
     public void Detach()
     {
+        _detached = true;
         _subscription?.Dispose();
         _subscription = null;
+        CancelProbe();
     }
 
-    private static Brush ThemeBrush(string key, Windows.UI.Color fallback)
-        => Application.Current.Resources.TryGetValue(key, out var value) && value is Brush brush
-            ? brush
-            : new SolidColorBrush(fallback);
 }

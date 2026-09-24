@@ -1,5 +1,7 @@
 using System.ComponentModel;
 using System.Diagnostics;
+using System.Runtime.CompilerServices;
+using System.Runtime.InteropServices;
 using Themia.Core.Diagnostics;
 using Themia.Core.Model;
 
@@ -8,15 +10,15 @@ namespace Themia.App.Services;
 /// <summary>
 /// One row of the process list.
 /// <para>
-/// <paramref name="CpuKnown"/> is not decoration. Windows refuses the processor times of any
-/// process this app cannot open — anything elevated, anything in another session, and the
-/// protected system processes — which on an ordinary non-elevated desktop is roughly a third of
-/// everything running. Folding that into <c>CpuFraction = 0</c> would make "busy but unreadable"
-/// look exactly like "idle", so the caller is told which it is and shows <c>--</c>.
+/// <paramref name="CpuKnown"/> is not decoration. The fallback path in <see cref="ProcessList"/>
+/// opens each process by handle, and Windows refuses the processor times of anything elevated,
+/// protected, or running in another session. Folding that into <c>CpuFraction = 0</c> would make
+/// "busy but unreadable" look exactly like "idle", so the caller is told which it is and shows
+/// <c>--</c>. The primary path reads every process, so its rows are always known.
 /// </para>
 /// </summary>
 /// <param name="Pid">Process id, unique only among processes alive right now.</param>
-/// <param name="Name">Image name without the extension, as <c>Process.ProcessName</c> reports it.</param>
+/// <param name="Name">Image name without the extension.</param>
 /// <param name="CpuFraction">Share of the whole machine, 0..1, since the previous sample.</param>
 /// <param name="WorkingSetBytes">Physical memory currently charged to the process.</param>
 /// <param name="CpuKnown">False when the processor times could not be read at all.</param>
@@ -37,18 +39,60 @@ public readonly record struct ProcessUsage(
 /// <summary>
 /// The running processes, ranked — the data behind a Task Manager style list.
 /// <para>
-/// Built on <see cref="Process"/> rather than WMI or <c>PerformanceCounter</c> for the same reason
-/// <see cref="SystemMetrics"/> avoids them: both drag in reflection-heavy stacks that do not
-/// survive trimming, and both are far slower than a widget sampling once a second can justify.
+/// The readings come from one <c>NtQuerySystemInformation(SystemProcessInformation)</c> call: the
+/// kernel writes every process's times and working set into a buffer this app already owns, so
+/// there is no handle to open and therefore nothing to be denied. The documented alternatives all
+/// fail the same way — <see cref="Process.TotalProcessorTime"/> needs
+/// <c>PROCESS_QUERY_LIMITED_INFORMATION</c> on each process and is refused for everything elevated,
+/// protected or in another session, which on an ordinary non-elevated desktop is about a third of
+/// what is running and includes Defender, Search and the service hosts. A process widget whose list
+/// structurally cannot contain the actual CPU hogs is worse than no widget, so that path is the
+/// fallback and this is the primary.
+/// </para>
+/// <para>
+/// <c>NtQuerySystemInformation</c> is undocumented-but-stable: it is what Task Manager, Process
+/// Explorer and every process listing on Windows use, the information class and the 64-bit layout
+/// have not changed since Vista, and a layout that did change would fail the bounds checks below
+/// and fall back rather than misreport. WMI and <c>PerformanceCounter</c> are not options at all
+/// here — neither survives trimming, and both are orders of magnitude slower than a widget sampling
+/// once every two seconds can justify.
 /// </para>
 /// <para>
 /// Single-threaded, exactly like <see cref="SystemMetrics"/>: every call happens on the UI thread's
 /// tick, so the sample state below needs no lock.
 /// </para>
 /// </summary>
-internal static class ProcessList
+internal static unsafe partial class ProcessList
 {
     private const string Scope = "processes";
+
+    /// <summary>Snapshot of every process and thread. <c>SystemProcessInformation</c>.</summary>
+    private const int SystemProcessInformationClass = 5;
+
+    private const int StatusSuccess = 0;
+    private const int StatusInfoLengthMismatch = unchecked((int)0xC0000004);
+
+    /// <summary>
+    /// How many times to regrow the buffer before giving up for this sample.
+    /// <para>
+    /// The size the kernel reports is the size it needed a moment ago; a process starting between
+    /// the two calls makes it too small again. That is a race, not a loop, so a handful of attempts
+    /// is generous — but it has to be bounded, because a machine churning processes fast enough
+    /// could otherwise keep this spinning inside a tick.
+    /// </para>
+    /// </summary>
+    private const int MaxQueryAttempts = 6;
+
+    /// <summary>
+    /// Enough for a few hundred processes on the first call, so the common case never regrows.
+    /// </summary>
+    private const int InitialSnapshotBytes = 256 * 1024;
+
+    /// <summary>
+    /// Headroom added when regrowing, so the handful of processes that started while the kernel was
+    /// answering do not cost another round trip.
+    /// </summary>
+    private const int SnapshotSlackBytes = 64 * 1024;
 
     /// <summary>
     /// Below this, a delta is not worth computing. Two process widgets on one tick both call
@@ -63,14 +107,24 @@ internal static class ProcessList
     // identity.
     private static readonly Dictionary<int, Tracked> Tracking = [];
 
-    // Reused between samples so the once-a-second pass does not allocate a fresh list each time.
+    // Reused between samples so the twice-a-second pass does not allocate a fresh list each time.
     private static readonly List<ProcessUsage> Scratch = [];
     private static readonly List<int> Expired = [];
+
+    // The snapshot buffer, kept between samples: at a few hundred kilobytes, reallocating it on
+    // every tick would be the most expensive thing this widget does. Pinned, because the kernel
+    // writes each process's name into it and hands back a pointer into the buffer — a pointer that
+    // a moving collector would invalidate while the names are still being read.
+    private static byte[] _snapshot = GC.AllocateUninitializedArray<byte>(InitialSnapshotBytes, pinned: true);
 
     // Bumped once per sample; anything still carrying an older number was not in this pass and is
     // therefore gone. Without this the dictionary accumulates an entry for every process that has
     // ever run, which over a week of uptime and a few thousand build steps is a slow leak.
     private static int _generation;
+
+    // What the last log line about the snapshot path said, so a machine where it is permanently
+    // unavailable costs one line rather than one per tick. Null means "working".
+    private static string? _snapshotFault;
 
     private static readonly Comparison<ProcessUsage> ByCpu = static (a, b) =>
     {
@@ -120,6 +174,215 @@ internal static class ProcessList
     /// </summary>
     private static bool Sample()
     {
+        _generation++;
+        Scratch.Clear();
+
+        var now = Stopwatch.GetTimestamp();
+
+        if (!SampleFromSnapshot(now) && !SampleFromHandles(now))
+        {
+            return false;
+        }
+
+        Prune();
+        return true;
+    }
+
+    // ---- primary path: one kernel snapshot ---------------------------------------------------
+
+    /// <summary>
+    /// Reads every process out of a single kernel snapshot. False when the call itself failed, in
+    /// which case nothing has been written to <see cref="Scratch"/> and the fallback runs.
+    /// </summary>
+    private static bool SampleFromSnapshot(long now)
+    {
+        for (var attempt = 0; attempt < MaxQueryAttempts; attempt++)
+        {
+            int status;
+            uint needed;
+
+            fixed (byte* buffer = _snapshot)
+            {
+                status = NtQuerySystemInformation(
+                    SystemProcessInformationClass,
+                    buffer,
+                    (uint)_snapshot.Length,
+                    out needed);
+
+                if (status == StatusSuccess)
+                {
+                    // Inside the pin, because the image names the kernel wrote point back into this
+                    // same buffer and are copied out as the entries are walked.
+                    Read(buffer, _snapshot.Length, now);
+                    NoteSnapshotState(null);
+                    return true;
+                }
+            }
+
+            if (status != StatusInfoLengthMismatch)
+            {
+                NoteSnapshotState($"NtQuerySystemInformation returned 0x{status:X8}");
+                return false;
+            }
+
+            Grow(needed);
+        }
+
+        NoteSnapshotState("the process snapshot kept outgrowing the buffer");
+        return false;
+    }
+
+    /// <summary>Walks the entry chain, appending one row per process.</summary>
+    private static void Read(byte* buffer, int length, long now)
+    {
+        var entrySize = Unsafe.SizeOf<SystemProcessInformation>();
+        var threadSize = Unsafe.SizeOf<SystemThreadInformation>();
+        var offset = 0;
+
+        while (true)
+        {
+            if (length - offset < entrySize)
+            {
+                // Truncated: the rows already read are real, so they stay. Bailing out beats
+                // reading past the end of the buffer.
+                return;
+            }
+
+            ref readonly var entry = ref Unsafe.AsRef<SystemProcessInformation>(buffer + offset);
+
+            // The variable-length thread array follows the fixed part. It is not read, but its size
+            // is what says where this entry legitimately ends — an entry claiming more threads than
+            // the buffer can hold is a layout the code does not understand, not data to parse.
+            var span = entrySize + ((long)entry.NumberOfThreads * threadSize);
+
+            if (span > length - offset)
+            {
+                return;
+            }
+
+            Observe(in entry, now);
+
+            var next = entry.NextEntryOffset;
+
+            if (next == 0)
+            {
+                return; // the documented terminator
+            }
+
+            // Entries run forward and never overlap. Anything else means the chain is not what this
+            // code thinks it is, and following it would be reading arbitrary memory as a process.
+            if (next < span || next > (uint)(length - offset))
+            {
+                return;
+            }
+
+            offset += (int)next;
+        }
+    }
+
+    /// <summary>Turns one snapshot entry into a row.</summary>
+    private static void Observe(ref readonly SystemProcessInformation entry, long now)
+    {
+        var pid = (int)entry.UniqueProcessId;
+
+        // Pid 0 is the idle accounting bucket, not a process. Its "CPU" is the machine's idle time,
+        // which would sit at the top of a list ranked by CPU and mean nothing the user can act on.
+        if (pid == 0)
+        {
+            return;
+        }
+
+        var cpuTicks = entry.KernelTime + entry.UserTime;
+        var workingSet = (long)entry.WorkingSetSize;
+
+        // CreateTime is a FILETIME, and the fallback path converts its own start time to one too,
+        // so a row keeps the same identity whichever path produced it and switching paths does not
+        // look like a recycled pid.
+        var startTicks = entry.CreateTime;
+        var name = NameOf(in entry, pid, startTicks);
+
+        Scratch.Add(new ProcessUsage(pid, name, Measure(pid, name, startTicks, cpuTicks, now), workingSet, true));
+    }
+
+    /// <summary>
+    /// The image name, without its extension.
+    /// <para>
+    /// Materialised once per process, not once per sample. A process cannot change its image name,
+    /// so a pid whose start time still matches is the same process wearing the same name — and
+    /// allocating five hundred identical strings twice a second was, measurably, the most expensive
+    /// thing this code did.
+    /// </para>
+    /// </summary>
+    private static string NameOf(ref readonly SystemProcessInformation entry, int pid, long startTicks)
+    {
+        if (Tracking.TryGetValue(pid, out var tracked) && tracked.StartTicks == startTicks)
+        {
+            return tracked.Name;
+        }
+
+        var image = entry.ImageName;
+
+        if (image.Buffer == 0 || image.Length == 0)
+        {
+            // The kernel leaves the name empty for a few entries. A pid is not a name, but it is
+            // true, and it keeps the row's identity visible instead of showing a blank line.
+            return $"pid {pid}";
+        }
+
+        // Length is in bytes, as UNICODE_STRING always is.
+        var name = new string((char*)image.Buffer, 0, image.Length / sizeof(char));
+
+        return name.EndsWith(".exe", StringComparison.OrdinalIgnoreCase)
+            ? name[..^4]
+            : name;
+    }
+
+    /// <summary>Makes the buffer big enough for what the kernel just asked for, plus headroom.</summary>
+    private static void Grow(uint needed)
+    {
+        var target = (long)needed + SnapshotSlackBytes;
+
+        // Doubling as well, so a machine that keeps growing converges instead of regrowing by the
+        // same slack every attempt.
+        target = Math.Max(target, _snapshot.Length * 2L);
+
+        // The old array is garbage the moment this returns; there is no handle here to leak.
+        _snapshot = GC.AllocateUninitializedArray<byte>((int)Math.Min(target, int.MaxValue), pinned: true);
+    }
+
+    /// <summary>
+    /// Logs a change in whether the snapshot path works, and nothing on the ticks in between.
+    /// </summary>
+    private static void NoteSnapshotState(string? fault)
+    {
+        if (fault == _snapshotFault)
+        {
+            return;
+        }
+
+        var recovered = fault is null;
+        _snapshotFault = fault;
+
+        if (recovered)
+        {
+            Log.Info(Scope, "reading processes from the kernel snapshot again");
+            return;
+        }
+
+        Log.Warn(
+            Scope,
+            $"{fault}; falling back to per-process handles, which cannot read the times of elevated or out-of-session processes");
+    }
+
+    // ---- fallback path: one handle per process ------------------------------------------------
+
+    /// <summary>
+    /// The documented degradation, used only when the snapshot call fails. It cannot see the
+    /// processor times of anything this app may not open, and says so per row rather than
+    /// reporting 0.
+    /// </summary>
+    private static bool SampleFromHandles(long now)
+    {
         Process[] processes;
 
         try
@@ -137,18 +400,10 @@ internal static class ProcessList
             return false;
         }
 
-        _generation++;
-        Scratch.Clear();
-
         try
         {
-            var now = Stopwatch.GetTimestamp();
-
             foreach (var process in processes)
             {
-                // Pid 0 is the idle accounting bucket, not a process. It has no readable times and
-                // an 8 KB working set, so it would only ever sit at the bottom of the list looking
-                // like something the user could act on.
                 if (process.Id == 0)
                 {
                     continue;
@@ -168,11 +423,10 @@ internal static class ProcessList
             }
         }
 
-        Prune();
         return true;
     }
 
-    /// <summary>Reads one process and appends its row.</summary>
+    /// <summary>Reads one process through its handle and appends its row.</summary>
     private static void Observe(Process process, long now)
     {
         int pid;
@@ -206,8 +460,9 @@ internal static class ProcessList
 
             // Read in the same breath as the times, and for the same reason: both come from
             // GetProcessTimes through one handle, so either both are available or neither is.
-            // Whenever there is a CPU number to attribute there is also a start time to pin it to.
-            startTicks = process.StartTime.Ticks;
+            // Converted to a FILETIME to match what the snapshot path stores, so a row's identity
+            // does not change when the two paths swap.
+            startTicks = process.StartTime.ToFileTime();
         }
         catch (Win32Exception)
         {
@@ -223,21 +478,30 @@ internal static class ProcessList
             Scratch.Add(new ProcessUsage(pid, name, 0, workingSet, false));
             return;
         }
+        catch (ArgumentOutOfRangeException)
+        {
+            // ignore: a start time outside the FILETIME range is not a time this app can reason
+            // about, so the row keeps its memory and declares its CPU unknown
+            Scratch.Add(new ProcessUsage(pid, name, 0, workingSet, false));
+            return;
+        }
 
-        Scratch.Add(new ProcessUsage(pid, name, Measure(pid, startTicks, cpuTicks, now), workingSet, true));
+        Scratch.Add(new ProcessUsage(pid, name, Measure(pid, name, startTicks, cpuTicks, now), workingSet, true));
     }
+
+    // ---- shared arithmetic ---------------------------------------------------------------------
 
     /// <summary>
     /// Folds one reading into the per-process state and returns its share of the machine.
     /// </summary>
-    private static double Measure(int pid, long startTicks, long cpuTicks, long now)
+    private static double Measure(int pid, string name, long startTicks, long cpuTicks, long now)
     {
         if (!Tracking.TryGetValue(pid, out var tracked))
         {
             // First sighting: there is nothing to subtract from, so report 0 rather than dividing
             // the process's whole lifetime of CPU by one tick and claiming it is pinning a core.
             // One tick later the number is real.
-            Tracking[pid] = new Tracked(startTicks, cpuTicks, now, _generation);
+            Tracking[pid] = new Tracked(name, startTicks, cpuTicks, now, _generation);
             return 0;
         }
 
@@ -251,7 +515,7 @@ internal static class ProcessList
         // recycled number: throw the baseline away and start it over.
         if (tracked.StartTicks != startTicks)
         {
-            tracked.Reset(startTicks, cpuTicks, now);
+            tracked.Reset(name, startTicks, cpuTicks, now);
             return 0;
         }
 
@@ -329,8 +593,14 @@ internal static class ProcessList
     /// updates it in place instead of rehashing the dictionary entry; one small object per live
     /// process, pruned when it exits.
     /// </summary>
-    private sealed class Tracked(long startTicks, long cpuTicks, long at, int seen)
+    private sealed class Tracked(string name, long startTicks, long cpuTicks, long at, int seen)
     {
+        /// <summary>
+        /// The image name, held so it is built once per process rather than once per sample. See
+        /// <see cref="NameOf"/>.
+        /// </summary>
+        public string Name { get; private set; } = name;
+
         /// <summary>Identity, alongside the pid. See the recycling note in <see cref="Measure"/>.</summary>
         public long StartTicks { get; private set; } = startTicks;
 
@@ -350,12 +620,104 @@ internal static class ProcessList
         /// <summary>Generation of the last pass that saw this process.</summary>
         public int Seen { get; set; } = seen;
 
-        public void Reset(long newStartTicks, long newCpuTicks, long at)
+        public void Reset(string newName, long newStartTicks, long newCpuTicks, long at)
         {
+            Name = newName;
             StartTicks = newStartTicks;
             CpuTicks = newCpuTicks;
             At = at;
             Fraction = 0;
         }
+    }
+
+    // ---- ntdll ---------------------------------------------------------------------------------
+
+    // LibraryImport, not DllImport: the marshalling stub is source generated at build time, and
+    // DllImport builds one with runtime IL emission, which does not exist under Native AOT. Every
+    // parameter is already blittable, so the generated stub is a direct call.
+    [LibraryImport("ntdll")]
+    private static partial int NtQuerySystemInformation(
+        int systemInformationClass,
+        byte* systemInformation,
+        uint systemInformationLength,
+        out uint returnLength);
+
+    /// <summary>
+    /// <c>UNICODE_STRING</c>. <see cref="Length"/> counts <b>bytes</b>, not characters, and the
+    /// buffer is not null-terminated.
+    /// </summary>
+    [StructLayout(LayoutKind.Explicit, Size = 16)]
+    private readonly struct UnicodeString
+    {
+        [FieldOffset(0)]
+        public readonly ushort Length;
+
+        // 0x02 MaximumLength, then four bytes of padding before the 8-aligned pointer.
+        [FieldOffset(8)]
+        public readonly nint Buffer;
+    }
+
+    /// <summary>
+    /// <c>SYSTEM_PROCESS_INFORMATION</c>, 64-bit layout.
+    /// <para>
+    /// Explicit offsets rather than a sequential field list, because only a handful of the
+    /// structure's thirty-odd members are read and the rest would be unreferenced fields whose only
+    /// job is to push the next offset along — a layout that is silently wrong the moment one of
+    /// them is mistyped. Offsets are checked against the total <c>Size</c>, so a member at the wrong
+    /// place fails to compile rather than reading the neighbouring field.
+    /// </para>
+    /// <para>
+    /// <c>KernelTime</c>, <c>UserTime</c> and <c>CreateTime</c> are 100-nanosecond units, the same
+    /// as <see cref="TimeSpan"/> ticks and <c>FILETIME</c> respectively.
+    /// </para>
+    /// </summary>
+    [StructLayout(LayoutKind.Explicit, Size = 0x100)]
+    private readonly struct SystemProcessInformation
+    {
+        /// <summary>Bytes from this entry to the next, or 0 at the end of the chain.</summary>
+        [FieldOffset(0x00)]
+        public readonly uint NextEntryOffset;
+
+        /// <summary>How many <see cref="SystemThreadInformation"/> records follow the fixed part.</summary>
+        [FieldOffset(0x04)]
+        public readonly uint NumberOfThreads;
+
+        [FieldOffset(0x20)]
+        public readonly long CreateTime;
+
+        [FieldOffset(0x28)]
+        public readonly long UserTime;
+
+        [FieldOffset(0x30)]
+        public readonly long KernelTime;
+
+        [FieldOffset(0x38)]
+        public readonly UnicodeString ImageName;
+
+        [FieldOffset(0x50)]
+        public readonly nint UniqueProcessId;
+
+        [FieldOffset(0x90)]
+        public readonly nuint WorkingSetSize;
+    }
+
+    /// <summary>
+    /// <c>SYSTEM_THREAD_INFORMATION</c>, 64-bit layout — 0x50 bytes.
+    /// <para>
+    /// Declared for its size alone. An array of these follows every process entry, and its length is
+    /// what says where the entry ends, so the walk needs the size to tell a well-formed chain from
+    /// one it should stop following. No member of it is read, and declaring members that nothing
+    /// reads would be dead code whose correctness nothing checks.
+    /// </para>
+    /// <para>
+    /// The layout it stands for: <c>KernelTime</c> 0x00, <c>UserTime</c> 0x08, <c>CreateTime</c>
+    /// 0x10, <c>WaitTime</c> 0x18, <c>StartAddress</c> 0x20, <c>ClientId</c> 0x28,
+    /// <c>Priority</c> 0x38, <c>BasePriority</c> 0x3C, <c>ContextSwitches</c> 0x40,
+    /// <c>ThreadState</c> 0x44, <c>WaitReason</c> 0x48, padded to 0x50.
+    /// </para>
+    /// </summary>
+    [StructLayout(LayoutKind.Explicit, Size = 0x50)]
+    private readonly struct SystemThreadInformation
+    {
     }
 }

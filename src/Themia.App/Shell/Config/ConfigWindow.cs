@@ -200,9 +200,10 @@ internal sealed class ConfigWindow
             parts.Add("editing");
         }
 
-        // Mail is worth a word here because it is the one thing that depends on another program
-        // running, and "no messages" in the widget is otherwise ambiguous.
-        var mail = AppServices.Mail?.Status switch
+        // Hearth is worth a word here because it is the one thing that depends on another program
+        // running, and an empty mail, calendar, contacts or tasks widget is otherwise ambiguous.
+        // One connection serves all four, so one line reports for all four.
+        var hearth = AppServices.Hub?.Status switch
         {
             HearthStatus.Ready => "hearth connected",
             HearthStatus.NotRunning => "hearth not running",
@@ -212,9 +213,9 @@ internal sealed class ConfigWindow
             _ => null,
         };
 
-        if (mail is not null)
+        if (hearth is not null)
         {
-            parts.Add(mail);
+            parts.Add(hearth);
         }
 
         _statusLeft.Text = string.Join("  ·  ", parts);

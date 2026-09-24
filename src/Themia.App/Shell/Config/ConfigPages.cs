@@ -610,7 +610,7 @@ internal static class ConfigPages
             Height = 28,
             CornerRadius = new CornerRadius(4),
             BorderThickness = new Thickness(1),
-            BorderBrush = Brush("CardStrokeColorDefaultBrush", Colors.Gray),
+            BorderBrush = FluentLayout.Themed("CardStrokeColorDefaultBrush", Colors.Gray),
         };
 
         var box = new TextBox { Text = value, PlaceholderText = "#RRGGBB", Width = 110 };
@@ -622,7 +622,7 @@ internal static class ConfigPages
         {
             swatch.Background = HexColor.TryParse(hex, out var r, out var g, out var b)
                 ? new SolidColorBrush(Windows.UI.Color.FromArgb(255, r, g, b))
-                : Brush("SolidBackgroundFillColorTertiaryBrush", Colors.Transparent);
+                : FluentLayout.Themed("SolidBackgroundFillColorTertiaryBrush", Colors.Transparent);
         }
 
         Paint(value);
@@ -685,8 +685,4 @@ internal static class ConfigPages
         return combo;
     }
 
-    private static Brush Brush(string key, Windows.UI.Color fallback)
-        => Application.Current.Resources.TryGetValue(key, out var value) && value is Brush brush
-            ? brush
-            : new SolidColorBrush(fallback);
 }

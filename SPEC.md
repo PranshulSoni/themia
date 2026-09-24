@@ -77,14 +77,15 @@ Owning files: `Themia.Core/Geometry/*`, `Themia.Core/Model/*`, `Themia.Core/Stor
 
 ## Window layering
 
-- **[S-20]** The widget surface is **never topmost and never raised**, in any mode. It is a desktop
+- **[S-20]** The widget surface is **never above another application**, in any mode. It is a desktop
   layer: widgets belong under the user's windows, and editing them does not change that. Outside
   edit mode it also carries `WS_EX_NOACTIVATE`, so clicking a widget neither focuses it nor raises it
-  over the user's work. `WS_EX_TOOLWINDOW` keeps it out of the taskbar and Alt-Tab.
+  over the user's work. `WS_EX_TOOLWINDOW` keeps it out of the taskbar and Alt-Tab. The one exception
+  is [S-33], where there is no other application on screen to be above.
 - **[S-20a]** Edit mode drops `WS_EX_NOACTIVATE` so the surface can take keyboard focus for the
   shortcuts ([S-70]) — and an activatable window is raised when clicked, so the window procedure is
-  subclassed and every `WM_WINDOWPOSCHANGING` is rewritten to "bottom". Event-driven, so there is no
-  timer re-asserting the z-order and no window in which the surface is visibly on top.
+  subclassed and every `WM_WINDOWPOSCHANGING` is rewritten back to the anchor. Event-driven, so there
+  is no timer re-asserting the z-order and no window in which the surface is visibly on top.
   - A consequence the user chose: **edit mode is only reachable where the desktop is visible.** If
     another window covers a widget, that widget cannot be clicked.
 - **[S-20b]** The frame is stripped at the **Win32** level (`WS_POPUP`, clearing `WS_CAPTION` /
@@ -102,6 +103,53 @@ Owning files: `Themia.Core/Geometry/*`, `Themia.Core/Model/*`, `Themia.Core/Stor
   back.
 - **[S-23]** The window is placed with `AppWindow.MoveAndResize` using the monitor's **physical**
   work area. Display scale only applies inside the window, where XAML lays out in DIPs ([S-05]).
+- **[S-23a]** The resting anchor is the **desktop window** (`Progman`), not `HWND_BOTTOM`: the
+  surface is inserted against it so it travels with it, and falls back to the bottom only when
+  Explorer is not up yet.
+- **[S-33]** While Windows is genuinely showing the desktop, the surface is lifted to the top of the
+  topmost band and dropped back the moment it is not. Show Desktop raises the desktop window *past*
+  normal z-order, above anything anchored below it, so the widgets would otherwise vanish at the one
+  moment the user asked to see their desktop. There is nothing else on screen for them to cover
+  then, so this does not contradict [S-20]; it is the only way to honour it and still be visible.
+- **[S-33a]** "Genuinely" is two signals: the desktop layer owns the foreground, **and** no ordinary
+  application window is still on screen. Foreground alone is also true of a plain click on the
+  wallpaper, and acting on it would throw the widgets in front of the user's work every time they
+  clicked the desktop. There is deliberately no third "and something got hidden" signal: it would
+  only matter when nothing was on screen to begin with, where lifting the widgets covers nothing,
+  and both candidate signals measured unreliable — Show Desktop **minimises** on this build rather
+  than cloaking, and the cloak count is permanently non-zero anyway because suspended UWP frames sit
+  cloaked in the background all the time.
+- **[S-33b]** A **topmost** window does not count as an application still on screen. Show Desktop
+  cannot hide one, so its presence says nothing about whether Show Desktop is in effect. This is not
+  hypothetical: a consent prompt from the hearth hub is exactly such a window, and on its own it kept
+  the lift from ever firing.
+- **[S-33c]** A transient shell surface (Start, Search, Task View, the taskbar) taking the foreground
+  while the lift is held changes **nothing** — not even a re-raise. Dropping the lift there would
+  bury the widgets under the still-elevated desktop layer, and dismissing Start hands the foreground
+  to the taskbar rather than to the desktop, so they would never come back. Not re-raising is what
+  lets Start, activated after us in the same band, stay on top. The decision is a pure function
+  (`ZOrderPolicy.Decide`) so it can be tested without a window manager.
+- **[S-33d]** `SetWindowPos(HWND_TOPMOST)` often reports success without `WS_EX_TOPMOST` actually
+  taking, and a window that only thinks it is topmost stays under the elevated desktop layer. The
+  lift therefore checks the bit and, when it is missing, sets it directly and re-applies the position
+  with `SWP_FRAMECHANGED`.
+  - Verified on two displays: during a real Show Desktop both surfaces read topmost and above the
+    desktop window, and both return to the desktop layer when it ends. The original app documents a
+    wry/WebView2 limitation where only the first window in a process can be promoted; that does not
+    apply here.
+- **[S-34]** The surface is kept **uncloaked**. A fullscreen exclusive application hides windows by
+  asking DWM to cloak them — a path that goes through neither `SC_MINIMIZE` nor `WM_SHOWWINDOW`, so
+  no window procedure sees it. A cloaked window is still `IsWindowVisible`, still not iconic, still
+  at whatever z-order it was put at, and simply never composited: no amount of z-order work recovers
+  it. `DWMWA_CLOAK` is cleared on every reconcile. Note this is **not** what fixes Show Desktop on
+  this build of Windows, which minimises instead ([S-33a]); it is the guard for the fullscreen case.
+- **[S-34a]** The cloak hook has a backstop behind it. An out-of-context `WinEvent` is silently
+  dropped when the callback cannot be delivered inside the hook timeout — a fullscreen game is
+  exactly that load — and a dropped cloak event would leave the surface invisible forever. A 1 s
+  timer re-asserts the invariant: one attribute read per surface, a write only when it is broken.
+- **[S-34b]** After any shell event the reconcile runs at 100 ms for a second before settling back to
+  1 s. A secondary monitor's `WorkerW` can elevate into the topmost band *after* the surfaces are
+  lifted, so the lift has to be re-asserted a few times to stick.
 
 ## Transparency
 
@@ -226,16 +274,22 @@ Owning files: `Themia.Core/Geometry/*`, `Themia.Core/Model/*`, `Themia.Core/Stor
   rounds a non-zero load down to 0% nor an incomplete one up to 100%, because both read as "nothing
   is happening" when something is.
 
-## Mail, via the hearth hub
+## The hearth hub
 
 - **[S-90]** The mail widget holds **no account, token, provider or sync code**. The hearth hub owns
   all of it; this widget asks for the `email` scope, lists what it is granted, and refreshes when the
   hub says something changed.
-- **[S-91]** The scope asked for is `email` **alone**, never `email.send`, so the worst the widget
-  can do with a granted mailbox is show it.
-- **[S-92]** There is **one** connection for the whole app, shared by every mail widget. Hearth
-  identifies an app by its process and grants consent to that process, so a second connection would
-  mean a second consent prompt for the same app.
+- **[S-91]** Every scope asked for is a **reading** scope; `email.send` is never among them, so the
+  worst the app can do with a granted mailbox is show it.
+- **[S-98]** One handshake asks for `email`, `contact`, `event` and `task` together, and `subscribe`
+  listens to the same four. A scope requested after the fact is a second consent prompt for the same
+  process, which is the thing [S-92] exists to prevent.
+- **[S-99]** The handshake keeps **every** collection the hub grants, of every type. A connection
+  that filtered to mail at `hello` would leave nothing to draw a calendar from and no second
+  handshake to ask again with; the mail list is a filter over the whole set, not a separate fetch.
+- **[S-92]** There is **one** connection for the whole app, shared by every widget that reads from
+  hearth. Hearth identifies an app by its process and grants consent to that process, so a second
+  connection would mean a second consent prompt for the same app.
 - **[S-93]** The wire types are declared in Themia with a **source-generated** JSON context rather
   than by referencing `Hearth.Client`. The SDK serialises reflectively
   (`JsonSerializer.Serialize(value, value.GetType(), ...)`), which is neither trim- nor AOT-safe, so
@@ -252,3 +306,177 @@ Owning files: `Themia.Core/Geometry/*`, `Themia.Core/Model/*`, `Themia.Core/Stor
 - **[S-97]** A change event carries no data - it is a nudge to re-query, so a missed one costs
   nothing. The empty state names which of "not running", "not granted" and "nothing to show" is
   true, because each needs a different action from the user.
+
+## Processes, network and ping
+
+- **[S-100]** Process CPU comes from one `NtQuerySystemInformation(SystemProcessInformation)`
+  snapshot, not from per-process handles. Windows refuses a handle to anything elevated, protected
+  or in another session — about a third of an ordinary desktop, including Defender, Search and the
+  service hosts — so a handle-based list structurally cannot contain the actual CPU hogs. The handle
+  path survives as the documented degradation when the call fails, and either way a row whose value
+  is genuinely unknown says `--` rather than `0%`.
+- **[S-101]** The snapshot is parsed defensively: every entry offset, thread-array span and chain
+  link is bounds-checked against the buffer, and a chain that does not parse stops the walk rather
+  than reading arbitrary memory as a process. A layout change therefore degrades to the fallback
+  instead of misreporting.
+- **[S-102]** The snapshot buffer is pinned and reused. The kernel writes image names *into* it and
+  hands back pointers into it, so a moving collector would invalidate the names mid-read, and
+  reallocating it per tick would be the most expensive thing the widget does.
+- **[S-103]** An image name is materialised once per process, not once per sample: a pid whose start
+  time still matches is the same process with the same name.
+- **[S-104]** Process identity is (pid, start time as `FILETIME`) on both paths, so switching paths
+  does not look like a recycled pid.
+- **[S-105]** The list fills its tile: rows are star-sized, fonts scale from the **row** height, and
+  the configured row count is clamped to what the tile can draw at a readable size. Row visuals are
+  rewritten in place — rebuilding the list each sample made it blink twice a second.
+- **[S-106]** Ping is sampled asynchronously and never blocked on from the tick. One probe is in
+  flight at a time; a probe that overruns its interval delays the next reading rather than stacking
+  up.
+- **[S-107]** A late ping completion is discarded once the view is detached or the host has changed.
+  Changing the host cancels the in-flight probe, clears the sparkline and re-probes at once.
+- **[S-108]** A timeout or an unreachable host is a displayed state, not an error: logged once per
+  transition, never once per tick, and the caption keeps the host so `--` says what failed.
+- **[S-109]** The ping host is validated at **both** boundaries — the settings box and the probe. An
+  implausible value is never persisted, and an empty box means the default host, named in the panel,
+  never "probe nothing".
+- **[S-110]** The latency bar is scaled against a 300 ms ceiling, not the adapter's link speed: a
+  negotiated line rate says nothing about round-trip time and would pin every reading at the bottom.
+
+## Notes and calculator
+
+- **[S-120]** The calculator's arithmetic is a hand-written recursive-descent parser in
+  `Themia.Core`. The original could not use `eval` because the webview CSP blocked it; here the
+  reason differs and the conclusion is the same — a Native AOT binary has no scripting engine and
+  must not grow one.
+- **[S-121]** Grammar: `+ - * /`, `^` right-associative, unary sign, parentheses, decimals.
+  Precedence low to high: `+ -`, `* /`, unary, `^`.
+- **[S-122]** Input is sanitised to `0-9 + - * / ( ) . , % ^` and space; every comma is dropped as a
+  thousands separator, so `1,5` is fifteen and never one-and-a-half, and `%` becomes `/100`.
+- **[S-123]** Evaluation is **total**: any input returns empty, a finite value, or an error. Nesting
+  is capped at 64, because parentheses and unary signs recurse and a `StackOverflowException` cannot
+  be caught — it takes the process with it.
+- **[S-124]** Numbers are parsed and written invariant. The app builds with `InvariantGlobalization`,
+  and a result written with a decimal comma could not be typed back into the box it came from.
+- **[S-125]** Calculator history is in-memory only, newest first, capped at 8. It is never persisted:
+  a scratchpad is not a record, and typed text does not belong in the state file.
+- **[S-126]** The decimal-places setting applies to the live preview and to every history row already
+  on screen; trailing zeros are dropped and a value that rounds to zero is never written `-0`.
+- **[S-127]** A note **is** its widget's config, so it travels with copy and paste, with the view, and
+  with a backup. There is no note store, no note list, no markdown and no sync — the port is the
+  plain-text core of the original, not the original.
+- **[S-128]** The note is written on a 600 ms debounce and flushed on blur and on detach; the
+  debounce is a write-rate limit, not a correctness path. An incoming config value never overwrites
+  an unflushed local edit.
+- **[S-129]** The editor's chrome is removed through the `TextBox`'s own resource keys, not its
+  `Background`: the stock template's visual states assign the border element directly and outrank a
+  local value, so the field would light up solid on hover.
+- **[S-130]** "Clear notes" confirms in a dialog. The text is unrecoverable, so one click is not
+  enough, and failing to show the dialog leaves the note alone.
+- **[S-131]** Both widgets drop their header under roughly 90 DIPs of height, and the calculator
+  drops its history under 120, so a small tile shows the thing being typed rather than clipped rows.
+
+## Countdown and pomodoro
+
+- **[S-140]** A countdown row is a label, the absolute local target, and the duration. A target in
+  the past is not hidden: it reads "… ago" in the theme's critical colour with the label stepped
+  back, because how long ago a deadline went is the thing you want to know.
+- **[S-141]** `auto` picks the coarsest unit that still says something: "in a moment", "N mins",
+  "Nh Nm" (or "N hrs" on the hour), "Nd Nh" (or "N days" on the day), and past a week just days.
+  Under a minute in the past is "just now", never "in a moment ago". The explicit formats keep their
+  zero components, because a fixed shape is what makes a column of durations readable.
+- **[S-142]** The one-second cadence is bought only by a timer that actually shows seconds;
+  everything else re-letters twice a minute, and a widget with no timers does not wake at all.
+- **[S-143]** Rows are built when the list changes and only re-lettered on a tick. Rebuilding them
+  each tick drops the row under the pointer, which at one second is every second.
+- **[S-144]** A cleared, impossible or non-existent (DST-skipped) target leaves the timer pointing
+  where it did. Writing "now" is what the original did, and it silently retargeted a timer mid-edit.
+- **[S-150]** Pomodoro run state — phase, seconds left, running — lives in the view instance and is
+  never persisted. The same widget on two monitors is two independent timers, which is also why only
+  a running instance can sound the cue.
+- **[S-151]** At zero the phase flips and the new phase's full duration loads, still running. One
+  second remaining is the last second, not a spare one.
+- **[S-152]** The cue sounds on the flip alone and announces the phase being *entered*: ascending
+  into focus, descending into a break. Nothing sounds on start, pause or reset.
+- **[S-153]** The cue is synthesised in Core and played through `winmm!PlaySound` from memory, not
+  through `MediaPlayer` or `AudioGraph`: those are whole media pipelines the AOT compiler roots in
+  full in order to play half a second of a sine. It is played on a pool thread with the buffer
+  pinned for exactly the duration of the call, so nothing stays pinned for the life of the process.
+- **[S-154]** There is one cue, not the original's twelve ringtones and a volume slider. A
+  twelve-voice synthesiser is a feature in its own right rather than a port of one, so the setting is
+  an honest on/off.
+- **[S-155]** The 1 Hz subscription exists only while the timer runs, and the callback the shared
+  ticker makes at subscribe time is swallowed: that immediate fire is right for a view that renders
+  the time and wrong for one that *is* the tick.
+
+## Sun and moon
+
+- **[S-160]** The astronomy is pure functions in `Themia.Core.Astronomy` taking an explicit instant,
+  working in UTC throughout. `InvariantGlobalization` means IANA ids do not resolve, so display
+  converts with the machine's local zone alone and no time-zone dependency exists.
+- **[S-161]** Sunrise and sunset come from the standard sunrise equation, good to a minute or two,
+  with no network. Polar day and polar night return null times plus a marker, and the tile shows an
+  em dash with 24h or 0h of daylight.
+- **[S-162]** The day reported is the **solar** day at the configured longitude, not the UTC day, so
+  sunrise and sunset belong to the local day at every longitude and in both hemispheres.
+- **[S-163]** The next event is the earliest one strictly after now, scanning the solar day before,
+  of and after it; null inside the polar circles. The countdown therefore never sticks at `0m`.
+- **[S-164]** Moon phase and illumination come from the synodic month off a known new moon, in eight
+  buckets — a linear model, within 0.02 of a cycle of the real syzygies.
+- **[S-165]** The sub-solar and sub-lunar points come from instantaneous right ascension and
+  declination against GMST, never the rounded day index the sunrise equation uses, which would freeze
+  them for a whole day.
+- **[S-166]** Sky position gives which side of the horizon a body is on plus a progress running 0 at
+  rise, 0.5 at the meridian and 1 at setting, normalised by that body's own semi-diurnal arc so the
+  ends land exactly on rise and set.
+- **[S-167]** The drawn curve is the sun's **real** path, not a semicircle: it peaks at the true noon
+  altitude, crosses zero exactly at the ends of the semi-diurnal arc, flattens in winter and towers
+  in summer. The axis tops out at the highest the sun ever reaches at that latitude.
+- **[S-168]** The night stretch continues the same way round the sky — setting on the right, nadir,
+  rising on the left — because a body sets on one side, passes underneath and comes back up the
+  other. Its depth is compressed against the daylight scale on purpose: a true-to-scale winter
+  midnight would be deeper than the whole widget, and nobody reads a number off it.
+- **[S-169]** One lit-limb outline draws both the corner badge and the row glyph, so the two cannot
+  disagree. It is mirrored for a southern observer, keeps a hairline rim on the unlit part so a thin
+  crescent still reads as a moon, sits *beside* the graphic rather than on the solar arc, and dims
+  below the horizon.
+- **[S-170]** The two display settings are independent, except that hiding the graphic forces the
+  rows on: a widget showing nothing is never the answer. The graphic itself is never dropped — it is
+  sized down to a 46px floor and keeps drawing. Only extras shed, in order: the countdown, the
+  daylight label, the label icons and the moon percentage, then the number strip.
+- **[S-171]** There is no geocoding service here and widgets make no network calls, so the settings
+  take latitude, longitude and place name directly. Input that is not a number in range is
+  **rejected** — the last good value stands and the row says why — never coerced to 0, which would
+  silently move the user to the Gulf of Guinea.
+
+## Calendar, tasks and contacts, via the hearth hub
+
+- **[S-180]** `HearthDataService` owns no pipe. It is constructed over the one connection and exposed
+  as `AppServices.Data` beside `AppServices.Hub` — two views of one object, never two connections.
+- **[S-181]** Every hearth widget names which of "hearth not running", "access not granted", "no
+  collections granted", "loading", "nothing to show" and "error" is true. A blank tile with no
+  explanation is a defect, because each of those needs a different action from the user.
+- **[S-182]** Hearth widgets size their rows from the tile with `TypeScale.Fit`, never a `Viewbox`,
+  and re-size what is already drawn on a resize rather than re-querying the hub.
+- **[S-183]** A widget re-queries only when a field that changes the *request* changed;
+  presentation-only settings — avatar, detail line, location, due date, all-day — re-render the
+  records already in hand. The ticker subscription is remade only when the cadence actually changed.
+- **[S-184]** A config change arriving during an in-flight query is remembered, not dropped: the
+  widget re-queries once the reply lands, so the list can never settle on the collection that was
+  selected a moment ago.
+- **[S-185]** Cancelled occurrences are never listed — a cancelled event is a record like any other
+  and would otherwise read as a meeting that is happening. An event that began before the window and
+  has not ended is filed under today, because "on now" is what a glanceable calendar must not lose,
+  and a heading that has already gone by is where nobody looks.
+- **[S-186]** A completed task is struck through, and an overdue one says "Overdue" **in words** as
+  well as in the critical colour: neither state may depend on colour alone. "Today" and "overdue" are
+  decided once per render from one clock reading, so a list drawn across midnight cannot disagree
+  with itself. These rules live in `Themia.Core` so they can be tested against a fixed clock rather
+  than against whatever today happens to be.
+- **[S-187]** `InvariantGlobalization` leaves no IANA zone table, so an event carrying an
+  unresolvable zone is rendered at the wall-clock time the provider gave, on the local clock: right
+  for an event in the user's own zone, **wrong by exactly the zone difference for one abroad**, and
+  never an invented offset. It cannot throw on a render path (`GetUtcOffset`, not
+  `ConvertTimeToUtc`, so an event inside a DST gap still draws a row). Times are shown on a 24-hour
+  clock for the same reason: there is no culture to read a 12-hour preference from. **Known
+  limitation, not a fix**: making it visible per row would need the shared time helper to report
+  whether the zone resolved.

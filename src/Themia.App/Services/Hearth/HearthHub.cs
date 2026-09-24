@@ -28,21 +28,43 @@ internal enum HearthStatus
 }
 
 /// <summary>
-/// The app's one connection to the hearth hub.
+/// The app's one connection to the hearth hub, for every record type it serves.
 /// <para>
-/// Shared by every mail widget, like the ticker: hearth identifies an app by its process, consent is
-/// granted once to that process, and a second connection would mean a second consent prompt for the
-/// same app. So there is exactly one, and widgets ask it for what they need.
+/// Shared by every hearth widget, like the ticker: hearth identifies an app by its process, consent
+/// is granted once to that process, and a second connection would mean a second consent prompt for
+/// the same app. So there is exactly one, and widgets ask it for what they need — mail directly
+/// through <see cref="RecentAsync"/>, and everything else through <see cref="HearthDataService"/>,
+/// which is handed this object as its <see cref="IHearthConnection"/> rather than opening a pipe of
+/// its own.
 /// </para>
 /// <para>
-/// Read-only by design: the scope asked for is <c>email</c> alone, never <c>email.send</c>, so the
-/// worst this widget can do with a granted mailbox is show it.
+/// Read-only by design: the scopes asked for are <c>email</c>, <c>contact</c>, <c>event</c> and
+/// <c>task</c>, never <c>email.send</c> or any other writing scope, so the worst these widgets can
+/// do with a granted mailbox or calendar is show it.
+/// </para>
+/// <para>
+/// The name is now narrower than the job — it holds the whole app's hub connection, not only mail.
+/// It is kept because <c>EmailView</c> names the type directly, and a rename that breaks a caller
+/// for a tidier noun is not worth it; the interface above is what the non-mail callers see.
 /// </para>
 /// </summary>
-internal sealed class HearthMailService : IAsyncDisposable
+internal sealed class HearthHub : IHearthConnection, IAsyncDisposable
 {
     private const string Scope = "hearth";
     private const string HubImageName = "hearth.exe";
+
+    /// <summary>
+    /// Everything this app reads, as both the scopes <c>hello</c> asks for and the types
+    /// <c>subscribe</c> listens to — hearth spells them the same way, and asking for one without
+    /// the other gives either records that never refresh or refreshes for records that cannot be
+    /// read. Every one is a reading scope; <c>email.send</c> is deliberately absent.
+    /// <para>
+    /// Asked for in full at the one handshake rather than added to later: a scope requested after
+    /// the fact is a second consent prompt for the same app, which is the thing one connection
+    /// exists to avoid.
+    /// </para>
+    /// </summary>
+    private static readonly string[] RecordTypes = ["email", "contact", "event", "task"];
 
     private readonly DispatcherQueue _dispatcher;
     private readonly SemaphoreSlim _connectGate = new(1, 1);
@@ -55,7 +77,7 @@ internal sealed class HearthMailService : IAsyncDisposable
     private long _nextId;
     private bool _disposed;
 
-    public HearthMailService(DispatcherQueue dispatcher)
+    public HearthHub(DispatcherQueue dispatcher)
     {
         ArgumentNullException.ThrowIfNull(dispatcher);
         _dispatcher = dispatcher;
@@ -63,10 +85,20 @@ internal sealed class HearthMailService : IAsyncDisposable
 
     public HearthStatus Status { get; private set; } = HearthStatus.Idle;
 
+    /// <summary>
+    /// Every collection the hub granted, of every type, in the order it listed them.
+    /// <para>
+    /// All of them, not only the mail ones: <c>hello</c> is answered once for the whole app, so a
+    /// connection that discarded the rest here would leave nothing to draw a calendar from and no
+    /// second handshake to ask again with.
+    /// </para>
+    /// </summary>
+    public IReadOnlyList<HearthCollection> Collections { get; private set; } = [];
+
     /// <summary>Mail collections the hub has granted, in the order it listed them.</summary>
     public IReadOnlyList<HearthCollection> MailCollections { get; private set; } = [];
 
-    /// <summary>Raised on the UI thread when mail changed, or when the connection state changed.</summary>
+    /// <summary>Raised on the UI thread when a record changed, or when the connection state changed.</summary>
     public event Action? Changed;
 
     /// <summary>
@@ -136,19 +168,22 @@ internal sealed class HearthMailService : IAsyncDisposable
             // on screen is not a hung hub.
             var hello = await CallAsync(
                 "hello",
-                new HelloParams { Name = "Themia", Scopes = ["email"] },
+                new HelloParams { Name = "Themia", Scopes = RecordTypes },
                 HearthJsonContext.Default.HearthRequestHelloParams,
                 TimeSpan.FromMinutes(5)).ConfigureAwait(true);
 
             var result = hello.Deserialize(HearthJsonContext.Default.HelloResult);
-            MailCollections = result?.Collections?.Where(c => c.Type == "email").ToList() ?? [];
+            Collections = result?.Collections ?? [];
+            MailCollections = [.. Collections.Where(c => string.Equals(c.Type, "email", StringComparison.Ordinal))];
 
             await CallAsync(
                 "subscribe",
-                new SubscribeParams { Types = ["email"] },
+                new SubscribeParams { Types = RecordTypes },
                 HearthJsonContext.Default.HearthRequestSubscribeParams).ConfigureAwait(true);
 
-            Log.Info(Scope, $"connected; {MailCollections.Count} mail collection(s) granted");
+            Log.Info(
+                Scope,
+                $"connected; {Collections.Count} collection(s) granted, {MailCollections.Count} of them mail");
             SetStatus(HearthStatus.Ready);
             return true;
         }
@@ -229,7 +264,8 @@ internal sealed class HearthMailService : IAsyncDisposable
     // Transport
     // -----------------------------------------------------------------------------------------
 
-    private async Task<JsonElement> CallAsync<T>(
+    /// <inheritdoc/>
+    public async Task<JsonElement> CallAsync<T>(
         string method,
         T parameters,
         System.Text.Json.Serialization.Metadata.JsonTypeInfo<HearthRequest<T>> typeInfo,

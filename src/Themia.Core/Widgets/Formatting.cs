@@ -71,6 +71,29 @@ public static class Formatting
         return $"{rounded.ToString("F0", CultureInfo.InvariantCulture)}%";
     }
 
+    /// <summary>
+    /// A round-trip time: <c>18 ms</c> below a second, <c>1.4 s</c> at or above one.
+    /// <para>
+    /// Milliseconds stop carrying information once a link is that slow — nobody reads "1438 ms" as
+    /// faster than "1502 ms", they read both as "broken" — so past a second this switches unit
+    /// rather than printing four digits.
+    /// </para>
+    /// </summary>
+    public static string Latency(double milliseconds)
+    {
+        if (!double.IsFinite(milliseconds) || milliseconds < 0)
+        {
+            return "--";
+        }
+
+        if (milliseconds < 1000)
+        {
+            return $"{Math.Round(milliseconds).ToString("F0", CultureInfo.InvariantCulture)} ms";
+        }
+
+        return $"{(milliseconds / 1000).ToString("F1", CultureInfo.InvariantCulture)} s";
+    }
+
     /// <summary>A duration as <c>4h 20m</c> / <c>35m</c>, for battery time remaining.</summary>
     public static string Duration(TimeSpan span)
     {
@@ -117,6 +140,72 @@ public static class Formatting
         }
 
         return $"{when.Day} {MonthNames[when.Month - 1]}";
+    }
+
+    /// <summary>A day and month, as a list column shows it: <c>22 Sep</c>.</summary>
+    public static string ShortDate(DateOnly day) => $"{day.Day} {MonthNames[day.Month - 1]}";
+
+    /// <summary>
+    /// A heading over a day's rows: <c>Today</c>, <c>Tomorrow</c>, or the weekday and date.
+    /// <para>
+    /// Named days rather than dates for the two the reader is actually planning around; past that,
+    /// a date is more use than counting forward from "in 3 days".
+    /// </para>
+    /// </summary>
+    public static string DayHeading(DateOnly day, DateOnly today)
+    {
+        if (day == today)
+        {
+            return "Today";
+        }
+
+        if (day == today.AddDays(1))
+        {
+            return "Tomorrow";
+        }
+
+        return $"{DayNames[(int)day.DayOfWeek]} {ShortDate(day)}";
+    }
+
+    /// <summary>
+    /// A due date in the terms a task list reads in.
+    /// <para>
+    /// Overdue is said in <b>words</b> as well as carried by colour, because a state a reader can
+    /// only get from a colour is a state some readers do not get at all.
+    /// </para>
+    /// </summary>
+    public static string DueDate(DateOnly due, DateOnly today, bool overdue)
+        => overdue ? $"Overdue · {ShortDate(due)}" : DayHeading(due, today);
+
+    /// <summary>
+    /// The time of day on a 24-hour clock.
+    /// <para>
+    /// Always 24-hour: the app builds with <c>InvariantGlobalization</c>, so there is no culture to
+    /// read a 12-hour preference from, and inventing one would be worse than being consistent.
+    /// </para>
+    /// </summary>
+    public static string Clock24(DateTimeOffset moment)
+        => moment.ToLocalTime().ToString("HH:mm", CultureInfo.InvariantCulture);
+
+    /// <summary>
+    /// One or two initials for an avatar: the first and last word of the name, which is what every
+    /// address book on Windows does. A name with nothing to take an initial from gets a placeholder
+    /// rather than an empty circle.
+    /// </summary>
+    public static string Monogram(string? who)
+    {
+        var words = (who ?? string.Empty).Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+
+        if (words.Length == 0)
+        {
+            return "?";
+        }
+
+        var first = char.ToUpperInvariant(words[0][0]);
+
+        return words.Length == 1
+            ? first.ToString()
+            : string.Concat(first.ToString(), char.ToUpperInvariant(words[^1][0]).ToString());
     }
 
     private static readonly string[] DayNames = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];

@@ -16,15 +16,21 @@ namespace Themia.App.Services.Hearth;
 /// contacts, calendar and task queries reach it through instead of opening one of their own.
 /// </para>
 /// <para>
-/// <see cref="HearthMailService"/> is that connection, and it already has all four members below -
-/// <c>CallAsync</c> with this exact signature. Making it implement this interface is the whole of
-/// the merge; see the note on <see cref="HearthDataService.Scopes"/>.
+/// <see cref="HearthHub"/> is that connection: it owns the pipe, says <c>hello</c> once for
+/// every scope the app reads, and implements this. Nothing else may open one.
 /// </para>
 /// </remarks>
 internal interface IHearthConnection
 {
     /// <summary>Why the widgets are showing what they are showing.</summary>
     HearthStatus Status { get; }
+
+    /// <summary>
+    /// Raised on the UI thread when the hub says a record changed, or when the connection state
+    /// changed. It carries nothing: it is a nudge to re-query, which is why a missed one costs
+    /// only a stale row until the next tick.
+    /// </summary>
+    event Action? Changed;
 
     /// <summary>
     /// Every collection the hub granted, of every type, in the order it listed them. Not only the
@@ -78,17 +84,18 @@ internal sealed class HearthDataService
         _hub = hub;
     }
 
-    /// <summary>
-    /// What these queries need in <c>hello</c>, on top of the <c>email</c> the mail service asks
-    /// for. They are named here rather than sent from here because the connection says hello once,
-    /// for the whole app: asking for a scope later would be a second prompt, which is the thing
-    /// one connection exists to avoid. The connection's <c>hello</c> should send
-    /// <c>["email", .. Scopes]</c>, and its <c>subscribe</c> the same list of types.
-    /// </summary>
-    public static IReadOnlyList<string> Scopes { get; } = ["contact", "event", "task"];
-
     /// <summary>Why the widgets are showing what they are showing. The connection owns this.</summary>
     public HearthStatus Status => _hub.Status;
+
+    /// <summary>
+    /// The hub's nudge to re-query, passed straight through so a widget subscribes to the one
+    /// service it already holds rather than reaching past it for the connection.
+    /// </summary>
+    public event Action? Changed
+    {
+        add => _hub.Changed += value;
+        remove => _hub.Changed -= value;
+    }
 
     /// <summary>Address books the hub has granted, in the order it listed them.</summary>
     public IReadOnlyList<HearthCollection> ContactCollections => CollectionsOf("contact");
@@ -180,7 +187,8 @@ internal sealed class HearthDataService
     }
 
     /// <summary>
-    /// Open tasks by due date, soonest first, with undated ones after them.
+    /// Tasks by due date, soonest first, with undated ones after them and - when they were asked
+    /// for at all - completed ones after those.
     /// </summary>
     /// <remarks>
     /// <para>
@@ -190,13 +198,20 @@ internal sealed class HearthDataService
     /// truncated at an undated task.
     /// </para>
     /// <para>
+    /// <paramref name="includeCompleted"/> false sends <c>completed: false</c>; true sends no
+    /// completion filter at all rather than <c>completed: true</c>, because "show completed too"
+    /// means both states, not only the finished ones. Done ones then sort last here, since a list
+    /// that leads with work already finished buries the work that is not.
+    /// </para>
+    /// <para>
     /// <paramref name="dueBefore"/> is the way to ask for dated work only, and it is worth knowing
     /// why: a comparison against a task with no due date is never true, so a bound excludes the
     /// undated ones entirely rather than keeping them at the end.
     /// </para>
     /// </remarks>
-    public async Task<IReadOnlyList<TaskRecord>> OpenTasksAsync(
+    public async Task<IReadOnlyList<TaskRecord>> TasksAsync(
         string? collectionId,
+        bool includeCompleted,
         DateOnly? dueBefore,
         int limit)
     {
@@ -205,7 +220,7 @@ internal sealed class HearthDataService
             Collection = Collection(collectionId),
             Filter = new TaskFilter
             {
-                Completed = false,
+                Completed = includeCompleted ? null : false,
                 DueBefore = dueBefore is { } bound
                     ? bound.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture)
                     : null,
@@ -221,7 +236,12 @@ internal sealed class HearthDataService
             HearthRecordsJsonContext.Default.TaskQueryResult,
             result => result.Records).ConfigureAwait(true);
 
-        return [.. tasks.OrderBy(t => t.DueDate ?? DateOnly.MaxValue)];
+        return
+        [
+            .. tasks
+                .OrderBy(t => t.Completed)
+                .ThenBy(t => t.DueDate ?? DateOnly.MaxValue)
+        ];
     }
 
     // -----------------------------------------------------------------------------------------

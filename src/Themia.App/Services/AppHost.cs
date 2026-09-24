@@ -40,16 +40,17 @@ internal sealed class AppHost : IDisposable
         _store = store;
         State = state;
         Ticker = new Ticker(dispatcher);
-        Mail = new HearthMailService(dispatcher);
-        AppServices.Mail = Mail;
+        Hub = new HearthHub(dispatcher);
+        AppServices.Hub = Hub;
+        AppServices.Data = new HearthDataService(Hub);
     }
 
     public AppState State { get; }
 
     public Ticker Ticker { get; }
 
-    /// <summary>The app's one connection to the hearth hub, shared by every mail widget.</summary>
-    public HearthMailService Mail { get; }
+    /// <summary>The app's one connection to the hearth hub, shared by every widget that reads from it.</summary>
+    public HearthHub Hub { get; }
 
     /// <summary>Raised when anything that affects rendering changed. Windows re-read <see cref="State"/>.</summary>
     public event Action? StateChanged;
@@ -201,25 +202,16 @@ internal sealed class AppHost : IDisposable
             Log.Error(Scope, "tray icon unavailable; edit mode can still be reached by double-clicking a widget");
         }
 
-        // Show Desktop raises the desktop window above everything, including anything pinned
-        // below it, so without this the widgets vanish at the one moment the user asked to see
-        // their desktop.
-        ShowDesktopWatcher.Changed += OnDesktopFronted;
-        ShowDesktopWatcher.Start();
+        // Show Desktop raises the desktop window above everything, including anything pinned below
+        // it, and hides the rest by cloaking them. Without the controller the widgets vanish at the
+        // one moment the user asked to see their desktop.
+        DesktopZOrder.Start(_dispatcher);
 
         RebuildWindows();
 
         // Seed the file on a fresh profile so the starting layout survives a restart even if the
         // user never touches anything.
         _store.SaveSoon(State);
-    }
-
-    private void OnDesktopFronted(bool fronted)
-    {
-        foreach (var window in _windows)
-        {
-            window.SetDesktopFronted(fronted);
-        }
     }
 
     /// <summary>Create one widget window per display, dropping any whose monitor disappeared.</summary>
@@ -242,10 +234,7 @@ internal sealed class AppHost : IDisposable
             _store.SaveSoon(State);
         }
 
-        foreach (var window in _windows)
-        {
-            window.CloseSurface();
-        }
+        CloseSurfaces();
 
         _windows.Clear();
 
@@ -468,10 +457,13 @@ internal sealed class AppHost : IDisposable
 
     private void RequestExit()
     {
-        // Flush before tearing anything down: the user asked to quit, so a debounced layout change
-        // from a second ago must still reach disk.
         _ = _dispatcher.TryEnqueue(async () =>
         {
+            // Close the surfaces first, then flush. A widget that edits its own config — a note —
+            // writes its last, unflushed keystrokes into the config on detach, so flushing before
+            // tearing down persisted everything except the sentence the user had just typed.
+            CloseSurfaces();
+
             try
             {
                 await _store.FlushAsync().ConfigureAwait(true);
@@ -486,6 +478,18 @@ internal sealed class AppHost : IDisposable
         });
     }
 
+    /// <summary>
+    /// Detach every widget, so anything a widget was holding is written into the state before the
+    /// state is written to disk. Safe to call twice: <see cref="Dispose"/> calls it again.
+    /// </summary>
+    private void CloseSurfaces()
+    {
+        foreach (var window in _windows)
+        {
+            window.CloseSurface();
+        }
+    }
+
     public void Dispose()
     {
         if (_disposed)
@@ -494,16 +498,13 @@ internal sealed class AppHost : IDisposable
         }
 
         _disposed = true;
-        ShowDesktopWatcher.Changed -= OnDesktopFronted;
-        ShowDesktopWatcher.Stop();
+        DesktopZOrder.Stop();
         Clipboard.Clear();
-        AppServices.Mail = null;
-        _ = Mail.DisposeAsync();
+        AppServices.Data = null;
+        AppServices.Hub = null;
+        _ = Hub.DisposeAsync();
 
-        foreach (var window in _windows)
-        {
-            window.CloseSurface();
-        }
+        CloseSurfaces();
 
         _windows.Clear();
 

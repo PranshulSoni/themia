@@ -68,6 +68,8 @@ internal static class Glyphs
     public static readonly string Link = From(0xE71B);
     public static readonly string Wrap = From(0xE7A3);
     public static readonly string Clear = From(0xE894);
+    public static readonly string MoveUp = From(0xE74A);
+    public static readonly string MoveDown = From(0xE74B);
 
     private static string From(int codePoint) => char.ConvertFromUtf32(codePoint);
 }

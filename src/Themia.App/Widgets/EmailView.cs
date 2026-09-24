@@ -4,6 +4,7 @@ using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
 using Themia.App.Services;
+using Themia.App.Shell;
 using Themia.App.Services.Hearth;
 using Themia.Core.Diagnostics;
 using Themia.Core.Model;
@@ -32,7 +33,7 @@ internal sealed partial class EmailView : Grid, IWidgetView
     private readonly TextBlock _emptyText = new();
     private readonly ProgressRing _busy = new();
 
-    private HearthMailService? _mail;
+    private HearthHub? _mail;
     private EmailConfig _config = new();
     private IDisposable? _subscription;
     private bool _refreshing;
@@ -46,17 +47,17 @@ internal sealed partial class EmailView : Grid, IWidgetView
         _title.Text = "Mail";
         _title.FontSize = 12;
         _title.FontWeight = FontWeights.SemiBold;
-        _title.Foreground = ThemeBrush("TextFillColorSecondaryBrush", Colors.Gray);
+        _title.Foreground = FluentLayout.Themed("TextFillColorSecondaryBrush", Colors.Gray);
         _title.VerticalAlignment = VerticalAlignment.Center;
 
         _badge.FontSize = 10;
         _badge.FontWeight = FontWeights.Bold;
-        _badge.Foreground = ThemeBrush("TextOnAccentFillColorPrimaryBrush", Colors.White);
+        _badge.Foreground = FluentLayout.Themed("TextOnAccentFillColorPrimaryBrush", Colors.White);
 
         _badgeHost = new Border
         {
             Child = _badge,
-            Background = ThemeBrush("AccentFillColorDefaultBrush", Colors.DodgerBlue),
+            Background = FluentLayout.Themed("AccentFillColorDefaultBrush", Colors.DodgerBlue),
             CornerRadius = new CornerRadius(9),
             Padding = new Thickness(7, 1, 7, 2),
             VerticalAlignment = VerticalAlignment.Center,
@@ -109,7 +110,7 @@ internal sealed partial class EmailView : Grid, IWidgetView
         _emptyText.TextWrapping = TextWrapping.Wrap;
         _emptyText.HorizontalAlignment = HorizontalAlignment.Center;
         _emptyText.TextAlignment = TextAlignment.Center;
-        _emptyText.Foreground = ThemeBrush("TextFillColorTertiaryBrush", Colors.Gray);
+        _emptyText.Foreground = FluentLayout.Themed("TextFillColorTertiaryBrush", Colors.Gray);
 
         _empty.VerticalAlignment = VerticalAlignment.Center;
         _empty.Children.Add(_emptyText);
@@ -123,7 +124,7 @@ internal sealed partial class EmailView : Grid, IWidgetView
 
     public void Attach(Ticker ticker, WidgetConfig config)
     {
-        _mail = AppServices.Mail;
+        _mail = AppServices.Hub;
 
         if (_mail is not null)
         {
@@ -237,7 +238,7 @@ internal sealed partial class EmailView : Grid, IWidgetView
             // Unread is carried by weight rather than a dot, which is what every mail list on
             // Windows does and needs no legend.
             FontWeight = message.Unread ? FontWeights.SemiBold : FontWeights.Normal,
-            Foreground = ThemeBrush("TextFillColorPrimaryBrush", Colors.White),
+            Foreground = FluentLayout.Themed("TextFillColorPrimaryBrush", Colors.White),
             TextTrimming = TextTrimming.CharacterEllipsis,
             MaxLines = 1,
         };
@@ -246,7 +247,7 @@ internal sealed partial class EmailView : Grid, IWidgetView
         {
             Text = Formatting.Ago(message.When, now),
             FontSize = 11,
-            Foreground = ThemeBrush("TextFillColorTertiaryBrush", Colors.Gray),
+            Foreground = FluentLayout.Themed("TextFillColorTertiaryBrush", Colors.Gray),
             VerticalAlignment = VerticalAlignment.Center,
             Margin = new Thickness(8, 0, 0, 0),
         };
@@ -271,7 +272,7 @@ internal sealed partial class EmailView : Grid, IWidgetView
         {
             Text = string.IsNullOrWhiteSpace(message.Subject) ? "(no subject)" : message.Subject,
             FontSize = 12,
-            Foreground = ThemeBrush("TextFillColorSecondaryBrush", Colors.Gray),
+            Foreground = FluentLayout.Themed("TextFillColorSecondaryBrush", Colors.Gray),
             TextTrimming = TextTrimming.CharacterEllipsis,
             MaxLines = 1,
         });
@@ -282,7 +283,7 @@ internal sealed partial class EmailView : Grid, IWidgetView
             {
                 Text = message.Preview,
                 FontSize = 11,
-                Foreground = ThemeBrush("TextFillColorTertiaryBrush", Colors.Gray),
+                Foreground = FluentLayout.Themed("TextFillColorTertiaryBrush", Colors.Gray),
                 TextTrimming = TextTrimming.CharacterEllipsis,
                 MaxLines = 1,
             });
@@ -295,7 +296,7 @@ internal sealed partial class EmailView : Grid, IWidgetView
             Margin = new Thickness(-8, 0, -8, 0),
             CornerRadius = new CornerRadius(4),
             Background = Transparent,
-            BorderBrush = ThemeBrush("DividerStrokeColorDefaultBrush", Colors.Gray),
+            BorderBrush = FluentLayout.Themed("DividerStrokeColorDefaultBrush", Colors.Gray),
             BorderThickness = new Thickness(0, 0, 0, 1),
         };
 
@@ -303,7 +304,7 @@ internal sealed partial class EmailView : Grid, IWidgetView
         // because the rows are a custom layout, but the brush is the stock one so it tracks the
         // theme and the accent. PointerExited alone is not enough: the pointer can leave without it
         // when the list scrolls or the widget is torn down mid-hover, which would strand a row lit.
-        row.PointerEntered += (_, _) => row.Background = ThemeBrush("SubtleFillColorSecondaryBrush", Colors.Gray);
+        row.PointerEntered += (_, _) => row.Background = FluentLayout.Themed("SubtleFillColorSecondaryBrush", Colors.Gray);
         row.PointerExited += (_, _) => row.Background = Transparent;
         row.PointerCaptureLost += (_, _) => row.Background = Transparent;
         row.PointerCanceled += (_, _) => row.Background = Transparent;
@@ -367,8 +368,4 @@ internal sealed partial class EmailView : Grid, IWidgetView
         }
     }
 
-    private static Brush ThemeBrush(string key, Windows.UI.Color fallback)
-        => Application.Current.Resources.TryGetValue(key, out var value) && value is Brush brush
-            ? brush
-            : new SolidColorBrush(fallback);
 }

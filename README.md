@@ -4,10 +4,11 @@ A minimal native rebuild of [Themia](https://github.com/crazy-rabbit-software/th
 widget app — on **WinUI 3 / .NET 10, compiled ahead of time**. The point of the exercise is the
 runtime cost: no web view, no JavaScript engine, no JIT.
 
-It is a vertical slice, not a port of the catalogue: **six widgets** - clock, CPU, memory, disk,
-battery and mail - plus all the machinery — edit mode, drag and resize, snapping, the widget picker, per-widget settings, views,
-per-display view assignment, copy / cut / paste, dragging a widget onto another display, a tray icon,
-and persistence.
+It is a slice of the catalogue, not all of it: **seventeen widgets** — clock, CPU, memory, disk,
+battery, network, ping, processes, mail, calendar, tasks, contacts, notes, countdown, pomodoro,
+calculator and sun &amp; moon — plus all the machinery: edit mode, drag and resize, snapping, the widget
+picker, per-widget settings, views, per-display view assignment, copy / cut / paste, dragging a
+widget onto another display, a tray icon, and persistence.
 
 ![the clock widget in edit mode](docs/edit-mode.png)
 
@@ -17,9 +18,9 @@ Measured on this machine (Windows 11, 3840x2160 at 150%, two displays), one cloc
 
 | | |
 |---|---|
-| Executable | **7.1 MB** single native binary |
+| Executable | **10.3 MB** single native binary |
 | Managed DLLs shipped | **0** — no CoreCLR, no `System.*.dll` |
-| Working set | **~90 MB** with one widget, **~141 MB** with six across two displays |
+| Working set | **~95 MB** across two displays |
 | Idle CPU | **~0.3% of one core** |
 | Wakes per minute | **1** (a clock without seconds asks for a 1-minute cadence) |
 
@@ -65,12 +66,14 @@ src/Themia.Core/      pure logic, no UI, no Windows dependency - all of the test
   Model/              AppState / ViewState / WidgetInstance, enums, typed widget config
   Storage/            atomic single-writer persistence + load-time validation
   Time/               shared tick scheduling
-  Widgets/            clock formatting
+  Astronomy/          sunrise equation, moon phase, sky geometry
+  Shell/              the z-order decision, as a pure function
+  Widgets/            clock, countdown and duration formatting, the expression parser
 src/Themia.App/       WinUI 3 shell
   Interop/            Win32 (LibraryImport), desktop layering, monitors, tray icon
   Services/           app host, shared ticker, startup registration
   Shell/              widget surface, cards, settings, dialogs
-  Widgets/            widget catalogue + the clock view
+  Widgets/            widget catalogue + every widget view
 tests/                xUnit over Themia.Core
 ```
 
@@ -83,12 +86,19 @@ The system meters - CPU, memory, disk, battery - read straight from Win32 rather
 `PerformanceCounter`, which is not trim-safe and slow to its first value. Each samples at the cadence
 its number actually changes at: CPU and memory once a second, disk and battery once a minute.
 
-**Mail comes from [hearth](../hearth-app), and this app contains no provider code at all** - no
-account, no token, no Graph, no IMAP, no sync. Hearth owns all of that behind one local pipe with
-per-app consent; the widget asks for the `email` scope, lists what it is granted, and re-queries when
-the hub pushes a change. The wire types are declared here with a source-generated JSON context rather
-than by referencing `Hearth.Client`, because the SDK serialises reflectively and would not survive
-AOT (`[S-93]`).
+Processes is the one that needed a real fix. Reading CPU time per process needs a handle, and Windows
+refuses one for anything elevated, protected or in another session — roughly a third of an ordinary
+desktop, including Defender, Search and the service hosts. A handle-based list therefore cannot
+contain the actual CPU hogs; it shows them at `--` and ranks the rest. It now takes one
+`NtQuerySystemInformation` snapshot instead, which has no blind spot and costs ~4.5 ms a sample
+(`[S-100]`).
+
+**Mail, calendar, tasks and contacts come from [hearth](../hearth-app), and this app contains no
+provider code at all** - no account, no token, no Graph, no IMAP, no sync. Hearth owns all of that
+behind one local pipe with per-app consent; the widgets ask for the scopes they need, list what they
+are granted, and re-query when the hub pushes a change. The wire types are declared here with a
+source-generated JSON context rather than by referencing `Hearth.Client`, because the SDK serialises
+reflectively and would not survive AOT (`[S-93]`).
 
 ### The three ideas worth knowing
 
@@ -102,20 +112,35 @@ widget rects, so clicks anywhere else land on the desktop underneath. That is wh
 flat as widgets are added: one HWND, one composition target and one render thread per display, no
 matter how many widgets you place.
 
-**It is a desktop layer, always.** The surface is never topmost and never raised — not even in edit
+**It is a desktop layer, always.** The surface is never above another application — not even in edit
 mode. Edit mode has to drop `WS_EX_NOACTIVATE` so keyboard shortcuts work, and an activatable window
 gets raised when clicked, so the window procedure is subclassed and every `WM_WINDOWPOSCHANGING` is
-rewritten back to "bottom". The trade-off is deliberate: **you can only edit a widget where the
-desktop is actually visible.** If another window covers it, it cannot be clicked.
+rewritten back to the desktop anchor. The trade-off is deliberate: **you can only edit a widget where
+the desktop is actually visible.** If another window covers it, it cannot be clicked.
+
+The single exception is Show Desktop, which raises the desktop window *past* normal z-order — so
+anything anchored below it vanishes at the one moment the user asked to see their desktop. The
+surface is lifted for exactly that interval and drops straight back. There is nothing else on screen
+to be above while it lasts, so the rule still holds. Getting the detection right took measuring
+rather than guessing: on this build Show Desktop **minimises** rather than cloaking, so a
+cloak-based test never fires; and a single **topmost** window — a hearth consent prompt, as it
+happened — is enough to make "no application is on screen" read false forever unless topmost windows
+are excluded, which they must be, because Show Desktop cannot hide one anyway (`[S-33]`).
 
 ## Deliberate limitations
 
 These are choices or known platform limits, not oversights:
 
-- **Six widget types.** The registry (`WidgetCatalog`) and the persisted discriminator
-  (`WidgetKind`) are built for more; adding one is an enum member plus a catalogue entry plus a view.
-- **The mail widget is read-only** and needs the hearth hub running. It asks for the `email` scope
-  alone, never `email.send`, and shows an empty state naming what is missing when it cannot read.
+- **Seventeen widget types**, out of the original's fifty-odd. The registry (`WidgetCatalog`) and the
+  persisted discriminator (`WidgetKind`) are built for more; adding one is an enum member, a config,
+  a catalogue entry, a view and a settings section.
+- **Notes is the plain-text core of the original**, not the whole widget: one note, stored in the
+  widget's own config. No markdown, no multi-note store, no sync.
+- **Pomodoro has one alarm cue**, not the original's twelve ringtones and a volume slider.
+- **Sun &amp; moon takes coordinates directly**, because there is no geocoding service here and widgets
+  make no network calls of their own.
+- **The hearth widgets are read-only** and need the hub running. They ask for read scopes alone, and
+  show an empty state naming what is missing when they cannot read.
 - **Mixed-DPI multi-monitor is untested.** Placement uses each monitor's physical work area and
   layout uses the window's own rasterization scale, so it should be correct, but this machine runs
   both displays at 150% and I could not exercise the mixed case.

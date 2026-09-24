@@ -5,6 +5,45 @@ using Themia.Core.Model;
 
 namespace Themia.App.Widgets;
 
+/// <summary>
+/// What a widget view is allowed to ask of the surface it is drawn on.
+/// <para>
+/// Almost no widget needs this: the settings window is the writer, and the card owns input. The two
+/// that do — a note, whose text <i>is</i> its config, and the calculator, which is typed into — get
+/// it through <see cref="IWidgetSurfaceAware"/> rather than through a static hook or a widened
+/// <see cref="IWidgetView.Attach"/>, so nothing that does not need it has to know it exists.
+/// </para>
+/// </summary>
+public interface IWidgetSurface
+{
+    /// <summary>The user's own title for this widget, or null to use the catalogue label.</summary>
+    string? Label { get; }
+
+    /// <summary>
+    /// Persist the config this view has just changed. Must not re-run layout: a relayout would push
+    /// the config back into the control the user is typing in.
+    /// </summary>
+    void RequestSave();
+
+    /// <summary>
+    /// Ask for, or give up, the keyboard.
+    /// <para>
+    /// Outside edit mode the surface carries <c>WS_EX_NOACTIVATE</c>, so it never becomes the
+    /// foreground window and no keystroke reaches it — a text box on it would show a caret while the
+    /// typing went to whatever app actually had focus. Asking here lifts that for as long as the
+    /// widget is being typed into. The cost is inherent to Win32 focus and worth naming: while you
+    /// type into a widget, the window you were in loses focus.
+    /// </para>
+    /// </summary>
+    void RequestTextInput(bool wanted);
+}
+
+/// <summary>Implemented by the few views that edit their own config or take typing.</summary>
+public interface IWidgetSurfaceAware
+{
+    void Bind(IWidgetSurface surface);
+}
+
 /// <summary>What every widget view can do. Kept tiny on purpose: the card owns chrome and input.</summary>
 public interface IWidgetView
 {

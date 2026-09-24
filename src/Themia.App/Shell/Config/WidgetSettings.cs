@@ -91,7 +91,7 @@ internal static partial class WidgetSettings
     {
         rows.Add(FluentLayout.Header("Mail"));
 
-        var mail = AppServices.Mail;
+        var mail = AppServices.Hub;
         var collections = mail?.MailCollections ?? [];
 
         var combo = new ComboBox { MinWidth = 260 };

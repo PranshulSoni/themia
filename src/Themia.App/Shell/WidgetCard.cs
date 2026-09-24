@@ -51,13 +51,22 @@ internal interface IWidgetCardHost
     void RequestPaste();
 
     bool CanPaste { get; }
+
+    /// <summary>A widget changed its own config: persist it without re-running layout.</summary>
+    void RequestSaveConfig();
+
+    /// <summary>
+    /// A widget wants the keyboard, or is done with it. The surface is normally unfocusable, so this
+    /// is what makes typing into a widget reach it at all.
+    /// </summary>
+    void RequestTextInput(WidgetCard card, bool wanted);
 }
 
 /// <summary>
 /// One widget on the desktop: the Fluent card chrome, the drag and resize affordances, and the
 /// right-click menu. The widget's own view is dropped inside and knows nothing about input.
 /// </summary>
-internal sealed partial class WidgetCard : Grid
+internal sealed partial class WidgetCard : Grid, IWidgetSurface
 {
     private const string Scope = "card";
     private const double HandleSize = 10;
@@ -80,6 +89,14 @@ internal sealed partial class WidgetCard : Grid
         Model = model;
 
         _view = WidgetCatalog.CreateView(model.Kind);
+
+        // Bound before Attach, so a view that reads its label or saves during Attach already has
+        // somewhere to read and write.
+        if (_view is IWidgetSurfaceAware aware)
+        {
+            aware.Bind(this);
+        }
+
         if (_view is IWidgetView widgetView)
         {
             widgetView.Attach(host.Ticker, model.Config);
@@ -98,7 +115,7 @@ internal sealed partial class WidgetCard : Grid
         _editOutline = new Border
         {
             BorderThickness = new Thickness(1),
-            BorderBrush = ThemeBrush("AccentFillColorDefaultBrush", Colors.DodgerBlue),
+            BorderBrush = FluentLayout.Themed("AccentFillColorDefaultBrush", Colors.DodgerBlue),
             Background = null,
             IsHitTestVisible = false,
             Visibility = Visibility.Collapsed,
@@ -165,16 +182,16 @@ internal sealed partial class WidgetCard : Grid
                 break;
 
             case WidgetSurface.Translucent:
-                _fill.Background = ThemeBrush("SolidBackgroundFillColorBaseBrush", Colors.Black);
-                _fill.BorderBrush = ThemeBrush("CardStrokeColorDefaultBrush", Colors.Gray);
+                _fill.Background = FluentLayout.Themed("SolidBackgroundFillColorBaseBrush", Colors.Black);
+                _fill.BorderBrush = FluentLayout.Themed("CardStrokeColorDefaultBrush", Colors.Gray);
                 _fill.BorderThickness = new Thickness(1);
                 _fill.Opacity = Math.Clamp(opacity * 0.6, 0.15, 1.0);
                 break;
 
             case WidgetSurface.Card:
             default:
-                _fill.Background = ThemeBrush("SolidBackgroundFillColorBaseBrush", Colors.Black);
-                _fill.BorderBrush = ThemeBrush("CardStrokeColorDefaultBrush", Colors.Gray);
+                _fill.Background = FluentLayout.Themed("SolidBackgroundFillColorBaseBrush", Colors.Black);
+                _fill.BorderBrush = FluentLayout.Themed("CardStrokeColorDefaultBrush", Colors.Gray);
                 _fill.BorderThickness = new Thickness(1);
                 _fill.Opacity = opacity;
                 break;
@@ -287,8 +304,8 @@ internal sealed partial class WidgetCard : Grid
                 Width = HandleSize,
                 Height = HandleSize,
                 CornerRadius = new CornerRadius(HandleSize / 2),
-                Background = ThemeBrush("AccentFillColorDefaultBrush", Colors.DodgerBlue),
-                BorderBrush = ThemeBrush("SolidBackgroundFillColorBaseBrush", Colors.White),
+                Background = FluentLayout.Themed("AccentFillColorDefaultBrush", Colors.DodgerBlue),
+                BorderBrush = FluentLayout.Themed("SolidBackgroundFillColorBaseBrush", Colors.White),
                 BorderThickness = new Thickness(1.5),
                 Margin = new Thickness(
                     column == 0 ? -HandleSize / 2 : 0,
@@ -484,19 +501,16 @@ internal sealed partial class WidgetCard : Grid
             => ProtectedCursor = InputSystemCursor.Create(shape);
     }
 
-    /// <summary>
-    /// Look a Fluent theme brush up by key, falling back to a literal only if the resource is
-    /// missing. Using the stock keys is what makes the widgets track the system light/dark theme
-    /// and accent colour without any colour of our own.
-    /// </summary>
-    private static Brush ThemeBrush(string key, Windows.UI.Color fallback)
-    {
-        if (Application.Current.Resources.TryGetValue(key, out var value) && value is Brush brush)
-        {
-            return brush;
-        }
 
-        Log.Warn(Scope, $"theme resource '{key}' missing; using a literal colour");
-        return new SolidColorBrush(fallback);
-    }
+    // ---- IWidgetSurface ------------------------------------------------------------------------
+
+    /// <inheritdoc />
+    string? IWidgetSurface.Label => Model.Label;
+
+    /// <inheritdoc />
+    void IWidgetSurface.RequestSave() => _host.RequestSaveConfig();
+
+    /// <inheritdoc />
+    void IWidgetSurface.RequestTextInput(bool wanted) => _host.RequestTextInput(this, wanted);
+
 }
