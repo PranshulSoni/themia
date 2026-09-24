@@ -74,6 +74,7 @@ internal sealed class SettingsWindow
         appWindow.Resize(new SizeInt32((int)Math.Round(720 * scale), (int)Math.Round(900 * scale)));
         appWindow.SetIcon(Path.Combine(AppContext.BaseDirectory, "Assets", "themia.ico"));
 
+
         // Mica: the standard backdrop for a Windows settings surface.
         _window.SystemBackdrop = new MicaBackdrop();
 

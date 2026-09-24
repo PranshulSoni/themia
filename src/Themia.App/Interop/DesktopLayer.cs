@@ -55,9 +55,11 @@ internal static class DesktopLayer
             ex |= Win32.WsExNoActivate;
         }
 
-        // Edit mode deliberately does NOT go topmost. It only needs to be activatable and in
-        // front once; staying topmost would park it above the windows it opens itself — the
-        // settings window and the widget picker both came up behind the full-screen surface.
+        // The surface is NEVER topmost, not even while editing. It is a desktop layer: widgets
+        // belong under the user's windows, and editing them does not change that. Edit mode only
+        // drops WS_EX_NOACTIVATE so the surface can take keyboard focus for the shortcuts — and
+        // because an activatable window gets raised when clicked, BottomPin rewrites every
+        // z-order change back to the bottom.
         if (layer == WidgetLayer.Topmost)
         {
             ex |= Win32.WsExTopmost;
@@ -89,12 +91,15 @@ internal static class DesktopLayer
         var insertAfter = (layer, interactive) switch
         {
             (WidgetLayer.Topmost, _) => Win32.HwndTopmost,
-            (_, true) => Win32.HwndTop,          // in front, but ordinary: other windows can still come over it
             (WidgetLayer.Desktop, _) => Win32.HwndBottom,
             _ => Win32.HwndNoTopmost,
         };
 
-        const uint Flags = Win32.SwpNoMove | Win32.SwpNoSize | Win32.SwpNoActivate | Win32.SwpNoOwnerZOrder | Win32.SwpFrameChanged;
+        // Deliberately no SWP_FRAMECHANGED: it forces a non-client area recalculation, and that is
+        // what made Windows hand the borderless surface its title bar and border back the moment
+        // edit mode toggled. Only the z-order and activation flags change here, so the frame does
+        // not need recomputing.
+        const uint Flags = Win32.SwpNoMove | Win32.SwpNoSize | Win32.SwpNoActivate | Win32.SwpNoOwnerZOrder;
 
         if (!Win32.SetWindowPos(hwnd, insertAfter, 0, 0, 0, 0, Flags))
         {
@@ -106,8 +111,11 @@ internal static class DesktopLayer
     /// Restrict the window to the union of the given rects, so clicks anywhere else land on the
     /// desktop underneath instead of on an invisible full-screen pane.
     /// <para>
-    /// Rects are in <b>physical</b> pixels relative to the window's top-left. Passing an empty list
-    /// hides the surface entirely (an empty view really should not swallow the desktop).
+    /// Rects are in <b>physical</b> pixels relative to the window's top-left — the <i>window</i>, not
+    /// the client area. Those differ by the frame, so a caller working in client space has to add the
+    /// client origin first (see <c>DesktopWindow.ClientToWindowOffset</c>) or the whole mask sits
+    /// shifted from the widgets it is supposed to trace. Passing an empty list hides the surface
+    /// entirely (an empty view really should not swallow the desktop).
     /// </para>
     /// </summary>
     public static void SetHitRegion(nint hwnd, IReadOnlyList<Win32.Rect> rects)
@@ -165,6 +173,48 @@ internal static class DesktopLayer
             Log.Error(Scope, "building the hit region threw", ex);
             Win32.DeleteObject(combined);
         }
+    }
+
+    /// <summary>
+    /// Strip the window frame at the Win32 level.
+    /// <para>
+    /// <c>OverlappedPresenter.SetBorderAndTitleBar(false, false)</c> does <b>not</b> clear
+    /// <c>WS_CAPTION</c> here: the surface kept a caption and a 3px border the whole time, which the
+    /// click-through region happened to clip away. The moment edit mode dropped the region the title
+    /// bar became visible, and the border meant client coordinates were offset from window
+    /// coordinates, so the mask never quite lined up with the widgets either.
+    /// </para>
+    /// <para>
+    /// Re-applied whenever the styles are touched, because toggling activation makes the presenter
+    /// reassert its own frame.
+    /// </para>
+    /// </summary>
+    public static void MakeChromeless(nint hwnd)
+    {
+        if (hwnd == 0 || !Win32.IsWindow(hwnd))
+        {
+            return;
+        }
+
+        var style = (uint)Win32.GetWindowLongPtr(hwnd, Win32.GwlStyle);
+        var wanted = (style & ~(Win32.WsCaption | Win32.WsThickFrame | Win32.WsSysMenu | Win32.WsMinimizeBox | Win32.WsMaximizeBox))
+            | Win32.WsPopup
+            | Win32.WsClipChildren;
+
+        if (style == wanted)
+        {
+            return;
+        }
+
+        Win32.SetWindowLongPtr(hwnd, Win32.GwlStyle, (nint)wanted);
+
+        // SWP_FRAMECHANGED is required here, and only here: the frame genuinely changed, so the
+        // non-client area has to be recomputed for the new style to take effect.
+        Win32.SetWindowPos(
+            hwnd,
+            0,
+            0, 0, 0, 0,
+            Win32.SwpNoMove | Win32.SwpNoSize | Win32.SwpNoZOrder | Win32.SwpNoActivate | Win32.SwpFrameChanged);
     }
 
     /// <summary>Drop the mask so the whole window is hittable again (edit mode).</summary>

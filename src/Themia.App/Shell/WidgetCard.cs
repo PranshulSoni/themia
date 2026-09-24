@@ -39,6 +39,18 @@ internal interface IWidgetCardHost
     void RequestDelete(WidgetCard card);
 
     void RequestEditMode(bool enabled);
+
+    bool IsSelected(WidgetCard card);
+
+    void RequestSelect(WidgetCard card);
+
+    void RequestCopy(WidgetCard card);
+
+    void RequestCut(WidgetCard card);
+
+    void RequestPaste();
+
+    bool CanPaste { get; }
 }
 
 /// <summary>
@@ -51,6 +63,7 @@ internal sealed partial class WidgetCard : Grid
     private const double HandleSize = 10;
 
     private readonly IWidgetCardHost _host;
+    private readonly Border _fill;
     private readonly Border _surface;
     private readonly Border _editOutline;
     private readonly Grid _handles;
@@ -72,6 +85,10 @@ internal sealed partial class WidgetCard : Grid
             widgetView.Attach(host.Ticker, model.Config);
         }
 
+        // Fill and content are separate borders so the surface opacity setting fades the card
+        // without fading the text on it.
+        _fill = new Border();
+
         _surface = new Border
         {
             Child = _view,
@@ -89,11 +106,17 @@ internal sealed partial class WidgetCard : Grid
 
         _handles = BuildHandles();
 
+        Children.Add(_fill);
         Children.Add(_surface);
         Children.Add(_editOutline);
         Children.Add(_handles);
 
         Background = new SolidColorBrush(Colors.Transparent); // makes the whole card hit-testable for drags
+
+        // Focusable so that clicking a widget gives the surface keyboard focus. Without something
+        // focusable in the tree no KeyDown is raised at all, and the edit-mode shortcuts never fire.
+        IsTabStop = true;
+        UseSystemFocusVisuals = false;
         ApplyDesign();
         ApplyEditMode(host.EditMode);
 
@@ -119,40 +142,62 @@ internal sealed partial class WidgetCard : Grid
         var design = _host.Design;
         var radius = new CornerRadius(design.CornerRadiusPx);
 
-        _surface.CornerRadius = radius;
+        _fill.CornerRadius = radius;
         _editOutline.CornerRadius = radius;
+
+        // The card paints its OWN base, rather than relying on a window background.
+        //
+        // Fluent's CardBackgroundFillColor is a ~5% white overlay in dark theme: it is designed to
+        // sit on top of an opaque window, not to be the only fill. The widget surface is genuinely
+        // transparent, so using it alone made the card invisible and left the clock floating
+        // unreadably over whatever was behind the window. SolidBackgroundFillColorBase is the
+        // opaque surface colour that overlay is meant to sit on, so it is the correct base here.
+        var opacity = Math.Clamp(design.SurfaceOpacity, 0.2, 1.0);
 
         switch (Model.Surface)
         {
             case WidgetSurface.Transparent:
                 // [S-32] No fill and no border: the content sits straight on the wallpaper.
-                _surface.Background = null;
-                _surface.BorderBrush = null;
-                _surface.BorderThickness = new Thickness(0);
+                _fill.Background = null;
+                _fill.BorderBrush = null;
+                _fill.BorderThickness = new Thickness(0);
+                _fill.Opacity = 1;
                 break;
 
             case WidgetSurface.Translucent:
-                _surface.Background = ThemeBrush("CardBackgroundFillColorDefaultBrush", Colors.Black);
-                _surface.BorderBrush = ThemeBrush("CardStrokeColorDefaultBrush", Colors.Gray);
-                _surface.BorderThickness = new Thickness(1);
-                _surface.Opacity = Math.Clamp(design.SurfaceOpacity * 0.65, 0.2, 1.0);
-                return;
+                _fill.Background = ThemeBrush("SolidBackgroundFillColorBaseBrush", Colors.Black);
+                _fill.BorderBrush = ThemeBrush("CardStrokeColorDefaultBrush", Colors.Gray);
+                _fill.BorderThickness = new Thickness(1);
+                _fill.Opacity = Math.Clamp(opacity * 0.6, 0.15, 1.0);
+                break;
 
             case WidgetSurface.Card:
             default:
-                _surface.Background = ThemeBrush("CardBackgroundFillColorDefaultBrush", Colors.Black);
-                _surface.BorderBrush = ThemeBrush("CardStrokeColorDefaultBrush", Colors.Gray);
-                _surface.BorderThickness = new Thickness(1);
+                _fill.Background = ThemeBrush("SolidBackgroundFillColorBaseBrush", Colors.Black);
+                _fill.BorderBrush = ThemeBrush("CardStrokeColorDefaultBrush", Colors.Gray);
+                _fill.BorderThickness = new Thickness(1);
+                _fill.Opacity = opacity;
                 break;
         }
+    }
 
-        _surface.Opacity = Math.Clamp(design.SurfaceOpacity, 0.2, 1.0);
+    /// <summary>
+    /// Show whether this card is the one the keyboard commands will act on. Without it, Ctrl+C in a
+    /// view with several widgets is a guess.
+    /// </summary>
+    public void ApplySelection()
+    {
+        var selected = _host.IsSelected(this);
+        _editOutline.BorderThickness = new Thickness(selected ? 2 : 1);
+        _editOutline.Opacity = selected ? 1.0 : 0.55;
+        _handles.Opacity = selected ? 1.0 : 0.55;
     }
 
     public void ApplyEditMode(bool editing)
     {
         _editOutline.Visibility = editing ? Visibility.Visible : Visibility.Collapsed;
         _handles.Visibility = editing ? Visibility.Visible : Visibility.Collapsed;
+        ApplySelection();
 
         // Outside edit mode the card must not eat pointer input at all: a clock is something you
         // look at, and the desktop underneath stays usable.
@@ -262,6 +307,8 @@ internal sealed partial class WidgetCard : Grid
             return;
         }
 
+        _host.RequestSelect(this);
+        Focus(FocusState.Pointer);
         _activeHandle = HitHandle(e.OriginalSource);
         _dragStartRect = LiveRect;
         _dragStartPoint = e.GetCurrentPoint(ParentSurface()).Position;
@@ -350,19 +397,30 @@ internal sealed partial class WidgetCard : Grid
     {
         try
         {
+            _host.RequestSelect(this);
+
             var menu = new MenuFlyout { Placement = FlyoutPlacementMode.BottomEdgeAlignedLeft };
 
             menu.Items.Add(Item("", "Configure…", () => _host.RequestConfigure(this)));
+            menu.Items.Add(new MenuFlyoutSeparator());
+
+            menu.Items.Add(Item("", "Copy", () => _host.RequestCopy(this), "Ctrl+C"));
+            menu.Items.Add(Item("", "Cut", () => _host.RequestCut(this), "Ctrl+X"));
+
+            var paste = Item("", "Paste", _host.RequestPaste, "Ctrl+V");
+            paste.IsEnabled = _host.CanPaste;
+            menu.Items.Add(paste);
+
             menu.Items.Add(Item("", "Duplicate", () => _host.RequestDuplicate(this)));
             menu.Items.Add(new MenuFlyoutSeparator());
+
             menu.Items.Add(Item(
                 _host.EditMode ? "" : "",
                 _host.EditMode ? "Done editing" : "Edit layout",
                 () => _host.RequestEditMode(!_host.EditMode)));
-            menu.Items.Add(new MenuFlyoutSeparator());
 
-            var delete = Item("", "Delete", () => _host.RequestDelete(this));
-            menu.Items.Add(delete);
+            menu.Items.Add(new MenuFlyoutSeparator());
+            menu.Items.Add(Item("", "Delete", () => _host.RequestDelete(this), "Del"));
 
             menu.ShowAt(this, e.GetPosition(this));
             e.Handled = true;
@@ -372,13 +430,20 @@ internal sealed partial class WidgetCard : Grid
             Log.Error(Scope, "could not open the widget context menu", ex);
         }
 
-        static MenuFlyoutItem Item(string glyph, string text, Action action)
+        static MenuFlyoutItem Item(string glyph, string text, Action action, string? shortcut = null)
         {
             var item = new MenuFlyoutItem
             {
                 Text = text,
                 Icon = new FontIcon { Glyph = glyph },
             };
+
+            if (shortcut is not null)
+            {
+                // Text only: the accelerators are handled on the surface, so registering real
+                // KeyboardAccelerators here would double-fire them.
+                item.KeyboardAcceleratorTextOverride = shortcut;
+            }
 
             item.Click += (_, _) => action();
             return item;

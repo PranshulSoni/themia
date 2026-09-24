@@ -55,6 +55,128 @@ internal sealed class AppHost : IDisposable
     /// <summary>The live widget surfaces, one per display. Used by Settings to offer a per-display view.</summary>
     public IReadOnlyList<DesktopWindow> Surfaces => _windows;
 
+    /// <summary>Copy / cut / paste buffer, shared by every surface so widgets move between displays.</summary>
+    public WidgetClipboard Clipboard { get; } = new();
+
+    /// <summary>The widget the keyboard commands act on, or null.</summary>
+    public string? SelectedWidgetId { get; private set; }
+
+    public event Action? SelectionChanged;
+
+    public void Select(string? widgetId)
+    {
+        if (SelectedWidgetId == widgetId)
+        {
+            return;
+        }
+
+        SelectedWidgetId = widgetId;
+        SelectionChanged?.Invoke();
+    }
+
+    /// <summary>Locate a widget by id across every view. Returns null when it no longer exists.</summary>
+    public (ViewState View, WidgetInstance Widget)? Find(string? widgetId)
+    {
+        if (string.IsNullOrEmpty(widgetId))
+        {
+            return null;
+        }
+
+        foreach (var view in State.Views)
+        {
+            foreach (var widget in view.Widgets)
+            {
+                if (widget.Id == widgetId)
+                {
+                    return (view, widget);
+                }
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>The surface whose display contains a point, in physical screen pixels.</summary>
+    public DesktopWindow? SurfaceAt(int x, int y)
+    {
+        foreach (var window in _windows)
+        {
+            var area = window.Monitor.WorkArea;
+            if (x >= area.Left && x < area.Right && y >= area.Top && y < area.Bottom)
+            {
+                return window;
+            }
+        }
+
+        return null;
+    }
+
+    public DesktopWindow? SurfaceUnderCursor()
+        => Win32.GetCursorPos(out var cursor) ? SurfaceAt(cursor.X, cursor.Y) : null;
+
+    // -----------------------------------------------------------------------------------------
+    // Clipboard commands
+    // -----------------------------------------------------------------------------------------
+
+    public void CopySelected() => CaptureSelected(cut: false);
+
+    public void CutSelected() => CaptureSelected(cut: true);
+
+    private void CaptureSelected(bool cut)
+    {
+        if (Find(SelectedWidgetId) is not var (view, widget))
+        {
+            return;
+        }
+
+        if (cut)
+        {
+            Clipboard.Cut(widget, view.Id);
+        }
+        else
+        {
+            Clipboard.Copy(widget, view.Id);
+        }
+    }
+
+    public void DeleteSelected()
+    {
+        if (Find(SelectedWidgetId) is not var (view, widget))
+        {
+            return;
+        }
+
+        var id = widget.Id;
+        Mutate(_ => view.Widgets.RemoveAll(w => w.Id == id));
+        Select(null);
+    }
+
+    /// <summary>Paste into the surface under the cursor, at the cursor.</summary>
+    public void PasteAtCursor()
+    {
+        var target = SurfaceUnderCursor() ?? _windows.FirstOrDefault();
+        target?.PasteAtCursor();
+    }
+
+    /// <summary>
+    /// Apply a paste plan: add the new widget to <paramref name="targetViewId"/> and, for a cut,
+    /// remove the original from wherever it came from. Both halves happen in one mutation so a cut
+    /// across views can never duplicate or lose the widget.
+    /// </summary>
+    public void ApplyPaste(PastePlan plan, string targetViewId)
+    {
+        Mutate(state => state.ApplyPaste(plan, targetViewId));
+        Clipboard.OnPasted();
+        Select(plan.Widget.Id);
+    }
+
+    /// <summary>
+    /// Move a widget from one view to another, keeping its identity. Used when a drag ends over a
+    /// display showing a different view.
+    /// </summary>
+    public void MoveWidgetToView(string widgetId, string fromViewId, string toViewId, Themia.Core.Geometry.FracRect rect)
+        => Mutate(state => state.MoveWidget(widgetId, fromViewId, toViewId, rect));
+
     // -----------------------------------------------------------------------------------------
     // Lifetime
     // -----------------------------------------------------------------------------------------
@@ -296,6 +418,7 @@ internal sealed class AppHost : IDisposable
         }
 
         _disposed = true;
+        Clipboard.Clear();
 
         foreach (var window in _windows)
         {

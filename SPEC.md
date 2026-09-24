@@ -73,17 +73,52 @@ Owning files: `Themia.Core/Geometry/*`, `Themia.Core/Model/*`, `Themia.Core/Stor
 
 ## Window layering
 
-- **[S-20]** Outside edit mode the widget surface carries `WS_EX_NOACTIVATE | WS_EX_TOOLWINDOW` and
-  sits at the bottom of the z-order: clicking a widget neither focuses it nor raises it over the
-  user's work, and it never appears in the taskbar or Alt-Tab.
+- **[S-20]** The widget surface is **never topmost and never raised**, in any mode. It is a desktop
+  layer: widgets belong under the user's windows, and editing them does not change that. Outside
+  edit mode it also carries `WS_EX_NOACTIVATE`, so clicking a widget neither focuses it nor raises it
+  over the user's work. `WS_EX_TOOLWINDOW` keeps it out of the taskbar and Alt-Tab.
+- **[S-20a]** Edit mode drops `WS_EX_NOACTIVATE` so the surface can take keyboard focus for the
+  shortcuts ([S-70]) — and an activatable window is raised when clicked, so the window procedure is
+  subclassed and every `WM_WINDOWPOSCHANGING` is rewritten to "bottom". Event-driven, so there is no
+  timer re-asserting the z-order and no window in which the surface is visibly on top.
+  - A consequence the user chose: **edit mode is only reachable where the desktop is visible.** If
+    another window covers a widget, that widget cannot be clicked.
+- **[S-20b]** The frame is stripped at the **Win32** level (`WS_POPUP`, clearing `WS_CAPTION` /
+  `WS_THICKFRAME` / `WS_SYSMENU`), and re-applied whenever the styles are touched.
+  `OverlappedPresenter.SetBorderAndTitleBar(false, false)` does **not** clear `WS_CAPTION`: the
+  surface kept a caption and a 3px border the whole time, which the click-through region happened to
+  clip away, so the title bar appeared the moment edit mode dropped the region.
 - **[S-21]** The surface is clipped with `SetWindowRgn` to the union of the widget rects, so every
   click that is not on a widget lands on the desktop underneath. The region is rebuilt on every
-  layout pass and is in **physical** pixels (DIP × rasterization scale).
-- **[S-22]** Edit mode lifts `WS_EX_NOACTIVATE`, drops the region, and brings the surface to front
-  **without** making it topmost. Topmost would park it above the windows it opens itself — the
-  settings window and the widget picker both appeared behind the full-screen surface.
+  layout pass, in **physical** pixels, relative to the **window** — client and window coordinates
+  differ by the frame, so the client origin is added or the whole mask sits shifted from the widgets
+  it traces.
+- **[S-22]** Only a genuine style change passes `SWP_FRAMECHANGED`. Sending it on an ordinary
+  z-order reassert forces a non-client recalculation, which hands the borderless window its frame
+  back.
 - **[S-23]** The window is placed with `AppWindow.MoveAndResize` using the monitor's **physical**
   work area. Display scale only applies inside the window, where XAML lays out in DIPs ([S-05]).
+
+## Transparency
+
+- **[S-27]** The surface is genuinely transparent: no backdrop that paints, so the wallpaper (and
+  whatever else is behind) shows everywhere the widgets do not.
+  - The SDK ships only Mica and Desktop Acrylic, and a window with `SystemBackdrop = null` composes
+    **opaque black** — which over a whole monitor is a sheet across the desktop. So a custom
+    `SystemBackdrop` installs a transparent composition brush instead.
+  - The brush must come from a **system** compositor: the projection types
+    `ICompositionSupportsSystemBackdrop.SystemBackdrop` as `Windows.UI.Composition.CompositionBrush`,
+    not the `Microsoft.UI.Composition` one.
+  - That compositor needs a **system** `DispatcherQueue` on the UI thread, which is a different type
+    from the `Microsoft.UI.Dispatching` one WinUI already provides. Without it, constructing the
+    compositor fails with "The caller must initialize DispatcherQueue on this thread".
+- **[S-27a]** Because the window paints nothing, a widget card must paint its **own** base. Fluent's
+  `CardBackgroundFillColor` is a ~5% white overlay in dark theme, designed to sit on an opaque
+  window; used alone it made the card invisible and left the clock unreadable over whatever was
+  behind. `SolidBackgroundFillColorBase` is the surface that overlay expects, so it is the base here.
+  The same applies to the snap grid, which uses a text brush rather than a control stroke.
+- **[S-27b]** Fill and content are separate elements, so the surface-opacity setting fades the card
+  without fading the text on it.
 
 ## Ticking
 
@@ -141,3 +176,29 @@ Owning files: `Themia.Core/Geometry/*`, `Themia.Core/Model/*`, `Themia.Core/Stor
   surface creation, tick dispatch and log sinks all isolate per-item failures.
 - **[S-64]** The tray icon is re-added on the shell's `TaskbarCreated` broadcast, so an explorer
   restart does not permanently remove the only way in and out of edit mode.
+
+## Clipboard & transfer between displays
+
+- **[S-70]** In edit mode the surface handles **Ctrl+C / Ctrl+X / Ctrl+V**, **Delete** and
+  **Escape**. The cards are focusable, because with nothing focusable in the tree no `KeyDown` is
+  raised at all and the shortcuts never fire. Clicking empty surface also takes focus, so the
+  shortcuts keep working after clicking away from a widget.
+- **[S-71]** The clipboard is **in-process**, not the system clipboard: the payload is a live widget
+  configuration, and putting it on the system clipboard would clobber the user's actual clipboard.
+- **[S-72]** A clipboard entry is a **snapshot**. It survives the original being moved,
+  reconfigured or deleted.
+- **[S-73]** A **cut is a mark**, not an immediate removal: the original stays until a paste lands,
+  so changing your mind costs nothing. A cut is consumed by one paste (pasting it twice would mean
+  moving one widget to two places); a copy stays available for repeat pastes.
+- **[S-74]** A paste is centred on the cursor, then snapped and clamped ([S-06]/[S-09]), so pasting
+  onto a differently-shaped display still lands a fully on-screen widget. It goes to the view of the
+  display under the cursor.
+- **[S-75]** A paste removes the original and adds the copy in **one** mutation, so a cut across
+  views can neither duplicate the widget nor lose it. Pasting a cut back into its own view leaves
+  exactly one widget.
+- **[S-76]** A drag that ends with the pointer over another display hands the widget to that
+  display's surface, keeping its identity. Only when the destination shows a **different** view —
+  when both show the same view the widget is already on both, so moving it would be a no-op that
+  rewrote its position against the wrong screen.
+- **[S-77]** The drop **point**, not the dragged rect, decides the destination: the rect is clamped
+  to its own screen ([S-09]) and so can never reach across the display boundary.

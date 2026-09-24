@@ -2,6 +2,8 @@ using Microsoft.UI;
 using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Input;
+using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Shapes;
 using Themia.App.Interop;
@@ -39,6 +41,8 @@ internal sealed class DesktopWindow : IWidgetCardHost
 
     private MonitorTarget _monitor;
     private nint _hwnd;
+    private AppWindow? _appWindow;
+    private OverlappedPresenter? _presenter;
     private bool _closed;
 
     public DesktopWindow(AppHost host, MonitorTarget monitor)
@@ -50,9 +54,11 @@ internal sealed class DesktopWindow : IWidgetCardHost
 
         _gridOverlay = new Path
         {
-            Stroke = Brush("ControlStrokeColorDefaultBrush", Colors.Gray),
+            // Tertiary text, not a control stroke: the stroke brushes are low-alpha overlays meant
+            // for an opaque window, and over a transparent surface they disappear entirely.
+            Stroke = Brush("TextFillColorTertiaryBrush", Colors.Gray),
             StrokeThickness = 1,
-            Opacity = 0.35,
+            Opacity = 0.5,
             IsHitTestVisible = false,
             Visibility = Visibility.Collapsed,
         };
@@ -65,6 +71,22 @@ internal sealed class DesktopWindow : IWidgetCardHost
             // needs, while the window itself shows the wallpaper straight through.
             Background = new SolidColorBrush(Colors.Transparent),
             Children = { _gridOverlay, _widgetLayer, _toolbar },
+
+            // Focusable so edit-mode keyboard commands (copy / cut / paste / delete) land here.
+            IsTabStop = true,
+        };
+
+        _root.KeyDown += OnKeyDown;
+
+        // Clicking empty surface in edit mode must also give the surface focus, or the shortcuts
+        // stop working as soon as the user clicks away from a widget.
+        _root.PointerPressed += (_, _) =>
+        {
+            if (EditMode)
+            {
+                _host.Select(null);
+                _root.Focus(FocusState.Pointer);
+            }
         };
 
         _window = new Window
@@ -79,6 +101,7 @@ internal sealed class DesktopWindow : IWidgetCardHost
         _root.Loaded += OnRootLoaded;
         _host.StateChanged += OnStateChanged;
         _host.EditModeChanged += OnEditModeChanged;
+        _host.SelectionChanged += OnSelectionChanged;
     }
 
     // -----------------------------------------------------------------------------------------
@@ -136,6 +159,9 @@ internal sealed class DesktopWindow : IWidgetCardHost
     /// <summary>The display this surface covers.</summary>
     public MonitorTarget Monitor => _monitor;
 
+    /// <summary>The id of the view this surface is currently showing.</summary>
+    public string CurrentViewId => ViewForThisMonitor(_host.State).Id;
+
     public bool IsUnderCursor
     {
         get
@@ -155,8 +181,141 @@ internal sealed class DesktopWindow : IWidgetCardHost
 
     public void OnGeometryCommitted(WidgetCard card)
     {
+        if (TryHandOffToOtherDisplay(card))
+        {
+            return;
+        }
+
         PositionCard(card, card.LiveRect);
         _host.SaveGeometryOnly();
+    }
+
+    /// <summary>
+    /// A drag that ends with the pointer over a different display hands the widget to that display's
+    /// surface.
+    /// <para>
+    /// Only meaningful when the two displays show <i>different</i> views: when they show the same
+    /// view the widget is already on both, so there is nothing to move and the drag is an ordinary
+    /// reposition. The drop point, not the dragged rect, decides the destination — the rect is
+    /// clamped to its own screen ([S-09]) and so can never reach across the boundary.
+    /// </para>
+    /// </summary>
+    private bool TryHandOffToOtherDisplay(WidgetCard card)
+    {
+        if (!Win32.GetCursorPos(out var cursor))
+        {
+            return false;
+        }
+
+        var area = _monitor.WorkArea;
+        var insideThisDisplay = cursor.X >= area.Left && cursor.X < area.Right
+            && cursor.Y >= area.Top && cursor.Y < area.Bottom;
+
+        if (insideThisDisplay)
+        {
+            return false;
+        }
+
+        var target = _host.SurfaceAt(cursor.X, cursor.Y);
+        if (target is null || ReferenceEquals(target, this))
+        {
+            return false;
+        }
+
+        var sourceViewId = CurrentViewId;
+        var targetViewId = target.CurrentViewId;
+        if (sourceViewId == targetViewId)
+        {
+            return false;
+        }
+
+        var rect = target.RectForDrop(cursor, card.Model.Rect);
+        _host.MoveWidgetToView(card.Model.Id, sourceViewId, targetViewId, rect);
+        _host.Select(card.Model.Id);
+        Log.Info(Scope, $"widget handed to {target.Monitor.DeviceName} (view '{targetViewId}')");
+        return true;
+    }
+
+    /// <summary>Centre a widget of the given size on a physical screen point of THIS display.</summary>
+    public FracRect RectForDrop(Win32.Point cursor, FracRect size)
+    {
+        var (xFrac, yFrac) = FractionOf(cursor);
+        var raw = new FracRect(xFrac - (size.W / 2), yFrac - (size.H / 2), size.W, size.H);
+        return GridGeometry.Settle(raw, Metrics, Design.GridSnap);
+    }
+
+    /// <summary>Where a physical screen point falls on this display, as a fraction.</summary>
+    private (double X, double Y) FractionOf(Win32.Point point)
+    {
+        var area = _monitor.WorkArea;
+        if (area.Width <= 0 || area.Height <= 0)
+        {
+            return (0.5, 0.5);
+        }
+
+        return (
+            Math.Clamp((point.X - area.Left) / (double)area.Width, 0, 1),
+            Math.Clamp((point.Y - area.Top) / (double)area.Height, 0, 1));
+    }
+
+    /// <summary>Paste the clipboard onto this display at the cursor.</summary>
+    public void PasteAtCursor()
+    {
+        if (!_host.Clipboard.HasContent)
+        {
+            return;
+        }
+
+        Win32.GetCursorPos(out var cursor);
+        var at = FractionOf(cursor);
+
+        var plan = _host.Clipboard.PlanPaste(new FracRect(at.X, at.Y, 0, 0), Metrics, Design.GridSnap);
+        if (plan is null)
+        {
+            return;
+        }
+
+        _host.ApplyPaste(plan.Value, CurrentViewId);
+    }
+
+    private void OnKeyDown(object sender, KeyRoutedEventArgs args)
+    {
+        if (!EditMode)
+        {
+            return;
+        }
+
+        var ctrl = InputKeyboardSource
+            .GetKeyStateForCurrentThread(Windows.System.VirtualKey.Control)
+            .HasFlag(Windows.UI.Core.CoreVirtualKeyStates.Down);
+
+        switch (args.Key)
+        {
+            case Windows.System.VirtualKey.C when ctrl:
+                _host.CopySelected();
+                break;
+
+            case Windows.System.VirtualKey.X when ctrl:
+                _host.CutSelected();
+                break;
+
+            case Windows.System.VirtualKey.V when ctrl:
+                PasteAtCursor();
+                break;
+
+            case Windows.System.VirtualKey.Delete:
+                _host.DeleteSelected();
+                break;
+
+            case Windows.System.VirtualKey.Escape:
+                _host.SetEditMode(false);
+                break;
+
+            default:
+                return;
+        }
+
+        args.Handled = true;
     }
 
     public void RequestConfigure(WidgetCard card) => _ = ShowConfigAsync(card);
@@ -191,6 +350,26 @@ internal sealed class DesktopWindow : IWidgetCardHost
 
     public void RequestEditMode(bool enabled) => _host.SetEditMode(enabled);
 
+    public bool IsSelected(WidgetCard card) => _host.SelectedWidgetId == card.Model.Id;
+
+    public void RequestSelect(WidgetCard card) => _host.Select(card.Model.Id);
+
+    public void RequestCopy(WidgetCard card)
+    {
+        _host.Select(card.Model.Id);
+        _host.CopySelected();
+    }
+
+    public void RequestCut(WidgetCard card)
+    {
+        _host.Select(card.Model.Id);
+        _host.CutSelected();
+    }
+
+    public void RequestPaste() => PasteAtCursor();
+
+    public bool CanPaste => _host.Clipboard.HasContent;
+
     // -----------------------------------------------------------------------------------------
     // Window plumbing
     // -----------------------------------------------------------------------------------------
@@ -201,16 +380,12 @@ internal sealed class DesktopWindow : IWidgetCardHost
         var windowId = Win32Interop.GetWindowIdFromWindow(_hwnd);
         var appWindow = AppWindow.GetFromWindowId(windowId);
 
-        if (appWindow.Presenter is OverlappedPresenter presenter)
-        {
-            presenter.SetBorderAndTitleBar(hasBorder: false, hasTitleBar: false);
-            presenter.IsResizable = false;
-            presenter.IsMinimizable = false;
-            presenter.IsMaximizable = false;
-            presenter.IsAlwaysOnTop = false;
-        }
+        _appWindow = appWindow;
+        _presenter = appWindow.Presenter as OverlappedPresenter;
+        ApplyChromeless();
 
         appWindow.IsShownInSwitchers = false;
+        _ = _appWindow; // retained for placement and future presenter work
 
         ApplyPlacement(appWindow);
 
@@ -219,6 +394,10 @@ internal sealed class DesktopWindow : IWidgetCardHost
         TryApplyTransparentBackdrop();
 
         ApplyTheme();
+
+        // Pin to the bottom for good: edit mode makes the window activatable, and an activatable
+        // window is raised above its neighbours when clicked unless something says otherwise.
+        BottomPin.Attach(_hwnd);
         DesktopLayer.Apply(_hwnd, WidgetLayer.Desktop, interactive: false);
     }
 
@@ -236,11 +415,58 @@ internal sealed class DesktopWindow : IWidgetCardHost
         appWindow.MoveAndResize(new RectInt32(area.Left, area.Top, area.Width, area.Height));
     }
 
+    /// <summary>
+    /// Strip the border and title bar.
+    /// <para>
+    /// Re-applied whenever the window's styles are touched, not just at creation: toggling edit mode
+    /// changes the extended styles and activation, and the presenter restores its default frame in
+    /// response — which is how the surface grew a title bar the moment you started editing.
+    /// </para>
+    /// </summary>
+    private void ApplyChromeless()
+    {
+        if (_presenter is not null)
+        {
+            _presenter.SetBorderAndTitleBar(hasBorder: false, hasTitleBar: false);
+            _presenter.IsResizable = false;
+            _presenter.IsMinimizable = false;
+            _presenter.IsMaximizable = false;
+            _presenter.IsAlwaysOnTop = false;
+        }
+
+        // The presenter alone leaves WS_CAPTION in place, so finish the job at the Win32 level.
+        DesktopLayer.MakeChromeless(_hwnd);
+    }
+
+    /// <summary>
+    /// Offset from the window's top-left to the client area's top-left, in physical pixels.
+    /// <para>
+    /// <c>SetWindowRgn</c> works in window coordinates while the widgets are laid out in client
+    /// coordinates; without this the mask is shifted by the frame thickness and stops lining up with
+    /// the cards it is meant to trace.
+    /// </para>
+    /// </summary>
+    private (int X, int Y) ClientToWindowOffset()
+    {
+        if (!Win32.GetWindowRect(_hwnd, out var window))
+        {
+            return (0, 0);
+        }
+
+        var origin = default(Win32.Point);
+        if (!Win32.ClientToScreen(_hwnd, ref origin))
+        {
+            return (0, 0);
+        }
+
+        return (origin.X - window.Left, origin.Y - window.Top);
+    }
+
     private void TryApplyTransparentBackdrop()
     {
         try
         {
-            _window.SystemBackdrop = WidgetBackdrop.Create();
+            _window.SystemBackdrop = new TransparentBackdrop();
         }
         catch (Exception ex)
         {
@@ -279,8 +505,10 @@ internal sealed class DesktopWindow : IWidgetCardHost
         }
 
         _closed = true;
+        BottomPin.Detach(_hwnd);
         _host.StateChanged -= OnStateChanged;
         _host.EditModeChanged -= OnEditModeChanged;
+        _host.SelectionChanged -= OnSelectionChanged;
 
         foreach (var card in _cards)
         {
@@ -311,6 +539,14 @@ internal sealed class DesktopWindow : IWidgetCardHost
         Relayout();
     }
 
+    private void OnSelectionChanged()
+    {
+        foreach (var card in _cards)
+        {
+            card.ApplySelection();
+        }
+    }
+
     private void OnStateChanged()
     {
         ApplyTheme();
@@ -330,11 +566,12 @@ internal sealed class DesktopWindow : IWidgetCardHost
         // Edit mode needs real focus for keyboard input and must float above other windows; normal
         // mode goes back to being part of the desktop.
         DesktopLayer.Apply(_hwnd, WidgetLayer.Desktop, interactive: editing);
+        ApplyChromeless();
 
         if (editing)
         {
             DesktopLayer.ClearHitRegion(_hwnd);
-            Win32.SetForegroundWindow(_hwnd);
+            _root.Focus(FocusState.Programmatic);
             DrawGridOverlay();
         }
         else
@@ -387,6 +624,7 @@ internal sealed class DesktopWindow : IWidgetCardHost
         foreach (var card in _cards)
         {
             card.ApplyEditMode(EditMode);
+            card.ApplySelection();
             PositionCard(card, card.Model.Rect);
         }
 
@@ -433,8 +671,10 @@ internal sealed class DesktopWindow : IWidgetCardHost
             return;
         }
 
-        // The region is in physical pixels; XAML laid the cards out in DIPs.
+        // The region is in physical pixels relative to the WINDOW; XAML laid the cards out in DIPs
+        // relative to the CLIENT area. Convert both.
         var scale = RasterScale;
+        var (offsetX, offsetY) = ClientToWindowOffset();
         var rects = new List<Win32.Rect>(_cards.Count);
 
         foreach (var card in _cards)
@@ -442,10 +682,10 @@ internal sealed class DesktopWindow : IWidgetCardHost
             var box = GridGeometry.ToPixels(card.Model.Rect, metrics, Design.WidgetGapPx);
             rects.Add(new Win32.Rect
             {
-                Left = (int)Math.Floor(box.X * scale),
-                Top = (int)Math.Floor(box.Y * scale),
-                Right = (int)Math.Ceiling((box.X + box.Width) * scale),
-                Bottom = (int)Math.Ceiling((box.Y + box.Height) * scale),
+                Left = offsetX + (int)Math.Floor(box.X * scale),
+                Top = offsetY + (int)Math.Floor(box.Y * scale),
+                Right = offsetX + (int)Math.Ceiling((box.X + box.Width) * scale),
+                Bottom = offsetY + (int)Math.Ceiling((box.Y + box.Height) * scale),
             });
         }
 

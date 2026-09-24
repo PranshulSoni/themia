@@ -12,6 +12,16 @@ internal static partial class Win32
     // ---- window styles -------------------------------------------------------------------
 
     internal const int GwlExStyle = -20;
+    internal const int GwlStyle = -16;
+    internal const int GwlpWndProc = -4;
+
+    internal const uint WsPopup = 0x80000000;
+    internal const uint WsCaption = 0x00C00000;
+    internal const uint WsThickFrame = 0x00040000;
+    internal const uint WsSysMenu = 0x00080000;
+    internal const uint WsMinimizeBox = 0x00020000;
+    internal const uint WsMaximizeBox = 0x00010000;
+    internal const uint WsClipChildren = 0x02000000;
 
     internal const uint WsExNoActivate = 0x08000000;
     internal const uint WsExToolWindow = 0x00000080;
@@ -31,6 +41,23 @@ internal static partial class Win32
     internal const uint SwpNoActivate = 0x0010;
     internal const uint SwpFrameChanged = 0x0020;
     internal const uint SwpNoOwnerZOrder = 0x0200;
+    internal const uint SwpNoZOrder = 0x0004;
+
+    // ---- system dispatcher queue (required to create a system Compositor) -------------------
+
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct DispatcherQueueOptions
+    {
+        public int Size;
+        public int ThreadType;
+        public int ApartmentType;
+    }
+
+    internal const int DqTypeThreadCurrent = 2;
+    internal const int DqTatComStA = 2;
+
+    [LibraryImport("CoreMessaging.dll")]
+    internal static partial int CreateDispatcherQueueController(DispatcherQueueOptions options, out nint instance);
 
     [LibraryImport("user32.dll", SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]
@@ -52,6 +79,14 @@ internal static partial class Win32
     [LibraryImport("user32.dll", SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]
     internal static partial bool GetClientRect(nint hWnd, out Rect lpRect);
+
+    [LibraryImport("user32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static partial bool GetWindowRect(nint hWnd, out Rect lpRect);
+
+    [LibraryImport("user32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static partial bool ClientToScreen(nint hWnd, ref Point lpPoint);
 
     [LibraryImport("user32.dll", SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]
@@ -167,6 +202,9 @@ internal static partial class Win32
 
     [LibraryImport("user32.dll", EntryPoint = "DefWindowProcW")]
     internal static partial nint DefWindowProc(nint hWnd, uint msg, nint wParam, nint lParam);
+
+    [LibraryImport("user32.dll", EntryPoint = "CallWindowProcW")]
+    internal static partial nint CallWindowProc(nint lpPrevWndFunc, nint hWnd, uint msg, nint wParam, nint lParam);
 
     [LibraryImport("user32.dll", EntryPoint = "RegisterWindowMessageW", SetLastError = true, StringMarshalling = StringMarshalling.Utf16)]
     internal static partial uint RegisterWindowMessage(string lpString);
