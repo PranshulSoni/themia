@@ -549,11 +549,26 @@ internal sealed partial class WidgetCard : Grid, IWidgetSurface
 
     private void EndDrag()
     {
-        _dragging = false;
-        _activeHandle = null;
+        // The gesture is still "in progress" while the host commits it, so the host can tell a move
+        // from a resize: only a move may hand the widget to another display.
         Model.Rect = LiveRect;
         _host.OnGeometryCommitted(this);
+
+        _dragging = false;
+        _activeHandle = null;
     }
+
+    /// <summary>
+    /// True while the card is being moved, as opposed to resized. A resize that happens to end with
+    /// the pointer over another screen is still a resize, and must not carry the widget there.
+    /// </summary>
+    public bool IsMoving => _dragging && _activeHandle is null;
+
+    /// <summary>
+    /// [S-78] Fade the card while its drop would land on another display, so the screen it is
+    /// leaving says so as clearly as the ghost on the screen it is going to.
+    /// </summary>
+    public void SetLeaving(bool leaving) => Opacity = leaving ? 0.35 : 1.0;
 
     private ResizeHandle? HitHandle(object? source)
         => source is FrameworkElement { Tag: ResizeHandle handle } ? handle : null;

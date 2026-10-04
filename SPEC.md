@@ -74,6 +74,10 @@ Owning files: `Themia.Core/Geometry/*`, `Themia.Core/Model/*`, `Themia.Core/Stor
   Cancel really cancels. It does not mirror the live config into local state and sync it back.
 - **[S-18]** `monitorViews` maps a display's device name to a view id; a display with no entry shows
   the active view. An entry pointing at a deleted view is dropped at load, not resolved.
+- **[S-19]** Showing a view puts it on **one display**: that display's own assignment changes, and
+  the active view follows so a display plugged in later starts on the last view chosen. Switching
+  only the active view is not enough and was the bug: every display gets an assignment at startup
+  ([S-18]) and an assignment always wins, so the View menu changed nothing on screen.
 
 ## Window layering
 
@@ -150,6 +154,11 @@ Owning files: `Themia.Core/Geometry/*`, `Themia.Core/Model/*`, `Themia.Core/Stor
 - **[S-34b]** After any shell event the reconcile runs at 100 ms for a second before settling back to
   1 s. A secondary monitor's `WorkerW` can elevate into the topmost band *after* the surfaces are
   lifted, so the lift has to be re-asserted a few times to stick.
+- **[S-28]** While the surface is pinned for Show Desktop, a **widget surface taking the foreground
+  holds the pin**, exactly as Start or the taskbar does. Clicking a widget makes the surface the
+  foreground, so the desktop no longer owns it and Show Desktop stops reading as active — but
+  nothing has been restored and the desktop is still elevated. Dropping the pin there buried the
+  widgets under it on the first click after Win+D.
 
 ## Transparency
 
@@ -270,6 +279,10 @@ Owning files: `Themia.Core/Geometry/*`, `Themia.Core/Model/*`, `Themia.Core/Stor
   rewrote its position against the wrong screen.
 - **[S-77]** The drop **point**, not the dragged rect, decides the destination: the rect is clamped
   to its own screen ([S-09]) and so can never reach across the display boundary.
+- **[S-78]** While a widget is dragged, a **ghost** shows where it would land: on the display under
+  the pointer, only when that display would really receive it ([S-76]), with the card on the screen
+  it is leaving faded. Only a move hands a widget across; a resize that ends over another screen is
+  still a resize.
 
 ## System meters
 
@@ -621,3 +634,20 @@ Owning files: `Themia.Core/Geometry/*`, `Themia.Core/Model/*`, `Themia.Core/Stor
   behind. Loading repairs each to a widget on the desktop — a state the layout can always draw — and
   says how many rather than repairing silently. Membership is repaired **last**, after ids are known
   unique, because the tree is walked by id.
+
+## Adding a widget
+
+- **[S-420]** Widgets are added from **Add widget** on the edit toolbar: a picker listing every
+  widget in sections, the sections split into columns by `ColumnLayout` — reading order kept, no
+  section torn from its heading, the tallest column as short as a contiguous split allows. There is
+  no second way in from the settings window.
+- **[S-421]** Picking a widget does **not** add it and does not open its settings. It starts
+  placing: a ghost of the widget at its default size follows the pointer across every display, the
+  cards stop taking input so a click over one places the new widget rather than grabbing the old,
+  and a line in place of the toolbar says what the click will do. Escape or a right-click cancels;
+  leaving edit mode cancels.
+- **[S-422]** A left click places the widget on the display it lands on, in that display's view, at
+  the rect computed from the click itself — not from the last pointer move — centred, snapped and
+  clamped ([S-11]). Alt bypasses the snap, as when dragging.
+- **[S-423]** A ghost traces the **painted** card, inside the gap, with the card's own corner radius:
+  it shows what the user will see once the widget is there, not the cell it owns.

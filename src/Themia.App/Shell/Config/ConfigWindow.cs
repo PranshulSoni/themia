@@ -398,7 +398,6 @@ internal sealed class ConfigWindow
             }
 
             _nav.FooterMenuItems.Clear();
-            _nav.FooterMenuItems.Add(Item("Add a widget", Glyphs.Add, new ConfigTarget.Add()));
 
             SelectForTarget();
         }

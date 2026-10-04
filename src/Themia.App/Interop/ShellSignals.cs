@@ -58,6 +58,9 @@ internal static unsafe class ShellSignals
     /// <summary>Whether Start, Search, Task View or the taskbar currently owns the foreground.</summary>
     public static bool ShellSurfaceIsForeground() => IsClass(Win32.GetForegroundWindow(), ShellSurfaceClasses);
 
+    /// <summary>[S-28] Whether one of the widget surfaces currently owns the foreground.</summary>
+    public static bool OwnSurfaceIsForeground() => IsOurs(Win32.GetForegroundWindow());
+
     /// <summary>
     /// Whether Show Desktop is genuinely in effect, as opposed to the user having clicked the
     /// wallpaper.

@@ -34,7 +34,6 @@ internal static class ConfigPages
         ConfigTarget.View view => BuildView(host, view.ViewId, navigate),
         ConfigTarget.Display display => BuildDisplay(host, display.MonitorId),
         ConfigTarget.Widget widget => BuildWidget(host, widget.WidgetId, navigate),
-        ConfigTarget.Add add => BuildAdd(host, add.IntoViewId, navigate),
         _ => Page("Settings", []),
     };
 
@@ -243,8 +242,16 @@ internal static class ConfigPages
             }
         });
 
-        var activate = new Button { Content = "Show this view" };
-        activate.Click += (_, _) => host.SwitchView(viewId);
+        // On the screen the button was pressed on: every display shows a view of its own, so "show
+        // this view" has to say where.
+        var activate = new Button { Content = "Show on this screen" };
+        activate.Click += (_, _) =>
+        {
+            if ((host.SurfaceUnderCursor() ?? host.Surfaces.FirstOrDefault()) is { } surface)
+            {
+                host.ShowView(surface.Monitor.DeviceName, viewId);
+            }
+        };
 
         var delete = new Button { Content = "Delete view", IsEnabled = host.State.Views.Count > 1 };
         delete.Click += (_, _) =>
@@ -281,9 +288,11 @@ internal static class ConfigPages
                 open));
         }
 
-        var add = new Button { Content = "Add a widget" };
-        add.Click += (_, _) => navigate(new ConfigTarget.Add(viewId));
-        rows.Add(add);
+        // [S-420] Widgets are added on the desktop, from the edit toolbar, where the click that places
+        // one can land exactly where it is wanted. A second way in here would be a second path.
+        var edit = new Button { Content = "Edit layout" };
+        edit.Click += (_, _) => host.SetEditMode(true);
+        rows.Add(FluentLayout.Row(Glyphs.Add, "Add a widget", "From Add widget on the edit toolbar (Ctrl+Alt+W)", edit));
 
         rows.Add(FluentLayout.Header("Danger"));
         rows.Add(FluentLayout.Row(Glyphs.Delete, "Delete this view",
@@ -580,74 +589,6 @@ internal static class ConfigPages
         rows.Add(FluentLayout.Row(Glyphs.Delete, "Delete", $"Removes it from {view.Name}", delete));
 
         return Page(string.IsNullOrWhiteSpace(widget.Label) ? definition.Label : widget.Label!, rows, definition.Description);
-    }
-
-    // -----------------------------------------------------------------------------------------
-    // Add
-    // -----------------------------------------------------------------------------------------
-
-    private static FrameworkElement BuildAdd(AppHost host, string? intoViewId, Action<ConfigTarget> navigate)
-    {
-        var gallery = new GridView
-        {
-            SelectionMode = ListViewSelectionMode.Single,
-            IsItemClickEnabled = true,
-        };
-
-        foreach (var definition in WidgetCatalog.All)
-        {
-            gallery.Items.Add(GalleryTile(definition));
-        }
-
-        gallery.ItemClick += (_, args) =>
-        {
-            if (args.ClickedItem is not FrameworkElement { Tag: WidgetKind kind })
-            {
-                return;
-            }
-
-            var id = host.AddWidget(kind, intoViewId);
-            if (id is not null)
-            {
-                navigate(new ConfigTarget.Widget(id));
-            }
-        };
-
-        var target = host.State.FindView(intoViewId) ?? host.State.ActiveView();
-
-        return Page("Add a widget", [gallery], $"Lands in {target.Name}");
-    }
-
-    private static FrameworkElement GalleryTile(WidgetDefinition definition)
-    {
-        var stack = new StackPanel { Width = 150, Spacing = 4, Padding = new Thickness(4, 10, 4, 10) };
-
-        stack.Children.Add(new FontIcon
-        {
-            Glyph = definition.Glyph,
-            FontSize = 26,
-            HorizontalAlignment = HorizontalAlignment.Center,
-        });
-
-        stack.Children.Add(new TextBlock
-        {
-            Text = definition.Label,
-            FontWeight = FontWeights.SemiBold,
-            HorizontalAlignment = HorizontalAlignment.Center,
-        });
-
-        stack.Children.Add(new TextBlock
-        {
-            Text = definition.Description,
-            FontSize = 11,
-            Opacity = 0.7,
-            TextAlignment = TextAlignment.Center,
-            TextWrapping = TextWrapping.Wrap,
-            HorizontalAlignment = HorizontalAlignment.Center,
-        });
-
-        stack.Tag = definition.Kind;
-        return stack;
     }
 
     // -----------------------------------------------------------------------------------------

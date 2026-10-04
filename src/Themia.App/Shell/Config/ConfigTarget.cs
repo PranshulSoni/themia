@@ -14,9 +14,6 @@ internal abstract record ConfigTarget
 
     /// <summary>One display's settings.</summary>
     public sealed record Display(string MonitorId) : ConfigTarget;
-
-    /// <summary>The widget gallery. <paramref name="IntoViewId"/> is the view a new widget lands in.</summary>
-    public sealed record Add(string? IntoViewId = null) : ConfigTarget;
 }
 
 internal enum AppPage

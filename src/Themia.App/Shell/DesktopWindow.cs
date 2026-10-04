@@ -2,6 +2,7 @@ using Microsoft.UI;
 using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Controls.Primitives;
 using Microsoft.UI.Input;
 using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
@@ -13,6 +14,7 @@ using Themia.App.Widgets;
 using Themia.Core.Diagnostics;
 using Themia.Core.Geometry;
 using Themia.Core.Model;
+using Themia.Core.Widgets;
 using Windows.Foundation;
 using Windows.Graphics;
 using Path = Microsoft.UI.Xaml.Shapes.Path;
@@ -37,6 +39,13 @@ internal sealed class DesktopWindow : IWidgetCardHost
     private readonly Canvas _widgetLayer;
     private readonly Path _gridOverlay;
     private readonly Border _toolbar;
+    private readonly Border _placementHint;
+    private readonly TextBlock _placementHintText;
+    private readonly Canvas _ghostLayer;
+    private readonly Grid _ghost;
+    private readonly Rectangle _ghostFrame;
+    private readonly FontIcon _ghostIcon;
+    private readonly TextBlock _ghostLabel;
     private readonly Grid _root;
     private readonly List<WidgetCard> _cards = [];
 
@@ -74,12 +83,30 @@ internal sealed class DesktopWindow : IWidgetCardHost
 
         _toolbar = BuildToolbar();
 
+        _placementHintText = new TextBlock { VerticalAlignment = VerticalAlignment.Center };
+        _placementHint = BuildPlacementHint(_placementHintText);
+
+        _ghostIcon = new FontIcon { FontSize = 28 };
+        _ghostLabel = Fluent.Text(FluentType.BodyStrong);
+        _ghostFrame = new Rectangle
+        {
+            Fill = Brush("AccentFillColorDefaultBrush", Colors.DodgerBlue),
+            Stroke = Brush("AccentFillColorDefaultBrush", Colors.DodgerBlue),
+            StrokeThickness = 2,
+            StrokeDashArray = [4, 3],
+        };
+        _ghost = BuildGhost(_ghostFrame, _ghostIcon, _ghostLabel);
+
+        // Never hit-testable: the ghost shows where a click will land, so it must not be the
+        // thing that catches the click.
+        _ghostLayer = new Canvas { IsHitTestVisible = false, Children = { _ghost } };
+
         _root = new Grid
         {
             // Transparent, not null: the root still has to receive the pointer input that edit mode
             // needs, while the window itself shows the wallpaper straight through.
             Background = new SolidColorBrush(Colors.Transparent),
-            Children = { _gridOverlay, _widgetLayer, _toolbar },
+            Children = { _gridOverlay, _widgetLayer, _ghostLayer, _toolbar, _placementHint },
 
             // Focusable so edit-mode keyboard commands (copy / cut / paste / delete) land here.
             IsTabStop = true,
@@ -87,16 +114,9 @@ internal sealed class DesktopWindow : IWidgetCardHost
 
         _root.KeyDown += OnKeyDown;
 
-        // Clicking empty surface in edit mode must also give the surface focus, or the shortcuts
-        // stop working as soon as the user clicks away from a widget.
-        _root.PointerPressed += (_, _) =>
-        {
-            if (EditMode)
-            {
-                _host.Select(null);
-                _root.Focus(FocusState.Pointer);
-            }
-        };
+        _root.PointerPressed += OnRootPointerPressed;
+        _root.PointerMoved += OnRootPointerMoved;
+        _root.PointerExited += OnRootPointerExited;
 
         _window = new Window
         {
@@ -111,6 +131,7 @@ internal sealed class DesktopWindow : IWidgetCardHost
         _host.StateChanged += OnStateChanged;
         _host.EditModeChanged += OnEditModeChanged;
         _host.SelectionChanged += OnSelectionChanged;
+        _host.PlacementChanged += OnPlacementChanged;
     }
 
     // -----------------------------------------------------------------------------------------
@@ -186,11 +207,21 @@ internal sealed class DesktopWindow : IWidgetCardHost
         }
     }
 
-    public void OnGeometryPreview(WidgetCard card) => PositionCard(card, card.LiveRect);
+    public void OnGeometryPreview(WidgetCard card)
+    {
+        PositionCard(card, card.LiveRect);
+
+        // [S-78] A resize never leaves its screen, so only a move asks where it would land.
+        var leaving = card.IsMoving && _host.PreviewHandOff(this, card.Model, card.LiveRect);
+        card.SetLeaving(leaving);
+    }
 
     public void OnGeometryCommitted(WidgetCard card)
     {
-        if (TryHandOffToOtherDisplay(card))
+        _host.EndHandOffPreview();
+        card.SetLeaving(false);
+
+        if (card.IsMoving && TryHandOffToOtherDisplay(card))
         {
             return;
         }
@@ -309,7 +340,9 @@ internal sealed class DesktopWindow : IWidgetCardHost
                 break;
 
             case Windows.System.VirtualKey.V when ctrl:
-                PasteAtCursor();
+                // [S-74] The display under the pointer, not the one holding the keyboard. Those
+                // differ exactly when it matters: copy on one screen, point at the other, paste.
+                _host.PasteAtCursor();
                 break;
 
             case Windows.System.VirtualKey.Delete:
@@ -317,7 +350,16 @@ internal sealed class DesktopWindow : IWidgetCardHost
                 break;
 
             case Windows.System.VirtualKey.Escape:
-                _host.SetEditMode(false);
+                // Escape backs out one step at a time: out of placing first, out of editing second.
+                if (_host.PlacingKind is not null)
+                {
+                    _host.CancelPlacement();
+                }
+                else
+                {
+                    _host.SetEditMode(false);
+                }
+
                 break;
 
             default:
@@ -596,6 +638,7 @@ internal sealed class DesktopWindow : IWidgetCardHost
         _host.StateChanged -= OnStateChanged;
         _host.EditModeChanged -= OnEditModeChanged;
         _host.SelectionChanged -= OnSelectionChanged;
+        _host.PlacementChanged -= OnPlacementChanged;
 
         foreach (var card in _cards)
         {
@@ -913,7 +956,24 @@ internal sealed class DesktopWindow : IWidgetCardHost
             Content = "View",
         };
 
-        views.Loaded += (_, _) => views.Flyout = BuildViewFlyout();
+        // Refilled every time it opens. Built once, it kept listing the views that existed when the
+        // surface was created and ticking the one that was active then.
+        var viewMenu = new MenuFlyout();
+        viewMenu.Opening += (_, _) => FillViewFlyout(viewMenu);
+        views.Flyout = viewMenu;
+
+        var add = new DropDownButton
+        {
+            Content = new StackPanel
+            {
+                Orientation = Orientation.Horizontal,
+                Spacing = 8,
+                Children = { new FontIcon { Glyph = Glyphs.Add, FontSize = 14 }, new TextBlock { Text = "Add widget" } },
+            },
+        };
+
+        Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(add, "Add widget");
+        add.Flyout = BuildAddFlyout();
 
         // Quitting lives behind a second click, and away from Done. With no tray entry this is the
         // only place it is offered, but it is also the one button on the toolbar that cannot be
@@ -932,7 +992,7 @@ internal sealed class DesktopWindow : IWidgetCardHost
             Spacing = 8,
             Children =
             {
-                ToolbarButton("", "Add widget", () => _host.ShowConfig(new ConfigTarget.Add(CurrentViewId))),
+                add,
                 views,
                 ToolbarButton("", "Settings", _host.ShowSettings),
                 more,
@@ -971,21 +1031,22 @@ internal sealed class DesktopWindow : IWidgetCardHost
         return flyout;
     }
 
-    private MenuFlyout BuildViewFlyout()
+    private void FillViewFlyout(MenuFlyout flyout)
     {
-        var flyout = new MenuFlyout();
-        var activeId = _host.State.ActiveView().Id;
+        flyout.Items.Clear();
+        // The view THIS display shows, not the app-wide active one: each display has its own.
+        var shownId = CurrentViewId;
 
         foreach (var view in _host.State.Views)
         {
             var item = new ToggleMenuFlyoutItem
             {
                 Text = view.Name,
-                IsChecked = view.Id == activeId,
+                IsChecked = view.Id == shownId,
             };
 
             var id = view.Id;
-            item.Click += (_, _) => _host.SwitchView(id);
+            item.Click += (_, _) => _host.ShowView(_monitor.DeviceName, id);
             flyout.Items.Add(item);
         }
 
@@ -996,11 +1057,10 @@ internal sealed class DesktopWindow : IWidgetCardHost
         {
             var created = ViewState.Create($"View {state.Views.Count + 1}");
             state.Views.Add(created);
-            state.ActiveViewId = created.Id;
+            state.ShowViewOn(_monitor.DeviceName, created.Id);
         });
 
         flyout.Items.Add(add);
-        return flyout;
     }
 
     private static Button ToolbarButton(string glyph, string text, Action action)
@@ -1035,27 +1095,302 @@ internal sealed class DesktopWindow : IWidgetCardHost
     // Dialogs
     // -----------------------------------------------------------------------------------------
 
-    /// <summary>[S-11] Drop a new widget at the centre of this monitor. Returns its id.</summary>
-    public string AddWidgetCentred(WidgetKind kind, string? intoViewId = null)
+    // -----------------------------------------------------------------------------------------
+    // Adding a widget: the picker, the ghost and the click that places it
+    // -----------------------------------------------------------------------------------------
+
+    /// <summary>How many columns the picker spreads its sections across.</summary>
+    private const int PickerColumns = 4;
+
+    /// <summary>
+    /// [S-420] The widget picker: every widget, in sections, laid out in columns.
+    /// <para>
+    /// A flyout rather than a page in the settings window, because choosing a widget is a moment's
+    /// decision made while looking at the desktop, and the settings window covers the desktop. The
+    /// columns are balanced by <see cref="ColumnLayout"/>, which keeps the reading order and never
+    /// splits a section from its heading.
+    /// </para>
+    /// </summary>
+    private Flyout BuildAddFlyout()
+    {
+        var flyout = new Flyout
+        {
+            Placement = FlyoutPlacementMode.BottomEdgeAlignedLeft,
+
+            // The presenter caps itself at 456px by default, sized for a menu of one column. Left at
+            // that, the picker showed two and a half of its four columns and clipped the rest.
+            FlyoutPresenterStyle = new Style(typeof(FlyoutPresenter))
+            {
+                Setters =
+                {
+                    new Setter(FrameworkElement.MaxWidthProperty, double.PositiveInfinity),
+                    new Setter(FrameworkElement.MaxHeightProperty, double.PositiveInfinity),
+                },
+            },
+        };
+
+        var sections = WidgetCatalog.All
+            .GroupBy(d => d.Category)
+            .OrderBy(g => g.Key)
+            .Select(g => (Category: g.Key, Items: g.ToList()))
+            .ToList();
+
+        // A heading costs about one row, so it counts as one when balancing the columns.
+        var columnOf = ColumnLayout.Partition([.. sections.Select(s => s.Items.Count + 1)], PickerColumns);
+        var columnCount = columnOf.Length == 0 ? 0 : columnOf.Max() + 1;
+
+        var grid = new Grid { ColumnSpacing = Fluent.Space4 };
+        var columns = new StackPanel[columnCount];
+
+        for (var c = 0; c < columnCount; c++)
+        {
+            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            columns[c] = new StackPanel { MinWidth = 176 };
+            Grid.SetColumn(columns[c], c);
+            grid.Children.Add(columns[c]);
+        }
+
+        for (var i = 0; i < sections.Count; i++)
+        {
+            var column = columns[columnOf[i]];
+
+            var heading = Fluent.Text(FluentType.Caption, "TextFillColorSecondaryBrush");
+            heading.Text = WidgetCatalog.Title(sections[i].Category);
+            heading.Margin = new Thickness(Fluent.Space3, column.Children.Count == 0 ? 0 : Fluent.Space4, 0, Fluent.Space1);
+            column.Children.Add(heading);
+
+            foreach (var definition in sections[i].Items)
+            {
+                column.Children.Add(PickerItem(definition, flyout));
+            }
+        }
+
+        flyout.Content = grid;
+        return flyout;
+    }
+
+    private Button PickerItem(WidgetDefinition definition, Flyout flyout)
+    {
+        var button = new Button
+        {
+            Content = new StackPanel
+            {
+                Orientation = Orientation.Horizontal,
+                Spacing = Fluent.Space3,
+                Children =
+                {
+                    new FontIcon { Glyph = definition.Glyph, FontSize = 16 },
+                    new TextBlock { Text = definition.Label, VerticalAlignment = VerticalAlignment.Center },
+                },
+            },
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+            HorizontalContentAlignment = HorizontalAlignment.Left,
+            Background = Brush("SubtleFillColorTransparentBrush", Colors.Transparent),
+            BorderThickness = new Thickness(0),
+            Padding = new Thickness(Fluent.Space3, 6, Fluent.Space3, 6),
+        };
+
+        ToolTipService.SetToolTip(button, definition.Description);
+        Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(button, definition.Label);
+
+        var kind = definition.Kind;
+        button.Click += (_, _) =>
+        {
+            flyout.Hide();
+            _host.BeginPlacement(kind);
+        };
+
+        return button;
+    }
+
+    private static Border BuildPlacementHint(TextBlock text) => new()
+    {
+        Child = text,
+        Padding = new Thickness(Fluent.Space4, Fluent.Space3, Fluent.Space4, Fluent.Space3),
+        Margin = new Thickness(0, 24, 0, 0),
+        HorizontalAlignment = HorizontalAlignment.Center,
+        VerticalAlignment = VerticalAlignment.Top,
+        CornerRadius = new CornerRadius(8),
+        Background = Brush("AcrylicBackgroundFillColorDefaultBrush", Colors.Black),
+        BorderBrush = Brush("SurfaceStrokeColorDefaultBrush", Colors.Gray),
+        BorderThickness = new Thickness(1),
+
+        // Words, not a control: anything clickable here would have to be told apart from a click
+        // meant to place the widget underneath it.
+        IsHitTestVisible = false,
+        Visibility = Visibility.Collapsed,
+    };
+
+    private static Grid BuildGhost(Rectangle frame, FontIcon icon, TextBlock label)
+    {
+        // The fill is the stroke's colour at low alpha: the same accent, so it reads as one shape
+        // rather than a box inside a box.
+        var accent = (frame.Stroke as SolidColorBrush)?.Color ?? Colors.DodgerBlue;
+        frame.Fill = new SolidColorBrush(Windows.UI.Color.FromArgb(0x33, accent.R, accent.G, accent.B));
+
+        icon.HorizontalAlignment = HorizontalAlignment.Center;
+        label.HorizontalAlignment = HorizontalAlignment.Center;
+
+        var content = new StackPanel
+        {
+            Spacing = Fluent.Space2,
+            HorizontalAlignment = HorizontalAlignment.Center,
+            VerticalAlignment = VerticalAlignment.Center,
+            Children = { icon, label },
+        };
+
+        return new Grid
+        {
+            Children = { frame, content },
+            Visibility = Visibility.Collapsed,
+        };
+    }
+
+    /// <summary>
+    /// [S-423] Show a widget-shaped outline at a rect on this display: where a widget being placed,
+    /// or dragged in from another display, will land. It traces the painted card, inside the gap,
+    /// because that is what the user will see once it is there.
+    /// </summary>
+    public void ShowGhost(FracRect rect, WidgetKind kind)
+    {
+        var metrics = Metrics;
+        if (_closed || !metrics.IsUsable)
+        {
+            return;
+        }
+
+        var box = GridGeometry.Inset(GridGeometry.ToPixels(rect, metrics), Design.WidgetGapPx);
+        var definition = WidgetCatalog.Definition(kind);
+
+        _ghostIcon.Glyph = definition.Glyph;
+        _ghostLabel.Text = definition.Label;
+        _ghostFrame.RadiusX = Design.CornerRadiusPx;
+        _ghostFrame.RadiusY = Design.CornerRadiusPx;
+
+        Canvas.SetLeft(_ghost, box.X);
+        Canvas.SetTop(_ghost, box.Y);
+        _ghost.Width = Math.Max(0, box.Width);
+        _ghost.Height = Math.Max(0, box.Height);
+        _ghost.Visibility = Visibility.Visible;
+    }
+
+    public void HideGhost() => _ghost.Visibility = Visibility.Collapsed;
+
+    /// <summary>
+    /// [S-421] Enter or leave placing. The cards stop taking input while a widget is being placed,
+    /// so a click over an existing widget places the new one there instead of grabbing the old one,
+    /// and the toolbar steps aside for a line saying what the click will do.
+    /// </summary>
+    private void OnPlacementChanged()
+    {
+        if (_closed)
+        {
+            return;
+        }
+
+        var placing = _host.PlacingKind;
+        _widgetLayer.IsHitTestVisible = placing is null;
+
+        if (placing is { } kind)
+        {
+            _placementHintText.Text =
+                $"Click to place {WidgetCatalog.Definition(kind).Label}  ·  Right-click or Esc to cancel";
+            _placementHint.Visibility = Visibility.Visible;
+            _toolbar.Visibility = Visibility.Collapsed;
+
+            // The picker was opened on one display, so the pointer is already somewhere: show the
+            // ghost there at once rather than waiting for the first move.
+            if (IsUnderCursor && Win32.GetCursorPos(out var cursor))
+            {
+                var (x, y) = FractionOf(cursor);
+                ShowGhost(PlacementRect(kind, x, y), kind);
+            }
+            else
+            {
+                HideGhost();
+            }
+
+            return;
+        }
+
+        _placementHint.Visibility = Visibility.Collapsed;
+        _toolbar.Visibility = EditMode ? Visibility.Visible : Visibility.Collapsed;
+        HideGhost();
+    }
+
+    /// <summary>[S-11] Centred on the pointer, then snapped and clamped. Alt bypasses the snap, as when dragging.</summary>
+    private FracRect PlacementRect(WidgetKind kind, double xFrac, double yFrac)
     {
         var definition = WidgetCatalog.Definition(kind);
-        var rect = GridGeometry.PlaceAt(
-            0.5,
-            0.5,
-            definition.DefaultWidthPx,
-            definition.DefaultHeightPx,
-            Metrics,
-            Design.GridSnap);
+        var snap = Design.GridSnap && !AltHeld();
+        return GridGeometry.PlaceAt(xFrac, yFrac, definition.DefaultWidthPx, definition.DefaultHeightPx, Metrics, snap);
+    }
 
-        var widget = WidgetInstance.Create(kind, rect);
+    /// <summary>Where a point in this surface's own coordinates falls, as a fraction of it.</summary>
+    private (double X, double Y) FractionOfDip(Point dip)
+    {
+        var metrics = Metrics;
+        return metrics.IsUsable
+            ? (Math.Clamp(dip.X / metrics.Width, 0, 1), Math.Clamp(dip.Y / metrics.Height, 0, 1))
+            : (0.5, 0.5);
+    }
 
-        _host.Mutate(state =>
+    private static bool AltHeld() => InputKeyboardSource
+        .GetKeyStateForCurrentThread(Windows.System.VirtualKey.Menu)
+        .HasFlag(Windows.UI.Core.CoreVirtualKeyStates.Down);
+
+    private void OnRootPointerMoved(object sender, PointerRoutedEventArgs e)
+    {
+        if (_host.PlacingKind is not { } kind)
         {
-            var view = state.FindView(intoViewId) ?? ViewForThisMonitor(state);
-            view.Widgets.Add(widget);
-        });
+            return;
+        }
 
-        return widget.Id;
+        var (x, y) = FractionOfDip(e.GetCurrentPoint(_root).Position);
+        ShowGhost(PlacementRect(kind, x, y), kind);
+    }
+
+    /// <summary>The pointer went to another display: the ghost goes with it, so it leaves here.</summary>
+    private void OnRootPointerExited(object sender, PointerRoutedEventArgs e)
+    {
+        if (_host.PlacingKind is not null)
+        {
+            HideGhost();
+        }
+    }
+
+    private void OnRootPointerPressed(object sender, PointerRoutedEventArgs e)
+    {
+        if (!EditMode)
+        {
+            return;
+        }
+
+        var point = e.GetCurrentPoint(_root);
+
+        if (_host.PlacingKind is { } kind)
+        {
+            if (point.Properties.IsLeftButtonPressed)
+            {
+                // Placed where the click is, not where the last move put the ghost: the two differ
+                // whenever the pointer moved and clicked inside one frame.
+                var (x, y) = FractionOfDip(point.Position);
+                _host.CompletePlacement(this, PlacementRect(kind, x, y));
+            }
+            else
+            {
+                _host.CancelPlacement();
+            }
+
+            _root.Focus(FocusState.Pointer);
+            e.Handled = true;
+            return;
+        }
+
+        // Clicking empty surface also gives the surface focus, or the shortcuts stop working as soon
+        // as the user clicks away from a widget.
+        _host.Select(null);
+        _root.Focus(FocusState.Pointer);
     }
 
     private static Brush Brush(string key, Windows.UI.Color fallback)

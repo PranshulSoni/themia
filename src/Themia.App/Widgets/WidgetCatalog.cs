@@ -109,13 +109,32 @@ public interface IWidgetView
 /// <param name="Description">One line shown under the name in the picker.</param>
 /// <param name="Glyph">Segoe Fluent Icons code point, so the picker matches the rest of Windows.</param>
 /// <param name="DefaultWidthPx">[S-10] Default size in device-independent pixels, converted to a fraction at drop time.</param>
+/// <param name="Category">[S-420] The picker column section it is listed under.</param>
 internal readonly record struct WidgetDefinition(
     WidgetKind Kind,
     string Label,
     string Description,
     string Glyph,
     double DefaultWidthPx,
-    double DefaultHeightPx);
+    double DefaultHeightPx,
+    WidgetCategory Category);
+
+/// <summary>
+/// [S-420] The sections of the widget picker, in the order they are read. A closed set, and an
+/// enum rather than a string on each definition, so a typo cannot quietly invent a tenth section.
+/// </summary>
+internal enum WidgetCategory
+{
+    Time,
+    Accounts,
+    System,
+    Information,
+    Media,
+    Launch,
+    Desk,
+    Trackers,
+    Layout,
+}
 
 /// <summary>
 /// The widget registry. One place that maps a <see cref="WidgetKind"/> to its metadata and its view,
@@ -125,46 +144,61 @@ internal static class WidgetCatalog
 {
     public static readonly IReadOnlyList<WidgetDefinition> All =
     [
-        new(WidgetKind.Clock, "Clock", "Time and date, digital or analog", Glyphs.Clock, 280, 140),
-        new(WidgetKind.Cpu, "CPU", "Processor load across all cores", Glyphs.Cpu, 200, 150),
-        new(WidgetKind.Memory, "Memory", "Physical memory in use", Glyphs.Memory, 200, 150),
-        new(WidgetKind.Disk, "Disk", "Space used on a drive", Glyphs.Disk, 200, 150),
-        new(WidgetKind.Battery, "Battery", "Charge level and time remaining", Glyphs.Battery, 200, 150),
-        new(WidgetKind.Network, "Network", "Bytes per second across the active adapters", Glyphs.Network, 200, 150),
-        new(WidgetKind.Ping, "Ping", "Round-trip time to a host", Glyphs.Ping, 200, 150),
-        new(WidgetKind.Processes, "Processes", "The busiest processes, ranked", Glyphs.Processes, 320, 240),
-        new(WidgetKind.Email, "Mail", "Recent messages, via the hearth hub", Glyphs.Mail, 380, 260),
-        new(WidgetKind.Calendar, "Calendar", "What is coming up, via the hearth hub", Glyphs.Calendar, 340, 260),
-        new(WidgetKind.Tasks, "Tasks", "Open tasks, via the hearth hub", Glyphs.Task, 320, 240),
-        new(WidgetKind.Contacts, "Contacts", "People, via the hearth hub", Glyphs.Contact, 320, 260),
-        new(WidgetKind.Notes, "Notes", "A note kept on this machine", Glyphs.Note, 300, 220),
-        new(WidgetKind.Countdown, "Countdown", "Time left until the dates you care about", Glyphs.Countdown, 300, 200),
-        new(WidgetKind.Pomodoro, "Pomodoro", "A focus and break timer", Glyphs.Pomodoro, 240, 200),
-        new(WidgetKind.Calculator, "Calculator", "An arithmetic scratchpad", Glyphs.Calculator, 260, 260),
-        new(WidgetKind.SunMoon, "Sun & Moon", "Sunrise, sunset and the moon phase", Glyphs.Sun, 320, 240),
-        new(WidgetKind.Folder, "Folder", "What is in a folder on this PC", Glyphs.Folder, 340, 280),
-        new(WidgetKind.Volume, "Volume", "Master output level and mute", Glyphs.Volume, 200, 150),
-        new(WidgetKind.Power, "Power", "Power plan and mains status", Glyphs.Power, 200, 150),
-        new(WidgetKind.Bluetooth, "Bluetooth", "Paired devices and their battery", Glyphs.Bluetooth, 300, 240),
-        new(WidgetKind.Music, "Now playing", "Whatever Windows is playing", Glyphs.Music, 340, 160),
-        new(WidgetKind.WeatherNow, "Weather", "Conditions where you are", Glyphs.Weather, 260, 200),
-        new(WidgetKind.WeatherForecast, "Forecast", "The next few days", Glyphs.Forecast, 380, 220),
-        new(WidgetKind.Stocks, "Stocks", "Tickers and crypto, with a sparkline", Glyphs.Stocks, 320, 240),
-        new(WidgetKind.Rss, "Feed", "Headlines from a feed you choose", Glyphs.Rss, 360, 280),
-        new(WidgetKind.Apps, "Apps", "Launch an installed application", Glyphs.Apps, 320, 240),
-        new(WidgetKind.Shortcuts, "Shortcuts", "Links, files and folders you keep to hand", Glyphs.Shortcut, 320, 220),
-        new(WidgetKind.WebSearch, "Search", "Type a query, open it in your browser", Glyphs.Search, 300, 120),
-        new(WidgetKind.Clipboard, "Clipboard", "What you have copied recently", Glyphs.Clipboard, 320, 260),
-        new(WidgetKind.Scratchpad, "Scratchpad", "A place to draw", Glyphs.Scratchpad, 300, 260),
-        new(WidgetKind.ColorSwatch, "Colours", "A palette you can copy from", Glyphs.Color, 280, 180),
-        new(WidgetKind.Quote, "Quote", "A line worth rereading", Glyphs.Quote, 320, 180),
-        new(WidgetKind.Gallery, "Gallery", "Pictures from a folder", Glyphs.Gallery, 320, 240),
-        new(WidgetKind.HabitTracker, "Habits", "Daily check-offs and streaks", Glyphs.Habit, 320, 240),
-        new(WidgetKind.MoodTracker, "Mood", "How you felt, as a heatmap", Glyphs.Mood, 320, 240),
-        new(WidgetKind.Group, "Group", "An area that holds other widgets", Glyphs.Group, 400, 300),
-        new(WidgetKind.Stack, "Stack", "Widgets rolled up to their headers", Glyphs.Stack, 360, 320),
-        new(WidgetKind.Tabs, "Tabs", "Several widgets, one at a time", Glyphs.Tabs, 360, 320),
+        new(WidgetKind.Clock, "Clock", "Time and date, digital or analog", Glyphs.Clock, 280, 140, WidgetCategory.Time),
+        new(WidgetKind.Cpu, "CPU", "Processor load across all cores", Glyphs.Cpu, 200, 150, WidgetCategory.System),
+        new(WidgetKind.Memory, "Memory", "Physical memory in use", Glyphs.Memory, 200, 150, WidgetCategory.System),
+        new(WidgetKind.Disk, "Disk", "Space used on a drive", Glyphs.Disk, 200, 150, WidgetCategory.System),
+        new(WidgetKind.Battery, "Battery", "Charge level and time remaining", Glyphs.Battery, 200, 150, WidgetCategory.System),
+        new(WidgetKind.Network, "Network", "Bytes per second across the active adapters", Glyphs.Network, 200, 150, WidgetCategory.System),
+        new(WidgetKind.Ping, "Ping", "Round-trip time to a host", Glyphs.Ping, 200, 150, WidgetCategory.System),
+        new(WidgetKind.Processes, "Processes", "The busiest processes, ranked", Glyphs.Processes, 320, 240, WidgetCategory.System),
+        new(WidgetKind.Email, "Mail", "Recent messages, via the hearth hub", Glyphs.Mail, 380, 260, WidgetCategory.Accounts),
+        new(WidgetKind.Calendar, "Calendar", "What is coming up, via the hearth hub", Glyphs.Calendar, 340, 260, WidgetCategory.Accounts),
+        new(WidgetKind.Tasks, "Tasks", "Open tasks, via the hearth hub", Glyphs.Task, 320, 240, WidgetCategory.Accounts),
+        new(WidgetKind.Contacts, "Contacts", "People, via the hearth hub", Glyphs.Contact, 320, 260, WidgetCategory.Accounts),
+        new(WidgetKind.Notes, "Notes", "A note kept on this machine", Glyphs.Note, 300, 220, WidgetCategory.Desk),
+        new(WidgetKind.Countdown, "Countdown", "Time left until the dates you care about", Glyphs.Countdown, 300, 200, WidgetCategory.Time),
+        new(WidgetKind.Pomodoro, "Pomodoro", "A focus and break timer", Glyphs.Pomodoro, 240, 200, WidgetCategory.Time),
+        new(WidgetKind.Calculator, "Calculator", "An arithmetic scratchpad", Glyphs.Calculator, 260, 260, WidgetCategory.Desk),
+        new(WidgetKind.SunMoon, "Sun & Moon", "Sunrise, sunset and the moon phase", Glyphs.Sun, 320, 240, WidgetCategory.Time),
+        new(WidgetKind.Folder, "Folder", "What is in a folder on this PC", Glyphs.Folder, 340, 280, WidgetCategory.Launch),
+        new(WidgetKind.Volume, "Volume", "Master output level and mute", Glyphs.Volume, 200, 150, WidgetCategory.System),
+        new(WidgetKind.Power, "Power", "Power plan and mains status", Glyphs.Power, 200, 150, WidgetCategory.System),
+        new(WidgetKind.Bluetooth, "Bluetooth", "Paired devices and their battery", Glyphs.Bluetooth, 300, 240, WidgetCategory.System),
+        new(WidgetKind.Music, "Now playing", "Whatever Windows is playing", Glyphs.Music, 340, 160, WidgetCategory.Media),
+        new(WidgetKind.WeatherNow, "Weather", "Conditions where you are", Glyphs.Weather, 260, 200, WidgetCategory.Information),
+        new(WidgetKind.WeatherForecast, "Forecast", "The next few days", Glyphs.Forecast, 380, 220, WidgetCategory.Information),
+        new(WidgetKind.Stocks, "Stocks", "Tickers and crypto, with a sparkline", Glyphs.Stocks, 320, 240, WidgetCategory.Information),
+        new(WidgetKind.Rss, "Feed", "Headlines from a feed you choose", Glyphs.Rss, 360, 280, WidgetCategory.Information),
+        new(WidgetKind.Apps, "Apps", "Launch an installed application", Glyphs.Apps, 320, 240, WidgetCategory.Launch),
+        new(WidgetKind.Shortcuts, "Shortcuts", "Links, files and folders you keep to hand", Glyphs.Shortcut, 320, 220, WidgetCategory.Launch),
+        new(WidgetKind.WebSearch, "Search", "Type a query, open it in your browser", Glyphs.Search, 300, 120, WidgetCategory.Launch),
+        new(WidgetKind.Clipboard, "Clipboard", "What you have copied recently", Glyphs.Clipboard, 320, 260, WidgetCategory.Desk),
+        new(WidgetKind.Scratchpad, "Scratchpad", "A place to draw", Glyphs.Scratchpad, 300, 260, WidgetCategory.Desk),
+        new(WidgetKind.ColorSwatch, "Colours", "A palette you can copy from", Glyphs.Color, 280, 180, WidgetCategory.Desk),
+        new(WidgetKind.Quote, "Quote", "A line worth rereading", Glyphs.Quote, 320, 180, WidgetCategory.Desk),
+        new(WidgetKind.Gallery, "Gallery", "Pictures from a folder", Glyphs.Gallery, 320, 240, WidgetCategory.Media),
+        new(WidgetKind.HabitTracker, "Habits", "Daily check-offs and streaks", Glyphs.Habit, 320, 240, WidgetCategory.Trackers),
+        new(WidgetKind.MoodTracker, "Mood", "How you felt, as a heatmap", Glyphs.Mood, 320, 240, WidgetCategory.Trackers),
+        new(WidgetKind.Group, "Group", "An area that holds other widgets", Glyphs.Group, 400, 300, WidgetCategory.Layout),
+        new(WidgetKind.Stack, "Stack", "Widgets rolled up to their headers", Glyphs.Stack, 360, 320, WidgetCategory.Layout),
+        new(WidgetKind.Tabs, "Tabs", "Several widgets, one at a time", Glyphs.Tabs, 360, 320, WidgetCategory.Layout),
     ];
+
+    /// <summary>The heading a picker section is shown under.</summary>
+    public static string Title(WidgetCategory category) => category switch
+    {
+        WidgetCategory.Time => "Time",
+        WidgetCategory.Accounts => "Mail & calendar",
+        WidgetCategory.System => "System",
+        WidgetCategory.Information => "Information",
+        WidgetCategory.Media => "Media",
+        WidgetCategory.Launch => "Launch",
+        WidgetCategory.Desk => "Desk",
+        WidgetCategory.Trackers => "Trackers",
+        WidgetCategory.Layout => "Layout",
+        _ => category.ToString(),
+    };
 
     public static WidgetDefinition Definition(WidgetKind kind)
     {

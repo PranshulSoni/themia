@@ -228,9 +228,10 @@ internal static unsafe class DesktopZOrder
             // cannot change the outcome — it just keeps the two window sweeps from running for as
             // long as the Start menu stays open.
             var shellSurface = pinned && ShellSignals.ShellSurfaceIsForeground();
-            var showDesktop = !shellSurface && ShellSignals.ShowDesktopIsActive();
+            var ownSurface = pinned && !shellSurface && ShellSignals.OwnSurfaceIsForeground();
+            var showDesktop = !shellSurface && !ownSurface && ShellSignals.ShowDesktopIsActive();
 
-            Apply(ZOrderPolicy.Decide(showDesktop, pinned, shellSurface));
+            Apply(ZOrderPolicy.Decide(showDesktop, pinned, shellSurface, ownSurface));
         }
         catch (Exception ex)
         {

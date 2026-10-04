@@ -46,7 +46,14 @@ public static class ZOrderPolicy
     /// <param name="shellSurfaceForeground">
     /// Whether Start, Search, Task View or the taskbar owns the foreground.
     /// </param>
-    public static ZAction Decide(bool showDesktopActive, bool pinnedTopmost, bool shellSurfaceForeground)
+    /// <param name="ownSurfaceForeground">
+    /// Whether one of the widget surfaces itself owns the foreground — the user clicked a widget.
+    /// </param>
+    public static ZAction Decide(
+        bool showDesktopActive,
+        bool pinnedTopmost,
+        bool shellSurfaceForeground,
+        bool ownSurfaceForeground)
     {
         if (showDesktopActive)
         {
@@ -64,6 +71,12 @@ public static class ZOrderPolicy
         // Start then hands the foreground to the taskbar rather than to the desktop, so they stay
         // gone. Holding the pin is what keeps them visible; not re-raising is what lets Start, which
         // was activated after us in the same band, stay on top of them.
-        return shellSurfaceForeground ? ZAction.HoldTopmost : ZAction.DropToAnchor;
+        //
+        // [S-28] Clicking a widget is the same moment from the other side. It hands the foreground to
+        // the surface, so the desktop no longer owns it and Show Desktop no longer reads as active —
+        // but nothing has been restored and the desktop layer is still elevated. Dropping the pin
+        // then put the surface under it: the widgets vanished on the first click after Win+D, which
+        // is exactly when the user had gone to the desktop to use them.
+        return shellSurfaceForeground || ownSurfaceForeground ? ZAction.HoldTopmost : ZAction.DropToAnchor;
     }
 }

@@ -245,4 +245,28 @@ public sealed class AppState
 
         return ActiveView();
     }
+
+    /// <summary>
+    /// [S-19] Show a view on one display. Returns false, changing nothing, when the view does not exist.
+    /// <para>
+    /// The display's own assignment is what is changed, not just the active view. Every display is
+    /// given an assignment at startup ([S-18]), and an assignment always wins over the active view,
+    /// so switching only the active view — which is what switching did — changed nothing on screen.
+    /// The active view follows too, so a display that has no assignment of its own, such as one
+    /// plugged in later, starts on the view the user last chose.
+    /// </para>
+    /// </summary>
+    public bool ShowViewOn(string monitorId, string viewId)
+    {
+        ArgumentNullException.ThrowIfNull(monitorId);
+
+        if (FindView(viewId) is null)
+        {
+            return false;
+        }
+
+        MonitorViews[monitorId] = viewId;
+        ActiveViewId = viewId;
+        return true;
+    }
 }

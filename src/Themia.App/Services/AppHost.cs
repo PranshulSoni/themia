@@ -295,6 +295,13 @@ internal sealed class AppHost : IDisposable
         }
 
         _editMode = enabled;
+
+        // A ghost has nowhere to land outside edit mode: the surface stops taking clicks.
+        if (!enabled)
+        {
+            CancelPlacement();
+        }
+
         EditModeChanged?.Invoke(enabled);
 
         if (!enabled)
@@ -305,16 +312,9 @@ internal sealed class AppHost : IDisposable
         Log.Info(Scope, enabled ? "entered edit mode" : "left edit mode");
     }
 
-    public void SwitchView(string viewId)
-    {
-        Mutate(state =>
-        {
-            if (state.FindView(viewId) is not null)
-            {
-                state.ActiveViewId = viewId;
-            }
-        });
-    }
+    /// <summary>[S-19] Show a view on one display. See <see cref="AppState.ShowViewOn"/>.</summary>
+    public void ShowView(string monitorId, string viewId)
+        => Mutate(state => state.ShowViewOn(monitorId, viewId));
 
     /// <summary>
     /// Open the settings window on a particular page, reusing the one window if it is already up.
@@ -362,30 +362,126 @@ internal sealed class AppHost : IDisposable
         Mutate(state => state.EnsureViewPerDisplay([.. _windows.Select(w => w.Monitor.DeviceName)]));
     }
 
+    // -----------------------------------------------------------------------------------------
+    // Placing a new widget
+    // -----------------------------------------------------------------------------------------
+
+    /// <summary>The kind being placed, while the user is choosing where it goes; otherwise null.</summary>
+    public WidgetKind? PlacingKind { get; private set; }
+
+    /// <summary>Raised when placement starts, ends or is cancelled.</summary>
+    public event Action? PlacementChanged;
+
     /// <summary>
-    /// Drop a new widget, centred. It lands in <paramref name="intoViewId"/> when given, otherwise on
-    /// whichever display the pointer is over. Returns the new widget's id.
+    /// [S-421] Start placing a widget. Nothing is added yet: a ghost follows the pointer across every
+    /// display and the widget exists only once the user clicks somewhere.
+    /// <para>
+    /// The settings window is deliberately not opened. Adding a widget and configuring it are two
+    /// decisions, and a window appearing over the very spot the user was about to click is the
+    /// fastest way to lose the first one.
+    /// </para>
     /// </summary>
-    public string? AddWidget(WidgetKind kind, string? intoViewId = null)
+    public void BeginPlacement(WidgetKind kind)
     {
-        var surface = _windows.FirstOrDefault(w => w.IsUnderCursor) ?? _windows.FirstOrDefault();
-        if (surface is null)
+        SetEditMode(true);
+        Select(null);
+        PlacingKind = kind;
+        PlacementChanged?.Invoke();
+        Log.Info(Scope, $"placing a {kind}");
+    }
+
+    /// <summary>Abandon placement without adding anything. Safe to call when nothing is being placed.</summary>
+    public void CancelPlacement()
+    {
+        if (PlacingKind is null)
         {
-            Log.Warn(Scope, "no widget surface to add to");
+            return;
+        }
+
+        PlacingKind = null;
+        PlacementChanged?.Invoke();
+    }
+
+    /// <summary>
+    /// [S-422] Put the widget being placed into the view of the display it was dropped on, at the
+    /// rect its ghost showed. Returns the new widget's id, or null when nothing was being placed.
+    /// </summary>
+    public string? CompletePlacement(DesktopWindow surface, Themia.Core.Geometry.FracRect rect)
+    {
+        ArgumentNullException.ThrowIfNull(surface);
+
+        if (PlacingKind is not { } kind)
+        {
             return null;
         }
 
-        // Prefer the surface already showing the target view, so the new widget appears where the
-        // user is looking rather than on a display that does not render it.
-        if (intoViewId is not null)
+        var widget = WidgetInstance.Create(kind, rect);
+        var viewId = surface.CurrentViewId;
+
+        // Placement ends before the mutation lands, so the relayout it triggers already sees the
+        // surface back in its ordinary edit state rather than drawing a ghost over the new card.
+        PlacingKind = null;
+        PlacementChanged?.Invoke();
+
+        Mutate(state => (state.FindView(viewId) ?? state.ActiveView()).Widgets.Add(widget));
+        Select(widget.Id);
+        Log.Info(Scope, $"placed a {kind} on {surface.Monitor.DeviceName}");
+        return widget.Id;
+    }
+
+    // -----------------------------------------------------------------------------------------
+    // Dragging between displays
+    // -----------------------------------------------------------------------------------------
+
+    /// <summary>
+    /// [S-78] While a widget is dragged, show where it would land if released now.
+    /// <para>
+    /// The dragged card cannot follow the pointer onto another display — its rect is clamped to its
+    /// own screen ([S-09]) — so without this the widget sticks to the edge of the first screen while
+    /// the pointer is already on the second, and the drop is a surprise. The ghost appears on the
+    /// display that would receive it, and only when it really would ([S-76]).
+    /// </para>
+    /// </summary>
+    /// <returns>True when the drop would hand the widget to another display.</returns>
+    public bool PreviewHandOff(DesktopWindow source, WidgetInstance widget, Themia.Core.Geometry.FracRect size)
+    {
+        ArgumentNullException.ThrowIfNull(source);
+        ArgumentNullException.ThrowIfNull(widget);
+
+        DesktopWindow? target = null;
+        var rect = default(Themia.Core.Geometry.FracRect);
+
+        if (Win32.GetCursorPos(out var cursor)
+            && SurfaceAt(cursor.X, cursor.Y) is { } under
+            && !ReferenceEquals(under, source)
+            && under.CurrentViewId != source.CurrentViewId)
         {
-            surface = _windows.FirstOrDefault(w => w.CurrentViewId == intoViewId) ?? surface;
+            target = under;
+            rect = under.RectForDrop(cursor, size);
         }
 
-        var id = surface.AddWidgetCentred(kind, intoViewId);
-        SetEditMode(true);
-        Select(id);
-        return id;
+        foreach (var window in _windows)
+        {
+            if (ReferenceEquals(window, target))
+            {
+                window.ShowGhost(rect, widget.Kind);
+            }
+            else
+            {
+                window.HideGhost();
+            }
+        }
+
+        return target is not null;
+    }
+
+    /// <summary>Take down every drag ghost. Called when a drag ends, however it ends.</summary>
+    public void EndHandOffPreview()
+    {
+        foreach (var window in _windows)
+        {
+            window.HideGhost();
+        }
     }
 
     // -----------------------------------------------------------------------------------------

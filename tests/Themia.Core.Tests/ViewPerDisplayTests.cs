@@ -131,4 +131,74 @@ public class ViewPerDisplayTests
 
         Assert.Empty(Themia.Core.Storage.AppStateStore.Validate(state));
     }
+
+    /// <summary>
+    /// The bug: the View menu switched the active view, and every display already had an
+    /// assignment of its own, which wins. Pinned here so the reason the fix exists stays visible.
+    /// </summary>
+    [Fact]
+    public void S19_SwitchingOnlyTheActiveViewChangesNoAssignedDisplay()
+    {
+        var state = AppState.CreateDefault();
+        state.EnsureViewPerDisplay(TwoDisplays);
+        var before = state.ViewForMonitor(TwoDisplays[0]).Id;
+        var other = state.ViewForMonitor(TwoDisplays[1]).Id;
+
+        state.ActiveViewId = other;
+
+        Assert.Equal(before, state.ViewForMonitor(TwoDisplays[0]).Id);
+    }
+
+    [Fact]
+    public void S19_ShowingAViewOnADisplayPutsItThere()
+    {
+        var state = AppState.CreateDefault();
+        state.EnsureViewPerDisplay(TwoDisplays);
+        var other = state.ViewForMonitor(TwoDisplays[1]).Id;
+
+        Assert.True(state.ShowViewOn(TwoDisplays[0], other));
+
+        Assert.Equal(other, state.ViewForMonitor(TwoDisplays[0]).Id);
+    }
+
+    [Fact]
+    public void S19_ShowingAViewOnOneDisplayLeavesTheOtherAlone()
+    {
+        var state = AppState.CreateDefault();
+        state.EnsureViewPerDisplay(TwoDisplays);
+        var second = state.ViewForMonitor(TwoDisplays[1]).Id;
+        var third = ViewState.Create("Third");
+        state.Views.Add(third);
+
+        state.ShowViewOn(TwoDisplays[0], third.Id);
+
+        Assert.Equal(second, state.ViewForMonitor(TwoDisplays[1]).Id);
+    }
+
+    /// <summary>A display plugged in later, with no assignment yet, starts on the last view chosen.</summary>
+    [Fact]
+    public void S19_AnUnassignedDisplayFollowsTheLastViewShown()
+    {
+        var state = AppState.CreateDefault();
+        state.EnsureViewPerDisplay(TwoDisplays);
+        var other = state.ViewForMonitor(TwoDisplays[1]).Id;
+
+        state.ShowViewOn(TwoDisplays[0], other);
+
+        Assert.Equal(other, state.ViewForMonitor("\\\\.\\DISPLAY3").Id);
+    }
+
+    [Fact]
+    public void S19_AViewThatDoesNotExistChangesNothing()
+    {
+        var state = AppState.CreateDefault();
+        state.EnsureViewPerDisplay(TwoDisplays);
+        var before = state.ViewForMonitor(TwoDisplays[0]).Id;
+        var activeBefore = state.ActiveViewId;
+
+        Assert.False(state.ShowViewOn(TwoDisplays[0], "no-such-view"));
+
+        Assert.Equal(before, state.ViewForMonitor(TwoDisplays[0]).Id);
+        Assert.Equal(activeBefore, state.ActiveViewId);
+    }
 }
