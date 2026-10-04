@@ -1,20 +1,5 @@
 namespace Themia.Core.Widgets;
 
-/// <summary>The keys a widget's list answers, whatever the platform calls them.</summary>
-public enum ListKey
-{
-    Up,
-    Down,
-    PageUp,
-    PageDown,
-    Home,
-    End,
-    Enter,
-    Delete,
-    Rename,
-    Escape,
-}
-
 /// <summary>What a key press asks the list to do.</summary>
 public enum ListCommand
 {
@@ -33,6 +18,9 @@ public enum ListCommand
     /// <summary>Rename the focused row, if the list renames at all.</summary>
     Rename,
 
+    /// <summary>[S-1560] Open the focused row's context menu (the Menu key, Shift+F10).</summary>
+    Menu,
+
     /// <summary>Let the list go: clear the focus and give the keyboard back.</summary>
     Release,
 }
@@ -43,11 +31,14 @@ public readonly record struct ListKeyResult(ListCommand Command, int Index);
 /// <summary>
 /// [S-1288] Keyboard navigation in a widget's list, decided once for every list widget (Mail,
 /// OneDrive, and the file explorer later): Up/Down step, Page Up/Down jump <see cref="PageStep"/>
-/// rows, Home/End go to the ends, Enter opens, Delete deletes, F2 renames, Escape lets go.
+/// rows, Home/End go to the ends, Enter opens, Delete deletes, F2 renames, the Menu key opens the
+/// row's menu, Escape lets go.
 /// <para>
 /// Pure — which row a key lands on is arithmetic that is easy to get one-off wrong at the ends of
-/// the list, so it is tested here rather than in a view. The view maps its platform's keys to
-/// <see cref="ListKey"/> and carries out the <see cref="ListCommand"/>.
+/// the list, so it is tested here rather than in a view. [S-1560] It speaks the shell's one key
+/// vocabulary, <see cref="WidgetKey"/> (the keyboard lease's, mapped once in
+/// <see cref="WidgetKeys"/>); the view carries out the <see cref="ListCommand"/>. Keys a list has no
+/// use for (Left/Right, Tab, Space) are <see cref="ListCommand.None"/>, so they go on to the surface.
 /// </para>
 /// </summary>
 public static class ListKeys
@@ -58,9 +49,9 @@ public static class ListKeys
     /// <param name="key">The key pressed.</param>
     /// <param name="index">The focused row, or negative when none is.</param>
     /// <param name="count">How many rows the list holds.</param>
-    public static ListKeyResult Decide(ListKey key, int index, int count)
+    public static ListKeyResult Decide(WidgetKey key, int index, int count)
     {
-        if (key == ListKey.Escape)
+        if (key == WidgetKey.Escape)
         {
             return new ListKeyResult(ListCommand.Release, -1);
         }
@@ -77,8 +68,8 @@ public static class ListKeys
         {
             return key switch
             {
-                ListKey.Up or ListKey.Down or ListKey.PageUp or ListKey.PageDown or ListKey.Home => new ListKeyResult(ListCommand.Focus, 0),
-                ListKey.End => new ListKeyResult(ListCommand.Focus, last),
+                WidgetKey.Up or WidgetKey.Down or WidgetKey.PageUp or WidgetKey.PageDown or WidgetKey.Home => new ListKeyResult(ListCommand.Focus, 0),
+                WidgetKey.End => new ListKeyResult(ListCommand.Focus, last),
                 _ => new ListKeyResult(ListCommand.None, -1),
             };
         }
@@ -88,15 +79,16 @@ public static class ListKeys
 
         return key switch
         {
-            ListKey.Up => new ListKeyResult(ListCommand.Focus, Math.Max(0, at - 1)),
-            ListKey.Down => new ListKeyResult(ListCommand.Focus, Math.Min(last, at + 1)),
-            ListKey.PageUp => new ListKeyResult(ListCommand.Focus, Math.Max(0, at - PageStep)),
-            ListKey.PageDown => new ListKeyResult(ListCommand.Focus, Math.Min(last, at + PageStep)),
-            ListKey.Home => new ListKeyResult(ListCommand.Focus, 0),
-            ListKey.End => new ListKeyResult(ListCommand.Focus, last),
-            ListKey.Enter => new ListKeyResult(ListCommand.Open, at),
-            ListKey.Delete => new ListKeyResult(ListCommand.Delete, at),
-            ListKey.Rename => new ListKeyResult(ListCommand.Rename, at),
+            WidgetKey.Up => new ListKeyResult(ListCommand.Focus, Math.Max(0, at - 1)),
+            WidgetKey.Down => new ListKeyResult(ListCommand.Focus, Math.Min(last, at + 1)),
+            WidgetKey.PageUp => new ListKeyResult(ListCommand.Focus, Math.Max(0, at - PageStep)),
+            WidgetKey.PageDown => new ListKeyResult(ListCommand.Focus, Math.Min(last, at + PageStep)),
+            WidgetKey.Home => new ListKeyResult(ListCommand.Focus, 0),
+            WidgetKey.End => new ListKeyResult(ListCommand.Focus, last),
+            WidgetKey.Enter => new ListKeyResult(ListCommand.Open, at),
+            WidgetKey.Delete => new ListKeyResult(ListCommand.Delete, at),
+            WidgetKey.Rename => new ListKeyResult(ListCommand.Rename, at),
+            WidgetKey.Menu => new ListKeyResult(ListCommand.Menu, at),
             _ => new ListKeyResult(ListCommand.None, at),
         };
     }

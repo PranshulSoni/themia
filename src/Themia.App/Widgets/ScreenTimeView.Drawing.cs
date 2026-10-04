@@ -34,23 +34,32 @@ internal sealed partial class ScreenTimeView
 
     private TextBlock? _ringTotal;
     private TextBlock? _ringDetail;
+    private (double Width, double Height)? _ringHole;
 
     /// <summary>
     /// Lay the widget out for its size and draw it. Called on every render: the drawing is a few
     /// dozen shapes, rebuilt when the data or the size changes, which is at most twice a minute.
+    /// <para>
+    /// The ladder: the drawing with its total always; the legend in whole rows; and on a tile large
+    /// both ways a footer under them — the stats line, the limit bar and, for a day, the week it
+    /// belongs to ([S-1213]..[S-1215]).
+    /// </para>
     /// </summary>
     private void Lay()
     {
+        if (!_area.IsMeasured)
+        {
+            return;
+        }
+
         // The body keeps a small gap above the card's bottom edge, the way a list's padding does.
-        var width = ActualWidth;
-        var height = ActualHeight - Fluent.Space2;
+        var width = _area.Width;
+        var height = _area.Height - Fluent.Space2;
 
         if (width <= 0 || height <= 0)
         {
             return;
         }
-
-        _body.Margin = new Thickness(0, 0, 0, Fluent.Space2);
 
         _parts.Clear();
         _drawing.Children.Clear();
@@ -58,6 +67,7 @@ internal sealed partial class ScreenTimeView
         _drawing.ColumnDefinitions.Clear();
         _ringTotal = null;
         _ringDetail = null;
+        _ringHole = null;
         _body.Children.Clear();
         _body.RowDefinitions.Clear();
         _body.ColumnDefinitions.Clear();
@@ -71,21 +81,27 @@ internal sealed partial class ScreenTimeView
         var period = ScreenTimeRules.ClampPeriod(_config.Period);
         var style = ScreenTimeRules.ClampStyle(period, _config.Style);
 
-        // [S-452] The legend is the ring's own segments; 0 apps lists none, though the drawing keeps
-        // its cap.
-        var legend = _config.MaxApps > 0 ? _model.Segments : [];
+        // The footer first, from the bottom up: it only appears where the drawing keeps its room.
+        var footer = LayFooter(width, height, style);
+        height -= footer;
+        _body.Margin = new Thickness(0, 0, 0, Fluent.Space2 + footer);
+
+        // [S-1211] The legend asks for every app up to the ceiling; the layout grants whole rows.
+        var wanted = _config.ShowList ? ScreenTimeRules.LegendWanted(_config.MaxApps, _model.Apps.Count) : 0;
+        Segment(0);
+
         // A ring is square, so it shares a row with the legend early; a bar or a chart of days is
         // wide, and only gives up half the width once there is plenty of it.
         var sideFrom = style == ScreenTimeStyle.Doughnut ? SideBySideWidth : FlatSideBySideWidth;
-        var side = legend.Count > 0 && width >= sideFrom && width >= height * 1.25;
+        var side = wanted > 0 && width >= sideFrom && width >= height * 1.25;
 
         if (style == ScreenTimeStyle.Doughnut)
         {
-            LayRing(width, height, legend, side);
+            LayRing(width, height, wanted, side);
         }
         else
         {
-            LayFlat(width, height, legend, side, style);
+            LayFlat(width, height, wanted, side, style);
         }
 
         ApplyFocus();
@@ -99,8 +115,18 @@ internal sealed partial class ScreenTimeView
         }
     }
 
+    /// <summary>
+    /// [S-1212] Split the apps into the drawing's segments for a legend of <paramref name="legendRows"/>
+    /// rows: every app named when they all fit, the last row "Other" when they do not.
+    /// </summary>
+    private void Segment(int legendRows)
+    {
+        var cap = ScreenTimeRules.DrawingCap(_config.MaxApps, legendRows, _model.Apps.Count);
+        _segments = ScreenTimeRules.Segments(_model.Apps, _model.Total, cap, "Other");
+    }
+
     /// <summary>[S-452] The ring with the total in its hole, and the legend beside or under it.</summary>
-    private void LayRing(double width, double height, IReadOnlyList<ScreenTimeSegment> legend, bool side)
+    private void LayRing(double width, double height, int wanted, bool side)
     {
         const double pad = Fluent.Space4;
         int rows;
@@ -109,7 +135,7 @@ internal sealed partial class ScreenTimeView
         if (side)
         {
             ring = Math.Max(MinRing, Math.Min(height - Fluent.Space4, (width - (pad * 2)) * 0.42));
-            rows = RowsThatFit(height - Fluent.Space2, legend.Count);
+            rows = RowsThatFit(height - Fluent.Space2, wanted);
 
             _body.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
             _body.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
@@ -120,7 +146,7 @@ internal sealed partial class ScreenTimeView
             // The ring keeps at least half the tile; the legend takes the whole rows that are left,
             // and is dropped before the ring shrinks below readable.
             var maxRing = Math.Min(width - (pad * 2), height - Fluent.Space2);
-            rows = RowsThatFit(height - Math.Max(MinRing, Math.Min(maxRing, height * 0.5)) - Fluent.Space3, legend.Count);
+            rows = RowsThatFit(height - Math.Max(MinRing, Math.Min(maxRing, height * 0.5)) - Fluent.Space3, wanted);
             ring = Math.Min(maxRing, height - (rows * RowHeight) - Fluent.Space3);
 
             while (rows > 0 && ring < Math.Min(MinRing * 1.5, maxRing))
@@ -135,6 +161,10 @@ internal sealed partial class ScreenTimeView
             _body.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
             _body.RowSpacing = Fluent.Space2;
         }
+
+        Segment(rows);
+        var legend = _segments;
+        rows = Math.Min(rows, legend.Count);
 
         var host = Ring(ring);
         host.Margin = side ? new Thickness(pad, 0, 0, Fluent.Space2) : new Thickness(0, 0, 0, 0);
@@ -153,7 +183,7 @@ internal sealed partial class ScreenTimeView
     }
 
     /// <summary>The readout over a bar, a chart of days or a calendar — or nothing — with the legend.</summary>
-    private void LayFlat(double width, double height, IReadOnlyList<ScreenTimeSegment> legend, bool side, ScreenTimeStyle style)
+    private void LayFlat(double width, double height, int wanted, bool side, ScreenTimeStyle style)
     {
         var drawingWanted = style != ScreenTimeStyle.None;
         var drawingFloor = !drawingWanted ? 0 : style == ScreenTimeStyle.Bars && !_model.Window ? 16 : 40;
@@ -184,7 +214,7 @@ internal sealed partial class ScreenTimeView
 
         if (side)
         {
-            rows = RowsThatFit(height - Fluent.Space2, legend.Count);
+            rows = RowsThatFit(height - Fluent.Space2, wanted);
             drawingHeight = height - readout - Fluent.Space2 - Fluent.Space2;
             _body.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
             _body.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
@@ -193,19 +223,23 @@ internal sealed partial class ScreenTimeView
         else
         {
             var room = height - readout - Fluent.Space2 - (drawingWanted ? drawingFloor + Fluent.Space2 : 0);
-            rows = RowsThatFit(room, legend.Count);
+            rows = RowsThatFit(room, wanted);
 
             // A drawing of days wants the height; a single bar does not.
             var flexible = _model.Window && drawingWanted;
             if (flexible)
             {
-                rows = Math.Min(rows, RowsThatFit(height * 0.4, legend.Count));
+                rows = Math.Min(rows, RowsThatFit(height * 0.4, wanted));
             }
 
             drawingHeight = height - readout - Fluent.Space2 - (rows * RowHeight) - (rows > 0 ? Fluent.Space2 : 0) - Fluent.Space2;
             _body.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
             _body.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         }
+
+        Segment(rows);
+        var legend = _segments;
+        rows = Math.Min(rows, legend.Count);
 
         if (drawingWanted && drawingHeight >= drawingFloor * 0.75)
         {
@@ -239,7 +273,7 @@ internal sealed partial class ScreenTimeView
         }
     }
 
-    private static int RowsThatFit(double height, int wanted) => Math.Clamp((int)Math.Floor(Math.Max(0, height) / RowHeight), 0, wanted);
+    private static int RowsThatFit(double height, int wanted) => Math.Min(Math.Max(0, wanted), Disclosure.WholeRows(height, RowHeight));
 
     // ---- the ring ---------------------------------------------------------------------------
 
@@ -254,7 +288,7 @@ internal sealed partial class ScreenTimeView
         var centre = size / 2;
         var canvas = new Canvas { Width = size, Height = size };
 
-        foreach (var segment in _model.Segments)
+        foreach (var segment in _segments)
         {
             Shape arc;
 
@@ -280,7 +314,9 @@ internal sealed partial class ScreenTimeView
         // The hole is the readout here: total, and under it what a readout row would carry. It
         // takes no pointer input, so the wedges under its box stay hoverable.
         var hole = size - (thickness * 2);
-        _ringTotal = Fluent.Text(FluentType.Fit(hole * 0.86, hole * 0.4, 6.5, FluentType.Caption, FluentType.Title));
+        _ringHole = (hole * 0.86, hole * 0.4);
+        _ringTotal = Fluent.Text(FluentType.Caption);
+        _ringTotal.TextTrimming = TextTrimming.None;
         _ringTotal.HorizontalAlignment = HorizontalAlignment.Center;
         _ringTotal.TextAlignment = TextAlignment.Center;
 
@@ -289,7 +325,7 @@ internal sealed partial class ScreenTimeView
         _ringDetail.TextAlignment = TextAlignment.Center;
         _ringDetail.MaxWidth = hole * 0.86;
 
-        ApplyHeadline(_ringTotal, _ringDetail);
+        ApplyHeadline(_ringTotal, _ringDetail, _ringHole);
 
         if (hole < 72)
         {
@@ -348,9 +384,9 @@ internal sealed partial class ScreenTimeView
             ColumnSpacing = 0,
         };
 
-        for (var i = 0; i < _model.Segments.Count; i++)
+        for (var i = 0; i < _segments.Count; i++)
         {
-            var segment = _model.Segments[i];
+            var segment = _segments[i];
             bar.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(Math.Max(segment.Fraction, 0.0001), GridUnitType.Star) });
 
             var part = new Border { Background = AppBrush(segment) };
@@ -391,7 +427,7 @@ internal sealed partial class ScreenTimeView
         {
             var day = _model.Range[i];
             var apps = ScreenTimeRules.Visible(day.Apps, _model.Hidden);
-            var parts = ScreenTimeRules.Stack(apps, _model.Segments, _model.Busiest);
+            var parts = ScreenTimeRules.Stack(apps, _segments, _model.Busiest);
 
             chart.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
 
@@ -404,7 +440,7 @@ internal sealed partial class ScreenTimeView
             for (var p = parts.Count - 1; p >= 0; p--)
             {
                 var part = parts[p];
-                var segment = _model.Segments.FirstOrDefault(s => s.Key == part.Key);
+                var segment = _segments.FirstOrDefault(s => s.Key == part.Key);
                 var block = new Border
                 {
                     Height = Math.Max(1, part.Fraction * area),

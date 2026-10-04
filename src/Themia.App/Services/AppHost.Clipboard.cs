@@ -22,13 +22,16 @@ internal sealed partial class AppHost
             return;
         }
 
+        // [S-876] A container is copied with everything inside it.
+        var members = view.Widgets.Where(w => !ReferenceEquals(w, widget) && view.IsSelfOrDescendant(widget.Id, w.Id)).ToList();
+
         if (cut)
         {
-            Clipboard.Cut(widget, view.Id);
+            Clipboard.Cut(widget, view.Id, members);
         }
         else
         {
-            Clipboard.Copy(widget, view.Id);
+            Clipboard.Copy(widget, view.Id, members);
         }
     }
 

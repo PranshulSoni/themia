@@ -1,5 +1,4 @@
 using Themia.App.Interop;
-using Themia.Core.Diagnostics;
 
 namespace Themia.App.Services;
 
@@ -13,8 +12,6 @@ namespace Themia.App.Services;
 /// </summary>
 internal static class SystemMetrics
 {
-    private const string Scope = "metrics";
-
     // CPU load is a delta between two samples of the system's cumulative timers, so the previous
     // sample has to be remembered. Single-threaded: every read happens on the UI thread's tick.
     private static ulong _lastIdle;
@@ -60,7 +57,7 @@ internal static class SystemMetrics
         if (!_haveCpuBaseline)
         {
             (_lastIdle, _lastKernel, _lastUser, _haveCpuBaseline) = (idleTicks, kernelTicks, userTicks, true);
-            return new MeterReading(0, "0%", "all cores", true);
+            return new MeterReading(0, "0%", null, true);
         }
 
         // GetSystemTimes' kernel total already includes idle, so busy = (kernel+user) - idle.
@@ -71,122 +68,24 @@ internal static class SystemMetrics
 
         if (totalDelta == 0)
         {
-            return new MeterReading(0, "0%", "all cores", true);
+            return new MeterReading(0, "0%", null, true);
         }
 
         var busy = Math.Clamp(1.0 - ((double)idleDelta / totalDelta), 0, 1);
-        return new MeterReading(busy, Themia.Core.Widgets.Formatting.Percent(busy), "all cores", true);
-    }
-
-    /// <summary>Space used on a drive. An empty or unreadable drive reports unavailable rather than 0%.</summary>
-    public static MeterReading Disk(string drive)
-    {
-        var root = NormaliseDrive(drive);
-
-        if (!Win32.GetDiskFreeSpaceEx(root, out _, out var total, out var totalFree) || total == 0)
-        {
-            return MeterReading.Unavailable($"{root.TrimEnd('\\')} unavailable");
-        }
-
-        var used = total - totalFree;
-        var fraction = (double)used / total;
-
-        return new MeterReading(
-            fraction,
-            Themia.Core.Widgets.Formatting.Percent(fraction),
-            $"{Themia.Core.Widgets.Formatting.Bytes(totalFree)} free of {Themia.Core.Widgets.Formatting.Bytes(total)}",
-            true,
-            Facts:
-            [
-                new MeterFact("Used", Themia.Core.Widgets.Formatting.Bytes(used)),
-                new MeterFact("Free", Themia.Core.Widgets.Formatting.Bytes(totalFree)),
-                new MeterFact("Total", Themia.Core.Widgets.Formatting.Bytes(total)),
-            ]);
+        return new MeterReading(busy, Themia.Core.Widgets.Formatting.Percent(busy), null, true);
     }
 
     /// <summary>
-    /// The drive root to query. Falls back to the system drive, so an empty or malformed setting
-    /// still shows something true rather than an error.
+    /// [S-1180] Charge, source and whether it is charging, from <c>GetSystemPowerStatus</c>; null
+    /// when Windows will not answer. What the bytes mean is <see cref="Themia.Core.Widgets.BatteryRules.Read"/>'s.
     /// </summary>
-    public static string NormaliseDrive(string drive)
+    public static Themia.Core.Widgets.BatteryPower? Battery()
     {
-        var trimmed = drive?.Trim() ?? string.Empty;
-
-        if (trimmed.Length == 0)
-        {
-            return Path.GetPathRoot(Environment.SystemDirectory) ?? "C:\\";
-        }
-
-        if (trimmed.Length == 1 && char.IsLetter(trimmed[0]))
-        {
-            return $"{char.ToUpperInvariant(trimmed[0])}:\\";
-        }
-
-        return trimmed.EndsWith('\\') ? trimmed : trimmed + "\\";
-    }
-
-    /// <summary>Charge level, and whether it is on mains.</summary>
-    /// <param name="showTimeRemaining">Put Windows' estimate in the caption while on battery.</param>
-    /// <param name="charging">[S-1123] On mains: the meter's colour is the accent, not a low-charge warning.</param>
-    public static MeterReading Battery(bool showTimeRemaining, out bool charging)
-    {
-        charging = false;
-
         if (!Win32.GetSystemPowerStatus(out var status))
         {
-            return MeterReading.Unavailable("unavailable");
+            return null;
         }
 
-        // 255 is "unknown", which desktops without a battery report.
-        if (status.BatteryLifePercent > 100)
-        {
-            return MeterReading.Missing("No battery");
-        }
-
-        var fraction = status.BatteryLifePercent / 100.0;
-        charging = status.ACLineStatus == 1;
-
-        string? secondary = charging ? "charging" : null;
-
-        // -1 is "unknown"; the estimate is also meaningless while charging.
-        if (!charging && showTimeRemaining && status.BatteryLifeTime > 0 && status.BatteryLifeTime != uint.MaxValue)
-        {
-            secondary = $"{Themia.Core.Widgets.Formatting.Duration(TimeSpan.FromSeconds(status.BatteryLifeTime))} left";
-        }
-
-        secondary ??= "on battery";
-        return new MeterReading(fraction, $"{status.BatteryLifePercent}%", secondary, true);
-    }
-
-    /// <summary>Drives that can be reported on, for the config dropdown.</summary>
-    public static List<string> FixedDrives()
-    {
-        var drives = new List<string>();
-
-        try
-        {
-            foreach (var drive in DriveInfo.GetDrives())
-            {
-                if (drive.DriveType is DriveType.Fixed or DriveType.Removable && drive.IsReady)
-                {
-                    drives.Add(drive.Name);
-                }
-            }
-        }
-        catch (IOException ex)
-        {
-            Log.Warn(Scope, "could not enumerate drives", ex);
-        }
-        catch (UnauthorizedAccessException ex)
-        {
-            Log.Warn(Scope, "could not enumerate drives", ex);
-        }
-
-        if (drives.Count == 0)
-        {
-            drives.Add(NormaliseDrive(string.Empty));
-        }
-
-        return drives;
+        return Themia.Core.Widgets.BatteryRules.Read(status.ACLineStatus, status.BatteryFlag, status.BatteryLifePercent, status.BatteryLifeTime);
     }
 }

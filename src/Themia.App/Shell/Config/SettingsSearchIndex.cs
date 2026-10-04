@@ -76,6 +76,12 @@ internal sealed class SettingsSearchIndex(AppHost host)
 
         foreach (var entry in ConfigPages.AppPages)
         {
+            // [S-990] A page the menu does not offer is not offered by search either.
+            if (!entry.IsAvailable(host.State))
+            {
+                continue;
+            }
+
             Build(new ConfigTarget.App(entry.Page));
         }
 
@@ -84,9 +90,9 @@ internal sealed class SettingsSearchIndex(AppHost host)
             Build(new ConfigTarget.View(view.Id));
         }
 
-        foreach (var surface in host.Surfaces)
+        foreach (var display in host.Displays)
         {
-            Build(new ConfigTarget.Display(surface.Monitor.DeviceName));
+            Build(new ConfigTarget.Display(display.Id));
         }
 
         // One page per kind in use, offered for every widget of that kind.
@@ -155,7 +161,7 @@ internal sealed class SettingsSearchIndex(AppHost host)
     {
         ConfigTarget.App app => ConfigPages.AppPages.FirstOrDefault(p => p.Page == app.Page)?.Title ?? app.Page.ToString(),
         ConfigTarget.View view => host.State.FindView(view.ViewId)?.Name ?? "View",
-        ConfigTarget.Display display => host.Surfaces.FirstOrDefault(s => s.Monitor.DeviceName == display.MonitorId)?.Monitor.ShortName ?? "Display",
+        ConfigTarget.Display display => host.FindDisplay(display.MonitorId)?.ShortName ?? "Display",
         ConfigTarget.Widget widget when host.Find(widget.WidgetId) is var (view, instance) && instance is not null =>
             $"{view.Name} › {Label(instance)}",
         _ => "Settings",

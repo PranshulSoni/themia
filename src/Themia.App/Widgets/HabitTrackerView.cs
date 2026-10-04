@@ -29,7 +29,7 @@ namespace Themia.App.Widgets;
 /// rather than bigger rows.
 /// </para>
 /// </summary>
-internal sealed partial class HabitTrackerView : Grid, IWidgetView, IWidgetSurfaceAware, IWidgetHeaderContent, IWidgetSizeAware
+internal sealed partial class HabitTrackerView : Grid, IWidgetView, IWidgetSurfaceAware, IWidgetHeaderContent, IWidgetSizeAware, IWidgetKeys
 {
     private const string Scope = "habits";
 
@@ -45,6 +45,7 @@ internal sealed partial class HabitTrackerView : Grid, IWidgetView, IWidgetSurfa
     private readonly TextBlock _summaryRate = Fluent.Text(FluentType.Caption, "TextFillColorTertiaryBrush");
     private readonly ColumnDefinition _barDone = new() { Width = new GridLength(0, GridUnitType.Star) };
     private readonly ColumnDefinition _barLeft = new() { Width = new GridLength(1, GridUnitType.Star) };
+    private Grid _summaryBar = null!;
 
     // The completion chart under the list, in whatever height the rows leave.
     private readonly Grid _chart;
@@ -341,6 +342,7 @@ internal sealed partial class HabitTrackerView : Grid, IWidgetView, IWidgetSurfa
         FitAddRow(plan);
 
         _summary.Visibility = plan.Summary ? Visibility.Visible : Visibility.Collapsed;
+        _summaryBar.Visibility = plan.SummaryBar ? Visibility.Visible : Visibility.Collapsed;
         if (plan.Summary)
         {
             DrawSummary();
@@ -398,6 +400,7 @@ internal sealed partial class HabitTrackerView : Grid, IWidgetView, IWidgetSurfa
         SetRow(bar, 1);
         summary.Children.Add(line);
         summary.Children.Add(bar);
+        _summaryBar = bar;
         return summary;
     }
 

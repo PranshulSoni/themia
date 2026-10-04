@@ -3,19 +3,22 @@ using Themia.Core.Widgets;
 namespace Themia.App.Services.Web;
 
 /// <summary>
-/// One RSS or Atom feed, fetched and parsed.
+/// RSS and Atom feeds, fetched and parsed, one address at a time; the widget merges them
+/// ([S-1302]).
 /// <para>
-/// Whatever address the user typed, and nothing else — no discovery, no following a
+/// Whatever addresses the user typed, and nothing else — no discovery, no following a
 /// <c>&lt;link rel="alternate"&gt;</c> out of an HTML page, no guessing at <c>/feed</c>. A widget
 /// that fetches a URL the user did not write is a widget whose settings do not describe what it
-/// does.
+/// does. Every request goes through the network guard ([S-1301]): a feed address is the user's,
+/// but where it redirects to is the host's.
 /// </para>
 /// </summary>
 internal static class FeedService
 {
     private const string Scope = "rss";
 
-    private static readonly WebCache<FeedDocument> Cache = new(Scope);
+    /// <summary>The shared answers; also what <see cref="NetworkCache"/> saves and restores ([S-1300]).</summary>
+    internal static WebCache<FeedDocument> Cache { get; } = new(Scope);
 
     /// <summary>
     /// The feed at <paramref name="url"/>, from the cache when it is fresh.
@@ -24,18 +27,29 @@ internal static class FeedService
     /// already trimmed — and widgets on the same feed at the same cap share one request.
     /// </para>
     /// </summary>
-    public static Task<Fetched<FeedDocument>> LoadAsync(
+    /// <param name="force">[S-1303] The Refresh action: past the freshness check.</param>
+    public static async Task<Fetched<FeedDocument>> LoadAsync(
         string url,
         int maxItems,
         TimeSpan freshFor,
-        CancellationToken token)
+        CancellationToken token,
+        bool force = false)
     {
-        return Cache.GetAsync(Key(url, maxItems), freshFor, ct => LoadOnceAsync(url, maxItems, ct), token);
+        var result = await Cache
+            .GetAsync(Key(url, maxItems), freshFor, ct => LoadOnceAsync(url, maxItems, ct), token, force)
+            .ConfigureAwait(false);
+
+        if (result.Status == FetchStatus.Ok && !result.Restored)
+        {
+            NetworkCache.SaveSoon();
+        }
+
+        return result;
     }
 
     public static Fetched<FeedDocument>? Peek(string url, int maxItems) => Cache.Peek(Key(url, maxItems));
 
-    private static string Key(string url, int maxItems) => $"{url}|{maxItems}";
+    internal static string Key(string url, int maxItems) => $"{url}|{maxItems}";
 
     private static async Task<Fetched<FeedDocument>> LoadOnceAsync(string url, int maxItems, CancellationToken token)
     {
@@ -82,4 +96,10 @@ internal static class FeedService
             _ => Fetched<FeedDocument>.Failed(FetchStatus.BadResponse, "the feed would not parse", now),
         };
     }
+
+#if DEBUG
+    /// <summary>[S-1305] The gallery's fixture: fixed feeds seeded as fresh answers, offline and the same every run.</summary>
+    internal static void SeedGallery(string url, int maxItems, FeedDocument document)
+        => Cache.Seed(Key(url, maxItems), new Fetched<FeedDocument>(FetchStatus.Ok, document, null, DateTimeOffset.Now.AddMinutes(-3)));
+#endif
 }

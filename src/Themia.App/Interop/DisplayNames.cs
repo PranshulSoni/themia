@@ -3,13 +3,18 @@ using Themia.Core.Diagnostics;
 
 namespace Themia.App.Interop;
 
+/// <summary>What the display configuration API says about one GDI display.</summary>
+/// <param name="FriendlyName">The monitor's product name, or empty when it reports none.</param>
+/// <param name="DevicePath">The monitor's device interface path, or empty when it has none ([S-842]).</param>
+internal readonly record struct DisplayDescriptor(string FriendlyName, string DevicePath);
+
 /// <summary>
-/// The name a person would recognise for a display.
+/// The name a person would recognise for a display, and the path that identifies it.
 /// <para>
 /// <c>\\.\DISPLAY1</c> identifies nothing: on a two-monitor desk it is a coin flip which is which,
 /// and the number is assigned by Windows rather than by anything the user can see. The display
 /// configuration API knows the monitor's actual product name — the string printed on the bezel —
-/// so that is what the settings tree shows.
+/// and its device interface path, which is what Themia keys every per-display setting by ([S-842]).
 /// </para>
 /// </summary>
 internal static partial class DisplayNames
@@ -22,20 +27,21 @@ internal static partial class DisplayNames
     private const int ErrorSuccess = 0;
 
     /// <summary>
-    /// Map GDI device name (<c>\\.\DISPLAY1</c>) to the monitor's product name.
+    /// Map GDI device name (<c>\\.\DISPLAY1</c>) to the monitor's product name and device path.
     /// <para>
-    /// Returns an empty map rather than throwing: a display name is decoration, and failing to read
-    /// one must never stop the settings window opening.
+    /// Returns an empty map rather than throwing: a failure here degrades every display to its
+    /// ordinal ([S-843]), which is logged, and must never stop the surfaces being built.
     /// </para>
     /// </summary>
-    public static Dictionary<string, string> FriendlyNames()
+    public static Dictionary<string, DisplayDescriptor> Describe()
     {
-        var names = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        var names = new Dictionary<string, DisplayDescriptor>(StringComparer.OrdinalIgnoreCase);
 
         try
         {
             if (GetDisplayConfigBufferSizes(QdcOnlyActivePaths, out var pathCount, out var modeCount) != ErrorSuccess)
             {
+                Log.Warn(Scope, "GetDisplayConfigBufferSizes failed; displays fall back to their ordinal names");
                 return names;
             }
 
@@ -44,6 +50,7 @@ internal static partial class DisplayNames
 
             if (QueryDisplayConfig(QdcOnlyActivePaths, ref pathCount, paths, ref modeCount, modes, 0) != ErrorSuccess)
             {
+                Log.Warn(Scope, "QueryDisplayConfig failed; displays fall back to their ordinal names");
                 return names;
             }
 
@@ -52,7 +59,7 @@ internal static partial class DisplayNames
                 var path = paths[i];
 
                 // Two lookups per path: the source says which \\.\DISPLAYn this is, the target says
-                // what the monitor is called. Neither alone is enough to build the mapping.
+                // which monitor it is. Neither alone is enough to build the mapping.
                 var source = new SourceDeviceName
                 {
                     Header = Header(DeviceInfoGetSourceName, Marshal.SizeOf<SourceDeviceName>(), path.SourceInfo.AdapterId, path.SourceInfo.Id),
@@ -74,14 +81,14 @@ internal static partial class DisplayNames
                 }
 
                 var gdi = source.ViewGdiDeviceName;
-                var friendly = target.MonitorFriendlyDeviceName;
 
-                // Some monitors report nothing useful; an empty name is worse than the device name,
-                // so it is left out and the caller falls back.
-                if (!string.IsNullOrWhiteSpace(gdi) && !string.IsNullOrWhiteSpace(friendly))
+                // A cloned source drives two monitors; the first path names it, as Windows lists it.
+                if (string.IsNullOrWhiteSpace(gdi) || names.ContainsKey(gdi))
                 {
-                    names[gdi] = friendly.Trim();
+                    continue;
                 }
+
+                names[gdi] = new DisplayDescriptor(target.MonitorFriendlyDeviceName.Trim(), target.MonitorDevicePath.Trim());
             }
         }
         catch (Exception ex)
@@ -164,6 +171,17 @@ internal static partial class DisplayNames
                 fixed (char* name = FriendlyName)
                 {
                     return ReadFixed(name, 64);
+                }
+            }
+        }
+
+        public readonly string MonitorDevicePath
+        {
+            get
+            {
+                fixed (char* path = DevicePath)
+                {
+                    return ReadFixed(path, 128);
                 }
             }
         }

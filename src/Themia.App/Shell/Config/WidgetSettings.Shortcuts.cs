@@ -1,6 +1,7 @@
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Themia.App.Interop;
+using Themia.App.Services;
 using Themia.App.Widgets;
 using Themia.Core.Diagnostics;
 using Themia.Core.Model;
@@ -10,7 +11,8 @@ using Windows.System;
 namespace Themia.App.Shell.Config;
 
 /// <summary>
-/// The Shortcuts widget's settings rows: the list itself, and how it opens.
+/// The Shortcuts widget's settings rows ([S-1388]): how it looks first, then what to add, then the
+/// list itself last (original S-61).
 /// <para>
 /// The target box is the trust boundary on this page. Whatever is typed becomes something the
 /// desktop will open on a click, so it is checked by <see cref="LaunchTargets"/> before it is
@@ -18,15 +20,30 @@ namespace Themia.App.Shell.Config;
 /// corrected: a bare word is refused rather than turned into <c>https://word</c>, and a relative
 /// path is refused rather than resolved against wherever the app happens to have been started.
 /// </para>
-/// <para>
-/// The original widget could also hold an "app layout" — a tree of panes that opens several
-/// applications and snaps each onto a region of a display. That is a window manager rather than a
-/// shortcut, and it is deliberately not ported.
-/// </para>
 /// </summary>
 internal static partial class WidgetSettings
 {
     private const string LauncherScope = "shortcut-settings";
+
+    private static readonly (ShortcutViewMode, string)[] ShortcutViews =
+    [
+        (ShortcutViewMode.Grid, "Tiles"),
+        (ShortcutViewMode.List, "List"),
+        (ShortcutViewMode.Details, "Details"),
+    ];
+
+    private static readonly (ShortcutItemSize, string)[] ShortcutSizes =
+    [
+        (ShortcutItemSize.Small, "Small"),
+        (ShortcutItemSize.Medium, "Medium"),
+        (ShortcutItemSize.Large, "Large"),
+    ];
+
+    private static readonly (ItemClickMode, string)[] ShortcutClicks =
+    [
+        (ItemClickMode.Double, "Double click"),
+        (ItemClickMode.Single, "Single click"),
+    ];
 
     public static void Shortcuts(List<FrameworkElement> rows, ShortcutsConfig config, Action save)
     {
@@ -34,26 +51,62 @@ internal static partial class WidgetSettings
         ArgumentNullException.ThrowIfNull(config);
         ArgumentNullException.ThrowIfNull(save);
 
-        rows.Add(FluentLayout.Header("Shortcuts"));
+        rows.Add(FluentLayout.Header("Display"));
 
-        var list = FluentLayout.ListEditor(rows, new ListEditorOptions<ShortcutItem>
+        rows.Add(FluentLayout.Row(Glyphs.GridLayout, "View",
+            "Tiles with the name under the icon, a list, or a table with the target",
+            FluentLayout.Choice(ShortcutViews, config.View, value => { config.View = value; save(); })));
+
+        rows.Add(FluentLayout.Row(Glyphs.Scale, "Tile size",
+            "Tiles. A large widget steps up one size on its own",
+            FluentLayout.Choice(ShortcutSizes, config.GridSize, value => { config.GridSize = value; save(); })));
+
+        rows.Add(FluentLayout.Row(Glyphs.TextSize, "Row size",
+            "List and details",
+            FluentLayout.Choice(ShortcutSizes, config.ListSize, value => { config.ListSize = value; save(); })));
+
+        rows.Add(FluentLayout.Row(Glyphs.Preview, "Icons only",
+            "Tiles show just the icon; the name is in its tooltip",
+            FluentLayout.Toggle(config.GridIconOnly, value => { config.GridIconOnly = value; save(); })));
+
+        rows.Add(FluentLayout.Row(Glyphs.Fit, "Stretch tiles to fill",
+            "Tiles share out the widget's height when they all fit",
+            FluentLayout.Toggle(config.GridStretchHeight, value => { config.GridStretchHeight = value; save(); })));
+
+        rows.Add(FluentLayout.Row(Glyphs.File, "Show file extensions",
+            "A name you gave a shortcut is shown as you typed it",
+            FluentLayout.Toggle(config.ShowFileExtension, value => { config.ShowFileExtension = value; save(); })));
+
+        rows.Add(FluentLayout.Row(Glyphs.Open, "Open with",
+            "A double click is harder to do by accident on the desktop",
+            FluentLayout.Choice(ShortcutClicks, config.ClickMode, value => { config.ClickMode = value; save(); })));
+
+        // The list editor is built last (it sits at the bottom) but the location switches above it
+        // refresh it, and it refreshes them: each reflects what the other changed.
+        ListEditorHandle<ShortcutItem>? list = null;
+        var switches = new List<(string Name, ToggleSwitch Toggle)>();
+
+        void SaveAndSync()
         {
-            Items = config.Items,
-            Save = save,
-            EmptyText = "No shortcuts yet.",
-            AddTitle = "Add a shortcut",
-            AddDescription = "An empty row you can point at a web address, a file or a folder",
-            AddAction = "Add",
-            RemoveTooltip = "Remove shortcut",
-            Create = () => ShortcutItem.Create(string.Empty, string.Empty),
-            Body = item => ShortcutBody(item, save),
-        });
+            save();
+
+            foreach (var (name, toggle) in switches)
+            {
+                var on = ShortcutRules.HasLocation(config.Items, name);
+                if (toggle.IsOn != on)
+                {
+                    toggle.IsOn = on;
+                }
+            }
+        }
+
+        rows.Add(FluentLayout.Header("Add"));
 
         var file = new Button { Content = "File…" };
         var folder = new Button { Content = "Folder…" };
 
-        file.Click += (_, _) => _ = PickFileAsync(list);
-        folder.Click += (_, _) => _ = PickFolderAsync(list);
+        file.Click += (_, _) => _ = PickFileAsync(() => list);
+        folder.Click += (_, _) => _ = PickFolderAsync(() => list);
 
         rows.Add(FluentLayout.Row(Glyphs.Folder, "Pick from this PC",
             "Browse for a file or a folder instead of typing its path",
@@ -64,19 +117,65 @@ internal static partial class WidgetSettings
                 Children = { file, folder },
             }));
 
-        rows.Add(FluentLayout.Row(Glyphs.Link, "Windows locations",
-            "Add one of the places Windows has a name for",
-            ShellPicker(list)));
+        // [S-1388] One switch per Windows location, with the icon Explorer shows for it: on adds it,
+        // off removes every shortcut that points there, so the switch always says what the widget
+        // holds (original S-16). The shell: URI is the tooltip, never the text.
+        foreach (var name in LaunchTargets.WellKnownShellNames)
+        {
+            var uri = LaunchTargets.ShellTarget(name);
+            var toggle = FluentLayout.Toggle(ShortcutRules.HasLocation(config.Items, name), on =>
+            {
+                if (ShortcutRules.SetLocation(config.Items, name, on))
+                {
+                    save();
+                    list?.Refresh();
+                }
+            });
 
-        rows.Add(FluentLayout.Row(Glyphs.Preview, "Show the target",
-            "Hidden automatically when the widget is too narrow",
-            FluentLayout.Toggle(config.ShowTarget, value => { config.ShowTarget = value; save(); })));
+            switches.Add((name, toggle));
 
-        rows.Add(FluentLayout.Header("Behaviour"));
+            var row = FluentLayout.Row(ShellIcon(uri), LaunchTargets.ShellDisplayName(uri), null, toggle);
+            ToolTipService.SetToolTip(row, uri);
+            rows.Add(row);
+        }
 
-        rows.Add(FluentLayout.Row(Glyphs.Open, "Open on one click",
-            "Off, a shortcut opens on a double-click. A single click is easy to do by accident on the desktop",
-            FluentLayout.Toggle(config.OpenOnSingleClick, value => { config.OpenOnSingleClick = value; save(); })));
+        rows.Add(FluentLayout.Header("Shortcuts"));
+
+        list = FluentLayout.ListEditor(rows, new ListEditorOptions<ShortcutItem>
+        {
+            Items = config.Items,
+            Save = SaveAndSync,
+            EmptyText = "No shortcuts yet.",
+            AddTitle = "Add a shortcut",
+            AddDescription = "An empty row you can point at a web address, a file or a folder",
+            AddAction = "Add",
+            RemoveTooltip = "Remove shortcut",
+            Create = () => ShortcutItem.Create(string.Empty, string.Empty),
+            Body = item => ShortcutBody(item, save),
+        });
+    }
+
+    /// <summary>
+    /// A Windows location's real icon for its settings row: an <see cref="ImageIcon"/> (the row's
+    /// icon slot takes an icon element) filled in when the shell answers.
+    /// </summary>
+    private static ImageIcon ShellIcon(string uri)
+    {
+        var icon = new ImageIcon { Width = Fluent.IconSize, Height = Fluent.IconSize };
+        _ = LoadShellIconAsync(uri, icon);
+        return icon;
+    }
+
+    private static async Task LoadShellIconAsync(string uri, ImageIcon icon)
+    {
+        try
+        {
+            icon.Source = await AppIcons.GetAsync(uri, (int)(Fluent.IconSize * 2)).ConfigureAwait(true);
+        }
+        catch (Exception ex)
+        {
+            Log.Warn(LauncherScope, "could not load a Windows location's icon", ex);
+        }
     }
 
     /// <summary>
@@ -199,47 +298,12 @@ internal static partial class WidgetSettings
     private static string NameHint(string target)
         => LaunchTargets.DisplayName(null, target) is { Length: > 0 } derived ? derived : "Name";
 
-    /// <summary>
-    /// The Windows locations, as a dropdown of names rather than of <c>shell:</c> URIs. The URI is
-    /// what gets stored; nobody should have to read one to add their Downloads folder.
-    /// </summary>
-    private static ComboBox ShellPicker(ListEditorHandle<ShortcutItem> list)
-    {
-        var combo = new ComboBox { MinWidth = 180, PlaceholderText = "Choose…" };
-
-        foreach (var name in LaunchTargets.WellKnownShellNames)
-        {
-            var uri = LaunchTargets.ShellTarget(name);
-
-            combo.Items.Add(new ComboBoxItem
-            {
-                Content = LaunchTargets.ShellDisplayName(uri),
-                Tag = uri,
-            });
-        }
-
-        combo.SelectionChanged += (_, _) =>
-        {
-            if (combo.SelectedItem is not ComboBoxItem { Tag: string uri })
-            {
-                return;
-            }
-
-            list.Add(ShortcutItem.Create(uri, string.Empty));
-
-            // Back to the placeholder, so the control reads as an action rather than as a setting
-            // that is now stuck on "Downloads".
-            combo.SelectedIndex = -1;
-        };
-
-        return combo;
-    }
 
     /// <summary>
     /// The shell's own file picker, so nobody has to type a path they could point at. It writes
     /// through the same add as everything else, so there is one way a shortcut comes into being.
     /// </summary>
-    private static async Task PickFileAsync(ListEditorHandle<ShortcutItem> list)
+    private static async Task PickFileAsync(Func<ListEditorHandle<ShortcutItem>?> list)
     {
         try
         {
@@ -259,7 +323,7 @@ internal static partial class WidgetSettings
                 return; // ignore: the user cancelled the dialog.
             }
 
-            list.Add(ShortcutItem.Create(file.Path, string.Empty));
+            list()?.Add(ShortcutItem.Create(file.Path, string.Empty));
         }
         catch (Exception ex)
         {
@@ -269,7 +333,7 @@ internal static partial class WidgetSettings
         }
     }
 
-    private static async Task PickFolderAsync(ListEditorHandle<ShortcutItem> list)
+    private static async Task PickFolderAsync(Func<ListEditorHandle<ShortcutItem>?> list)
     {
         try
         {
@@ -285,7 +349,7 @@ internal static partial class WidgetSettings
                 return; // ignore: the user cancelled the dialog.
             }
 
-            list.Add(ShortcutItem.Create(folder.Path, string.Empty));
+            list()?.Add(ShortcutItem.Create(folder.Path, string.Empty));
         }
         catch (Exception ex)
         {

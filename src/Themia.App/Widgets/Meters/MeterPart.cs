@@ -12,6 +12,12 @@ internal interface IMeterHost
 
     /// <summary>Forget the history: the samples on the chart belong to something else now.</summary>
     void ClearHistory();
+
+    /// <summary>[S-1167] Offer the card a title the kind knows (a drive's name, a host's label); null for the catalogue's.</summary>
+    void SetTitle(string? title);
+
+    /// <summary>[S-1167] Take a reading now rather than at the next tick (a Refresh command).</summary>
+    void SampleNow();
 }
 
 /// <summary>
@@ -21,7 +27,8 @@ internal interface IMeterHost
 /// <param name="ListRows">How many breakdown rows fit; 0 means the list is not shown.</param>
 /// <param name="Details">Whether any detail line fits.</param>
 /// <param name="Segments">Whether the composition bar fits.</param>
-internal readonly record struct MeterDemand(int ListRows, bool Details, bool Segments)
+/// <param name="Cells">[S-1150] Whether the per-part strip fits.</param>
+internal readonly record struct MeterDemand(int ListRows, bool Details, bool Segments, bool Cells = false)
 {
     public static MeterDemand None { get; } = new(0, false, false);
 }
@@ -70,11 +77,28 @@ internal abstract class MeterPart
     /// <summary>[S-1127] The most breakdown rows this kind may show with its current config; 0 for no list.</summary>
     public virtual int ListWanted => 0;
 
+    /// <summary>[S-1150] How many bars this kind's per-part strip has with its current config; 0 for no strip.</summary>
+    public virtual int CellsWanted => 0;
+
     /// <summary>[S-1128] Whether this kind draws a usage bar beside its chart (and a composition bar where it fits).</summary>
     public virtual bool UsageBar => false;
 
     /// <summary>[S-1123] The colour a reading deserves. Never applied to the reading's own text.</summary>
     public virtual MeterPressure PressureOf(MeterReading reading) => MeterPressure.Normal;
+
+    /// <summary>
+    /// [S-1187] A glyph drawn before the reading, in the pressure colour (the battery's fill level),
+    /// or null for none. Count its width in <see cref="ReadingCharacters"/>.
+    /// </summary>
+    public virtual string? Badge(MeterReading reading) => null;
+
+    /// <summary>
+    /// [S-1186] Whether this meter is a gallery preview, before the first config arrives. A part
+    /// with a debug fixture reads it only in a preview, never on the desktop.
+    /// </summary>
+    public virtual void Bind(bool preview)
+    {
+    }
 
     /// <summary>
     /// Take a new config (it is already the right kind). True when the part needs a sample now —
@@ -87,6 +111,12 @@ internal abstract class MeterPart
     /// needs a round trip. Runs on the UI thread's tick; a throw is caught and shown as unavailable.
     /// </summary>
     public abstract void Sample(MeterDemand demand, IMeterHost host);
+
+    /// <summary>[S-1167] Commands for the card's right-click menu (Refresh, Open in Explorer); read each time it opens.</summary>
+    public virtual IReadOnlyList<WidgetAction> ContextActions(IMeterHost host) => [];
+
+    /// <summary>[S-1167] An element for the right of the card's header (a status dot), or null. Read once.</summary>
+    public virtual Microsoft.UI.Xaml.FrameworkElement? HeaderTrailing => null;
 
     /// <summary>Let go of anything held between samples (a probe, a counter lease).</summary>
     public virtual void Detach()

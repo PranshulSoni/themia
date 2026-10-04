@@ -1,268 +1,621 @@
+using Microsoft.UI;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
 using Themia.App.Services;
 using Themia.App.Shell;
+using Themia.Core.Diagnostics;
 using Themia.Core.Model;
 using Themia.Core.Widgets;
 
 namespace Themia.App.Widgets;
 
 /// <summary>
-/// The links, files, folders and Windows locations somebody keeps to hand.
+/// The links, files, folders and Windows locations somebody keeps to hand, as tiles, a list or a
+/// table ([S-1380]), with the icon Explorer would show for each ([S-1383]).
 /// <para>
-/// A Windows 11 list: fixed-height rows, the Body step for the name, a 16px Segoe glyph for what
-/// kind of thing it is, and no rule between rows. The list itself is the whole widget — there is no
-/// editing here, because a rename or a remove one mis-click away on a surface with no undo belongs
-/// in the settings window, which is where it is.
+/// <b>Every target is re-checked at the moment it is opened</b>, by <see cref="ShellLauncher"/>.
+/// The config file it came from lives in the user's profile and anything running as the user can
+/// rewrite it, so a shortcut that was valid when it was added is not evidence that it is valid now.
+/// A target the rule refuses is drawn as a refused item rather than quietly dropped. Looking at a
+/// target (its icon, whether it is still there) is gated too: a network path is never probed
+/// unasked ([S-1386]).
 /// </para>
 /// <para>
-/// <b>Every target is re-checked at the moment it is opened</b>, by
-/// <see cref="ShellLauncher"/>. The config file it came from lives in the user's profile and
-/// anything running as the user can rewrite it, so a shortcut that was valid when it was added is
-/// not evidence that it is valid now. A target the rule refuses is drawn as a refused row rather
-/// than quietly dropped: an item that has been tampered with is exactly the one worth seeing.
+/// Split by concern: this file owns the lifecycle, the ladder and the widget-level commands;
+/// <c>.Cells.cs</c> builds and paints tiles and rows and loads their icons; <c>.Input.cs</c> owns
+/// selection, the rubber band, keys, the item menu, rename and search.
 /// </para>
 /// <para>
-/// The original widget also allowed a shortcut to hold an "app layout" — a tree of panes that opens
-/// several applications and snaps each onto a region of a display. That is a window manager rather
-/// than a shortcut, and it is deliberately not ported.
+/// Seams for package PD (drop and app layouts): items only ever enter through
+/// <see cref="AddItems"/>, and every target-specific choice (icon, menu, open) switches on
+/// <see cref="LaunchKind"/>, so a layout item is one more case in each switch.
 /// </para>
 /// </summary>
-internal sealed partial class ShortcutsView : Grid, IWidgetView
+internal sealed partial class ShortcutsView : Grid, IWidgetView, IWidgetSurfaceAware, IWidgetHeaderContent,
+    IWidgetContextActions, IWidgetSizeAware, IWidgetKeys
 {
-    /// <summary>Below this width the target column is dropped; the name is what the row is for.</summary>
-    private const double TargetMinimumWidth = 340;
+    private const string Scope = "shortcuts";
 
-    /// <summary>How wide the target column may grow before it starts taking room from the name.</summary>
-    private const double TargetWidth = 160;
+    /// <summary>How often local targets are looked at again for the broken state ([S-1386]).</summary>
+    private static readonly TimeSpan HealthInterval = TimeSpan.FromMinutes(1);
 
-    private readonly StackPanel _list = new() { Spacing = 0 };
+    private readonly TextBox _search = new();
+    private readonly Border _searchHost;
+    private readonly Grid _columnHeader = new();
+    private readonly Grid _panel = new();
+    private readonly Canvas _bandLayer = new() { IsHitTestVisible = false };
+    private readonly Microsoft.UI.Xaml.Shapes.Rectangle _band;
+    private readonly Grid _surface = new();
     private readonly ScrollViewer _scroll;
+    private readonly TextBlock _footer;
     private readonly StackPanel _empty;
-    private readonly FontIcon _emptyIcon;
+    private readonly Button _searchButton;
+    private readonly ScrollFade _fade;
 
-    /// <summary>One per row, so the hover handlers come off with the rows they light.</summary>
-    private readonly List<IDisposable> _hovers = [];
+    private readonly ShortcutSelection _selection = new();
+    private readonly List<Cell> _cells = [];
+    private readonly Dictionary<string, TargetHealth> _health = new(StringComparer.OrdinalIgnoreCase);
 
     private ShortcutsConfig _config = new();
+    private IWidgetSurface? _surfaceHost;
+    private Ticker? _ticker;
+    private IDisposable? _healthTick;
+    private IDisposable? _binTick;
+    private WidgetArea _area;
+    private CellShape _shape;
+    private string _query = string.Empty;
+    private bool _searchOpen;
     private bool _detached;
-    private bool _compact;
-    private bool _targetVisible = true;
+    private int _healthGeneration;
+
+    /// <summary>The last batch removed, with where each item was, for one step of "Undo remove".</summary>
+    private List<(int Index, ShortcutItem Item)>? _lastRemoved;
 
     public ShortcutsView()
     {
+        Background = FluentLayout.Themed("SubtleFillColorTransparentBrush", Colors.Transparent);
+
+        RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
+        RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+
+        _search.PlaceholderText = "Search shortcuts";
+        _search.IsSpellCheckEnabled = false;
+        _search.IsTextPredictionEnabled = false;
+        _search.CornerRadius = new CornerRadius(Fluent.ControlRadius);
+        _search.TextChanged += OnSearchChanged;
+        _search.KeyDown += OnSearchKeyDown;
+        _search.GotFocus += OnTextGotFocus;
+        _search.LostFocus += OnTextLostFocus;
+
+        _searchHost = new Border
+        {
+            Child = _search,
+            Padding = new Thickness(Fluent.Space2, Fluent.Space1, Fluent.Space2, 0),
+            Visibility = Visibility.Collapsed,
+        };
+
+        _columnHeader.Padding = new Thickness(Fluent.Space4, Fluent.Space1, Fluent.Space4, Fluent.Space1);
+        _columnHeader.Visibility = Visibility.Collapsed;
+
+        _band = new Microsoft.UI.Xaml.Shapes.Rectangle
+        {
+            Stroke = FluentLayout.Themed("AccentFillColorDefaultBrush", Colors.DodgerBlue),
+            StrokeThickness = Fluent.Hairline,
+            Visibility = Visibility.Collapsed,
+        };
+
+        _bandLayer.Children.Add(_band);
+
+        _surface.Background = FluentLayout.Themed("SubtleFillColorTransparentBrush", Colors.Transparent);
+        _surface.Children.Add(_panel);
+        _surface.Children.Add(_bandLayer);
 
         _scroll = new ScrollViewer
         {
-            Content = _list,
-            Padding = WidgetLayout.ListInset,
+            Content = _surface,
             HorizontalScrollMode = ScrollMode.Disabled,
             HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
             VerticalScrollBarVisibility = ScrollBarVisibility.Hidden,
         };
 
+        _fade = new ScrollFade(_scroll, _panel);
+
+        _footer = Fluent.Text(FluentType.Caption, "TextFillColorSecondaryBrush");
+        _footer.Margin = new Thickness(Fluent.Space4, ShortcutLayout.Gap, Fluent.Space4, Fluent.Space2);
+        _footer.TextTrimming = TextTrimming.CharacterEllipsis;
+        _footer.Visibility = Visibility.Collapsed;
+
         _empty = Fluent.EmptyState(
             Glyphs.Shortcut,
             new TextBlock { Text = "No shortcuts yet. Add them in this widget's settings." },
-            out _emptyIcon);
-
+            out _);
         _empty.Visibility = Visibility.Collapsed;
 
+        _searchButton = new Button
+        {
+            Content = new FontIcon { Glyph = Glyphs.Search, FontSize = FluentType.Caption.FontSize },
+            Padding = new Thickness(Fluent.Space1 + 2, Fluent.Space1, Fluent.Space1 + 2, Fluent.Space1),
+            MinWidth = 0,
+            MinHeight = 0,
+            Background = FluentLayout.Themed("SubtleFillColorTransparentBrush", Colors.Transparent),
+            BorderThickness = new Thickness(0),
+            CornerRadius = new CornerRadius(Fluent.ControlRadius),
+            VerticalAlignment = VerticalAlignment.Center,
+        };
+        ToolTipService.SetToolTip(_searchButton, "Search shortcuts");
+        _searchButton.Click += OnSearchButton;
+
+        SetRow(_searchHost, 0);
+        SetRow(_columnHeader, 1);
+        SetRow(_scroll, 2);
+        SetRow(_footer, 3);
+        SetRowSpan(_empty, 4);
+
+        Children.Add(_searchHost);
+        Children.Add(_columnHeader);
         Children.Add(_scroll);
+        Children.Add(_footer);
         Children.Add(_empty);
 
-        SizeChanged += OnSizeChanged;
+        PointerPressed += OnRootPointerPressed;
+        PointerMoved += OnRootPointerMoved;
+        PointerReleased += OnRootPointerReleased;
+        PointerCaptureLost += OnRootPointerLost;
+        PointerCanceled += OnRootPointerLost;
     }
+
+    /// <inheritdoc />
+    public FrameworkElement? HeaderTrailing => _searchButton;
+
+    public void Bind(IWidgetSurface surface) => _surfaceHost = surface;
 
     public void Attach(Ticker ticker, WidgetConfig config)
     {
-        // No ticker: a shortcut list changes when its settings change and at no other time.
+        _ticker = ticker;
         ApplyConfig(config);
     }
 
     public void ApplyConfig(WidgetConfig config)
     {
         _config = config as ShortcutsConfig ?? new ShortcutsConfig();
-        ApplyLayout();
-        Render();
+        _selection.Prune(_config.Items.Select(item => item.Id).ToList());
+        Changed(rebuild: true);
     }
 
-    private void OnSizeChanged(object sender, SizeChangedEventArgs args)
+    public void ApplySize(WidgetArea area)
     {
-        var compact = args.NewSize.Height < Fluent.CompactBelow;
-        var target = args.NewSize.Width >= TargetMinimumWidth;
+        _area = area;
+        Lay();
+    }
 
-        ApplyLayout();
+    /// <summary>
+    /// [S-1392] Add items (the settings page and, later, a drop). The one way an item enters the
+    /// widget from its own surface, so PD's drop handler has a single seam to call.
+    /// </summary>
+    public void AddItems(IEnumerable<ShortcutItem> items)
+    {
+        var added = false;
 
-        if (compact == _compact && target == _targetVisible)
+        foreach (var item in items)
+        {
+            _config.Items.Add(item);
+            added = true;
+        }
+
+        if (added)
+        {
+            Save();
+            Changed(rebuild: true);
+        }
+    }
+
+    /// <summary>
+    /// Something about the items changed: re-run the checks that depend on them and redraw. The
+    /// health and bin subscriptions follow what the list now holds.
+    /// </summary>
+    private void Changed(bool rebuild)
+    {
+        if (_detached)
         {
             return;
         }
 
-        _compact = compact;
-        _targetVisible = target;
-        Render();
-    }
+        UpdateSubscriptions();
 
-    private void ApplyLayout()
-    {
-        var height = ActualHeight;
-        var measured = height > 0;
-
-        _emptyIcon.Visibility = measured && height < 180 ? Visibility.Collapsed : Visibility.Visible;
-    }
-
-    private void Render()
-    {
-        ClearRows();
-
-        if (_config.Items.Count == 0)
+        if (rebuild)
         {
-            _empty.Visibility = Visibility.Visible;
-            _scroll.Visibility = Visibility.Collapsed;
+            _shape = default;
+        }
+
+        Lay();
+    }
+
+    /// <summary>Redraw for a change that does not touch the items (a search): no checks re-run.</summary>
+    private void Relayout()
+    {
+        _shape = default;
+        Lay();
+    }
+
+    private void UpdateSubscriptions()
+    {
+        if (_ticker is null)
+        {
             return;
         }
 
-        _empty.Visibility = Visibility.Collapsed;
-        _scroll.Visibility = Visibility.Visible;
+        var probes = _config.Items.Any(item => LaunchTargets.Classify(item.Target) is { Kind: LaunchKind.LocalPath } target
+            && LaunchTargets.MayProbe(target));
 
-        var detail = _config.ShowTarget && _targetVisible;
-
-        foreach (var item in _config.Items)
+        if (probes && _healthTick is null)
         {
-            _list.Children.Add(BuildRow(item, detail));
+            // Fires once now, then every minute: a target deleted while the widget is up shows as
+            // broken within the minute, and nothing is looked at per frame.
+            _healthTick = _ticker.Subscribe(HealthInterval, CheckHealth);
+        }
+        else if (probes)
+        {
+            CheckHealth();
+        }
+        else if (_healthTick is not null)
+        {
+            _healthTick.Dispose();
+            _healthTick = null;
+        }
+
+        var bin = _config.Items.Any(item => ShortcutRules.IsRecycleBin(item.Target));
+
+        if (bin && _binTick is null)
+        {
+            RecycleBinStatus.Changed += OnBinChanged;
+            _binTick = _ticker.Subscribe(RecycleBinStatus.Interval, RecycleBinStatus.Refresh);
+        }
+        else if (!bin && _binTick is not null)
+        {
+            RecycleBinStatus.Changed -= OnBinChanged;
+            _binTick.Dispose();
+            _binTick = null;
         }
     }
 
-    private FrameworkElement BuildRow(ShortcutItem item, bool detail)
+    /// <summary>
+    /// [S-1386] Look at every probeable local target on the thread pool (an existence check on a
+    /// sleeping drive blocks), then repaint the items whose answer changed.
+    /// </summary>
+    private void CheckHealth()
     {
-        var classified = LaunchTargets.Classify(item.Target);
+        var targets = _config.Items
+            .Select(item => LaunchTargets.Classify(item.Target))
+            .Where(target => target.Kind == LaunchKind.LocalPath && LaunchTargets.MayProbe(target))
+            .Select(target => target.Value)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
 
-        var icon = Fluent.Icon(GlyphFor(classified.Kind), ColorKeyFor(classified.Kind));
-        icon.Margin = new Thickness(0, 0, Fluent.Space3, 0);
-
-        var name = Fluent.Text(FluentType.Body);
-        name.Text = LaunchTargets.DisplayName(item.Label, item.Target);
-
-        var grid = new Grid
+        if (targets.Count == 0)
         {
-            ColumnDefinitions =
-            {
-                new ColumnDefinition { Width = GridLength.Auto },
-                new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) },
-                new ColumnDefinition { Width = GridLength.Auto },
-            },
-        };
-
-        SetColumn(icon, 0);
-        SetColumn(name, 1);
-        grid.Children.Add(icon);
-        grid.Children.Add(name);
-
-        if (detail)
-        {
-            var target = Fluent.Text(FluentType.Caption, "TextFillColorSecondaryBrush");
-            target.Text = item.Target;
-            target.TextAlignment = TextAlignment.Right;
-            target.MaxWidth = TargetWidth;
-            target.Margin = new Thickness(Fluent.Space2, 0, 0, 0);
-
-            SetColumn(target, 2);
-            grid.Children.Add(target);
+            return;
         }
 
-        var row = Fluent.Row(grid, _compact);
-        row.Tag = item.Target;
-        _hovers.Add(Fluent.Hover(row));
+        var generation = ++_healthGeneration;
+        _ = CheckHealthAsync(targets, generation);
+    }
 
-        if (classified.IsValid)
+    private async Task CheckHealthAsync(List<string> targets, int generation)
+    {
+        Dictionary<string, TargetHealth> answers;
+
+        try
         {
-            // Double-click by default: this surface sits under the pointer's path across the
-            // desktop, and a stray single click opening something is what makes a launcher a hazard.
-            if (_config.OpenOnSingleClick)
+            answers = await Task.Run(() => targets.ToDictionary(
+                target => target,
+                target => ShortcutRules.Check(LaunchTargets.Classify(target), Probe),
+                StringComparer.OrdinalIgnoreCase)).ConfigureAwait(true);
+        }
+        catch (Exception ex)
+        {
+            Log.Warn(Scope, "could not check whether the shortcut targets are still there", ex);
+            return;
+        }
+
+        if (_detached || generation != _healthGeneration)
+        {
+            return;
+        }
+
+        var changed = false;
+
+        foreach (var (target, health) in answers)
+        {
+            if (!_health.TryGetValue(target, out var was) || was != health)
             {
-                row.Tapped += OnRowActivated;
+                _health[target] = health;
+                changed = true;
             }
-            else
+        }
+
+        if (changed)
+        {
+            foreach (var cell in _cells)
             {
-                row.DoubleTapped += OnRowOpened;
+                PaintHealth(cell);
             }
 
-            ToolTipService.SetToolTip(row, item.Target);
+            UpdateFooter();
+        }
+    }
+
+    /// <summary>Whether a local path is there, and what it is. Never throws; unclear is Unknown.</summary>
+    private static TargetHealth Probe(string path)
+    {
+        try
+        {
+            if (Directory.Exists(path))
+            {
+                return TargetHealth.Folder;
+            }
+
+            return File.Exists(path) ? TargetHealth.File : TargetHealth.Missing;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException)
+        {
+            Log.Debug(Scope, $"could not tell whether a shortcut target exists: {ex.Message}");
+            return TargetHealth.Unknown;
+        }
+    }
+
+    private void OnBinChanged()
+    {
+        if (_detached)
+        {
+            return;
+        }
+
+        foreach (var cell in _cells)
+        {
+            if (cell.IsBin)
+            {
+                PaintBin(cell);
+            }
+        }
+    }
+
+    /// <summary>
+    /// The ladder ([S-1382]..[S-1384]): search box (when open) and footer (XL) take their lines
+    /// first; the items take the rest, laid out by the view's plan. A change of plan rebuilds the
+    /// cells; anything else repaints them.
+    /// </summary>
+    private void Lay()
+    {
+        if (_detached)
+        {
+            return;
+        }
+
+        var visible = Visible();
+        var hasItems = _config.Items.Count > 0;
+
+        _empty.Visibility = hasItems ? Visibility.Collapsed : Visibility.Visible;
+        _scroll.Visibility = hasItems ? Visibility.Visible : Visibility.Collapsed;
+        _searchHost.Visibility = _searchOpen && hasItems ? Visibility.Visible : Visibility.Collapsed;
+        _searchButton.Visibility = hasItems ? Visibility.Visible : Visibility.Collapsed;
+
+        if (!hasItems)
+        {
+            _footer.Visibility = Visibility.Collapsed;
+            _columnHeader.Visibility = Visibility.Collapsed;
+            ClearCells();
+            return;
+        }
+
+        var area = _area.IsMeasured ? _area : new WidgetArea(320, 200);
+        var room = new Disclosure(area, gap: ShortcutLayout.Gap);
+
+        if (_searchOpen)
+        {
+            room.Reserve(Fluent.RowHeightCompact + Fluent.Space1);
+        }
+
+        var footer = ShortcutLayout.Footer(area) && room.Take(FluentType.Caption.LineHeight + Fluent.Space2);
+        _footer.Visibility = footer ? Visibility.Visible : Visibility.Collapsed;
+
+        var inset = Inset();
+        var width = Math.Max(0, area.Width - inset.Left - inset.Right);
+        var height = Math.Max(0, room.Remaining - inset.Top - inset.Bottom);
+
+        CellShape shape;
+
+        if (_config.View == ShortcutViewMode.Grid)
+        {
+            var size = ShortcutLayout.GridSize(_config.GridSize, area);
+            var tiles = ShortcutLayout.Grid(width, height, visible.Count, size, _config.GridIconOnly,
+                _config.GridStretchHeight, ShortcutLayout.GridDetail(area));
+            shape = new CellShape(_config.View, tiles, default, visible.Count, width);
         }
         else
         {
-            // No handler at all, so a refused target cannot be opened by any gesture. The row says
-            // what is wrong rather than disappearing, because a shortcut that changed under the
-            // user is the one worth showing.
-            ToolTipService.SetToolTip(row, $"{item.Target}\n{LaunchTargets.RefusalMessage(classified.Refusal)}");
+            var rows = ShortcutLayout.Rows(area, _config.ListSize, _config.View == ShortcutViewMode.Details);
+
+            // The column header costs a row of the list; only where the list keeps two more.
+            if (rows.ColumnHeader && Disclosure.WholeRows(height - FluentType.Caption.LineHeight - Fluent.Space2, rows.RowHeight) < 2)
+            {
+                rows = rows with { ColumnHeader = false };
+            }
+
+            shape = new CellShape(_config.View, default, rows, visible.Count, width);
         }
 
-        return row;
+        _surface.MinHeight = height;
+
+        if (shape != _shape)
+        {
+            _shape = shape;
+            Render(visible);
+        }
+        else
+        {
+            PaintAll();
+        }
+
+        UpdateFooter();
     }
 
-    /// <summary>The 16px Segoe glyph that says what kind of thing a row points at.</summary>
-    private static string GlyphFor(LaunchKind kind) => kind switch
-    {
-        LaunchKind.Web => Glyphs.Link,
-        LaunchKind.LocalPath => Glyphs.File,
-        LaunchKind.ShellNamespace => Glyphs.Folder,
-        _ => Glyphs.Info,
-    };
+    /// <summary>The padding around the items: tiles keep a margin from the card edge, rows go edge to edge.</summary>
+    private Thickness Inset() => _config.View == ShortcutViewMode.Grid
+        ? new Thickness(Fluent.Space2, Fluent.Space1, Fluent.Space2, Fluent.Space2)
+        : WidgetLayout.ListInset;
 
-    /// <summary>
-    /// A refused row is drawn in the stock "something is wrong" colour, so it reads as a problem
-    /// rather than as an ordinary row that happens not to respond.
-    /// </summary>
-    private static string ColorKeyFor(LaunchKind kind)
-        => kind == LaunchKind.Refused ? "SystemFillColorCriticalBrush" : "TextFillColorSecondaryBrush";
-
-    private void OnRowActivated(object sender, TappedRoutedEventArgs args)
+    /// <summary>The items a search leaves, in order.</summary>
+    private List<ShortcutItem> Visible()
     {
-        args.Handled = true;
-        Open(sender);
+        if (!_searchOpen || _query.Trim().Length == 0)
+        {
+            return _config.Items;
+        }
+
+        return _config.Items
+            .Where(item => ShortcutRules.Matches(NameOf(item), item.Target, _query))
+            .ToList();
     }
 
-    private void OnRowOpened(object sender, DoubleTappedRoutedEventArgs args)
-    {
-        args.Handled = true;
-        Open(sender);
-    }
+    private string NameOf(ShortcutItem item) => LaunchTargets.DisplayName(item.Label, item.Target, _config.ShowFileExtension);
 
-    private void Open(object sender)
+    /// <summary>The visible ids, in order: what selection ranges, select-all and arrows walk.</summary>
+    private List<string> Order() => _cells.Select(cell => cell.Item.Id).ToList();
+
+    private void UpdateFooter()
     {
-        if (_detached || sender is not Border { Tag: string target })
+        if (_footer.Visibility != Visibility.Visible)
         {
             return;
         }
 
-        // The one launch path in the app. It classifies the target again rather than trusting that
-        // this row was drawn from a valid one.
-        ShellLauncher.Open(target);
+        var total = _config.Items.Count;
+        var shown = _cells.Count;
+        var missing = _cells.Count(cell => cell.Health == TargetHealth.Missing);
+        var parts = new List<string>();
+
+        parts.Add(shown == total
+            ? (total == 1 ? "1 shortcut" : $"{total} shortcuts")
+            : $"{shown} of {total} shown");
+
+        if (_selection.Count > 0)
+        {
+            parts.Add($"{_selection.Count} selected");
+        }
+
+        if (missing > 0)
+        {
+            parts.Add($"{missing} missing");
+        }
+
+        _footer.Text = string.Join(" · ", parts);
     }
 
-    private void ClearRows()
+    /// <summary>Persist an edit the widget made to its own config.</summary>
+    private void Save() => _surfaceHost?.RequestSave();
+
+    /// <summary>
+    /// [S-1391] The widget's own commands on the card's menu (original S-27 / S-49): the view, the
+    /// size, names and stretch in the grid, extensions, the click, search, select all and one step
+    /// of undo for the last remove. Each one names the state it switches to.
+    /// </summary>
+    public IReadOnlyList<WidgetAction> ContextActions
     {
-        foreach (var hover in _hovers)
+        get
         {
-            hover.Dispose();
-        }
+            var actions = new List<WidgetAction>();
 
-        _hovers.Clear();
-
-        foreach (var child in _list.Children)
-        {
-            if (child is Border row)
+            if (_config.Items.Count > 0)
             {
-                row.Tapped -= OnRowActivated;
-                row.DoubleTapped -= OnRowOpened;
+                actions.Add(new WidgetAction(Glyphs.Search, _searchOpen ? "Close search" : "Search", ToggleSearch));
             }
-        }
 
-        _list.Children.Clear();
+            foreach (var mode in (ShortcutViewMode[])[ShortcutViewMode.Grid, ShortcutViewMode.List, ShortcutViewMode.Details])
+            {
+                if (mode != _config.View)
+                {
+                    actions.Add(new WidgetAction(ModeGlyph(mode), $"Show as {ModeName(mode)}", () => SetConfig(c => c.View = mode)));
+                }
+            }
+
+            var grid = _config.View == ShortcutViewMode.Grid;
+            var size = grid ? _config.GridSize : _config.ListSize;
+            var noun = grid ? "tiles" : "rows";
+
+            if (size < ShortcutItemSize.Large)
+            {
+                actions.Add(new WidgetAction(Glyphs.Add, $"Larger {noun}", () => SetConfig(c => Resize(c, grid, size + 1))));
+            }
+
+            if (size > ShortcutItemSize.Small)
+            {
+                actions.Add(new WidgetAction(Glyphs.Fit, $"Smaller {noun}", () => SetConfig(c => Resize(c, grid, size - 1))));
+            }
+
+            if (grid)
+            {
+                actions.Add(new WidgetAction(Glyphs.Preview, _config.GridIconOnly ? "Show names" : "Icons only",
+                    () => SetConfig(c => c.GridIconOnly = !c.GridIconOnly)));
+                actions.Add(new WidgetAction(Glyphs.Scale, _config.GridStretchHeight ? "Keep tile height" : "Stretch to fill",
+                    () => SetConfig(c => c.GridStretchHeight = !c.GridStretchHeight)));
+            }
+
+            actions.Add(new WidgetAction(Glyphs.File, _config.ShowFileExtension ? "Hide file extensions" : "Show file extensions",
+                () => SetConfig(c => c.ShowFileExtension = !c.ShowFileExtension)));
+
+            actions.Add(new WidgetAction(Glyphs.Open,
+                _config.ClickMode == ItemClickMode.Double ? "Open on single click" : "Open on double click",
+                () => SetConfig(c => c.ClickMode = c.ClickMode == ItemClickMode.Double ? ItemClickMode.Single : ItemClickMode.Double)));
+
+            if (_cells.Count > 0)
+            {
+                actions.Add(new WidgetAction(Glyphs.Done, "Select all", SelectAll));
+            }
+
+            if (_lastRemoved is { Count: > 0 } removed)
+            {
+                actions.Add(new WidgetAction(Glyphs.Undo, removed.Count == 1 ? "Undo remove" : $"Undo remove ({removed.Count})", UndoRemove));
+            }
+
+            return actions;
+        }
     }
+
+    private static void Resize(ShortcutsConfig config, bool grid, ShortcutItemSize size)
+    {
+        if (grid)
+        {
+            config.GridSize = size;
+        }
+        else
+        {
+            config.ListSize = size;
+        }
+    }
+
+    private void SetConfig(Action<ShortcutsConfig> change)
+    {
+        change(_config);
+        Save();
+        Changed(rebuild: true);
+    }
+
+    private static string ModeName(ShortcutViewMode mode) => mode switch
+    {
+        ShortcutViewMode.List => "list",
+        ShortcutViewMode.Details => "details",
+        _ => "tiles",
+    };
+
+    private static string ModeGlyph(ShortcutViewMode mode) => mode switch
+    {
+        ShortcutViewMode.List => Glyphs.ListLayout,
+        ShortcutViewMode.Details => Glyphs.ColumnsLayout,
+        _ => Glyphs.GridLayout,
+    };
 
     public void Detach()
     {
@@ -273,7 +626,33 @@ internal sealed partial class ShortcutsView : Grid, IWidgetView
 
         _detached = true;
 
-        SizeChanged -= OnSizeChanged;
-        ClearRows();
+        _healthTick?.Dispose();
+        _healthTick = null;
+
+        if (_binTick is not null)
+        {
+            RecycleBinStatus.Changed -= OnBinChanged;
+            _binTick.Dispose();
+            _binTick = null;
+        }
+
+        _search.TextChanged -= OnSearchChanged;
+        _search.KeyDown -= OnSearchKeyDown;
+        _search.GotFocus -= OnTextGotFocus;
+        _search.LostFocus -= OnTextLostFocus;
+        _searchButton.Click -= OnSearchButton;
+
+        PointerPressed -= OnRootPointerPressed;
+        PointerMoved -= OnRootPointerMoved;
+        PointerReleased -= OnRootPointerReleased;
+        PointerCaptureLost -= OnRootPointerLost;
+        PointerCanceled -= OnRootPointerLost;
+
+        EndRename(commit: false);
+        _fade.Dispose();
+        ClearCells();
     }
+
+    /// <summary>What the cells were last built for; a different one rebuilds them.</summary>
+    private readonly record struct CellShape(ShortcutViewMode View, ShortcutTilePlan Tiles, ShortcutRowPlan Rows, int Count, double Width);
 }

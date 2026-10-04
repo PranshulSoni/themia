@@ -38,8 +38,11 @@ public enum ScreenTimeDayKind
 /// </summary>
 public static class ScreenTimeRules
 {
-    /// <summary>[S-452] The legend's default length.</summary>
-    public const int DefaultMaxApps = 7;
+    /// <summary>
+    /// [S-1212] The fewest apps the drawing splits out by name when the legend lists fewer (or none):
+    /// a ring of one app and a grey "Other" says less than the busiest few in their colours.
+    /// </summary>
+    public const int DrawingApps = 7;
 
     /// <summary>[S-452] The most the legend can be set to list.</summary>
     public const int MaxAppsLimit = 50;
@@ -78,14 +81,136 @@ public static class ScreenTimeRules
         return text.EndsWith("h 0m", StringComparison.Ordinal) ? text[..^3] : text;
     }
 
-    /// <summary>[S-452] The legend length, clamped to 0..<see cref="MaxAppsLimit"/>.</summary>
+    /// <summary>[S-1211] The setting clamped to 0..<see cref="MaxAppsLimit"/>; 0 is "as many as fit".</summary>
     public static int EffectiveMaxApps(int maxApps) => Math.Clamp(maxApps, 0, MaxAppsLimit);
 
+    /// <summary>[S-1211] The most apps the legend may name: the setting, or the limit when it is 0 ("as many as fit").</summary>
+    public static int Ceiling(int maxApps) => maxApps > 0 ? EffectiveMaxApps(maxApps) : MaxAppsLimit;
+
     /// <summary>
-    /// [S-452] The cap the drawing segments by. The legend may be switched off with 0, but a ring cut
-    /// at zero apps would be one grey "Other" wedge, so hiding the list never changes the drawing.
+    /// [S-1211] Rows the legend would like: every app up to the ceiling, plus an "Other" row when
+    /// apps are left over. What the tile has room for is decided by the layout, in whole rows.
     /// </summary>
-    public static int ChartCap(int maxApps) => maxApps > 0 ? EffectiveMaxApps(maxApps) : DefaultMaxApps;
+    public static int LegendWanted(int maxApps, int appCount)
+    {
+        var apps = Math.Max(0, appCount);
+        var ceiling = Ceiling(maxApps);
+        return apps <= ceiling ? apps : ceiling + 1;
+    }
+
+    /// <summary>
+    /// [S-1212] How many apps the drawing names, given the legend rows the tile could show. A legend
+    /// with room for every app names them all (no "Other"); a shorter one leaves its last row to
+    /// "Other". The drawing never names fewer than <see cref="DrawingApps"/> unless the setting
+    /// says fewer — the list can be cut short by the tile, the ring should not be.
+    /// </summary>
+    /// <param name="maxApps">The setting: 0 for as many as fit, else a ceiling.</param>
+    /// <param name="legendRows">Rows the legend actually shows (0 when it is off or nothing fits).</param>
+    /// <param name="appCount">Apps there are to draw.</param>
+    public static int DrawingCap(int maxApps, int legendRows, int appCount)
+    {
+        var apps = Math.Max(0, appCount);
+        var rows = Math.Max(0, legendRows);
+        var named = apps <= rows ? apps : Math.Max(0, rows - 1);
+        return Math.Min(Ceiling(maxApps), Math.Max(DrawingApps, named));
+    }
+
+    /// <summary>
+    /// [S-1210] A duration with the minutes dropped, for a ring too small for <c>3h 24m</c>: one
+    /// decimal of hours under ten hours (<c>3.4h</c>), whole hours from ten, minutes under an hour.
+    /// </summary>
+    public static string CompactDuration(double seconds)
+    {
+        if (!double.IsFinite(seconds) || seconds < 60)
+        {
+            return "<1m";
+        }
+
+        if (seconds < 3600)
+        {
+            return string.Create(CultureInfo.InvariantCulture, $"{(long)seconds / 60}m");
+        }
+
+        // Rounded, not cut: 9h 58m reads "10h", never "9h".
+        var hours = Math.Round(seconds / 3600, 1, MidpointRounding.AwayFromZero);
+        return hours < 10
+            ? string.Create(CultureInfo.InvariantCulture, $"{hours:0.0}h")
+            : string.Create(CultureInfo.InvariantCulture, $"{Math.Round(seconds / 3600, MidpointRounding.AwayFromZero):0}h");
+    }
+
+    /// <summary>
+    /// [S-1210] The total in the ring's hole, and the type it is set in: the full duration at the
+    /// largest step that fits, or — when even Caption cannot hold it — the compact one. Never text
+    /// that the hole would clip. The character budget carries one spare character, since bold digits
+    /// run wider than the average advance the estimate uses.
+    /// </summary>
+    public static (string Text, TypeStep Step) RingText(double seconds, double width, double height)
+    {
+        var full = FormatDuration(seconds);
+        var step = FluentType.Fit(width, height, full.Length + 1, FluentType.Caption, FluentType.Title);
+
+        if (FluentType.EstimateWidth(step, full.Length + 1) <= width)
+        {
+            return (full, step);
+        }
+
+        var compact = CompactDuration(seconds);
+        return (compact, FluentType.Fit(width, height, compact.Length + 1, FluentType.Caption, FluentType.Title));
+    }
+
+    /// <summary>
+    /// [S-1215] The stats line a large tile carries under its drawing. Under a day: the average of the
+    /// week that ends on it and its busiest day ("7-day average 3h 40m · busiest Tue 5h 2m"). Under a
+    /// window: its busiest day and how many apps it saw ("busiest Tue 3 Oct 5h 2m · 9 apps"). Days
+    /// without use count toward the average, as they do everywhere else; empty when nothing was used.
+    /// </summary>
+    public static string StatsLine(IReadOnlyList<(LocalDay Day, long Seconds)> days, int apps, ScreenTimePeriod period)
+    {
+        ArgumentNullException.ThrowIfNull(days);
+
+        if (days.Count == 0 || days.All(day => day.Seconds <= 0))
+        {
+            return string.Empty;
+        }
+
+        var busiest = days[0];
+        long sum = 0;
+
+        foreach (var day in days)
+        {
+            sum += Math.Max(0, day.Seconds);
+
+            if (day.Seconds > busiest.Seconds)
+            {
+                busiest = day;
+            }
+        }
+
+        var weekday = CultureInfo.InvariantCulture.DateTimeFormat.AbbreviatedDayNames[(int)busiest.Day.DayOfWeek];
+
+        if (ClampPeriod(period) == ScreenTimePeriod.Day)
+        {
+            var average = DailyAverage(sum, days.Count);
+            return $"{days.Count}-day average {FormatDuration(average)} · busiest {weekday} {FormatDuration(busiest.Seconds)}";
+        }
+
+        var date = $"{weekday} {Formatting.ShortDate(busiest.Day.Date)}";
+        var count = apps == 1 ? "1 app" : string.Create(CultureInfo.InvariantCulture, $"{Math.Max(0, apps)} apps");
+        return $"busiest {date} {FormatDuration(busiest.Seconds)} · {count}";
+    }
+
+    /// <summary>[S-1214] The <paramref name="count"/> dates ending at <paramref name="last"/>, oldest first: the week strip under a day.</summary>
+    public static List<LocalDay> DaysEnding(LocalDay last, int count)
+    {
+        var days = new List<LocalDay>(Math.Max(0, count));
+
+        for (var i = count - 1; i >= 0; i--)
+        {
+            days.Add(last.AddDays(-i));
+        }
+
+        return days;
+    }
 
     /// <summary>[S-451] The styles that can draw a period: apps for a day, days for a window.</summary>
     public static IReadOnlyList<ScreenTimeStyle> StylesFor(ScreenTimePeriod period) => period == ScreenTimePeriod.Day

@@ -1,7 +1,8 @@
-using System.Net.Security;
 using System.Net.Sockets;
 using System.Security.Authentication;
 using System.Text;
+using Themia.App.Services.Net;
+using Themia.App.Services.Web;
 using Themia.Core.Accounts;
 
 namespace Themia.App.Services.Accounts;
@@ -37,11 +38,9 @@ internal static class ImapLogin
 
         try
         {
-            using var tcp = new TcpClient();
-            await tcp.ConnectAsync(login.Host, login.Port, token).ConfigureAwait(false);
-
-            await using var tls = new SslStream(tcp.GetStream(), leaveInnerStreamOpen: false);
-            await tls.AuthenticateAsClientAsync(new SslClientAuthenticationOptions { TargetHost = login.Host }, token).ConfigureAwait(false);
+            // [S-960] The one guarded connect path: the resolved address is checked at connect (the
+            // user's "local network access" switch decides a NAS), a proxy is tunnelled through.
+            await using var tls = await GuardedTcp.OpenTlsAsync(login.Host, login.Port, token).ConfigureAwait(false);
 
             var session = new Session(tls);
 
@@ -82,6 +81,14 @@ internal static class ImapLogin
         catch (SocketException ex)
         {
             throw new AccountException(AccountError.Unreachable, $"Could not connect to {login.Host}:{login.Port} ({ex.SocketErrorCode}).", 0, ex);
+        }
+        catch (NetRefusedException ex)
+        {
+            throw new AccountException(AccountError.Refused, ex.Message, 0, ex);
+        }
+        catch (ProxyTunnelException ex)
+        {
+            throw new AccountException(AccountError.Unreachable, ex.Message, 0, ex);
         }
         catch (IOException ex)
         {

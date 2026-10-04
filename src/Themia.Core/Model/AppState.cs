@@ -81,6 +81,10 @@ public sealed class WidgetInstance
     {
         WidgetKind.Themia or WidgetKind.ViewSwitcher => HeaderPlacement.Hidden,
         WidgetKind.Calculator or WidgetKind.Clock or WidgetKind.ColorSwatch or WidgetKind.WebSearch => HeaderPlacement.Hidden,
+
+        // [S-867] A stack's rows and a tab strip are their own chrome (the original drew them with
+        // no widget header): a "Stack" title over a list of names is a header over headers.
+        WidgetKind.Stack or WidgetKind.Tabs => HeaderPlacement.Hidden,
         _ => HeaderPlacement.Top,
     };
 

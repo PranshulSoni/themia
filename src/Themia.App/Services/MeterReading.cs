@@ -10,7 +10,8 @@ public readonly record struct MeterFact(string Label, string Value);
 /// <param name="Value">Its figure, already formatted.</param>
 /// <param name="Fraction">Its share, 0..1, for a mini bar under the row; null draws none.</param>
 /// <param name="Tooltip">More about it on hover (a pid, a full path); null for none.</param>
-public readonly record struct MeterRow(string Name, string Value, double? Fraction = null, string? Tooltip = null);
+/// <param name="Open">[S-1166] What clicking the row does (open a drive in Explorer); null for a row that does nothing.</param>
+public readonly record struct MeterRow(string Name, string Value, double? Fraction = null, string? Tooltip = null, Action? Open = null);
 
 /// <summary>[S-1127] A meter's breakdown list and its heading: "Top processes", "Cores", "Drives".</summary>
 public sealed record MeterList(string Title, IReadOnlyList<MeterRow> Rows);
@@ -27,6 +28,12 @@ public enum MeterTone
     /// <summary>What is left (free): the empty track.</summary>
     Rest = 2,
 }
+
+/// <summary>[S-1150] One bar of a per-part strip (a logical processor): its load and the colour that load deserves.</summary>
+public readonly record struct MeterCell(double Fraction, Themia.Core.Widgets.MeterPressure Pressure);
+
+/// <summary>[S-1150] A strip of small bars, one per part: "8 cores · 16 logical processors".</summary>
+public sealed record MeterCells(string Title, IReadOnlyList<MeterCell> Cells);
 
 /// <summary>[S-1128] One part of a composition bar: "In use 9.8 GB", "Cached 4.1 GB", "Free 2.1 GB".</summary>
 public readonly record struct MeterSegment(string Label, string Value, double Fraction, MeterTone Tone);
@@ -64,6 +71,7 @@ public readonly record struct MeterSegment(string Label, string Value, double Fr
 /// </param>
 /// <param name="List">[S-1127] The breakdown list (top processes, cores, drives), or null.</param>
 /// <param name="Segments">[S-1128] A composition bar (in use / cached / free), or null.</param>
+/// <param name="Cells">[S-1150] A strip of per-part bars (per-core load), or null.</param>
 public readonly record struct MeterReading(
     double? Fraction,
     string Primary,
@@ -75,7 +83,8 @@ public readonly record struct MeterReading(
     double? Second = null,
     IReadOnlyList<MeterFact>? Details = null,
     MeterList? List = null,
-    IReadOnlyList<MeterSegment>? Segments = null)
+    IReadOnlyList<MeterSegment>? Segments = null,
+    MeterCells? Cells = null)
 {
     public static MeterReading Unavailable(string reason) => new(null, "--", reason, false);
 

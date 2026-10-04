@@ -477,6 +477,12 @@ public sealed class AppStateStore : IAsyncDisposable
                 widget.Header = HeaderPlacement.Top;
                 repairs.Add($"widget '{widget.Id}' had an unknown header placement");
             }
+            else if (!HeaderRules.Allows(widget.Kind, widget.Header))
+            {
+                // [S-862] A side header on anything but a group: a hand edit, never the settings.
+                repairs.Add($"widget '{widget.Id}' ({widget.Kind}) cannot have a {widget.Header} header");
+                widget.Header = HeaderPlacement.Top;
+            }
 
             var settled = GridGeometry.Clamp(widget.Rect, unit);
             if (settled != widget.Rect)

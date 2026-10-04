@@ -44,6 +44,12 @@ public sealed record GpuReading(
     public double? EncoderPercent { get; init; }
 
     public double? DecoderPercent { get; init; }
+
+    /// <summary>[S-1203] One load per engine kind the adapter has, in <see cref="GpuEngineKind"/> order.</summary>
+    public IReadOnlyList<GpuEngineLoad> Engines { get; init; } = [];
+
+    /// <summary>[S-1205] The busiest processes on the adapter, busiest first.</summary>
+    public IReadOnlyList<GpuProcessLoad> Processes { get; init; } = [];
 }
 
 /// <summary>
@@ -53,9 +59,6 @@ public sealed record GpuReading(
 /// </summary>
 public static class GpuRules
 {
-    /// <summary>[S-430] Samples the sparkline holds, the same window the other meters keep.</summary>
-    public const int HistoryLength = 60;
-
     /// <summary>
     /// [S-433] The adapters a widget shows. Negative and repeated entries are dropped, order is kept,
     /// and an empty or absent list means the primary adapter — a widget never draws nothing because

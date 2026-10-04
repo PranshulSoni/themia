@@ -25,6 +25,10 @@ public readonly record struct HabitLayoutInput(int Count, bool Writable, bool Sh
 /// <param name="Dots">History dots per row (0 for none): the configured count, or fewer when narrow.</param>
 /// <param name="Rate">A per-row completion rate over the last <see cref="HabitRules.RateWindow"/> periods.</param>
 /// <param name="Best">A per-row best run.</param>
+/// <param name="SummaryBar">
+/// [S-1571] The summary's progress bar under its line. False on a tile one height class down, where
+/// the summary is its line alone, in the height the whole rows leave.
+/// </param>
 public sealed record HabitLayoutPlan(
     bool CompactRows,
     double RowHeight,
@@ -38,22 +42,8 @@ public sealed record HabitLayoutPlan(
     bool StreakWords,
     int Dots,
     bool Rate,
-    bool Best);
-
-/// <summary>[S-1428] The keys a focused habit row answers to.</summary>
-public enum HabitKey
-{
-    Up,
-    Down,
-    Home,
-    End,
-    Tab,
-    ShiftTab,
-    Enter,
-    Rename,
-    Delete,
-    Escape,
-}
+    bool Best,
+    bool SummaryBar = true);
 
 /// <summary>[S-1428] What a key on a focused row does.</summary>
 public enum HabitKeyCommand
@@ -115,6 +105,9 @@ public static class HabitLayout
     /// <summary>A caption line, a 4px bar, and the space around them.</summary>
     public const double SummaryHeight = 16 + 4 + 4 + 12;
 
+    /// <summary>[S-1571] The summary as its line alone: a caption line and the space under it.</summary>
+    public const double SummaryLineHeight = 16 + 12;
+
     /// <summary>Under this a chart is a smear, not a chart.</summary>
     public const double ChartMinHeight = 64;
 
@@ -158,6 +151,10 @@ public static class HabitLayout
         var summary = count > 0 && area.HeightClass >= SizeClass.Expanded && room.Take(SummaryHeight);
         var rows = count == 0 ? 0 : 1 + room.TakeRows(row, count - 1);
 
+        // [S-1571] One height class down the rows rarely come out even: the height no whole row can
+        // use (about a row's worth on an M tile) carries the summary's line, without its bar.
+        var summaryLine = !summary && count > 0 && area.HeightClass >= SizeClass.Regular && room.Take(SummaryLineHeight);
+
         var chart = 0.0;
         var bars = 0;
         if (count > 0 && rows == count && area.HeightClass >= SizeClass.Expanded && area.WidthClass >= SizeClass.Regular
@@ -167,7 +164,7 @@ public static class HabitLayout
             bars = Math.Clamp((int)Math.Floor((area.Width - (2 * inset) + (BarPitch / 2)) / BarPitch), 7, HabitRules.MaxHistory);
         }
 
-        return new HabitLayoutPlan(compact, row, inset, rows, addRow, summary, chart, bars, streak, words, dots, rate, best);
+        return new HabitLayoutPlan(compact, row, inset, rows, addRow, summary || summaryLine, chart, bars, streak, words, dots, rate, best, SummaryBar: summary);
     }
 
     /// <summary>
@@ -175,27 +172,38 @@ public static class HabitLayout
     /// clamp at the ends; Tab and Shift+Tab wrap ("next one", not a direction); Enter ticks, as the
     /// box does; F2 renames; Delete removes; Escape gives the keyboard back.
     /// </summary>
-    public static HabitKeyResult Decide(HabitKey key, int index, int count)
+    /// <remarks>
+    /// [S-812] With no row focused (<paramref name="index"/> negative) a movement key lands on an end
+    /// (Up, Down, Home, Tab the first row; End, Shift+Tab the last) and the rest do nothing.
+    /// </remarks>
+    public static HabitKeyResult Decide(WidgetKey key, int index, int count)
     {
-        if (count <= 0)
+        if (count <= 0 || index < 0)
         {
-            return key == HabitKey.Escape ? new(HabitKeyCommand.Release, -1) : new(HabitKeyCommand.None, -1);
+            return key switch
+            {
+                WidgetKey.Escape => new(HabitKeyCommand.Release, -1),
+                _ when count <= 0 => new(HabitKeyCommand.None, -1),
+                WidgetKey.Up or WidgetKey.Down or WidgetKey.Home or WidgetKey.Tab => new(HabitKeyCommand.Focus, 0),
+                WidgetKey.End or WidgetKey.ShiftTab => new(HabitKeyCommand.Focus, count - 1),
+                _ => new(HabitKeyCommand.None, -1),
+            };
         }
 
         var at = Math.Clamp(index, 0, count - 1);
 
         return key switch
         {
-            HabitKey.Up => new(HabitKeyCommand.Focus, Math.Max(0, at - 1)),
-            HabitKey.Down => new(HabitKeyCommand.Focus, Math.Min(count - 1, at + 1)),
-            HabitKey.Home => new(HabitKeyCommand.Focus, 0),
-            HabitKey.End => new(HabitKeyCommand.Focus, count - 1),
-            HabitKey.Tab => new(HabitKeyCommand.Focus, (at + 1) % count),
-            HabitKey.ShiftTab => new(HabitKeyCommand.Focus, (at - 1 + count) % count),
-            HabitKey.Enter => new(HabitKeyCommand.Toggle, at),
-            HabitKey.Rename => new(HabitKeyCommand.Rename, at),
-            HabitKey.Delete => new(HabitKeyCommand.Delete, at),
-            HabitKey.Escape => new(HabitKeyCommand.Release, at),
+            WidgetKey.Up => new(HabitKeyCommand.Focus, Math.Max(0, at - 1)),
+            WidgetKey.Down => new(HabitKeyCommand.Focus, Math.Min(count - 1, at + 1)),
+            WidgetKey.Home => new(HabitKeyCommand.Focus, 0),
+            WidgetKey.End => new(HabitKeyCommand.Focus, count - 1),
+            WidgetKey.Tab => new(HabitKeyCommand.Focus, (at + 1) % count),
+            WidgetKey.ShiftTab => new(HabitKeyCommand.Focus, (at - 1 + count) % count),
+            WidgetKey.Enter => new(HabitKeyCommand.Toggle, at),
+            WidgetKey.Rename => new(HabitKeyCommand.Rename, at),
+            WidgetKey.Delete => new(HabitKeyCommand.Delete, at),
+            WidgetKey.Escape => new(HabitKeyCommand.Release, at),
             _ => new(HabitKeyCommand.None, at),
         };
     }

@@ -49,9 +49,20 @@ internal enum AppPageSlot
 }
 
 /// <summary>One app-wide settings page: its menu entry and the code that builds its body.</summary>
+/// <param name="Glyph">The monochrome glyph search results show for the page.</param>
+/// <param name="Icon">[S-1600] The full-colour icon the navigation shows for the page.</param>
+/// <param name="Available">
+/// [S-990] When the page exists at all — the Logs page only in developer mode. Null: always. A page
+/// that is not available is out of the menu and search, and the window leaves it if it is open.
+/// </param>
 internal sealed record AppPageEntry(
     AppPage Page,
     string Title,
     string Glyph,
+    NavIcon Icon,
     AppPageSlot Slot,
-    Func<Services.AppHost, Microsoft.UI.Xaml.FrameworkElement> Build);
+    Func<Services.AppHost, Microsoft.UI.Xaml.FrameworkElement> Build,
+    Func<Themia.Core.Model.AppState, bool>? Available = null)
+{
+    public bool IsAvailable(Themia.Core.Model.AppState state) => Available?.Invoke(state) ?? true;
+}

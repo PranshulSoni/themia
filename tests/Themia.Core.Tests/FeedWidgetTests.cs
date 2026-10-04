@@ -1,0 +1,385 @@
+using System.Net;
+using Themia.Core.Model;
+using Themia.Core.Storage;
+using Themia.Core.Widgets;
+using Xunit;
+
+namespace Themia.Core.Tests;
+
+/// <summary>
+/// [S-1300]..[S-1306] The feed widget: the network guard, merging several feeds, site icons, the
+/// ladder and the saved cache.
+/// </summary>
+public sealed class FeedWidgetTests : IDisposable
+{
+    private static readonly DateTimeOffset Now = new(2026, 10, 4, 15, 0, 0, TimeSpan.FromHours(2));
+
+    private readonly string _dir = Path.Combine(Path.GetTempPath(), "themia-feed-tests-" + Guid.NewGuid().ToString("N"));
+
+    public void Dispose()
+    {
+        if (Directory.Exists(_dir))
+        {
+            Directory.Delete(_dir, recursive: true);
+        }
+    }
+
+    // ---- [S-1301] network guard --------------------------------------------------------------
+
+    [Theory]
+    [InlineData("127.0.0.1")]
+    [InlineData("10.0.0.5")]
+    [InlineData("172.16.0.1")]
+    [InlineData("172.31.255.255")]
+    [InlineData("192.168.1.1")]
+    [InlineData("169.254.169.254")]
+    [InlineData("0.0.0.0")]
+    [InlineData("100.64.0.1")]
+    [InlineData("192.0.2.10")]
+    [InlineData("198.51.100.1")]
+    [InlineData("203.0.113.9")]
+    [InlineData("255.255.255.255")]
+    [InlineData("240.0.0.1")]
+    [InlineData("::1")]
+    [InlineData("::")]
+    [InlineData("fe80::1")]
+    [InlineData("fd12:3456::1")]
+    [InlineData("2001:db8::1")]
+    [InlineData("::ffff:192.168.0.1")]
+    public void S1301_LoopbackPrivateLinkLocalAndReservedAddressesAreBlocked(string address)
+        => Assert.True(NetworkGuard.IsBlocked(IPAddress.Parse(address)));
+
+    [Theory]
+    [InlineData("8.8.8.8")]
+    [InlineData("151.101.1.140")]
+    [InlineData("172.32.0.1")]
+    [InlineData("100.128.0.1")]
+    [InlineData("2606:4700::1111")]
+    [InlineData("::ffff:8.8.8.8")]
+    public void S1301_PublicAddressesPass(string address)
+        => Assert.False(NetworkGuard.IsBlocked(IPAddress.Parse(address)));
+
+    [Fact]
+    public void S1301_EveryResolvedAddressIsChecked_NotJustTheFirst()
+    {
+        var (verdict, culprit) = NetworkGuard.Judge("mixed.example", [IPAddress.Parse("8.8.8.8"), IPAddress.Parse("10.1.1.1")], proxied: false, allowPrivate: false);
+
+        Assert.Equal(GuardVerdict.Blocked, verdict);
+        Assert.Equal(IPAddress.Parse("10.1.1.1"), culprit);
+    }
+
+    [Fact]
+    public void S1301_TheUsersSwitchAllowsTheLocalNetwork()
+        => Assert.Equal(GuardVerdict.Allowed, NetworkGuard.Judge("192.168.1.1", null, proxied: false, allowPrivate: true).Verdict);
+
+    [Fact]
+    public void S1301_AnUnresolvableNameIsRefusedUnlessAProxyResolvesIt()
+    {
+        Assert.Equal(GuardVerdict.Unresolvable, NetworkGuard.Judge("nowhere.example", null, proxied: false, allowPrivate: false).Verdict);
+        Assert.Equal(GuardVerdict.Allowed, NetworkGuard.Judge("nowhere.example", null, proxied: true, allowPrivate: false).Verdict);
+    }
+
+    [Fact]
+    public void S1301_BeingProxiedIsNotABypassForAnAddressLiteral()
+    {
+        Assert.Equal(GuardVerdict.Blocked, NetworkGuard.Judge("127.0.0.1", null, proxied: true, allowPrivate: false).Verdict);
+        Assert.Equal(GuardVerdict.Blocked, NetworkGuard.Judge("[::1]", null, proxied: true, allowPrivate: false).Verdict);
+    }
+
+    [Fact]
+    public void S1301_ABareNameIsNotReadAsAnAddressShorthand()
+        => Assert.False(NetworkGuard.TryLiteral("intranet", out _));
+
+    // ---- [S-1302] several feeds --------------------------------------------------------------
+
+    private static FeedEntry Entry(string title, DateTimeOffset? at, string link = "https://a.example/x")
+        => new(title, link, at, string.Empty);
+
+    [Fact]
+    public void S1302_FeedsMergeNewestFirst_UndatedLast_Capped()
+    {
+        var a = new FeedDocument("A", [Entry("a1", Now.AddHours(-1)), Entry("a-undated", null), Entry("a2", Now.AddHours(-5))]);
+        var b = new FeedDocument("B", [Entry("b1", Now.AddMinutes(-10)), Entry("b-undated", null), Entry("b2", Now.AddHours(-3))]);
+
+        var merged = FeedAggregate.Merge(
+            [new FeedPart("https://a.example/f", a, FetchStatus.Ok, null), new FeedPart("https://b.example/f", b, FetchStatus.Ok, null)],
+            cap: 5);
+
+        Assert.Equal(["b1", "a1", "b2", "a2", "a-undated"], merged.Entries.Select(e => e.Title));
+        Assert.Empty(merged.Failures);
+    }
+
+    [Fact]
+    public void S1302_APartialFailureIsNamedAfterItsFeed()
+    {
+        var a = new FeedDocument("Tech News", [Entry("a1", Now)]);
+
+        var merged = FeedAggregate.Merge(
+            [
+                new FeedPart("https://a.example/f", a, FetchStatus.Ok, null),
+                new FeedPart("https://www.broken.example/rss", null, FetchStatus.BadResponse, "HTTP 403 Forbidden"),
+            ],
+            cap: 20);
+
+        Assert.Single(merged.Entries);
+        Assert.Equal(["broken.example: HTTP 403 Forbidden"], merged.Failures);
+    }
+
+    [Fact]
+    public void S1302_TitleIsTheSingleFeedsOwn_OrTheNamesJoined()
+    {
+        var one = new FeedPart("https://a.example/f", new FeedDocument("World News", [Entry("x", Now)]), FetchStatus.Ok, null);
+        var two = new FeedPart("https://www.b.example/f", null, FetchStatus.Loading, null);
+
+        Assert.Equal("World News", FeedAggregate.Title([one]));
+        Assert.Equal("World News, b.example", FeedAggregate.Title([one, two]));
+        Assert.Equal(string.Empty, FeedAggregate.Title([]));
+    }
+
+    [Fact]
+    public void S1302_RepeatedAndBlankAddressesAreFolded_RefusedOnesAreNotFetched()
+    {
+        var config = new RssConfig
+        {
+            Feeds =
+            [
+                new RssFeed { Url = "https://a.example/feed" },
+                new RssFeed { Url = " " },
+                new RssFeed { Url = "https://a.example/feed" },
+                new RssFeed { Url = "javascript:alert(1)" },
+                new RssFeed { Url = "https://b.example/feed" },
+            ],
+        };
+
+        Assert.Equal(3, config.ResolvedFeeds.Count);
+        Assert.Equal(["https://a.example/feed", "https://b.example/feed"], config.FeedUrls);
+    }
+
+    [Fact]
+    public void S1302_AHandEditedListIsRepairedToTheCap()
+    {
+        var config = new RssConfig { Feeds = [.. Enumerable.Range(0, 20).Select(i => new RssFeed { Url = $"https://f{i}.example/" })] };
+
+        var repairs = config.Repair();
+
+        Assert.Equal(RssConfig.MaxFeeds, config.Feeds.Count);
+        Assert.NotEmpty(repairs);
+    }
+
+    [Theory]
+    [InlineData(-30, "Just now")]
+    [InlineData(-300, "5m ago")]
+    [InlineData(-7200, "2h ago")]
+    [InlineData(-86400 * 6, "6d ago")]
+    [InlineData(-86400 * 8, "Sep 26")]
+    [InlineData(-86400 * 400, "Aug 30, 2025")]
+    public void S1302_ItemAgeIsRelativeForAWeek_ThenADate(int seconds, string expected)
+        => Assert.Equal(expected, FeedAggregate.Age(Now.AddSeconds(seconds), Now));
+
+    // ---- [S-1304] site icons -----------------------------------------------------------------
+
+    [Theory]
+    [InlineData("https://www.bbc.co.uk/news/world-1?x=1#y", "https://www.bbc.co.uk/favicon.ico")]
+    [InlineData("http://blog.example:8080/a/b", "http://blog.example:8080/favicon.ico")]
+    public void S1304_TheIconComesFromTheSiteItself(string link, string expected)
+        => Assert.Equal(expected, FeedAggregate.FaviconOf(link)?.ToString());
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("ftp://files.example/x")]
+    [InlineData("https://user:pass@site.example/")]
+    [InlineData("not a link")]
+    public void S1304_ALinkWithoutAWebOriginHasNoIcon(string link)
+        => Assert.Null(FeedAggregate.FaviconOf(link));
+
+    [Fact]
+    public void S1304_OnlyBitmapIconsAreDecoded()
+    {
+        Assert.True(FeedAggregate.LooksLikeIcon([0, 0, 1, 0, 1, 0, 16, 16]));
+        Assert.True(FeedAggregate.LooksLikeIcon([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A]));
+        Assert.False(FeedAggregate.LooksLikeIcon("<!DOCTYPE html>"u8));
+        Assert.False(FeedAggregate.LooksLikeIcon("<svg xmlns='x'>"u8));
+        Assert.False(FeedAggregate.LooksLikeIcon([0, 0]));
+    }
+
+    // ---- [S-1305] the ladder -----------------------------------------------------------------
+
+    // The gallery's tiers as content slots (the card less a 44px header).
+    public static TheoryData<string, double, double> Tiers => new()
+    {
+        { "XS", 120, 76 },
+        { "S", 200, 106 },
+        { "M", 320, 196 },
+        { "Wide", 480, 116 },
+        { "Tall", 200, 356 },
+        { "L", 560, 376 },
+        { "XL", 800, 516 },
+    };
+
+    [Theory]
+    [MemberData(nameof(Tiers))]
+    public void S1305_OneWholeRowFitsAtEveryTier(string tier, double width, double height)
+    {
+        var plan = FeedLayout.Plan(new WidgetArea(width, height), true, true, true);
+
+        Assert.True(FeedLayout.RowEstimate(plan) <= height - FeedLayout.ListInset + Disclosure.Tolerance, tier);
+        Assert.True(plan.HeadlineLines >= 1, tier);
+    }
+
+    [Fact]
+    public void S1305_TheSmallestTileShowsTheHeadlineAndNoSource()
+    {
+        var plan = FeedLayout.Plan(new WidgetArea(120, 76), true, true, true);
+
+        Assert.Equal(FeedArrangement.List, plan.Arrangement);
+        Assert.False(plan.Favicon);
+        Assert.False(plan.Host);
+        Assert.Equal(0, plan.PreviewLines);
+    }
+
+    [Fact]
+    public void S1305_AStripAndALargeTileGoToColumns()
+    {
+        var wide = FeedLayout.Plan(new WidgetArea(480, 116), true, true, true);
+        var large = FeedLayout.Plan(new WidgetArea(560, 376), true, true, true);
+
+        Assert.Equal(FeedArrangement.Columns, wide.Arrangement);
+        Assert.Equal(2, wide.Columns);
+        Assert.Equal(2, large.Columns);
+        Assert.True(large.Host);
+        Assert.True(large.PreviewLines > 0);
+    }
+
+    [Fact]
+    public void S1305_ATallColumnIsForHeadlines_IconWithoutName()
+    {
+        var plan = FeedLayout.Plan(new WidgetArea(200, 356), true, true, true);
+
+        Assert.Equal(1, plan.Columns);
+        Assert.True(plan.Favicon);
+        Assert.False(plan.Host);
+        Assert.Equal(0, plan.PreviewLines);
+    }
+
+    [Fact]
+    public void S1305_TheMediumTileKeepsTwoHeadlinesRatherThanOnePreview()
+    {
+        var plan = FeedLayout.Plan(new WidgetArea(320, 196), true, true, true);
+
+        Assert.True(plan.Host);
+        Assert.Equal(0, plan.PreviewLines);
+    }
+
+    [Fact]
+    public void S1306_TheLargestTileGetsAReadingPane()
+    {
+        var plan = FeedLayout.Plan(new WidgetArea(800, 516), true, true, true);
+
+        Assert.Equal(FeedArrangement.Reading, plan.Arrangement);
+        Assert.InRange(plan.ListWidth, FeedLayout.MinPane, 360);
+        Assert.True(800 - plan.ListWidth >= FeedLayout.MinPane);
+    }
+
+    [Fact]
+    public void S1306_AWideButShortStripStaysInColumns()
+        => Assert.Equal(FeedArrangement.Columns, FeedLayout.Plan(new WidgetArea(800, 116), true, true, true).Arrangement);
+
+    [Fact]
+    public void S1305_SwitchedOffFieldsStayOff()
+    {
+        var plan = FeedLayout.Plan(new WidgetArea(560, 376), showSource: false, showPreview: false, showDate: false);
+
+        Assert.False(plan.Favicon);
+        Assert.False(plan.Host);
+        Assert.False(plan.Date);
+        Assert.Equal(0, plan.PreviewLines);
+    }
+
+    [Fact]
+    public void S1305_WholeRowsOnly_AtLeastOne()
+    {
+        Assert.Equal(2, FeedLayout.WholeRows([60, 60, 60], 150));
+        Assert.Equal(1, FeedLayout.WholeRows([200], 100));
+        Assert.Equal(0, FeedLayout.WholeRows([], 100));
+    }
+
+    // ---- [S-1300] saved cache ----------------------------------------------------------------
+
+    private static TickerQuote Quote() => new(
+        "MSFT", "Microsoft", 412.3, 0.8, "USD", 2,
+        [new QuoteBar(1_759_500_000, 410), new QuoteBar(1_759_500_300, 412.3)],
+        new TradingSessions(null, new SessionWindow(1_759_498_200, 1_759_521_600), null))
+    {
+        ExchangeOffset = TimeSpan.FromHours(-4),
+        ZoneName = "EDT",
+        HasPrePost = true,
+        Stats = new QuoteStats(409, 413, 408, 468, 344, 18_000_000, "NasdaqGS"),
+    };
+
+    [Fact]
+    public void S1300_FeedsAndQuotesRoundTrip()
+    {
+        var path = Path.Combine(_dir, NetworkCacheStore.FileName);
+        var feed = new FeedDocument("World", [new FeedEntry("Headline", "https://a.example/1", Now.AddHours(-1), "Summary")]);
+
+        Assert.True(NetworkCacheStore.Save(path, new NetworkCacheSnapshot(
+            [new CachedAnswer<FeedDocument>("https://a.example/f|20", Now.AddMinutes(-30), feed)],
+            [new CachedAnswer<TickerQuote>("Listed|MSFT|Day|prepost", Now.AddMinutes(-5), Quote())])));
+
+        var (snapshot, outcome) = NetworkCacheStore.Load(path, Now);
+
+        Assert.Equal(NetworkCacheLoadOutcome.Loaded, outcome);
+        var restoredFeed = Assert.Single(snapshot.Feeds);
+        Assert.Equal("Headline", restoredFeed.Value.Entries[0].Title);
+        Assert.Equal("https://a.example/1", restoredFeed.Value.Entries[0].Link);
+
+        var quote = Assert.Single(snapshot.Quotes).Value;
+        Assert.Equal(412.3, quote.Price);
+        Assert.Equal(2, quote.Bars.Count);
+        Assert.Equal(TimeSpan.FromHours(-4), quote.ExchangeOffset);
+        Assert.Equal("EDT", quote.ZoneName);
+        Assert.True(quote.HasPrePost);
+        Assert.Equal(18_000_000, quote.Stats.Volume);
+        Assert.NotNull(quote.Sessions.Regular);
+    }
+
+    [Fact]
+    public void S1300_OldEntriesAndHostileLinksAreNotRestored()
+    {
+        var feed = new FeedDocument("X", [new FeedEntry("Bad", "javascript:alert(1)", null, string.Empty)]);
+        var json = NetworkCacheStore.Serialize(new NetworkCacheSnapshot(
+            [
+                new CachedAnswer<FeedDocument>("old", Now.AddDays(-30), feed),
+                new CachedAnswer<FeedDocument>("new", Now.AddMinutes(-1), feed),
+            ],
+            []));
+
+        var snapshot = NetworkCacheStore.Parse(json, Now)!;
+
+        var only = Assert.Single(snapshot.Feeds);
+        Assert.Equal("new", only.Key);
+        Assert.Equal(string.Empty, only.Value.Entries[0].Link);
+    }
+
+    [Fact]
+    public void S1300_ACorruptFileIsSetAsideAndTheCacheStartsEmpty()
+    {
+        Directory.CreateDirectory(_dir);
+        var path = Path.Combine(_dir, NetworkCacheStore.FileName);
+        File.WriteAllText(path, "{ not json");
+
+        var (snapshot, outcome) = NetworkCacheStore.Load(path, Now);
+
+        Assert.Equal(NetworkCacheLoadOutcome.Recovered, outcome);
+        Assert.Empty(snapshot.Feeds);
+        Assert.True(File.Exists(path + ".corrupt"));
+    }
+
+    [Fact]
+    public void S1300_AnotherSchemaVersionIsNotTrusted()
+        => Assert.Null(NetworkCacheStore.Parse("{\"schemaVersion\":99,\"feeds\":[],\"quotes\":[]}", Now));
+
+    [Fact]
+    public void S1300_NoFileIsAFreshStart()
+        => Assert.Equal(NetworkCacheLoadOutcome.Fresh, NetworkCacheStore.Load(Path.Combine(_dir, "none.json"), Now).Outcome);
+}

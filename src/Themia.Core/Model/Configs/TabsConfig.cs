@@ -15,7 +15,10 @@ public sealed class TabsConfig : WidgetConfig
     [JsonIgnore]
     public override WidgetKind Kind => WidgetKind.Tabs;
 
-    /// <summary>The selected child by id; an unknown id falls back to the first.</summary>
+    /// <summary>
+    /// [S-868] The selected child by id; an unknown id falls back to the first without being
+    /// rewritten (see <see cref="ContainerRules.SelectedIndex"/>).
+    /// </summary>
     public string? SelectedChildId { get; set; }
 
     public override WidgetConfig Clone() => new TabsConfig { SelectedChildId = SelectedChildId };

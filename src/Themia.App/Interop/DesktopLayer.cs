@@ -195,15 +195,4 @@ internal static class DesktopLayer
             Log.Debug(Scope, $"DwmSetWindowAttribute(BORDER_COLOR) returned 0x{hr:X8}");
         }
     }
-
-    /// <summary>Drop the mask so the whole window is hittable again (edit mode).</summary>
-    public static void ClearHitRegion(nint hwnd)
-    {
-        if (hwnd == 0 || !Win32.IsWindow(hwnd))
-        {
-            return;
-        }
-
-        Win32.SetWindowRgn(hwnd, 0, redraw: true);
-    }
 }

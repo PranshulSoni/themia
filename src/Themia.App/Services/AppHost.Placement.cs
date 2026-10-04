@@ -70,7 +70,7 @@ internal sealed partial class AppHost
 
         Mutate(state => (state.FindView(viewId) ?? state.ActiveView()).Widgets.Add(widget));
         Select(widget.Id);
-        Log.Info(Scope, $"placed a {kind} on {surface.Monitor.DeviceName}");
+        Log.Info(Scope, $"placed a {kind} on {surface.Monitor.GdiName}");
         return widget.Id;
     }
 }

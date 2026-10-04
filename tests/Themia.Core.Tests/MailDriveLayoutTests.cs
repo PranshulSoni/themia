@@ -15,37 +15,54 @@ public sealed class MailDriveLayoutTests
     // ---- [S-1288] list keys ------------------------------------------------------------------------
 
     [Theory]
-    [InlineData(ListKey.Down, 3, 10, ListCommand.Focus, 4)]
-    [InlineData(ListKey.Down, 9, 10, ListCommand.Focus, 9)]
-    [InlineData(ListKey.Up, 0, 10, ListCommand.Focus, 0)]
-    [InlineData(ListKey.Up, 5, 10, ListCommand.Focus, 4)]
-    [InlineData(ListKey.PageDown, 3, 25, ListCommand.Focus, 13)]
-    [InlineData(ListKey.PageDown, 20, 25, ListCommand.Focus, 24)]
-    [InlineData(ListKey.PageUp, 4, 25, ListCommand.Focus, 0)]
-    [InlineData(ListKey.Home, 7, 10, ListCommand.Focus, 0)]
-    [InlineData(ListKey.End, 2, 10, ListCommand.Focus, 9)]
-    [InlineData(ListKey.Enter, 2, 10, ListCommand.Open, 2)]
-    [InlineData(ListKey.Delete, 2, 10, ListCommand.Delete, 2)]
-    [InlineData(ListKey.Rename, 2, 10, ListCommand.Rename, 2)]
-    public void S1288_keys_move_and_act_on_the_focused_row(ListKey key, int index, int count, ListCommand command, int target)
+    [InlineData(WidgetKey.Down, 3, 10, ListCommand.Focus, 4)]
+    [InlineData(WidgetKey.Down, 9, 10, ListCommand.Focus, 9)]
+    [InlineData(WidgetKey.Up, 0, 10, ListCommand.Focus, 0)]
+    [InlineData(WidgetKey.Up, 5, 10, ListCommand.Focus, 4)]
+    [InlineData(WidgetKey.PageDown, 3, 25, ListCommand.Focus, 13)]
+    [InlineData(WidgetKey.PageDown, 20, 25, ListCommand.Focus, 24)]
+    [InlineData(WidgetKey.PageUp, 4, 25, ListCommand.Focus, 0)]
+    [InlineData(WidgetKey.Home, 7, 10, ListCommand.Focus, 0)]
+    [InlineData(WidgetKey.End, 2, 10, ListCommand.Focus, 9)]
+    [InlineData(WidgetKey.Enter, 2, 10, ListCommand.Open, 2)]
+    [InlineData(WidgetKey.Delete, 2, 10, ListCommand.Delete, 2)]
+    [InlineData(WidgetKey.Rename, 2, 10, ListCommand.Rename, 2)]
+    [InlineData(WidgetKey.Menu, 2, 10, ListCommand.Menu, 2)]
+    public void S1288_keys_move_and_act_on_the_focused_row(WidgetKey key, int index, int count, ListCommand command, int target)
         => Assert.Equal(new ListKeyResult(command, target), ListKeys.Decide(key, index, count));
 
     [Fact]
     public void S1288_with_no_focus_movement_lands_on_an_end_and_actions_do_nothing()
     {
-        Assert.Equal(new ListKeyResult(ListCommand.Focus, 0), ListKeys.Decide(ListKey.Down, -1, 5));
-        Assert.Equal(new ListKeyResult(ListCommand.Focus, 0), ListKeys.Decide(ListKey.Up, -1, 5));
-        Assert.Equal(new ListKeyResult(ListCommand.Focus, 4), ListKeys.Decide(ListKey.End, -1, 5));
-        Assert.Equal(ListCommand.None, ListKeys.Decide(ListKey.Enter, -1, 5).Command);
-        Assert.Equal(ListCommand.None, ListKeys.Decide(ListKey.Delete, -1, 5).Command);
+        Assert.Equal(new ListKeyResult(ListCommand.Focus, 0), ListKeys.Decide(WidgetKey.Down, -1, 5));
+        Assert.Equal(new ListKeyResult(ListCommand.Focus, 0), ListKeys.Decide(WidgetKey.Up, -1, 5));
+        Assert.Equal(new ListKeyResult(ListCommand.Focus, 4), ListKeys.Decide(WidgetKey.End, -1, 5));
+        Assert.Equal(ListCommand.None, ListKeys.Decide(WidgetKey.Enter, -1, 5).Command);
+        Assert.Equal(ListCommand.None, ListKeys.Decide(WidgetKey.Delete, -1, 5).Command);
     }
+
+    [Theory]
+    [InlineData(WidgetKey.Left)]
+    [InlineData(WidgetKey.Right)]
+    [InlineData(WidgetKey.Tab)]
+    [InlineData(WidgetKey.ShiftTab)]
+    [InlineData(WidgetKey.Space)]
+    public void S1560_keys_a_list_has_no_use_for_go_on_to_the_surface(WidgetKey key)
+    {
+        Assert.Equal(ListCommand.None, ListKeys.Decide(key, 2, 10).Command);
+        Assert.Equal(ListCommand.None, ListKeys.Decide(key, -1, 10).Command);
+    }
+
+    [Fact]
+    public void S1560_the_menu_key_needs_a_focused_row()
+        => Assert.Equal(ListCommand.None, ListKeys.Decide(WidgetKey.Menu, -1, 5).Command);
 
     [Fact]
     public void S1288_escape_releases_even_an_empty_list_and_a_shrunk_list_acts_on_its_last_row()
     {
-        Assert.Equal(ListCommand.Release, ListKeys.Decide(ListKey.Escape, 3, 0).Command);
-        Assert.Equal(ListCommand.None, ListKeys.Decide(ListKey.Down, 0, 0).Command);
-        Assert.Equal(new ListKeyResult(ListCommand.Open, 2), ListKeys.Decide(ListKey.Enter, 7, 3));
+        Assert.Equal(ListCommand.Release, ListKeys.Decide(WidgetKey.Escape, 3, 0).Command);
+        Assert.Equal(ListCommand.None, ListKeys.Decide(WidgetKey.Down, 0, 0).Command);
+        Assert.Equal(new ListKeyResult(ListCommand.Open, 2), ListKeys.Decide(WidgetKey.Enter, 7, 3));
 
         Assert.Equal(2, ListKeys.AfterRemoval(2, 5));
         Assert.Equal(3, ListKeys.AfterRemoval(4, 4));
@@ -92,8 +109,11 @@ public sealed class MailDriveLayoutTests
     {
         var config = new EmailConfig();
 
+        var narrow = MailLayout.Rows(config, 430, 116);
+        Assert.False(narrow.Preview);
+
         var strip = MailLayout.Rows(config, 480, 116);
-        Assert.False(strip.Preview);
+        Assert.True(strip.Preview);
         Assert.False(strip.Account);
 
         var wider = MailLayout.Rows(config, 560, 116);
@@ -183,11 +203,11 @@ public sealed class MailDriveLayoutTests
         Assert.Equal([DriveColumn.Modified, DriveColumn.Size], wide.Columns.Select(c => c.Column));
 
         var large = DriveLayout.Fit(500, 376, compact: false, showLocation: true);
-        Assert.Equal([DriveColumn.Modified, DriveColumn.Size, DriveColumn.ModifiedBy], large.Columns.Select(c => c.Column));
+        Assert.Equal([DriveColumn.Modified, DriveColumn.ModifiedBy, DriveColumn.Size], large.Columns.Select(c => c.Column));
         Assert.True(large.ColumnHeader);
 
         var huge = DriveLayout.Fit(740, 516, compact: false, showLocation: true);
-        Assert.Equal([DriveColumn.Modified, DriveColumn.Size, DriveColumn.ModifiedBy, DriveColumn.Location], huge.Columns.Select(c => c.Column));
+        Assert.Equal([DriveColumn.Modified, DriveColumn.ModifiedBy, DriveColumn.Location, DriveColumn.Size], huge.Columns.Select(c => c.Column));
 
         // Inside one folder every item is in the same place: no location column.
         Assert.DoesNotContain(DriveLayout.Fit(740, 516, compact: false, showLocation: false).Columns, c => c.Column == DriveColumn.Location);
@@ -244,18 +264,18 @@ public sealed class MailDriveLayoutTests
     {
         var state = AppState.CreateDefault();
         var widget = WidgetInstance.Create(WidgetKind.OneDrive, new FracRect(0.1, 0.1, 0.2, 0.2));
-        widget.Config = new OneDriveConfig { ClickMode = ClickMode.Single };
+        widget.Config = new OneDriveConfig { ClickMode = ItemClickMode.Single };
         state.Views[0].Widgets.Add(widget);
 
         var json = SettingsTransfer.Serialize(state);
         Assert.Contains("\"clickMode\": \"Single\"", json, StringComparison.Ordinal);
 
         var back = AppStateStore.Parse(json).State!.Views[0].Widgets.Single(w => w.Kind == WidgetKind.OneDrive).Config;
-        Assert.Equal(ClickMode.Single, Assert.IsType<OneDriveConfig>(back).ClickMode);
+        Assert.Equal(ItemClickMode.Single, Assert.IsType<OneDriveConfig>(back).ClickMode);
 
-        var broken = new OneDriveConfig { ClickMode = (ClickMode)9, FileCount = 400 };
+        var broken = new OneDriveConfig { ClickMode = (ItemClickMode)9, FileCount = 400 };
         Assert.Equal(2, broken.Repair().Count);
-        Assert.Equal(ClickMode.Double, broken.ClickMode);
+        Assert.Equal(ItemClickMode.Double, broken.ClickMode);
         Assert.Equal(OneDriveConfig.MaxFiles, broken.FileCount);
     }
 }

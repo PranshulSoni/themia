@@ -807,19 +807,13 @@ internal static class FluentLayout
     /// the same four lines is four places for the fallback to drift. Looking the brush up by key is
     /// what makes a surface follow the theme; a literal colour is a surface that does not.
     /// </para>
+    /// <para>
+    /// [S-822] The brush comes from the appearance engine: it is Themia's theme (not the app's start-up
+    /// theme) and it changes colour in place when the theme or the accent does, so nothing built from
+    /// it has to be rebuilt.
+    /// </para>
     /// </summary>
-    public static Brush Themed(string key, Windows.UI.Color fallback)
-    {
-        if (Application.Current.Resources.TryGetValue(key, out var value) && value is Brush brush)
-        {
-            return brush;
-        }
-
-        // A missing key is a typo or a renamed system resource, and the literal that replaces it is
-        // a colour that will not follow the theme. Worth saying out loud rather than quietly wrong.
-        Log.Warn(Scope, $"theme resource '{key}' missing; using a literal colour");
-        return new SolidColorBrush(fallback);
-    }
+    public static Brush Themed(string key, Windows.UI.Color fallback) => DesignApplier.Brush(key, fallback);
 }
 
 /// <summary>What one <see cref="FluentLayout.ListEditor{T}"/> needs to know about its list.</summary>

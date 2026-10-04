@@ -70,8 +70,11 @@ public static class FeedParser
     /// </summary>
     private const long MaxCharacters = 8L * 1024 * 1024;
 
-    /// <summary>How much of a summary is worth keeping. Past this it is an article, not a preview.</summary>
-    private const int MaxSummary = 300;
+    /// <summary>
+    /// How much of a summary is worth keeping: enough for the reading pane of a large tile ([S-1306]).
+    /// Past this it is an article, not a summary.
+    /// </summary>
+    private const int MaxSummary = 600;
 
     /// <summary>How long a title is allowed to be before it is trimmed. Defensive, not cosmetic.</summary>
     private const int MaxTitle = 400;

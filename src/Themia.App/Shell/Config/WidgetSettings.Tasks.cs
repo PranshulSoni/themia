@@ -163,7 +163,7 @@ internal static partial class WidgetSettings
 
         if (accounts.Count == 0 || accounts.Any(a => a.Problem is not null))
         {
-            yield return FluentLayout.ClickRow(Glyphs.Contact, "Accounts",
+            yield return FluentLayout.NavRow(Glyphs.Contact, "Accounts",
                 accounts.Count == 0 ? "Sign in to Microsoft To Do or Google Tasks" : "An account needs you to sign in again",
                 () => navigate(new ConfigTarget.App(AppPage.Accounts)));
         }

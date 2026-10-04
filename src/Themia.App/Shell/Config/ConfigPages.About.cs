@@ -245,7 +245,7 @@ internal static partial class ConfigPages
                 return;
             }
 
-            var displays = host.Surfaces.Select(s => s.Monitor.DeviceName).ToList();
+            var displays = host.Displays.Select(d => d.Id).ToList();
             var preview = SettingsTransfer.Compare(host.State, incoming, read.Repairs, displays);
             var backupName = Path.GetFileName(SettingsTransfer.BackupPath(host.StatePath, DateTime.Now));
 

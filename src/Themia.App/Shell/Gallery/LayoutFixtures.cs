@@ -9,9 +9,8 @@ namespace Themia.App.Shell.Gallery;
 /// show the layout a user actually sees once the widget has something in it. Reached through
 /// <see cref="GalleryFixtures"/> (<c>--gallery-png Kind+fixture</c>).
 /// <para>
-/// Debug builds only. The weather fixture is a fixed reading ([S-731]); the stock and feed
-/// fixtures fetch from the same public services the widgets use in real life; the rest are local
-/// and fixed.
+/// Debug builds only. The weather, stock and feed fixtures are fixed answers seeded into their
+/// caches ([S-731], [S-1305], [S-1311]); the rest are local and fixed.
 /// </para>
 /// </summary>
 internal static class LayoutFixtures
@@ -43,10 +42,12 @@ internal static class LayoutFixtures
                 return WeatherFixture.ForecastConfig();
 
             case WidgetKind.Stocks:
-                return new StocksConfig { Symbol = "MSFT", DisplayName = "Microsoft" };
+                // [S-1311] A fixed mid-session quote with extended hours, seeded: offline, every run alike.
+                return FeedStockFixture.StocksConfig();
 
             case WidgetKind.Rss:
-                return new RssConfig { FeedUrl = "https://feeds.bbci.co.uk/news/world/rss.xml" };
+                // [S-1305] Two fixed feeds, merged, seeded: offline, every run alike.
+                return FeedStockFixture.RssConfig();
 
             case WidgetKind.Countdown:
                 return new CountdownConfig
@@ -66,11 +67,20 @@ internal static class LayoutFixtures
                 {
                     Items =
                     [
+                        // [S-1383] Real shell icons, the bin's badge, a missing file ([S-1386]) and
+                        // a refused target, so every state the tiles draw is in the fixture.
+                        ShortcutItem.Create("shell:RecycleBinFolder"),
+                        ShortcutItem.Create("shell:MyComputerFolder"),
+                        ShortcutItem.Create("shell:Downloads"),
                         ShortcutItem.Create(@"C:\Windows\notepad.exe", "Notepad"),
                         ShortcutItem.Create(@"C:\Windows", "Windows folder"),
                         ShortcutItem.Create("https://github.com", "GitHub"),
                         ShortcutItem.Create(@"C:\Windows\System32\calc.exe", "Calculator"),
                         ShortcutItem.Create("https://learn.microsoft.com", "Microsoft Learn"),
+                        ShortcutItem.Create(@"C:\Windows\win.ini"),
+                        ShortcutItem.Create(@"C:\Users\Public\Documents\Old report.docx"),
+                        ShortcutItem.Create("shell:ControlPanelFolder"),
+                        ShortcutItem.Create("javascript:alert(1)", "Tampered"),
                     ],
                 };
 
@@ -80,15 +90,36 @@ internal static class LayoutFixtures
                 return HabitsFixture.Config();
 
             case WidgetKind.MoodTracker:
-                var mood = new MoodTrackerConfig();
-                for (var day = 1; day <= 20; day++)
+                // [S-1454] Twelve weeks with gaps, a few thoughts and two moods on some days, so the
+                // large tiers' insights and recent thoughts have something to say.
+                string[] thoughts = ["Long walk by the lake", "Deadline moved, finally", "Slept badly", "Dinner with Anna", "Rainy, stayed in"];
+
+                // [S-1573] THEMIA_MOOD_SPAN=month renders the Month span (default Rolling).
+                var mood = new MoodTrackerConfig
                 {
+                    Span = string.Equals(Environment.GetEnvironmentVariable("THEMIA_MOOD_SPAN"), "month", StringComparison.OrdinalIgnoreCase)
+                        ? MoodSpan.Month
+                        : MoodSpan.Rolling,
+                };
+                for (var day = 0; day <= 84; day++)
+                {
+                    if (day % 6 == 4)
+                    {
+                        continue;
+                    }
+
                     mood.Entries.Add(new MoodEntry
                     {
                         Id = $"fixture-{day}",
-                        At = now.AddDays(-day),
-                        Level = 1 + ((day * 7) % 5),
+                        At = now.AddDays(-day).AddHours(day == 0 ? 0 : -2),
+                        Level = 1 + ((day * 7 + (day / 9)) % 5),
+                        Note = day % 3 == 0 ? thoughts[(day / 3) % thoughts.Length] : string.Empty,
                     });
+
+                    if (day % 5 == 1)
+                    {
+                        mood.Entries.Add(new MoodEntry { Id = $"fixture-{day}b", At = now.AddDays(-day).AddHours(-8), Level = 3 });
+                    }
                 }
 
                 return mood;
@@ -102,7 +133,9 @@ internal static class LayoutFixtures
                 return new GalleryConfig { Path = @"C:\Windows\Web\Wallpaper", Recursive = true };
 
             case WidgetKind.Notes:
-                return new NotesConfig { Text = "Call the landlord about the boiler\nBook dentist (Tue or Thu)\nRenew passport before March\nIdeas: weekend in Lucerne, ask Anna" };
+                // [S-1368] The notes live in a store, not the config: a throwaway one for the gallery.
+                NotesFixture.Install(populated: true);
+                return NotesFixture.Config();
 
             default:
                 return null;

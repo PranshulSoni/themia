@@ -53,7 +53,9 @@ public partial class App : Application
             return;
         }
 
-        InstallLogSink();
+        // The debugger and the session buffer only: the gallery and the settings render below must
+        // never write into the user's log folder while the user's own copy is running ([S-980]).
+        LogFiles.InstallBasics();
 
 #if DEBUG
         // The widget gallery runs instead of the app, never alongside it: no state file, no
@@ -65,6 +67,12 @@ public partial class App : Application
 
         // The same for one settings page: built over a demo state that is never saved.
         if (Shell.Gallery.SettingsRender.TryRunFromCommandLine(this, Environment.GetCommandLineArgs()))
+        {
+            return;
+        }
+
+        // And for the open Add-widget picker.
+        if (Shell.Gallery.PickerRender.TryRunFromCommandLine(this, Environment.GetCommandLineArgs()))
         {
             return;
         }
@@ -81,8 +89,17 @@ public partial class App : Application
             return;
         }
 
+        // After the hand-off, so a second copy that is only passing the request on never writes into
+        // the running copy's log file; before the load, so a corrupt state file is on record.
+        LogFiles.InstallFiles();
+
+        // [S-934] A sign-in launch (the Run entry's --autostart, or the package's startup task) and
+        // a launch by hand are told apart here, once, for whatever wants to stay quiet at sign-in.
+        Autostart.DetectLaunch(commandLine);
+
         var store = new AppStateStore(AppStateStore.DefaultPath());
         var load = store.Load();
+        LogFiles.Apply(load.State.Preferences);
 
         if (load.Outcome == LoadOutcome.Recovered)
         {
@@ -100,47 +117,11 @@ public partial class App : Application
         }
 
         _host = new AppHost(dispatcher, store, load.State);
+
+        // [S-982] The verbose switch takes effect on the next record, no restart.
+        var host = _host;
+        host.StateChanged += () => LogFiles.Apply(host.State.Preferences);
         _host.Start();
-    }
-
-    /// <summary>
-    /// Route the core log to the debugger and, in a release build, to a rolling file next to the
-    /// state. Nothing is silent: an error the user cannot see is an error nobody fixes.
-    /// </summary>
-    private static void InstallLogSink()
-    {
-        Log.AddSink(static record =>
-        {
-            var line = $"[{record.At:HH:mm:ss}] {record.Level,-5} {record.Scope}: {record.Message}";
-            if (record.Error is not null)
-            {
-                // Full ToString, not just the message: an AOT-only XAML or activation failure is
-                // undiagnosable without the inner exception and the stack.
-                line += Environment.NewLine + record.Error;
-            }
-
-            System.Diagnostics.Debug.WriteLine(line);
-
-            if (record.Level < LogLevel.Warn)
-            {
-                return;
-            }
-
-            try
-            {
-                var path = Path.Combine(Path.GetDirectoryName(AppStateStore.DefaultPath())!, "themia.log");
-                Directory.CreateDirectory(Path.GetDirectoryName(path)!);
-                File.AppendAllText(path, line + Environment.NewLine);
-            }
-            catch (IOException)
-            {
-                // ignore: a log sink that throws on a full or locked disk would turn a warning into a crash
-            }
-            catch (UnauthorizedAccessException)
-            {
-                // ignore: as above
-            }
-        });
     }
 
     private static void OnUnhandledException(object sender, Microsoft.UI.Xaml.UnhandledExceptionEventArgs e)

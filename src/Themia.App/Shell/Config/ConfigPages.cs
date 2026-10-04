@@ -32,11 +32,12 @@ internal static partial class ConfigPages
     /// </summary>
     public static IReadOnlyList<AppPageEntry> AppPages { get; } =
     [
-        new(AppPage.General, "General", Glyphs.Settings, AppPageSlot.Main, BuildGeneral),
-        new(AppPage.Appearance, "Appearance", Glyphs.Palette, AppPageSlot.Main, BuildAppearance),
-        new(AppPage.Layout, "Layout", Glyphs.Grid, AppPageSlot.Main, BuildLayout),
-        new(AppPage.Accounts, "Accounts", Glyphs.Contact, AppPageSlot.Main, _ => AccountsPage.Build()),
-        new(AppPage.About, "About", Glyphs.Info, AppPageSlot.Footer, BuildAbout),
+        new(AppPage.General, "General", Glyphs.Settings, NavIcon.Settings, AppPageSlot.Main, BuildGeneral),
+        new(AppPage.Appearance, "Appearance", Glyphs.Palette, NavIcon.PaintBrush, AppPageSlot.Main, BuildAppearance),
+        new(AppPage.Layout, "Layout", Glyphs.Grid, NavIcon.Apps, AppPageSlot.Main, BuildLayout),
+        new(AppPage.Accounts, "Accounts", Glyphs.Contact, NavIcon.Person, AppPageSlot.Main, _ => AccountsPage.Build()),
+        new(AppPage.Logs, "Logs", Glyphs.Document, NavIcon.DocumentText, AppPageSlot.Footer, BuildLogs, s => s.Preferences.DevMode),
+        new(AppPage.About, "About", Glyphs.Info, NavIcon.QuestionCircle, AppPageSlot.Footer, BuildAbout),
     ];
 
     public static FrameworkElement Build(AppHost host, ConfigTarget target, Action<ConfigTarget> navigate) => target switch

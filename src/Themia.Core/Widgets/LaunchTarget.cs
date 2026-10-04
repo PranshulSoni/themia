@@ -196,9 +196,10 @@ public static class LaunchTargets
 
     /// <summary>
     /// What to call a target in a list: the user's own label when there is one, and otherwise the
-    /// most human part of the target itself.
+    /// most human part of the target itself. [S-1381] A file keeps its extension only when
+    /// <paramref name="showExtension"/> asks for it (original S-48); a label always wins.
     /// </summary>
-    public static string DisplayName(string? label, string? target)
+    public static string DisplayName(string? label, string? target, bool showExtension = false)
     {
         var chosen = (label ?? string.Empty).Trim();
 
@@ -214,7 +215,7 @@ public static class LaunchTargets
         {
             LaunchKind.Web => HostName(classified.Value, value),
             LaunchKind.ShellNamespace => ShellDisplayName(classified.Value),
-            LaunchKind.LocalPath => PathDisplayName(classified.Value),
+            LaunchKind.LocalPath => PathDisplayName(classified.Value, showExtension),
 
             // A refused target still has to say something, and the raw string is the only honest
             // thing left: a blank row would hide the item that needs fixing.
@@ -232,6 +233,41 @@ public static class LaunchTargets
             : value;
 
         return ShellLabels.TryGetValue(name, out var label) ? label : name;
+    }
+
+    /// <summary>
+    /// [S-1386] Whether a classified local path is on another machine (a UNC path).
+    /// Such a path is opened when the user asks, but never <i>probed</i> unasked — no icon lookup and
+    /// no existence check — because touching a UNC path makes Windows connect to that server and
+    /// offer it the user's credentials, and the path came from a file anything can rewrite.
+    /// </summary>
+    public static bool IsNetworkPath(LaunchTarget target)
+        => target.Kind == LaunchKind.LocalPath
+            && (target.Value.StartsWith(@"\\", StringComparison.Ordinal) || target.Value.StartsWith("//", StringComparison.Ordinal));
+
+    /// <summary>
+    /// [S-1386] Whether a target may be looked at without being opened: its icon read, its existence
+    /// checked. A shell location always; a local path unless it is a network path; a web address
+    /// never (its icon is the site's own favicon, fetched through the network guard instead).
+    /// </summary>
+    public static bool MayProbe(LaunchTarget target) => target.Kind switch
+    {
+        LaunchKind.ShellNamespace => true,
+        LaunchKind.LocalPath => !IsNetworkPath(target),
+        _ => false,
+    };
+
+    /// <summary>
+    /// Whether two targets name the same thing once classified, ignoring case — how a Windows
+    /// location switch finds every item that points at it.
+    /// </summary>
+    public static bool SameTarget(string? a, string? b)
+    {
+        var left = Classify(a);
+        var right = Classify(b);
+
+        return left.IsValid && right.IsValid && left.Kind == right.Kind
+            && string.Equals(left.Value, right.Value, StringComparison.OrdinalIgnoreCase);
     }
 
     /// <summary>The <c>shell:</c> target for a well-known name, ready to store.</summary>
@@ -376,9 +412,9 @@ public static class LaunchTargets
 
     /// <summary>
     /// A path's own name: the file without its extension, or the folder's name. The extension is
-    /// dropped because a launcher row says what it opens, not what format it is in.
+    /// dropped by default because a launcher row says what it opens, not what format it is in.
     /// </summary>
-    private static string PathDisplayName(string path)
+    private static string PathDisplayName(string path, bool showExtension)
     {
         var trimmed = path.TrimEnd('\\', '/');
 
@@ -388,6 +424,12 @@ public static class LaunchTargets
         }
 
         var name = FolderPath.DisplayName(trimmed);
+
+        if (showExtension)
+        {
+            return name;
+        }
+
         var dot = name.LastIndexOf('.');
 
         return dot > 0 ? name[..dot] : name;

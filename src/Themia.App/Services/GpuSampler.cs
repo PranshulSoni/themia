@@ -30,7 +30,7 @@ internal sealed record GpuSnapshot(IReadOnlyList<GpuAdapter> Adapters, IReadOnly
 /// adapters that are no longer present and stop at the first gap, while DXGI lists exactly the
 /// adapters there are and hands over each one's LUID — the key the counters are filed under — so
 /// nothing has to be parsed back out of a registry blob. DXGI is two COM calls through a vtable,
-/// the same pattern as <see cref="AudioEndpoint"/>. Not WMI, which Native AOT cannot use, and not
+/// the same pattern as <see cref="CoreAudio"/>. Not WMI, which Native AOT cannot use, and not
 /// <c>PerformanceCounter</c>, which is not trim-safe.
 /// </para>
 /// <para>
@@ -186,6 +186,7 @@ internal static partial class GpuSampler
         private readonly IReadOnlyList<GpuAdapter> _adapters;
         private readonly GpuCounters? _counters;
         private readonly Nvml? _nvml;
+        private readonly Dictionary<int, string> _names = [];
         private bool _baselined;
 
         public Session()
@@ -219,6 +220,11 @@ internal static partial class GpuSampler
 
                 var counters = GpuRules.Utilization(engines, adapter.Luid);
 
+                // [S-1203]/[S-1204] The engine breakdown is the counters', with the driver's video
+                // figures over theirs where it gives them. Both are a rate, so not before a baseline.
+                var loads = baselined ? GpuEngines.Loads(engines, adapter.Luid) : [];
+                loads = GpuEngines.WithDriverVideo(loads, driver?.EncoderPercent, driver?.DecoderPercent);
+
                 readings.Add(new GpuReading(
                     adapter.Name,
                     GpuRules.ChooseUtilization(driver?.Utilization, counters),
@@ -236,12 +242,79 @@ internal static partial class GpuSampler
                     MemoryClockMhz = driver?.MemoryClockMhz,
                     EncoderPercent = driver?.EncoderPercent,
                     DecoderPercent = driver?.DecoderPercent,
+                    Engines = loads,
+                    Processes = baselined ? Processes(engines, adapter.Luid) : [],
                 });
 
                 anyLoad |= readings[^1].HasLoad;
             }
 
+            ForgetExited(engines);
             return new GpuSnapshot(_adapters, readings, anyLoad);
+        }
+
+        /// <summary>
+        /// [S-1205] The busiest processes on one adapter, named. The pid comes free with the engine
+        /// instances already read; the name is a kernel query and a version-resource read, so it is
+        /// asked once per process and only for the few that make the list. This runs on the pool.
+        /// </summary>
+        private List<GpuProcessLoad> Processes(List<(string Instance, double Percent)> engines, string luid)
+        {
+            var top = GpuEngines.TopProcesses(engines, luid, GpuEngines.MaxProcesses);
+            var result = new List<GpuProcessLoad>(top.Count);
+
+            foreach (var (pid, percent) in top)
+            {
+                if (!_names.TryGetValue(pid, out var name))
+                {
+                    name = NameOf(pid);
+                    _names[pid] = name;
+                }
+
+                result.Add(new GpuProcessLoad(pid, name, percent));
+            }
+
+            return result;
+        }
+
+        private static string NameOf(int pid)
+        {
+            // The kernel (pid 4) has no image path but does use the GPU (its scheduler's copies).
+            if (pid == 4)
+            {
+                return "System";
+            }
+
+            // A protected or already-exited process has no path to read; it is still a process.
+            if (ProcessNames.ExePath((uint)pid) is not { } path)
+            {
+                return $"Process {pid}";
+            }
+
+            return ProcessNames.DisplayName(path) ?? Path.GetFileNameWithoutExtension(path);
+        }
+
+        /// <summary>Drop the names of processes no longer on any engine, so a reused pid is named afresh.</summary>
+        private void ForgetExited(List<(string Instance, double Percent)> engines)
+        {
+            if (_names.Count == 0)
+            {
+                return;
+            }
+
+            var live = new HashSet<int>();
+            foreach (var (instance, _) in engines)
+            {
+                if (GpuEngines.PidOf(instance) is { } pid)
+                {
+                    live.Add(pid);
+                }
+            }
+
+            foreach (var pid in _names.Keys.Where(pid => !live.Contains(pid)).ToList())
+            {
+                _names.Remove(pid);
+            }
         }
 
         public void Dispose()

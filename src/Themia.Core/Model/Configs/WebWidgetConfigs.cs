@@ -27,6 +27,17 @@ public enum StreamRotation
     ThreeQuarter = 270,
 }
 
+/// <summary>[S-1316] How a pinned element fills the widget.</summary>
+[JsonConverter(typeof(JsonStringEnumConverter<ElementFit>))]
+public enum ElementFit
+{
+    /// <summary>The whole element, scaled to fit (up to 3×) — or, when that would make it illegible, its top-left part at 1:1. The default.</summary>
+    Whole = 0,
+
+    /// <summary>Scaled to the widget's width; whatever runs past the bottom is cut off under a fade.</summary>
+    FillWidth = 1,
+}
+
 /// <summary>
 /// A live camera picture: an MJPEG stream, a snapshot endpoint polled on an interval, or a video
 /// stream Windows can play itself.
@@ -54,6 +65,19 @@ public sealed class VideoStreamConfig : WidgetConfig
     /// <summary>[S-470] 0 holds the stream open; anything else grabs one frame that often and hangs up.</summary>
     public int RefreshSeconds { get; set; }
 
+    /// <summary>
+    /// [S-1312] A persistent status chip (LIVE, reconnecting, "every 10 s", the transport) at the
+    /// largest size. Off by default: the original was the picture and nothing else.
+    /// </summary>
+    public bool ShowStatus { get; set; }
+
+    /// <summary>
+    /// [S-1312] On pointer-over, a strip with the stream's state and age (from M) and Pause, Rotate
+    /// and Refresh with the resolution and frame rate (from L). On by default: it is invisible until
+    /// the pointer is on the picture, and never at the small sizes.
+    /// </summary>
+    public bool HoverControls { get; set; } = true;
+
     /// <summary>The checked address, or why it was refused. Read on every use, never cached.</summary>
     [JsonIgnore]
     public WebUrlResult ResolvedUrl => WebInput.Url(Url);
@@ -75,6 +99,8 @@ public sealed class VideoStreamConfig : WidgetConfig
         Rotation = Rotation,
         Paused = Paused,
         RefreshSeconds = RefreshSeconds,
+        ShowStatus = ShowStatus,
+        HoverControls = HoverControls,
     };
 }
 
@@ -104,6 +130,12 @@ public sealed class WebElementConfig : WidgetConfig
     /// <summary>[S-475] Minutes between renders, clamped to 5..120.</summary>
     public int RefreshMinutes { get; set; } = WebElementRules.DefaultRefreshMinutes;
 
+    /// <summary>[S-1316] Whole element (default) or fill the width.</summary>
+    public ElementFit Fit { get; set; } = ElementFit.Whole;
+
+    [JsonIgnore]
+    public ElementFit EffectiveFit => Enum.IsDefined(Fit) ? Fit : ElementFit.Whole;
+
     [JsonIgnore]
     public WebUrlResult ResolvedUrl => WebInput.Url(Url);
 
@@ -120,5 +152,6 @@ public sealed class WebElementConfig : WidgetConfig
         Selector = Selector,
         PickedLabel = PickedLabel,
         RefreshMinutes = RefreshMinutes,
+        Fit = Fit,
     };
 }

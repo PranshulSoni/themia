@@ -29,6 +29,12 @@ public enum MoodArrangement
 /// <param name="Distribution">Split only: how often each of the five levels was logged.</param>
 /// <param name="Weekdays">Split only: the average for each weekday.</param>
 /// <param name="RecentNotes">Split only: how many recent thoughts are listed under the map.</param>
+/// <param name="Summary">Split only: days logged, best run, thoughts (when the left pane has the room).</param>
+/// <param name="Recent">
+/// [S-1573] Month span only: the tile cannot hold the whole month at a legible square, so the map shows
+/// the most recent <see cref="Weeks"/> weeks (this one last) instead — never a partial month. The
+/// header says so (<see cref="MoodLayout.Caption"/>).
+/// </param>
 public readonly record struct MoodPlan(
     MoodArrangement Arrangement,
     double Cell,
@@ -40,7 +46,9 @@ public readonly record struct MoodPlan(
     double MapWidth,
     bool Distribution,
     bool Weekdays,
-    int RecentNotes);
+    int RecentNotes,
+    bool Summary = false,
+    bool Recent = false);
 
 /// <summary>
 /// The Mood widget's ladder. Every number the view lays out with is here, so the view and the plan
@@ -94,6 +102,9 @@ public static class MoodLayout
     /// <summary>Split: title line + seven rows.</summary>
     public const double WeekdaysHeight = Line + (7 * Line);
 
+    /// <summary>Split: title line + three lines.</summary>
+    public const double SummaryHeight = Line + (3 * Line);
+
     /// <summary>Stacked rolling maps prefer at least this many weeks to bigger squares.</summary>
     private const int PreferredRows = 3;
 
@@ -118,21 +129,75 @@ public static class MoodLayout
     {
         var room = new Disclosure(width, height, Gap);
         room.Reserve(PickerHeight);
-        room.Reserve(MinCell);                               // the map: one row at the least
+
+        // [S-1573] A month is whole or it is not a month: its weeks at the smallest square are the
+        // map's floor, taken before the thought box and the footer (those, and the weekday labels,
+        // are what gives way first). When even that does not fit, the month is replaced by the most
+        // recent weeks, flagged in the plan so the header can say so.
+        var monthFloor = MapHeight(ceiling, MinCell);
+        var whole = month && monthFloor + Gap <= room.Remaining + Disclosure.Tolerance;
+        var floor = whole ? monthFloor : MinCell;
+        room.Reserve(floor);                                 // the map: the whole month, else one row at the least
 
         // The thought box before the footer, and both before the map grows: on an M tile the box is
         // worth more than a fourth week of squares.
         var note = config.ShowNote && area.HeightClass >= SizeClass.Regular && room.Take(NoteHeight);
         var stats = config.ShowStats && area.HeightClass >= SizeClass.Regular && room.Take(Line);
 
-        var mapHeight = room.Remaining + MinCell;
+        var mapHeight = room.Remaining + floor;
         var byWidth = (width - (CellGap * (MoodGrid.Columns - 1))) / MoodGrid.Columns;
 
-        var (cell, labels) = FitStacked(byWidth, mapHeight, month ? ceiling : Math.Min(ceiling, PreferredRows), month);
-        var rows = month ? ceiling : Math.Clamp(Rows(mapHeight - LabelCost(labels), cell), 1, ceiling);
+        if (whole)
+        {
+            // Every week, squares as big as the room allows; the labels only if they still leave a labelled square.
+            var (wholeCell, wholeLabels) = FitStacked(byWidth, mapHeight, ceiling, exact: true);
+            return new MoodPlan(MoodArrangement.Stacked, wholeCell, ceiling, wholeLabels, note, stats, 0, width, false, false, 0);
+        }
+
+        if (month)
+        {
+            // The weeks that fit at the smallest square, fewer than the month has (or it would be whole).
+            var recent = Math.Clamp(Rows(mapHeight, MinCell), 1, Math.Max(1, ceiling - 1));
+            var (recentCell, recentLabels) = FitStacked(byWidth, mapHeight, recent, exact: true);
+            return new MoodPlan(MoodArrangement.Stacked, recentCell, recent, recentLabels, note, stats, 0, width, false, false, 0, Recent: true);
+        }
+
+        var (cell, labels) = FitStacked(byWidth, mapHeight, Math.Min(ceiling, PreferredRows), exact: false);
+        var rows = Math.Clamp(Rows(mapHeight - LabelCost(labels), cell), 1, ceiling);
 
         return new MoodPlan(MoodArrangement.Stacked, cell, rows, labels, note, stats, 0, width, false, false, 0);
     }
+
+    /// <summary>
+    /// [S-1573] What the header says about the map when it is not the plain rolling one: the month's
+    /// name over a whole month, "This week" / "Last 3 weeks" where the month had to give way to the
+    /// most recent weeks. Null for a rolling map (nothing to explain).
+    /// </summary>
+    /// <param name="plan">The plan the map is drawn from.</param>
+    /// <param name="config">The settings (the span).</param>
+    /// <param name="month">The current month, 1..12, for the month's name.</param>
+    public static string? Caption(MoodPlan plan, MoodTrackerConfig config, int month)
+    {
+        ArgumentNullException.ThrowIfNull(config);
+
+        if (config.Span != MoodSpan.Month)
+        {
+            return null;
+        }
+
+        if (!plan.Recent)
+        {
+            return MoodInsights.MonthName(month);
+        }
+
+        return plan.Weeks <= 1
+            ? "This week"
+            : string.Create(System.Globalization.CultureInfo.InvariantCulture, $"Last {plan.Weeks} weeks");
+    }
+
+    /// <summary>The height of <paramref name="weeks"/> rows of <paramref name="cell"/>-sized squares.</summary>
+    public static double MapHeight(int weeks, double cell)
+        => (Math.Max(1, weeks) * cell) + ((Math.Max(1, weeks) - 1) * CellGap);
 
     /// <summary>The square for a stacked map that has to show <paramref name="rows"/> rows: labels if they still leave a labelled square.</summary>
     private static (double Cell, bool Labels) FitStacked(double byWidth, double mapHeight, int rows, bool exact)
@@ -191,6 +256,7 @@ public static class MoodLayout
         var stats = config.ShowStats && pane.Take(Line);
         var distribution = area.HeightClass >= SizeClass.Regular && pane.Take(DistributionHeight);
         var weekdays = distribution && pane.Take(WeekdaysHeight);
+        var summary = weekdays && pane.Take(SummaryHeight);
 
         // Under the map: the recent thoughts, as many whole rows as the height leaves.
         var notes = 0;
@@ -201,7 +267,7 @@ public static class MoodLayout
             notes = Disclosure.WholeRows(under, NoteRow, CellGap);
         }
 
-        return new MoodPlan(MoodArrangement.Split, cell, weeks, labels, note, stats, left, mapWidth, distribution, weekdays, Math.Max(0, notes));
+        return new MoodPlan(MoodArrangement.Split, cell, weeks, labels, note, stats, left, mapWidth, distribution, weekdays, Math.Max(0, notes), summary);
     }
 
     private static int Rows(double height, double cell)

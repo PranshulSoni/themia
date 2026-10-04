@@ -34,7 +34,7 @@ namespace Themia.App.Widgets;
 /// tile with a list (the meter on the left, the list down the right).
 /// </para>
 /// </summary>
-internal sealed partial class MeterView : Grid, IWidgetView, IWidgetSizeAware, IMeterHost
+internal sealed partial class MeterView : Grid, IWidgetView, IWidgetSizeAware, IWidgetSurfaceAware, IMeterHost, IWidgetKeys
 {
     private const string Scope = "meter";
 
@@ -57,6 +57,13 @@ internal sealed partial class MeterView : Grid, IWidgetView, IWidgetSizeAware, I
     /// <summary>A breakdown row: Windows' compact list row.</summary>
     private const double ListRowHeight = Fluent.RowHeightCompact;
 
+    /// <summary>
+    /// [S-1572] The breakdown rows promised right after the chart's floor on a tile Expanded in
+    /// height (the original's "top 3 processes" on a tall tile), before the details, stats and the
+    /// per-core strip ask. Asked last, the list got the sliver they left: one process under a chart.
+    /// </summary>
+    private const int ListPromise = 3;
+
     /// <summary>Characters a composition legend needs ("In use 12.3 GB  Cached 10.1 GB  Free 3.4 GB").</summary>
     private const double LegendCharacters = 44;
 
@@ -76,6 +83,7 @@ internal sealed partial class MeterView : Grid, IWidgetView, IWidgetSizeAware, I
 
     private readonly Grid _reading = new();
     private readonly TextBlock _primary = Fluent.Text(FluentType.Subtitle);
+    private readonly FontIcon _badge = new();
     private readonly TextBlock _secondary = Fluent.Text(FluentType.Caption, "TextFillColorTertiaryBrush");
 
     private readonly StackPanel _details = new();
@@ -101,12 +109,18 @@ internal sealed partial class MeterView : Grid, IWidgetView, IWidgetSizeAware, I
     private readonly TextBlock _listTitle = Fluent.Text(FluentType.Caption, "TextFillColorTertiaryBrush");
     private readonly List<MeterListRow> _listRows = [];
 
+    private readonly MeterCellStrip _cells = new();
+
     private readonly SparkBand _band;
     private readonly StackPanel? _absentState;
 
     // The value in the reading's own unit that min / avg / max describe, as long as the chart's
     // history. The chart keeps its own series, in the terms it plots.
     private readonly Queue<double> _values = new();
+
+    // [S-1191] The second series' values (upload), aligned with _values, so the scale line names the
+    // top the chart is actually drawn against when the second series is the busier one.
+    private readonly Queue<double> _seconds = new();
 
     // Looked up once. The reading swaps between them on every sample, and a resource lookup per
     // sample per widget is a dictionary hit and a possible log line for nothing.
@@ -184,7 +198,7 @@ internal sealed partial class MeterView : Grid, IWidgetView, IWidgetSizeAware, I
         // is supposed to reach the bottom edge of the card. The graph and the bar are alternatives,
         // so they share the last row.
         _main.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
-        for (var i = 0; i < 7; i++)
+        for (var i = 0; i < 8; i++)
         {
             _main.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         }
@@ -193,12 +207,13 @@ internal sealed partial class MeterView : Grid, IWidgetView, IWidgetSizeAware, I
         Place(_details, 1);
         Place(_stats, 2);
         Place(_tiles, 3);
-        Place(_usageBar, 4);
-        Place(_composition, 4);
-        Place(_list, 5);
-        Place(_scale, 6);
-        Place(_band, 7);
-        Place(_bar, 7);
+        Place(_cells.Host, 4);
+        Place(_usageBar, 5);
+        Place(_composition, 5);
+        Place(_list, 6);
+        Place(_scale, 7);
+        Place(_band, 8);
+        Place(_bar, 8);
 
         ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(0) });
@@ -246,9 +261,17 @@ internal sealed partial class MeterView : Grid, IWidgetView, IWidgetSizeAware, I
         _reading.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         _reading.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
 
-        Grid.SetColumn(_primary, 0);
+        // [S-1187] The kind's badge (the battery icon) leads the reading, in the same cell, so the
+        // caption logic never has to know it is there; its width is in the kind's ReadingCharacters.
+        _badge.Visibility = Visibility.Collapsed;
+        _badge.VerticalAlignment = VerticalAlignment.Center;
+        var lead = new StackPanel { Orientation = Orientation.Horizontal, Spacing = Fluent.Space2, VerticalAlignment = VerticalAlignment.Bottom };
+        lead.Children.Add(_badge);
+        lead.Children.Add(_primary);
+
+        Grid.SetColumn(lead, 0);
         Grid.SetColumn(_secondary, 1);
-        _reading.Children.Add(_primary);
+        _reading.Children.Add(lead);
         _reading.Children.Add(_secondary);
         _reading.VerticalAlignment = VerticalAlignment.Center;
         _reading.Margin = WidgetLayout.SideInset;
@@ -299,7 +322,8 @@ internal sealed partial class MeterView : Grid, IWidgetView, IWidgetSizeAware, I
 
     private void BuildList()
     {
-        _listTitle.Margin = new Thickness(Fluent.Space4, 0, Fluent.Space4, 0);
+        // The rows carry the keyboard ring inside their edge ([S-1567]): the heading steps in with them.
+        _listTitle.Margin = new Thickness(Fluent.Space4 + RowFocus.Ring, 0, Fluent.Space4 + RowFocus.Ring, 0);
         _list.Children.Add(_listTitle);
         _list.Margin = new Thickness(0, Fluent.Space2, 0, 0);
     }
@@ -409,8 +433,8 @@ internal sealed partial class MeterView : Grid, IWidgetView, IWidgetSizeAware, I
 
         _arrangement = arrangement;
 
-        Move(_band, arrangement == Arrangement.Side ? _side : _main, 7);
-        Move(_list, arrangement == Arrangement.Panels ? _side : _main, 5);
+        Move(_band, arrangement == Arrangement.Side ? _side : _main, 8);
+        Move(_list, arrangement == Arrangement.Panels ? _side : _main, 6);
 
         // On a strip the left column is centred as a group, rather than the reading floating in a
         // star row with its details pinned under it.
@@ -472,7 +496,10 @@ internal sealed partial class MeterView : Grid, IWidgetView, IWidgetSizeAware, I
 
         var arrangement = !_area.IsMeasured ? Arrangement.Stacked
             : graph && _area.Shape == AreaShape.Wide && _area.WidthClass >= SizeClass.Expanded ? Arrangement.Side
-            : listWanted > 0 && _area.WidthClass >= SizeClass.Huge && _area.HeightClass >= SizeClass.Expanded ? Arrangement.Panels
+            // [S-1166] Only a list that fills at least half the side panel earns one: three drives
+            // down the right of an XL tile left most of it empty, and read better under the chart.
+            : listWanted > 0 && _area.WidthClass >= SizeClass.Huge && _area.HeightClass >= SizeClass.Expanded
+                && (listWanted * ListRowHeight) + FluentType.Caption.LineHeight >= _area.Height / 2 ? Arrangement.Panels
             : Arrangement.Stacked;
 
         Arrange(arrangement);
@@ -519,6 +546,22 @@ internal sealed partial class MeterView : Grid, IWidgetView, IWidgetSizeAware, I
         var bar = !graph && room.Take(BarHeight);
         var chartShown = chart || (graph && arrangement == Arrangement.Side);
 
+        // Rung 2b [S-1572]: the list's first rows, promised now so the chart and the list both
+        // have room; the list grows into what the later rungs leave at rung 6.
+        var listHeader = FluentType.Caption.LineHeight;
+        var listPromised = 0;
+
+        if (arrangement == Arrangement.Stacked && listWanted > 0 && _area.HeightClass >= SizeClass.Expanded)
+        {
+            var promise = Math.Min(Math.Min(listWanted, ListPromise),
+                Disclosure.WholeRows(room.Remaining - listHeader - (2 * Fluent.Space2), ListRowHeight));
+
+            if (promise > 0 && room.Take(listHeader))
+            {
+                listPromised = room.TakeRows(ListRowHeight, promise);
+            }
+        }
+
         // Rung 3: the kind's detail lines, first first. Two until the tile is Expanded in height,
         // then all of them; on a strip the left column has the whole height, so they start there.
         _detailStep = _area.Least >= SizeClass.Expanded ? FluentType.Body : FluentType.Caption;
@@ -553,6 +596,18 @@ internal sealed partial class MeterView : Grid, IWidgetView, IWidgetSizeAware, I
             && (_area.HeightClass >= SizeClass.Regular || arrangement == Arrangement.Side)
             && room.Take(FluentType.Caption.LineHeight, FluentType.EstimateWidth(FluentType.Caption, MeterHistory.SummaryCharacters(_unit, compact: true)));
 
+        // Rung 4b [S-1150]: the kind's per-part strip (a bar per core), in balanced rows across the
+        // column; taller bars, and each one's figure under it, on a tile Expanded in height.
+        var cellsWanted = _part.CellsWanted;
+        var cellShape = cellsWanted > 0 && (_area.HeightClass >= SizeClass.Regular || arrangement == Arrangement.Side)
+            ? MeterCellGrid.Fit(cellsWanted, width, MeterCellStrip.MinCellWidth, MeterCellStrip.Gap,
+                FluentType.EstimateWidth(FluentType.Caption, MeterCellStrip.LabelCharacters))
+            : default;
+        var tallCells = _area.HeightClass >= SizeClass.Expanded;
+        var cellBar = cellShape.Rows > 1 ? Fluent.Space4 : tallCells ? Fluent.Space6 + Fluent.Space2 : Fluent.Space6;
+        var cellLabels = cellShape.Labels && tallCells;
+        var cells = !cellShape.IsEmpty && room.Take(MeterCellStrip.HeightOf(cellShape, cellBar, cellLabels));
+
         // Rung 5: the usage bar beside a chart (without one the bar is rung 2 already), which on a
         // tile Expanded in height becomes the composition bar with its legend.
         var wantSegments = _part.UsageBar && chartShown && arrangement != Arrangement.Side
@@ -563,11 +618,14 @@ internal sealed partial class MeterView : Grid, IWidgetView, IWidgetSizeAware, I
 
         // Rung 6: the breakdown list, in whole rows — down the right on panels, else under the rest.
         var listRows = 0;
-        var listHeader = FluentType.Caption.LineHeight;
 
         if (arrangement == Arrangement.Panels)
         {
             listRows = Math.Min(listWanted, Disclosure.WholeRows(_area.Height - listHeader, ListRowHeight));
+        }
+        else if (listPromised > 0)
+        {
+            listRows = listPromised + room.TakeRows(ListRowHeight, listWanted - listPromised);
         }
         else if (listWanted > 0 && _area.HeightClass >= SizeClass.Expanded
             && Disclosure.WholeRows(room.Remaining - listHeader - (2 * Fluent.Space2), ListRowHeight) >= 1
@@ -587,6 +645,13 @@ internal sealed partial class MeterView : Grid, IWidgetView, IWidgetSizeAware, I
         _composition.Visibility = composition ? Visibility.Visible : Visibility.Collapsed;
         _usageBar.Visibility = usageBar ? Visibility.Visible : Visibility.Collapsed;
         _list.Visibility = listRows > 0 ? Visibility.Visible : Visibility.Collapsed;
+        _cells.Host.Visibility = cells ? Visibility.Visible : Visibility.Collapsed;
+
+        if (cells)
+        {
+            _cells.Arrange(cellShape, cellsWanted, cellBar, cellLabels);
+            _cells.Show(reading.Cells, Pressure);
+        }
 
         _tiles.Visibility = tilesBeside || tilesBelow || tilesStacked ? Visibility.Visible : Visibility.Collapsed;
         ArrangeTiles(tilesStacked);
@@ -632,7 +697,7 @@ internal sealed partial class MeterView : Grid, IWidgetView, IWidgetSizeAware, I
         ShowList(reading, listRows, arrangement == Arrangement.Panels);
         UpdateStats();
 
-        SetDemand(new MeterDemand(listRows, detailsAllowed, wantSegments));
+        SetDemand(new MeterDemand(listRows, detailsAllowed, wantSegments, cells));
     }
 
     /// <summary>
@@ -645,7 +710,8 @@ internal sealed partial class MeterView : Grid, IWidgetView, IWidgetSizeAware, I
     {
         var grew = demand.ListRows > _demand.ListRows
             || (demand.Details && !_demand.Details)
-            || (demand.Segments && !_demand.Segments);
+            || (demand.Segments && !_demand.Segments)
+            || (demand.Cells && !_demand.Cells);
 
         _demand = demand;
 
@@ -727,6 +793,7 @@ internal sealed partial class MeterView : Grid, IWidgetView, IWidgetSizeAware, I
     {
         if (count == 0)
         {
+            ShowListCursor([], 0);
             return;
         }
 
@@ -736,6 +803,7 @@ internal sealed partial class MeterView : Grid, IWidgetView, IWidgetSizeAware, I
         while (_listRows.Count < count)
         {
             var row = new MeterListRow();
+            RowFocus.Prepare(row.Host);
             _listRows.Add(row);
             _list.Children.Add(row.Host);
         }
@@ -751,6 +819,8 @@ internal sealed partial class MeterView : Grid, IWidgetView, IWidgetSizeAware, I
                 row.Show(rows[i], bars, _pressureBrush);
             }
         }
+
+        ShowListCursor(rows, count);
     }
 
     /// <summary>
@@ -791,6 +861,10 @@ internal sealed partial class MeterView : Grid, IWidgetView, IWidgetSizeAware, I
         {
             _heroStep = hero;
             _primary.Apply(hero);
+
+            // An icon's ink fills less of its em box than a figure's, so it is drawn a little larger
+            // than the type to stand as tall as the digits.
+            _badge.FontSize = Math.Round(hero.FontSize * 1.1);
         }
 
         if (caption != _captionStep)
@@ -838,7 +912,7 @@ internal sealed partial class MeterView : Grid, IWidgetView, IWidgetSizeAware, I
         {
             // A share's chart tops out at 100%; a rate's at the window's peak, which is worth saying.
             _top.Text = _part.Scale.FollowsWindow
-                ? MeterHistory.Format(_unit, _part.Scale.Ceiling(visible))
+                ? MeterHistory.Format(_unit, _part.Scale.Ceiling(visible, _seconds.ToArray().AsSpan(Math.Max(0, _seconds.Count - _window))))
                 : "100%";
         }
 
@@ -964,16 +1038,25 @@ internal sealed partial class MeterView : Grid, IWidgetView, IWidgetSizeAware, I
         _pressureBrush = Pressure(_part.PressureOf(reading));
         _band.SetBrush(_pressureBrush);
 
+        var badge = _part.Badge(reading);
+        _badge.Glyph = badge ?? string.Empty;
+        _badge.Foreground = _pressureBrush;
+        _badge.Visibility = badge is null ? Visibility.Collapsed : Visibility.Visible;
+
         _bar.Value = (reading.Fraction ?? 0) * 100;
         _bar.Foreground = reading.Available ? _pressureBrush : _barUnavailableBrush;
         _usageBar.Value = _bar.Value;
         _usageBar.Foreground = _bar.Foreground;
 
-        if (reading is { Available: true, Fraction: { } fraction })
+        // [S-1172] A reading with a fraction is a sample even when it is not available: a ping that
+        // went unanswered (dimmed "--") still plots, on the baseline. Every other unavailable
+        // reading carries no fraction, so it is not one.
+        if (reading is { Fraction: { } fraction })
         {
             // A window-scaled chart plots the value itself; a share chart plots the fraction.
             _band.Push(_part.Scale.FollowsWindow ? reading.Value ?? fraction : fraction, reading.Second);
             _values.Enqueue(reading.Value ?? fraction);
+            _seconds.Enqueue(reading.Second ?? double.NaN);
             TrimValues();
         }
 
@@ -986,6 +1069,7 @@ internal sealed partial class MeterView : Grid, IWidgetView, IWidgetSizeAware, I
     {
         _band.Clear();
         _values.Clear();
+        _seconds.Clear();
     }
 
     private void TrimValues()
@@ -994,6 +1078,20 @@ internal sealed partial class MeterView : Grid, IWidgetView, IWidgetSizeAware, I
         {
             _values.Dequeue();
         }
+
+        while (_seconds.Count > _capacity)
+        {
+            _seconds.Dequeue();
+        }
+    }
+
+    /// <summary>[S-1186] A preview's meter part may read its debug fixture instead of the machine.</summary>
+    public void Bind(IWidgetSurface surface)
+    {
+        _part.Bind(surface.IsPreview);
+
+        // [S-1167] And keep the surface for a kind's header title (MeterView.Part.cs).
+        BindTitle(surface);
     }
 
     private Brush Pressure(MeterPressure pressure) => pressure switch

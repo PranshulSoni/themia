@@ -97,7 +97,7 @@ public abstract class WidgetConfig
         WidgetKind.Stocks => new StocksConfig(),
         WidgetKind.Rss => new RssConfig(),
         WidgetKind.Apps => new AppsConfig(),
-        WidgetKind.Shortcuts => new ShortcutsConfig(),
+        WidgetKind.Shortcuts => ShortcutsConfig.CreateDefault(),
         WidgetKind.WebSearch => new WebSearchConfig(),
         WidgetKind.Clipboard => new ClipboardConfig(),
         WidgetKind.Scratchpad => new ScratchpadConfig(),

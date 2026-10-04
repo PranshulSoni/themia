@@ -270,27 +270,214 @@ public static class MarketQuote
     /// <para>
     /// Both halves or neither. These services pad illiquid minutes with nulls, and dropping a close
     /// while keeping its timestamp shears the two arrays out of alignment for every later point —
-    /// which draws a plausible-looking line that is wrong.
+    /// which draws a plausible-looking line that is wrong. A series out of time order is put back
+    /// in order rather than drawn backwards.
     /// </para>
     /// </summary>
-    public static IReadOnlyList<double> Closes(IReadOnlyList<double?>? closes)
+    public static IReadOnlyList<QuoteBar> Bars(IReadOnlyList<long?>? timestamps, IReadOnlyList<double?>? closes)
     {
-        if (closes is null || closes.Count == 0)
+        if (timestamps is null || closes is null)
         {
             return [];
         }
 
-        var kept = new List<double>(closes.Count);
+        var count = Math.Min(timestamps.Count, closes.Count);
+        var kept = new List<QuoteBar>(count);
 
-        foreach (var close in closes)
+        for (var i = 0; i < count; i++)
         {
-            if (close is { } value && double.IsFinite(value))
+            if (timestamps[i] is { } time && time is > 0 and < 4_102_444_800
+                && closes[i] is { } close && double.IsFinite(close))
             {
-                kept.Add(value);
+                kept.Add(new QuoteBar(time, close));
             }
         }
 
+        if (!IsOrdered(kept))
+        {
+            kept.Sort(static (x, y) => x.Time.CompareTo(y.Time));
+        }
+
         return kept;
+    }
+
+    /// <summary>The closes of a series, for scaling.</summary>
+    public static IReadOnlyList<double> Closes(IReadOnlyList<QuoteBar> bars)
+        => [.. (bars ?? []).Select(static bar => bar.Close)];
+
+    private static bool IsOrdered(List<QuoteBar> bars)
+    {
+        for (var i = 1; i < bars.Count; i++)
+        {
+            if (bars[i].Time < bars[i - 1].Time)
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    /// <summary>
+    /// [S-1308] The last bar inside <paramref name="window"/>, against the regular close — the
+    /// original's <c>extendedQuoteIn</c>. Null without a window, without a positive close, or with
+    /// no bar in the window.
+    /// </summary>
+    public static ExtendedPrint? ExtendedQuoteIn(IReadOnlyList<QuoteBar> bars, SessionWindow? window, double? regularClose)
+    {
+        if (window is not { } w || regularClose is not { } close || !double.IsFinite(close) || close <= 0)
+        {
+            return null;
+        }
+
+        for (var i = bars.Count - 1; i >= 0; i--)
+        {
+            var bar = bars[i];
+
+            if (bar.Time >= w.Start && bar.Time < w.End)
+            {
+                return new ExtendedPrint(bar.Close, (bar.Close - close) / close * 100, bar.Time);
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>[S-1308] Today's pre-market and after-hours prints, each when one exists.</summary>
+    public static ExtendedPrints ExtendedQuotesOf(IReadOnlyList<QuoteBar> bars, TradingSessions? sessions, double? regularClose)
+        => sessions is null
+            ? default
+            : new ExtendedPrints(ExtendedQuoteIn(bars, sessions.Pre, regularClose), ExtendedQuoteIn(bars, sessions.Post, regularClose));
+
+    /// <summary>
+    /// [S-1308] The print to show under the price for the phase the market is in: the pre-market
+    /// one before the bell, the after-hours one after it (and while closed, the latest of the two).
+    /// </summary>
+    public static ExtendedPrint? CurrentExtended(ExtendedPrints prints, MarketPhase phase) => phase switch
+    {
+        MarketPhase.Pre => prints.Pre,
+        MarketPhase.Post => prints.Post,
+        MarketPhase.Closed => prints.Post ?? prints.Pre,
+        _ => null,
+    };
+
+    /// <summary>
+    /// [S-1308] Split a series into runs inside and outside the regular session (half-open bounds),
+    /// so an extended-hours stretch can be drawn dashed. One regular run without a usable window.
+    /// </summary>
+    public static IReadOnlyList<(int From, int To, bool Extended)> Segments(IReadOnlyList<QuoteBar> bars, TradingSessions? sessions)
+    {
+        if (bars.Count == 0)
+        {
+            return [];
+        }
+
+        if (sessions?.Regular is not { } regular)
+        {
+            return [(0, bars.Count, false)];
+        }
+
+        var segments = new List<(int, int, bool)>();
+        var from = 0;
+        var current = !Contains(regular, bars[0].Time);
+
+        for (var i = 1; i < bars.Count; i++)
+        {
+            var extended = !Contains(regular, bars[i].Time);
+
+            if (extended != current)
+            {
+                segments.Add((from, i, current));
+                from = i;
+                current = extended;
+            }
+        }
+
+        segments.Add((from, bars.Count, current));
+        return segments;
+    }
+
+    /// <summary>[S-1311] A share count the way a quote page prints it: 950, 12.3K, 4.56M, 1.2B.</summary>
+    public static string Volume(long? volume)
+    {
+        if (volume is not { } value || value < 0)
+        {
+            return "--";
+        }
+
+        return value switch
+        {
+            >= 1_000_000_000 => (value / 1e9).ToString("0.##", CultureInfo.InvariantCulture) + "B",
+            >= 1_000_000 => (value / 1e6).ToString("0.##", CultureInfo.InvariantCulture) + "M",
+            >= 10_000 => (value / 1e3).ToString("0.#", CultureInfo.InvariantCulture) + "K",
+            _ => value.ToString("N0", CultureInfo.InvariantCulture),
+        };
+    }
+
+    /// <summary>
+    /// [S-1311] The facts a large tile lists, in the order a quote page does, each only when the
+    /// reply carried it: previous close, day range, 52-week range, volume, exchange.
+    /// </summary>
+    public static IReadOnlyList<(string Label, string Value)> Facts(TickerQuote quote)
+    {
+        ArgumentNullException.ThrowIfNull(quote);
+
+        var stats = quote.Stats;
+        var facts = new List<(string, string)>();
+
+        if (stats.PreviousClose is { } previous)
+        {
+            facts.Add(("Previous close", Price(previous, quote.PriceHint)));
+        }
+
+        if (stats.DayLow is { } dayLow && stats.DayHigh is { } dayHigh && dayLow <= dayHigh)
+        {
+            facts.Add(("Day range", $"{Price(dayLow, quote.PriceHint)} – {Price(dayHigh, quote.PriceHint)}"));
+        }
+
+        if (stats.YearLow is { } yearLow && stats.YearHigh is { } yearHigh && yearLow <= yearHigh)
+        {
+            facts.Add(("52-week range", $"{Price(yearLow, quote.PriceHint)} – {Price(yearHigh, quote.PriceHint)}"));
+        }
+
+        if (stats.Volume is > 0)
+        {
+            facts.Add(("Volume", Volume(stats.Volume)));
+        }
+
+        if (stats.Exchange.Length > 0)
+        {
+            facts.Add(("Exchange", stats.Exchange));
+        }
+
+        return facts;
+    }
+
+    /// <summary>[S-1310] Where the series is lowest and highest (first occurrence of each), or null for none.</summary>
+    public static (int Low, int High)? Extremes(IReadOnlyList<QuoteBar> bars)
+    {
+        if (bars is null || bars.Count == 0)
+        {
+            return null;
+        }
+
+        var low = 0;
+        var high = 0;
+
+        for (var i = 1; i < bars.Count; i++)
+        {
+            if (bars[i].Close < bars[low].Close)
+            {
+                low = i;
+            }
+
+            if (bars[i].Close > bars[high].Close)
+            {
+                high = i;
+            }
+        }
+
+        return (low, high);
     }
 
     /// <summary>

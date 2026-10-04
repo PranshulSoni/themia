@@ -12,6 +12,9 @@ namespace Themia.Core.Model;
 /// </summary>
 public static class WidgetTransfer
 {
+    /// <summary>A unit screen to clamp moved members against: the stored model is fractional.</summary>
+    private static readonly ScreenMetrics Unit = new(1920, 1080);
+
     /// <summary>
     /// Whether a drag that ended over another display should move the widget there.
     /// <para>
@@ -51,11 +54,26 @@ public static class WidgetTransfer
             return false;
         }
 
+        // [S-876] A container moves with everything inside it, its members shifted as far as it
+        // moved; the widget itself leaves whatever held it, which stays behind on the old view.
+        var members = from.Widgets.FindAll(w => !ReferenceEquals(w, widget) && from.IsSelfOrDescendant(widgetId, w.Id));
+        var dx = rect.X - widget.X;
+        var dy = rect.Y - widget.Y;
+
         // Remove before adding: the same instance must never be reachable from two views, or the
         // next save writes it twice and the load-time duplicate-id repair silently renames one.
         from.Widgets.Remove(widget);
+        from.Widgets.RemoveAll(members.Contains);
         widget.Rect = rect;
+        widget.ParentId = null;
         to.Widgets.Add(widget);
+
+        foreach (var member in members)
+        {
+            member.Rect = GridGeometry.Clamp(member.Rect with { X = member.X + dx, Y = member.Y + dy }, Unit);
+            to.Widgets.Add(member);
+        }
+
         return true;
     }
 
@@ -68,13 +86,17 @@ public static class WidgetTransfer
     {
         ArgumentNullException.ThrowIfNull(state);
 
-        if (plan.RemoveFromViewId is { } fromViewId && plan.RemoveWidgetId is { } removeId)
+        // [S-876] A cut container goes with everything inside it.
+        if (plan.RemoveFromViewId is { } fromViewId && plan.RemoveWidgetId is { } removeId
+            && state.FindView(fromViewId) is { } from)
         {
-            state.FindView(fromViewId)?.Widgets.RemoveAll(w => w.Id == removeId);
+            var block = from.Widgets.FindAll(w => from.IsSelfOrDescendant(removeId, w.Id));
+            from.Widgets.RemoveAll(block.Contains);
         }
 
         var target = state.FindView(targetViewId) ?? state.ActiveView();
         target.Widgets.Add(plan.Widget);
+        target.Widgets.AddRange(plan.Members ?? []);
     }
 
     /// <summary>
@@ -90,8 +112,18 @@ public static class WidgetTransfer
     /// out before new ones are made, and a view already claimed by another display is never taken.
     /// Returns the number of views it had to create.
     /// </para>
+    /// <para>
+    /// [S-847] When the user chose a view for new displays (<see cref="AppState.DefaultViewForNewDisplays"/>),
+    /// a display seen for the first time shows that view instead — shared, not claimed, because
+    /// choosing it is asking for the same widgets on every new screen.
+    /// </para>
+    /// <para>
+    /// [S-1065] <paramref name="maxViews"/> is the licence's view cap: once the profile holds that
+    /// many views, a display that would need a new one shows the active view instead (shared, not
+    /// claimed), so plugging in a monitor is never a way past the free limit.
+    /// </para>
     /// </summary>
-    public static int EnsureViewPerDisplay(this AppState state, IReadOnlyList<string> displayIds)
+    public static int EnsureViewPerDisplay(this AppState state, IReadOnlyList<string> displayIds, int maxViews = int.MaxValue)
     {
         ArgumentNullException.ThrowIfNull(state);
         ArgumentNullException.ThrowIfNull(displayIds);
@@ -121,7 +153,19 @@ public static class WidgetTransfer
                 continue;
             }
 
+            if (state.FindView(state.DefaultViewForNewDisplays) is { } chosen)
+            {
+                state.MonitorViews[display] = chosen.Id;
+                continue;
+            }
+
             var free = state.Views.FirstOrDefault(v => !taken.Contains(v.Id));
+
+            if (free is null && state.Views.Count >= maxViews)
+            {
+                state.MonitorViews[display] = state.ActiveView().Id;
+                continue;
+            }
 
             if (free is null)
             {

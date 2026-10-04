@@ -49,7 +49,10 @@ public class HabitLayoutTests
         Assert.True(plan.AddRow);
         Assert.Equal(3, plan.Rows);
         Assert.False(plan.Rate);
-        Assert.False(plan.Summary);
+
+        // [S-1571] The height three whole rows leave carries the summary's line, without its bar.
+        Assert.True(plan.Summary);
+        Assert.False(plan.SummaryBar);
     }
 
     [Fact]
@@ -161,25 +164,25 @@ public class HabitLayoutTests
     // ---- [S-1428] keys ------------------------------------------------------------------------------
 
     [Theory]
-    [InlineData(HabitKey.Up, 0, HabitKeyCommand.Focus, 0)]
-    [InlineData(HabitKey.Down, 2, HabitKeyCommand.Focus, 2)]
-    [InlineData(HabitKey.Down, 0, HabitKeyCommand.Focus, 1)]
-    [InlineData(HabitKey.Home, 2, HabitKeyCommand.Focus, 0)]
-    [InlineData(HabitKey.End, 0, HabitKeyCommand.Focus, 2)]
-    [InlineData(HabitKey.Tab, 2, HabitKeyCommand.Focus, 0)]
-    [InlineData(HabitKey.ShiftTab, 0, HabitKeyCommand.Focus, 2)]
-    [InlineData(HabitKey.Enter, 1, HabitKeyCommand.Toggle, 1)]
-    [InlineData(HabitKey.Rename, 1, HabitKeyCommand.Rename, 1)]
-    [InlineData(HabitKey.Delete, 1, HabitKeyCommand.Delete, 1)]
-    [InlineData(HabitKey.Escape, 1, HabitKeyCommand.Release, 1)]
-    public void S1428_arrows_clamp_tab_wraps_and_enter_ticks(HabitKey key, int index, HabitKeyCommand command, int target)
+    [InlineData(WidgetKey.Up, 0, HabitKeyCommand.Focus, 0)]
+    [InlineData(WidgetKey.Down, 2, HabitKeyCommand.Focus, 2)]
+    [InlineData(WidgetKey.Down, 0, HabitKeyCommand.Focus, 1)]
+    [InlineData(WidgetKey.Home, 2, HabitKeyCommand.Focus, 0)]
+    [InlineData(WidgetKey.End, 0, HabitKeyCommand.Focus, 2)]
+    [InlineData(WidgetKey.Tab, 2, HabitKeyCommand.Focus, 0)]
+    [InlineData(WidgetKey.ShiftTab, 0, HabitKeyCommand.Focus, 2)]
+    [InlineData(WidgetKey.Enter, 1, HabitKeyCommand.Toggle, 1)]
+    [InlineData(WidgetKey.Rename, 1, HabitKeyCommand.Rename, 1)]
+    [InlineData(WidgetKey.Delete, 1, HabitKeyCommand.Delete, 1)]
+    [InlineData(WidgetKey.Escape, 1, HabitKeyCommand.Release, 1)]
+    public void S1428_arrows_clamp_tab_wraps_and_enter_ticks(WidgetKey key, int index, HabitKeyCommand command, int target)
         => Assert.Equal(new HabitKeyResult(command, target), HabitLayout.Decide(key, index, 3));
 
     [Fact]
     public void S1428_an_empty_list_only_answers_escape()
     {
-        Assert.Equal(HabitKeyCommand.Release, HabitLayout.Decide(HabitKey.Escape, 0, 0).Command);
-        Assert.Equal(HabitKeyCommand.None, HabitLayout.Decide(HabitKey.Enter, 0, 0).Command);
+        Assert.Equal(HabitKeyCommand.Release, HabitLayout.Decide(WidgetKey.Escape, 0, 0).Command);
+        Assert.Equal(HabitKeyCommand.None, HabitLayout.Decide(WidgetKey.Enter, 0, 0).Command);
     }
 
     [Theory]

@@ -27,7 +27,13 @@ namespace Themia.App.Shell;
 /// </summary>
 internal sealed partial class DesktopWindow
 {
-    private ViewState ViewForThisMonitor(AppState state) => state.ViewForMonitor(_monitor.DeviceName);
+    /// <summary>Top margin of the edit toolbar and the placement hint, below the top of the work area.</summary>
+    private const double ChromeTopMargin = 24;
+
+    /// <summary>The rasterization scale the last layout ran at, to tell a DPI change from any other root change.</summary>
+    private double _laidOutScale;
+
+    private ViewState ViewForThisMonitor(AppState state) => state.ViewForMonitor(_monitor.Id);
 
     /// <summary>
     /// Once the content is live the XamlRoot exists, so the real scale is finally knowable. Lay out
@@ -37,7 +43,20 @@ internal sealed partial class DesktopWindow
     {
         if (_root.XamlRoot is { } xamlRoot)
         {
-            xamlRoot.Changed += (_, _) => Relayout();
+            _laidOutScale = xamlRoot.RasterizationScale;
+            xamlRoot.Changed += (_, _) =>
+            {
+                // [S-849] A display-scale change has also resized this window to a rect Windows
+                // scaled from the old one. The display pass puts it back over the monitor.
+                var scale = _root.XamlRoot?.RasterizationScale ?? _laidOutScale;
+                if (scale != _laidOutScale)
+                {
+                    _laidOutScale = scale;
+                    _host.RequestDisplayPass();
+                }
+
+                Relayout();
+            };
         }
 
         Relayout();
@@ -67,19 +86,22 @@ internal sealed partial class DesktopWindow
             card.ApplyEditMode(editing);
         }
 
+        // [S-802] Edit mode ends a keyboard lease: the keys are the edit shortcuts now.
+        if (editing)
+        {
+            _host.KeyboardEndOn(this);
+        }
+
         // Edit mode needs real focus for the keyboard shortcuts; normal mode goes back to being
-        // part of the desktop, unless a widget is being typed into.
+        // part of the desktop.
         ApplyInteractivity();
+
+        ApplyHitRegion();
 
         if (editing)
         {
-            DesktopLayer.ClearHitRegion(_hwnd);
             _root.Focus(FocusState.Programmatic);
             DrawGridOverlay();
-        }
-        else
-        {
-            ApplyHitRegion();
         }
     }
 
@@ -127,22 +149,36 @@ internal sealed partial class DesktopWindow
                     _widgetLayer.Children.Remove(childCard);
                 }
 
-                // A stack row and a tab already carry the widget's name, so the card must not
-                // repeat it. A group does not name its children, so theirs stays.
-                childCard.SuppressHeader(owns);
+                // [S-867] A stack row is the child's header (the original drew the open child as a
+                // bare body), so the card must not repeat it. A tab strip shows the active child's
+                // own live header under the tabs, as the original did, and a group does not name
+                // its children at all, so theirs stays.
+                childCard.SuppressHeader(WidgetTree.ContainerOf(card.Model.Kind) == ContainerKind.Stack);
 
                 children.Add(childCard);
             }
 
             container.SetChildren(children);
+        }
 
-            // A group draws behind the widgets it holds, so it has to be behind them in the visual
-            // tree: the widget layer paints in child order and a group added after its members
-            // would cover them.
-            if (!owns && _widgetLayer.Children.Contains(card))
+        ApplyPaintOrder(view);
+    }
+
+    /// <summary>
+    /// [S-874] Stack the cards the grid places in the view's paint order: the user's "bring to front"
+    /// and "send to back", with every group directly under its lowest member ([S-415]). Through
+    /// <c>Canvas.ZIndex</c>, never by moving elements in the tree, so nothing is unloaded and
+    /// reloaded — a view that reacts to Unloaded would otherwise restart.
+    /// </summary>
+    private void ApplyPaintOrder(ViewState view)
+    {
+        var order = view.PaintOrder();
+        for (var i = 0; i < order.Count; i++)
+        {
+            var model = order[i];
+            if (_cards.Find(c => ReferenceEquals(c.Model, model)) is { } card)
             {
-                _widgetLayer.Children.Remove(card);
-                _widgetLayer.Children.Insert(0, card);
+                Canvas.SetZIndex(card, i);
             }
         }
     }
@@ -157,7 +193,8 @@ internal sealed partial class DesktopWindow
     /// <summary>Rebuild the cards for this monitor's view and position them.</summary>
     private void Relayout()
     {
-        if (_closed)
+        // [S-928] A suspended surface has no cards and must not grow them back until it resumes.
+        if (_closed || _suspended)
         {
             return;
         }
@@ -188,12 +225,12 @@ internal sealed partial class DesktopWindow
 
         foreach (var stale in byId.Values)
         {
+            // [S-802] A card holding the keyboard and now gone must not keep the surface focusable
+            // forever. Before Detach, so its view hears the Escape while it is still whole.
+            _host.KeyboardRemoved(stale);
+
             stale.Detach();
             _widgetLayer.Children.Remove(stale);
-
-            // A card that wanted the keyboard and is now gone must not keep the surface focusable
-            // forever.
-            RequestTextInput(stale, wanted: false);
         }
 
         _cards.Clear();
@@ -201,10 +238,13 @@ internal sealed partial class DesktopWindow
 
         ArrangeContainers(view);
 
+        var contentScale = ContentScale;
+
         foreach (var card in _cards)
         {
             card.ApplyEditMode(EditMode);
             card.ApplySelection();
+            card.ApplyContentScale(contentScale);
 
             // A widget a stack or a tab strip has taken over is drawn by that container, inside
             // its rect. Positioning it on the grid as well would leave a second copy somewhere
@@ -215,17 +255,39 @@ internal sealed partial class DesktopWindow
             }
         }
 
-        Log.Debug(Scope, $"relayout {_monitor.DeviceName}: view='{view.Name}' widgets={wanted.Count} " +
+        Log.Debug(Scope, $"relayout {_monitor.GdiName}: view='{view.Name}' widgets={wanted.Count} " +
             $"metrics={Metrics.Width:0}x{Metrics.Height:0} scale={RasterScale:0.00} edit={EditMode}");
+
+        ApplyChromeInsets();
+        ApplyHitRegion();
 
         if (EditMode)
         {
             DrawGridOverlay();
         }
-        else
+    }
+
+    /// <summary>
+    /// [S-852] Keep the edit toolbar and the placement hint inside the work area. The surface spans
+    /// the whole monitor, so with the taskbar at the top they would otherwise sit underneath it.
+    /// </summary>
+    private void ApplyChromeInsets()
+    {
+        var metrics = Metrics;
+        if (!metrics.IsUsable)
         {
-            ApplyHitRegion();
+            return;
         }
+
+        var allowed = GridGeometry.AllowedPixels(metrics);
+        var margin = new Thickness(
+            allowed.X,
+            allowed.Y + ChromeTopMargin,
+            Math.Max(0, metrics.Width - (allowed.X + allowed.Width)),
+            0);
+
+        _toolbar.Margin = margin;
+        _placementHint.Margin = margin;
     }
 
     private void PositionCard(WidgetCard card, FracRect rect)
@@ -241,7 +303,7 @@ internal sealed partial class DesktopWindow
         // The card occupies the whole CELL. The gap is applied inside it, so the edit outline and
         // handles trace the cell rather than the painted surface, and changing the gap does not
         // move or resize anything.
-        var cell = GridGeometry.ToPixels(rect, metrics);
+        var cell = DrawnCell(card, rect, metrics);
         Canvas.SetLeft(card, cell.X);
         Canvas.SetTop(card, cell.Y);
         card.Width = cell.Width;
@@ -253,11 +315,19 @@ internal sealed partial class DesktopWindow
     /// Restrict the window to the widgets themselves, so every click that is not on a widget lands
     /// on the desktop underneath. Without this the surface would be an invisible full-screen pane
     /// that swallows every desktop icon double-click.
+    /// <para>
+    /// [S-851] Never over the taskbar. The surface spans the whole monitor ([S-840]), so the region is
+    /// always cut to the work area: in edit mode it is the work area itself rather than the whole
+    /// window, and a widget the taskbar has since grown over is clipped there rather than moved. The
+    /// taskbar is topmost and normally wins anyway — but while Show Desktop lifts the surface to the
+    /// top of the topmost band ([S-33]) the region is all that keeps the taskbar clickable. The region
+    /// clips painting as well as input, so a covered part is not drawn over the taskbar either.
+    /// </para>
     /// </summary>
     private void ApplyHitRegion()
     {
         var metrics = Metrics;
-        if (!metrics.IsUsable)
+        if (!metrics.IsUsable || !Win32.GetWindowRect(_hwnd, out var window))
         {
             return;
         }
@@ -266,24 +336,60 @@ internal sealed partial class DesktopWindow
         // relative to the CLIENT area. Convert both.
         var scale = RasterScale;
         var (offsetX, offsetY) = ClientToWindowOffset();
+
+        var work = _monitor.WorkArea;
+        var allowed = new PixelRect(work.Left - window.Left, work.Top - window.Top, work.Width, work.Height);
+
+        if (EditMode)
+        {
+            DesktopLayer.SetHitRegion(_hwnd, [ToRegionRect(allowed)]);
+            return;
+        }
+
         var rects = new List<Win32.Rect>(_cards.Count);
+        var view = ViewForThisMonitor(_host.State);
 
         foreach (var card in _cards)
         {
-            // The mask traces the PAINTED surface, not the cell: the gap is empty desktop, so a
-            // click there should reach the desktop rather than an invisible widget edge.
-            var box = GridGeometry.Inset(GridGeometry.ToPixels(card.Model.Rect, metrics), Design.WidgetGapPx);
-            rects.Add(new Win32.Rect
+            // [S-872] A child a stack or tab strip draws is inside its container's rect already —
+            // its own stored rect is only where it returns to, and masking it left a dead patch of
+            // desktop there. A member of a collapsed group draws nothing.
+            if (IsArrangedByContainer(view, card.Model) || card.Visibility == Visibility.Collapsed)
             {
-                Left = offsetX + (int)Math.Floor(box.X * scale),
-                Top = offsetY + (int)Math.Floor(box.Y * scale),
-                Right = offsetX + (int)Math.Ceiling((box.X + box.Width) * scale),
-                Bottom = offsetY + (int)Math.Ceiling((box.Y + box.Height) * scale),
-            });
+                continue;
+            }
+
+            // The mask traces the PAINTED surface, not the cell: the gap is empty desktop, so a
+            // click there should reach the desktop rather than an invisible widget edge. And it
+            // follows paint ([S-872]): a hidden widget takes nothing, a see-through group its bar.
+            var painted = GridGeometry.Inset(DrawnCell(card, card.Model.Rect, metrics), Design.WidgetGapPx);
+            if (CardFrame.Hit(painted, card.HitInfo(EditMode)) is not { } box)
+            {
+                continue;
+            }
+
+            var physical = PixelRect.FromEdges(
+                offsetX + Math.Floor(box.X * scale),
+                offsetY + Math.Floor(box.Y * scale),
+                offsetX + Math.Ceiling((box.X + box.Width) * scale),
+                offsetY + Math.Ceiling((box.Y + box.Height) * scale));
+
+            if (GridGeometry.Intersect(physical, allowed) is { } visible)
+            {
+                rects.Add(ToRegionRect(visible));
+            }
         }
 
         DesktopLayer.SetHitRegion(_hwnd, rects);
     }
+
+    private static Win32.Rect ToRegionRect(PixelRect r) => new()
+    {
+        Left = (int)Math.Round(r.X),
+        Top = (int)Math.Round(r.Y),
+        Right = (int)Math.Round(r.X + r.Width),
+        Bottom = (int)Math.Round(r.Y + r.Height),
+    };
 
     /// <summary>
     /// [S-06a] The snap grid, drawn only while editing. One <see cref="Path"/> holding every line

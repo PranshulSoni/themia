@@ -56,17 +56,72 @@ internal sealed partial class DesktopWindow
     }
 
     /// <summary>
-    /// Put the window on its monitor's work area.
+    /// [S-23] Put the window over its monitor — the <b>whole</b> monitor, taskbar included ([S-840]).
+    /// <para>
+    /// Not the work area: the grid and every stored fraction resolve against this window, so a window
+    /// that followed the work area would move and rescale every widget each time the taskbar was
+    /// resized, moved or set to auto-hide. The taskbar stays usable because it is topmost and because
+    /// the hit region never covers it ([S-851]).
+    /// </para>
     /// <para>
     /// <c>AppWindow.MoveAndResize</c> takes <b>physical</b> pixels, which is what
-    /// <c>GetMonitorInfo</c> reports, so the work area goes across unconverted. The display scale
-    /// only matters inside the window, where XAML lays out in DIPs — see <see cref="Metrics"/>.
+    /// <c>GetMonitorInfo</c> reports, so the bounds go across unconverted. The display scale only
+    /// matters inside the window, where XAML lays out in DIPs — see <see cref="Metrics"/>.
     /// </para>
     /// </summary>
     private void ApplyPlacement(AppWindow appWindow)
     {
-        var area = _monitor.WorkArea;
+        var area = _monitor.Bounds;
         appWindow.MoveAndResize(new RectInt32(area.Left, area.Top, area.Width, area.Height));
+    }
+
+    /// <summary>
+    /// [S-844] The display pass found this surface's monitor changed: take the new bounds and work
+    /// area. The cards are kept; only the window moves (when the monitor did) and the layout, hit
+    /// region and chrome insets are redone. A work-area change alone moves no widget ([S-840]).
+    /// </summary>
+    public void UpdateMonitor(MonitorTarget next)
+    {
+        if (_closed)
+        {
+            return;
+        }
+
+        var moved = next.Info.Bounds != _monitor.Info.Bounds;
+        _monitor = next;
+        _window.Title = $"Themia ({next.GdiName})";
+
+        if (moved && _appWindow is not null)
+        {
+            Log.Info(Scope, $"{next.GdiName} moved or changed size; re-placing its surface");
+            ApplyPlacement(_appWindow);
+        }
+
+        Relayout();
+    }
+
+    /// <summary>
+    /// [S-849] Put the window back over its monitor if anything moved it. A display-scale change makes
+    /// Windows resize every window on that monitor to a "suggested" rect scaled from the old one,
+    /// which for a full-monitor surface spills onto the neighbouring display.
+    /// </summary>
+    public void EnsurePlacement()
+    {
+        if (_closed || _appWindow is null || !Win32.GetWindowRect(_hwnd, out var actual))
+        {
+            return;
+        }
+
+        var wanted = _monitor.Bounds;
+        if (actual.Left == wanted.Left && actual.Top == wanted.Top && actual.Right == wanted.Right && actual.Bottom == wanted.Bottom)
+        {
+            return;
+        }
+
+        Log.Info(Scope, $"surface for {_monitor.GdiName} was at {actual.Left},{actual.Top} {actual.Width}x{actual.Height}; " +
+            $"re-placing over the monitor at {wanted.Left},{wanted.Top} {wanted.Width}x{wanted.Height}");
+        ApplyPlacement(_appWindow);
+        Relayout();
     }
 
     /// <summary>
@@ -132,12 +187,9 @@ internal sealed partial class DesktopWindow
 
     private void ApplyTheme()
     {
-        _root.RequestedTheme = Design.Theme switch
-        {
-            AppTheme.Light => ElementTheme.Light,
-            AppTheme.Dark => ElementTheme.Dark,
-            _ => ElementTheme.Default,
-        };
+        // [S-822] The engine's effective theme, so the controls' theme resources and the brushes
+        // code hands out agree even under "use system setting".
+        _root.RequestedTheme = DesignApplier.Theme;
     }
 
     public void ShowSurface()
@@ -159,6 +211,11 @@ internal sealed partial class DesktopWindow
         }
 
         _closed = true;
+
+        // [S-802] A surface going away takes a lease one of its widgets held with it.
+        _host.KeyboardEndOn(this);
+        _window.Activated -= OnWindowActivated;
+
         DesktopZOrder.Forget(_hwnd);
         _host.StateChanged -= OnStateChanged;
         _host.EditModeChanged -= OnEditModeChanged;
@@ -169,8 +226,6 @@ internal sealed partial class DesktopWindow
         {
             card.Detach();
         }
-
-        _textInputWanted.Clear();
 
         _cards.Clear();
         _window.Close();

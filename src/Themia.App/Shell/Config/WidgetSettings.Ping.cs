@@ -16,7 +16,52 @@ internal static partial class WidgetSettings
         rows.Add(FluentLayout.Header("Ping"));
 
         AddHostRow(rows, config, save);
+        AddLabelRow(rows, config, save);
+
+        rows.Add(FluentLayout.Header("Show"));
+
+        rows.Add(FluentLayout.Row(Glyphs.Motion, "Jitter",
+            "How much one answer differs from the next",
+            FluentLayout.Toggle(config.ShowJitter, value => { config.ShowJitter = value; save(); })));
+
+        rows.Add(FluentLayout.Row(Glyphs.Warning, "Packet loss",
+            "The share of probes that got no answer",
+            FluentLayout.Toggle(config.ShowLoss, value => { config.ShowLoss = value; save(); }),
+            "loss"));
+
+        rows.Add(FluentLayout.Row(Glyphs.Gauge, "Fastest, average, slowest",
+            "The range of answers over the chart's span",
+            FluentLayout.Toggle(config.ShowMinAvgMax, value => { config.ShowMinAvgMax = value; save(); }),
+            "min", "avg", "max", "minimum", "maximum"));
+
         MeterRows(rows, config, save, "the host is probed");
+    }
+
+    /// <summary>
+    /// [S-1173] A name for the host. Stored as typed (a label may have spaces in it) and trimmed where
+    /// it is shown; empty means the header shows the address.
+    /// </summary>
+    private static void AddLabelRow(List<FrameworkElement> rows, PingConfig config, Action save)
+    {
+        var box = new TextBox
+        {
+            Text = config.HostLabel,
+            PlaceholderText = "Router, game server…",
+            MaxLength = PingConfig.MaxLabelLength,
+            MinWidth = 200,
+        };
+
+        box.TextChanged += (_, _) =>
+        {
+            if (config.HostLabel != box.Text)
+            {
+                config.HostLabel = box.Text;
+                save();
+            }
+        };
+
+        rows.Add(FluentLayout.Row(Glyphs.Tag, "Name",
+            "Shown as the title, with the address under the statistics", box, "label"));
     }
 
     /// <summary>

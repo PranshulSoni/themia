@@ -17,7 +17,8 @@ namespace Themia.App.Shell.Gallery;
 
 /// <summary>
 /// The debug-only settings render:
-/// <c>Themia.exe --settings-png &lt;Page&gt; &lt;out.png&gt; [waitMs] [--theme light|dark] [--search text] [--land text]</c>
+/// <c>Themia.exe --settings-png &lt;Page&gt; &lt;out.png&gt; [waitMs] [--theme light|dark] [--search text] [--land text]
+/// [--flyout row-title] [--width dips]</c>
 /// draws the real settings window — title bar, navigation, breadcrumb and page — off-screen to a
 /// PNG, then exits. [S-499], [S-1548]
 /// <para>
@@ -80,7 +81,7 @@ internal static class SettingsRender
 
         if (at + 2 >= args.Length)
         {
-            Log.Error(Scope, "usage: --settings-png <General|Appearance|Layout|About|Accounts|Widget:<Kind>|View|Display> <out.png> [waitMs] [--theme light|dark] [--search text] [--land text] [--flyout row-title]");
+            Log.Error(Scope, "usage: --settings-png <General|Appearance|Layout|About|Accounts|Widget:<Kind>|View|Display> <out.png> [waitMs] [--theme light|dark] [--search text] [--land text] [--flyout row-title] [--width dips]");
             app.Exit();
             return true;
         }
@@ -122,7 +123,8 @@ internal static class SettingsRender
                 ApplicationTheme.Dark => AppTheme.Dark,
                 _ => AppTheme.System,
             },
-            Option(args, "--flyout"));
+            Option(args, "--flyout"),
+            double.TryParse(Option(args, "--width"), System.Globalization.CultureInfo.InvariantCulture, out var width) && width >= 320 ? width : WindowWidth);
 
         _ = RenderAsync(app, dispatcher, request);
         return true;
@@ -145,7 +147,8 @@ internal static class SettingsRender
         string? Search,
         string? Land,
         AppTheme Theme,
-        string? Flyout);
+        string? Flyout,
+        double Width);
 
     private static string? Option(string[] args, string name)
     {
@@ -161,6 +164,16 @@ internal static class SettingsRender
         => Enum.TryParse<AppPage>(name, ignoreCase: true, out var page) && Enum.IsDefined(page)
             ? new ConfigTarget.App(page)
             : null;
+
+    /// <summary>
+    /// [S-853] The first connected display's page. Reading the display list touches no window; no
+    /// surface is built, so the page renders exactly as Settings shows it.
+    /// </summary>
+    private static ConfigTarget FirstDisplay(AppHost host)
+    {
+        host.RefreshDisplayList();
+        return new ConfigTarget.Display(host.Displays.Count > 0 ? host.Displays[0].Id : "none");
+    }
 
     private static async Task RenderAsync(Application app, DispatcherQueue dispatcher, Request request)
     {
@@ -179,7 +192,7 @@ internal static class SettingsRender
             ConfigTarget target = request.Page switch
             {
                 PageKind.View => new ConfigTarget.View(host.State.Views[0].Id),
-                PageKind.Display => new ConfigTarget.Display("\\\\.\\DISPLAY1"),
+                PageKind.Display => FirstDisplay(host),
                 PageKind.Widget => new ConfigTarget.Widget(DemoWidget(host, request.Kind!.Value).Id),
                 _ => request.App!,
             };
@@ -194,7 +207,7 @@ internal static class SettingsRender
             var scale = dpi > 0 ? dpi / 96.0 : 1.0;
 
             window.AppWindow.Move(new PointInt32(-32000, -32000));
-            window.AppWindow.Resize(new SizeInt32((int)(WindowWidth * scale), (int)(800 * scale)));
+            window.AppWindow.Resize(new SizeInt32((int)(request.Width * scale), (int)(800 * scale)));
             window.AppWindow.Show(activateWindow: false);
 
             var root = settings.DebugRoot;
@@ -218,7 +231,7 @@ internal static class SettingsRender
                 ? Math.Max(600, pageHeight + 180)
                 : 800;
 
-            window.AppWindow.Resize(new SizeInt32((int)(WindowWidth * scale), (int)(height * scale)));
+            window.AppWindow.Resize(new SizeInt32((int)(request.Width * scale), (int)(height * scale)));
 
             if (request.Search is { } query)
             {

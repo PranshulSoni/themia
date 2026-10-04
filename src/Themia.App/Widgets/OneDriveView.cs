@@ -17,20 +17,24 @@ namespace Themia.App.Widgets;
 /// from the top of the drive.
 /// <para>
 /// Read-only, and nothing is downloaded: a file opens as its OneDrive page in the browser, through
-/// <see cref="ShellLauncher"/>'s allow list like every other launch in the app, and only on a
-/// double-click — a widget sits in the pointer's path across the desktop, and one stray click
-/// should not open a browser. Walking into a folder is a single click: it only changes the widget.
+/// <see cref="ShellLauncher"/>'s allow list like every other launch in the app — on a double-click
+/// by default, or a single click when the widget is set so ([S-1291]). Walking into a folder is a
+/// single click either way: it only changes the widget.
+/// </para>
+/// <para>
+/// [S-1290] It uses the whole tile: names alone on a small one, a second line of details on a
+/// narrow tall one, and on anything wider one line per item with the details in columns — when,
+/// how big, who, where — so a strip lists more items and a big tile has no empty half. As many
+/// whole rows as fit are fetched (the count setting is a floor); the largest tile adds the drive's
+/// quota under the list.
 /// </para>
 /// </summary>
-internal sealed partial class OneDriveView : Grid, IWidgetView, IWidgetHeaderContent, IWidgetContextActions
+internal sealed partial class OneDriveView : Grid, IWidgetView, IWidgetHeaderContent, IWidgetContextActions, IWidgetSizeAware, IWidgetKeys
 {
     private const string Scope = "onedrive-widget";
 
     /// <summary>Below this the link under an empty state is dropped; the sentence is worth more.</summary>
     private const double LinkNeedsHeight = 140;
-
-    /// <summary>Under this width the size and age line is dropped: the name is what the row is for.</summary>
-    private const double MetaNeedsWidth = 180;
 
     private static readonly TimeSpan CountDebounce = TimeSpan.FromMilliseconds(400);
 
@@ -39,8 +43,10 @@ internal sealed partial class OneDriveView : Grid, IWidgetView, IWidgetHeaderCon
     private readonly StackPanel _trailing;
     private readonly Border _crumb;
     private readonly TextBlock _crumbText;
+    private readonly Grid _columnHeader = new();
     private readonly StackPanel _list = new() { Spacing = 0 };
     private readonly ScrollViewer _scroll;
+    private readonly TextBlock _footer;
     private readonly Grid _emptyHost = new();
     private readonly StackPanel _empty;
     private readonly TextBlock _emptyText = new();
@@ -52,6 +58,7 @@ internal sealed partial class OneDriveView : Grid, IWidgetView, IWidgetHeaderCon
 
     private DriveService? _service;
     private IDisposable? _subscription;
+    private ScrollFade? _fade;
     private OneDriveConfig _config = new();
     private (string? AccountId, DriveStart Start, int Count)? _bound;
 
@@ -59,14 +66,22 @@ internal sealed partial class OneDriveView : Grid, IWidgetView, IWidgetHeaderCon
     private IReadOnlyList<DriveItem>? _items;
     private AccountException? _failure;
     private DriveAccount? _account;
+    private DriveQuota? _quota;
     private string? _blocked;
     private int _generation;
     private bool _detached;
 
+    private WidgetArea _area;
+
+    /// <summary>What the rows on screen were built for, so a resize redraws only when an answer changes.</summary>
+    private DriveShape _shape = new(new DriveFit(DriveRowMode.NameOnly, [], false), string.Empty, false, OneDriveConfig.MinFiles, false);
+
     public OneDriveView()
     {
         RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
+        RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
 
         _busy.Width = Fluent.IconSize;
         _busy.Height = Fluent.IconSize;
@@ -104,11 +119,15 @@ internal sealed partial class OneDriveView : Grid, IWidgetView, IWidgetHeaderCon
         crumbBody.Children.Add(_crumbText);
 
         _crumb = Fluent.Row(crumbBody, compact: true);
+        RowFocus.Prepare(_crumb);
         _crumb.Visibility = Visibility.Collapsed;
         _crumb.Tapped += OnCrumbTapped;
         _crumbHover = Fluent.Hover(_crumb);
         ToolTipService.SetToolTip(_crumb, "Back");
         Grid.SetRow(_crumb, 0);
+
+        _columnHeader.Visibility = Visibility.Collapsed;
+        Grid.SetRow(_columnHeader, 1);
 
         _scroll = new ScrollViewer
         {
@@ -118,7 +137,13 @@ internal sealed partial class OneDriveView : Grid, IWidgetView, IWidgetHeaderCon
             HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
             VerticalScrollBarVisibility = ScrollBarVisibility.Hidden,
         };
-        Grid.SetRow(_scroll, 1);
+        Grid.SetRow(_scroll, 2);
+
+        // [S-1294] The largest tile's quota line under the list.
+        _footer = Fluent.Text(FluentType.Caption, "TextFillColorTertiaryBrush");
+        _footer.Margin = new Thickness(Fluent.Space4, 0, Fluent.Space4, Fluent.Space2);
+        _footer.Visibility = Visibility.Collapsed;
+        Grid.SetRow(_footer, 3);
 
         _empty = Fluent.EmptyState(Glyphs.OneDrive, _emptyText, out _);
         _emptyAction = new HyperlinkButton
@@ -139,9 +164,12 @@ internal sealed partial class OneDriveView : Grid, IWidgetView, IWidgetHeaderCon
         _emptyHost.Children.Add(_emptyAction);
         _emptyHost.Visibility = Visibility.Collapsed;
         Grid.SetRow(_emptyHost, 1);
+        Grid.SetRowSpan(_emptyHost, 3);
 
         Children.Add(_crumb);
+        Children.Add(_columnHeader);
         Children.Add(_scroll);
+        Children.Add(_footer);
         Children.Add(_emptyHost);
 
         _countTimer = DispatcherQueue.GetForCurrentThread()?.CreateTimer();
@@ -151,24 +179,16 @@ internal sealed partial class OneDriveView : Grid, IWidgetView, IWidgetHeaderCon
             _countTimer.IsRepeating = false;
             _countTimer.Tick += OnCountSettled;
         }
-
-        SizeChanged += OnSizeChanged;
     }
 
     /// <inheritdoc />
     public FrameworkElement? HeaderTrailing => _trailing;
 
-    private bool Compact => ActualHeight > 0 && ActualHeight < Fluent.CompactBelow;
-
-    /// <summary>The row height and whether the size line fits, as the rows on screen were drawn.</summary>
-    private (bool Compact, bool Meta)? _drawnDensity;
-
-    private (bool Compact, bool Meta) Density() => (Compact, ActualWidth <= 0 || ActualWidth >= MetaNeedsWidth);
-
     public void Attach(Ticker ticker, WidgetConfig config)
     {
         _detached = false;
         _service = AppServices.Drive;
+        _fade = new ScrollFade(_scroll, _list);
 
         if (_service is not null)
         {
@@ -183,12 +203,15 @@ internal sealed partial class OneDriveView : Grid, IWidgetView, IWidgetHeaderCon
     public void ApplyConfig(WidgetConfig config)
     {
         _config = config as OneDriveConfig ?? new OneDriveConfig();
+        Lay();
 
         // The settings page edits this very object in place, so the comparison is against what was
         // last loaded, never against "the previous config".
         var key = (Empty(_config.AccountId), _config.StartIn, _config.EffectiveFileCount);
         if (key == _bound)
         {
+            // [S-1291] The click mode changes only how the rows answer.
+            Render();
             return;
         }
 
@@ -206,7 +229,29 @@ internal sealed partial class OneDriveView : Grid, IWidgetView, IWidgetHeaderCon
         // [S-609] A different account or start throws the folder trail away.
         _trail = [];
         _items = null;
+        _quota = null;
         Load(TimeSpan.Zero);
+    }
+
+    /// <inheritdoc />
+    public void ApplySize(WidgetArea area)
+    {
+        _area = area;
+        FitEmptyState();
+
+        var drawn = _shape;
+        Lay();
+
+        if (_shape.Fetch != drawn.Fetch || _shape.Quota != drawn.Quota)
+        {
+            // More rows fit (or fewer): ask for that many. A listing already held for the address
+            // is still served from memory, so shrinking back costs nothing.
+            Load(TimeSpan.FromMinutes(1));
+        }
+        else if (_shape != drawn)
+        {
+            Render();
+        }
     }
 
     /// <inheritdoc />
@@ -222,6 +267,7 @@ internal sealed partial class OneDriveView : Grid, IWidgetView, IWidgetHeaderCon
                 {
                     _trail = [];
                     _items = null;
+                    Lay();
                     Load(TimeSpan.Zero);
                 }));
             }
@@ -232,15 +278,58 @@ internal sealed partial class OneDriveView : Grid, IWidgetView, IWidgetHeaderCon
 
     private static string? Empty(string? value) => string.IsNullOrEmpty(value) ? null : value;
 
-    private void OnCountSettled(DispatcherQueueTimer sender, object args) => Load(TimeSpan.Zero);
+    private void OnCountSettled(DispatcherQueueTimer sender, object args)
+    {
+        Lay();
+        Load(TimeSpan.Zero);
+    }
 
     private void OnTick() => Load(OneDriveConfig.RefreshInterval - TimeSpan.FromSeconds(30));
 
     private void OnAccountsChanged()
     {
         _items = null;
+        _quota = null;
         Load(TimeSpan.Zero);
     }
+
+    // ---- the ladder ----------------------------------------------------------------------------------
+
+    /// <summary>
+    /// [S-1290] What the tile holds, top to bottom: the way back (inside a folder), the column titles
+    /// when the details are in columns and there is height, then as many whole rows as fit — which
+    /// is also how many items to fetch, never fewer than the count setting. The quota line of the
+    /// largest tile ([S-1294]) is not a rung: it sits under the list, and the fade covers what it hides.
+    /// </summary>
+    private void Lay()
+    {
+        var compact = _area.Height > 0 && _area.Height < Fluent.CompactBelow;
+        var room = new Disclosure(_area);
+
+        if (_trail.Count > 0)
+        {
+            room.Reserve(Fluent.RowHeightCompact);
+        }
+
+        var showLocation = _trail.Count == 0 && _config.StartIn == DriveStart.Recent;
+        var fit = DriveLayout.Fit(TextWidth(_area.Width), room.Remaining, compact, showLocation);
+        var header = fit.ColumnHeader && room.Take(FluentType.Caption.LineHeight + Fluent.Space1);
+        var rowHeight = fit.Mode == DriveRowMode.Columns || compact ? Fluent.RowHeightCompact : Fluent.RowHeight;
+        var rows = _area.IsMeasured ? room.TakeRows(rowHeight, OneDriveConfig.MaxFiles) : 0;
+
+        _shape = new DriveShape(
+            fit with { ColumnHeader = header },
+            string.Join(",", fit.Columns.Select(c => c.Column)),
+            compact,
+            _config.FetchCount(rows),
+            _area.HeightClass >= SizeClass.Huge);
+    }
+
+    /// <summary>The width a row's text shares: the row less its padding, the focus ring and the icon.</summary>
+    private static double TextWidth(double width)
+        => Math.Max(0, width - (2 * (Fluent.Space4 + RowFocus.Ring)) - Fluent.IconSize - Fluent.Space3);
+
+    // ---- loading -----------------------------------------------------------------------------------
 
     /// <summary>
     /// Show the current place: the innermost folder of the trail, else the configured start. A
@@ -285,17 +374,23 @@ internal sealed partial class OneDriveView : Grid, IWidgetView, IWidgetHeaderCon
             return;
         }
 
-        _ = LoadAsync(_account.Id, DriveRules.Address(_trail, _config.StartIn, _config.EffectiveFileCount), maxAge, generation);
+        var count = _shape.Fetch;
+        _ = LoadAsync(_account.Id, DriveRules.Address(_trail, _config.StartIn, count), count, maxAge, generation);
+
+        if (_shape.Quota)
+        {
+            _ = LoadQuotaAsync(_account.Id, generation);
+        }
     }
 
-    private async Task LoadAsync(string accountId, Uri address, TimeSpan maxAge, int generation)
+    private async Task LoadAsync(string accountId, Uri address, int count, TimeSpan maxAge, int generation)
     {
         SetBusy(true);
         Render();
 
         try
         {
-            var items = await _service!.ListAsync(accountId, address, _config.EffectiveFileCount, maxAge).ConfigureAwait(true);
+            var items = await _service!.ListAsync(accountId, address, count, maxAge).ConfigureAwait(true);
 
             if (_detached || generation != _generation)
             {
@@ -336,6 +431,27 @@ internal sealed partial class OneDriveView : Grid, IWidgetView, IWidgetHeaderCon
         Render();
     }
 
+    /// <summary>[S-1294] The quota for the footer: an extra, so a failure only means no footer (the service logs it).</summary>
+    private async Task LoadQuotaAsync(string accountId, int generation)
+    {
+        try
+        {
+            var quota = await _service!.QuotaAsync(accountId).ConfigureAwait(true);
+            if (_detached || generation != _generation)
+            {
+                return;
+            }
+
+            _quota = quota;
+            UpdateFooter();
+        }
+        catch (Exception ex)
+        {
+            // async from a resize or a tick: nothing above this may see an exception.
+            Log.Error(Scope, "reading the quota failed unexpectedly", ex);
+        }
+    }
+
     private void SetBusy(bool busy)
     {
         _busy.IsActive = busy;
@@ -352,7 +468,6 @@ internal sealed partial class OneDriveView : Grid, IWidgetView, IWidgetHeaderCon
         }
 
         ClearRows();
-        _drawnDensity = null;
 
         _crumb.Visibility = _trail.Count > 0 && _blocked is null ? Visibility.Visible : Visibility.Collapsed;
         _crumbText.Text = _trail.Count > 0 ? _trail[^1].Name : string.Empty;
@@ -393,14 +508,25 @@ internal sealed partial class OneDriveView : Grid, IWidgetView, IWidgetHeaderCon
         _emptyHost.Visibility = Visibility.Collapsed;
         _scroll.Visibility = Visibility.Visible;
 
-        var now = DateTimeOffset.Now;
-        var (compact, meta) = Density();
-        _drawnDensity = (compact, meta);
+        BuildColumnHeader();
+        UpdateFooter();
 
+        var now = DateTimeOffset.Now;
         foreach (var item in _items)
         {
-            _list.Children.Add(BuildRow(item, now, compact, meta));
+            _list.Children.Add(BuildRow(item, now));
         }
+
+        _shown = _items;
+        RestoreFocus();
+        _fade?.Refresh();
+    }
+
+    private void UpdateFooter()
+    {
+        var text = _shape.Quota && _quota is { } quota && _items is { Count: > 0 } && _blocked is null ? DriveRules.QuotaText(quota) : null;
+        _footer.Text = text ?? string.Empty;
+        _footer.Visibility = text is null ? Visibility.Collapsed : Visibility.Visible;
     }
 
     private static string Explain(AccountException failure) => failure.Error switch
@@ -409,75 +535,6 @@ internal sealed partial class OneDriveView : Grid, IWidgetView, IWidgetHeaderCon
         AccountError.Forbidden => "This account does not let Themia read its files. Sign in again to grant it.",
         AccountError.NotFound => "That folder is not there any more.",
         _ => FetchState.Message(failure.ToFetchStatus()) is { Length: > 0 } message ? $"{message}." : "Could not read the files.",
-    };
-
-    /// <summary>
-    /// [S-606] One item: its kind's icon, its name, and under it the size and how long ago it
-    /// changed. Two lines on a standard row; the compact row keeps the name alone.
-    /// </summary>
-    private Border BuildRow(DriveItem item, DateTimeOffset now, bool compact, bool showMeta)
-    {
-        var icon = Fluent.Icon(Glyph(DriveRules.Kind(item)), item.IsFolder ? "AccentTextFillColorPrimaryBrush" : "TextFillColorSecondaryBrush");
-        icon.Margin = new Thickness(0, 0, Fluent.Space3, 0);
-
-        var name = Fluent.Text(FluentType.Body);
-        name.Text = item.Name;
-        name.TextTrimming = TextTrimming.CharacterEllipsis;
-        name.TextWrapping = TextWrapping.NoWrap;
-
-        var text = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
-        text.Children.Add(name);
-
-        var metaText = DriveRules.Meta(item, now);
-        if (showMeta && !compact && metaText.Length > 0)
-        {
-            var line = Fluent.Text(FluentType.Caption, "TextFillColorTertiaryBrush");
-            line.Text = metaText;
-            line.TextTrimming = TextTrimming.CharacterEllipsis;
-            text.Children.Add(line);
-        }
-
-        var body = new Grid
-        {
-            ColumnDefinitions =
-            {
-                new ColumnDefinition { Width = GridLength.Auto },
-                new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) },
-            },
-        };
-        Grid.SetColumn(text, 1);
-        body.Children.Add(icon);
-        body.Children.Add(text);
-
-        var row = Fluent.Row(body, compact);
-        row.Tag = item;
-        _hovers.Add(Fluent.Hover(row));
-        _rows.Add(row);
-
-        if (item.IsFolder)
-        {
-            row.Tapped += OnFolderTapped;
-        }
-        else
-        {
-            row.DoubleTapped += OnFileDoubleTapped;
-        }
-
-        ToolTipService.SetToolTip(row, $"{item.Name}{(metaText.Length > 0 ? $"{Environment.NewLine}{metaText}" : string.Empty)}{Environment.NewLine}"
-            + (item.IsFolder ? "Click to open the folder" : "Double-click to open it in your browser"));
-        return row;
-    }
-
-    private static string Glyph(DriveItemKind kind) => kind switch
-    {
-        DriveItemKind.Folder => Glyphs.Folder,
-        DriveItemKind.Image => Glyphs.Gallery,
-        DriveItemKind.Video => Glyphs.Video,
-        DriveItemKind.Audio => Glyphs.Audio,
-        DriveItemKind.Spreadsheet => Glyphs.Spreadsheet,
-        DriveItemKind.Presentation => Glyphs.Presentation,
-        DriveItemKind.Document => Glyphs.Document,
-        _ => Glyphs.File,
     };
 
     private enum EmptyAction
@@ -489,6 +546,8 @@ internal sealed partial class OneDriveView : Grid, IWidgetView, IWidgetHeaderCon
     private void ShowEmpty(string text, EmptyAction? action)
     {
         _scroll.Visibility = Visibility.Collapsed;
+        _columnHeader.Visibility = Visibility.Collapsed;
+        _footer.Visibility = Visibility.Collapsed;
         _emptyHost.Visibility = Visibility.Visible;
         _emptyText.Text = text;
         _emptyAction.Tag = action;
@@ -498,41 +557,28 @@ internal sealed partial class OneDriveView : Grid, IWidgetView, IWidgetHeaderCon
             EmptyAction.Retry => "Try again",
             _ => null,
         };
+        _shown = [];
         FitEmptyState();
     }
 
     private void FitEmptyState()
     {
-        var height = ActualHeight;
+        var height = _area.Height;
         var link = _emptyAction.Tag is EmptyAction && (height <= 0 || height >= LinkNeedsHeight);
         _emptyAction.Visibility = link ? Visibility.Visible : Visibility.Collapsed;
         _empty.MaxHeight = height > 0 ? Math.Max(0, height - (link ? 36 : 0)) : double.PositiveInfinity;
     }
 
-    private void OnSizeChanged(object sender, SizeChangedEventArgs args)
-    {
-        FitEmptyState();
-
-        // Compared with what was drawn, not with the previous size: the first rows can be drawn
-        // before the tile has any size at all.
-        if (_drawnDensity is { } drawn && drawn != Density())
-        {
-            Render();
-        }
-    }
-
     // ---- clicks ------------------------------------------------------------------------------------------
 
     /// <summary>[S-609] Walk into a folder.</summary>
-    private void OnFolderTapped(object sender, TappedRoutedEventArgs args)
+    private void EnterFolder(DriveItem folder)
     {
-        if (sender is Border { Tag: DriveItem folder })
-        {
-            args.Handled = true;
-            _trail = DriveRules.Enter(_trail, folder);
-            _items = null;
-            Load(TimeSpan.FromMinutes(1));
-        }
+        _trail = DriveRules.Enter(_trail, folder);
+        _items = null;
+        ReleaseFocus();
+        Lay();
+        Load(TimeSpan.FromMinutes(1));
     }
 
     /// <summary>[S-609] One step back; past the first folder, back to the configured start.</summary>
@@ -541,20 +587,18 @@ internal sealed partial class OneDriveView : Grid, IWidgetView, IWidgetHeaderCon
         args.Handled = true;
         _trail = DriveRules.Back(_trail);
         _items = null;
+        ReleaseFocus();
+        Lay();
         Load(TimeSpan.FromMinutes(1));
     }
 
     /// <summary>[S-606] A file opens as its OneDrive page, through the launcher's allow list.</summary>
-    private void OnFileDoubleTapped(object sender, DoubleTappedRoutedEventArgs args)
+    private static void OpenOnWeb(DriveItem item)
     {
-        if (sender is Border { Tag: DriveItem file })
+        var outcome = ShellLauncher.Open(item.WebUrl);
+        if (outcome != LaunchOutcome.Opened)
         {
-            args.Handled = true;
-            var outcome = ShellLauncher.Open(file.WebUrl);
-            if (outcome != LaunchOutcome.Opened)
-            {
-                Log.Warn(Scope, $"could not open {file.Name}: {outcome}");
-            }
+            Log.Warn(Scope, $"could not open {item.Name}: {outcome}");
         }
     }
 
@@ -583,8 +627,9 @@ internal sealed partial class OneDriveView : Grid, IWidgetView, IWidgetHeaderCon
 
         foreach (var row in _rows)
         {
-            row.Tapped -= OnFolderTapped;
-            row.DoubleTapped -= OnFileDoubleTapped;
+            row.Tapped -= OnRowTapped;
+            row.DoubleTapped -= OnRowDoubleTapped;
+            row.RightTapped -= OnRowRightTapped;
         }
 
         _hovers.Clear();
@@ -602,7 +647,6 @@ internal sealed partial class OneDriveView : Grid, IWidgetView, IWidgetHeaderCon
         _detached = true;
         _generation++;
 
-        SizeChanged -= OnSizeChanged;
         _crumb.Tapped -= OnCrumbTapped;
         _crumbHover.Dispose();
         _emptyAction.Click -= OnEmptyActionClicked;
@@ -616,6 +660,9 @@ internal sealed partial class OneDriveView : Grid, IWidgetView, IWidgetHeaderCon
         _subscription?.Dispose();
         _subscription = null;
 
+        _fade?.Dispose();
+        _fade = null;
+
         if (_service is not null)
         {
             _service.AccountsChanged -= OnAccountsChanged;
@@ -623,5 +670,16 @@ internal sealed partial class OneDriveView : Grid, IWidgetView, IWidgetHeaderCon
         }
 
         ClearRows();
+    }
+
+    /// <summary>The answers a layout pass gave; a resize that changes none of them redraws nothing.</summary>
+    private readonly record struct DriveShape(DriveFit Fit, string Columns, bool Compact, int Fetch, bool Quota)
+    {
+        // DriveFit holds a list; two passes that chose the same columns are the same shape.
+        public bool Equals(DriveShape other)
+            => Fit.Mode == other.Fit.Mode && Fit.ColumnHeader == other.Fit.ColumnHeader && Columns == other.Columns
+                && Compact == other.Compact && Fetch == other.Fetch && Quota == other.Quota;
+
+        public override int GetHashCode() => HashCode.Combine(Fit.Mode, Fit.ColumnHeader, Columns, Compact, Fetch, Quota);
     }
 }

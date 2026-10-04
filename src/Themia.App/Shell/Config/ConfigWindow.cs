@@ -116,15 +116,17 @@ internal sealed partial class ConfigWindow
             _host.State.Views.Select(v =>
                 $"{v.Id}~{v.Name}~{string.Join(",", v.Widgets.Select(w => $"{w.Id}={w.Kind}={w.Label}"))}"));
 
-        var displays = string.Join(",", _host.Surfaces.Select(s => s.Monitor.Describe()));
-        return $"{views}||{displays}";
+        var displays = string.Join(",", _host.Displays.Select(d => $"{d.Describe()}~{_host.State.DisabledMonitors.Contains(d.Id)}"));
+        // [S-990] Developer mode adds and removes the Logs page.
+        return $"{views}||{displays}||{_host.State.Preferences.DevMode}";
     }
 
     private bool Exists(ConfigTarget target) => target switch
     {
         ConfigTarget.Widget widget => _host.Find(widget.WidgetId) is not null,
         ConfigTarget.View view => _host.State.FindView(view.ViewId) is not null,
-        ConfigTarget.Display display => _host.Surfaces.Any(s => s.Monitor.DeviceName == display.MonitorId),
+        ConfigTarget.Display display => _host.FindDisplay(display.MonitorId) is not null,
+        ConfigTarget.App app => ConfigPages.AppPages.FirstOrDefault(p => p.Page == app.Page)?.IsAvailable(_host.State) ?? true,
         _ => true,
     };
 

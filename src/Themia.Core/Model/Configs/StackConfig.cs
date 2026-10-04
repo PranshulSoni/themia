@@ -15,8 +15,9 @@ public sealed class StackConfig : WidgetConfig
     public override WidgetKind Kind => WidgetKind.Stack;
 
     /// <summary>
-    /// Which child is open, by id. An id that no longer names a child opens the first one instead of
-    /// showing nothing, because a stack with everything rolled up looks broken rather than tidy.
+    /// [S-864] Which child is open, by id, or null for none — every child starts closed, and a click
+    /// on the open child's row closes it. An id that no longer names a child is "nothing open" and is
+    /// left as it is (see <see cref="ContainerRules.OpenIndex"/>).
     /// </summary>
     public string? OpenChildId { get; set; }
 

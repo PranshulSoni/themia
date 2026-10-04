@@ -33,16 +33,24 @@ public sealed class GpuConfig : GaugeConfig
     /// <summary>[S-438] The shared system memory row.</summary>
     public bool ShowShared { get; set; } = true;
 
-    /// <summary>[S-439] Driver-reported rows, which only some cards answer. Off by default.</summary>
-    public bool ShowTemperature { get; set; }
+    /// <summary>
+    /// [S-439] [S-1208] Driver-reported lines, which only some cards answer. On by default: each one
+    /// hides itself when the driver says nothing, and the ladder shows it only where there is room,
+    /// so on a card that answers they fill a large tile and cost a small one nothing.
+    /// </summary>
+    public bool ShowTemperature { get; set; } = true;
 
-    public bool ShowPower { get; set; }
+    public bool ShowPower { get; set; } = true;
 
-    public bool ShowFan { get; set; }
+    public bool ShowFan { get; set; } = true;
 
-    public bool ShowClocks { get; set; }
+    public bool ShowClocks { get; set; } = true;
 
-    public bool ShowVideoEngines { get; set; }
+    /// <summary>[S-1203] One bar per engine kind (3D, copy, compute, video decode and encode) on a tall tile.</summary>
+    public bool ShowEngines { get; set; } = true;
+
+    /// <summary>[S-1205] The processes using the adapter most, on a tile large both ways.</summary>
+    public bool ShowProcesses { get; set; } = true;
 
     public override WidgetConfig Clone()
     {
@@ -56,7 +64,8 @@ public sealed class GpuConfig : GaugeConfig
             ShowPower = ShowPower,
             ShowFan = ShowFan,
             ShowClocks = ShowClocks,
-            ShowVideoEngines = ShowVideoEngines,
+            ShowEngines = ShowEngines,
+            ShowProcesses = ShowProcesses,
         };
 
         CopyTo(copy);

@@ -17,7 +17,8 @@ using Windows.Media.Streaming.Adaptive;
 namespace Themia.App.Widgets;
 
 /// <summary>
-/// A camera on the desktop: the widget is the picture, with no controls and no chrome of its own.
+/// A camera on the desktop: the widget is the picture. Its only chrome is optional and kept off the
+/// small tiles ([S-1312], <c>VideoStreamView.Overlay.cs</c>).
 /// <para>
 /// The cost is a socket that stays open and a JPEG decoded per frame, for as long as the picture
 /// can be seen. So the session runs only while it can: it is torn down when the widget is paused,
@@ -30,7 +31,7 @@ namespace Themia.App.Widgets;
 /// stream — a desktop of MJPEG cameras never loads the media pipeline at all.
 /// </para>
 /// </summary>
-internal sealed partial class VideoStreamView : Grid, IWidgetView, IWidgetSurfaceAware, IWidgetContextActions, IStreamSink
+internal sealed partial class VideoStreamView : Grid, IWidgetView, IWidgetSurfaceAware, IWidgetContextActions, IWidgetSizeAware, IStreamSink
 {
     private const string Scope = "video-stream";
 
@@ -73,10 +74,20 @@ internal sealed partial class VideoStreamView : Grid, IWidgetView, IWidgetSurfac
         var empty = Fluent.EmptyState(Glyphs.Video, _message, out _messageIcon);
         _messageHost = new Border { Child = empty, VerticalAlignment = VerticalAlignment.Center };
 
+        (_chip, _strip) = BuildOverlay();
+
         Children.Add(_frame);
         Children.Add(_messageHost);
+        Children.Add(_chip);
+        Children.Add(_strip);
 
-        SizeChanged += OnSizeChanged;
+        // Hit-testable everywhere, so the hover strip appears wherever the pointer is on the
+        // picture, letterbox bars included.
+        Background = FluentLayout.Themed("SubtleFillColorTransparentBrush", Microsoft.UI.Colors.Transparent);
+        PointerEntered += OnPointerEntered;
+        PointerExited += OnPointerGone;
+        PointerCanceled += OnPointerGone;
+        PointerCaptureLost += OnPointerGone;
     }
 
     // ---- IWidgetView ---------------------------------------------------------------------------
@@ -84,6 +95,7 @@ internal sealed partial class VideoStreamView : Grid, IWidgetView, IWidgetSurfac
     public void Attach(Ticker ticker, WidgetConfig config)
     {
         _detached = false;
+        _ticker = ticker;
         _pictureSource ??= new SoftwareBitmapSource();
         _picture.Source = _pictureSource;
         _shown ??= new ShownWatch(this, _ => Reconcile());
@@ -125,6 +137,8 @@ internal sealed partial class VideoStreamView : Grid, IWidgetView, IWidgetSurfac
         _shown?.Dispose();
         _shown = null;
         StopSession();
+        StopChrome();
+        _ticker = null;
 
         // Release the last frame's surface too; a detached widget holds nothing.
         _picture.Source = null;
@@ -157,6 +171,7 @@ internal sealed partial class VideoStreamView : Grid, IWidgetView, IWidgetSurfac
         _surface?.RequestSave();
         _frame.Turn = _config.Rotation;
         UpdateTarget();
+        RenderChrome();
     }
 
     /// <summary>[S-465] Reconnect now, with the backoff reset.</summary>
@@ -206,6 +221,7 @@ internal sealed partial class VideoStreamView : Grid, IWidgetView, IWidgetSurfac
         _sessionKey = key;
         _phase = StreamPhase.Connecting;
         _detail = null;
+        ForgetFrames();
         _session = new StreamSession(uri, key.Item2, DecodeTargetNow, this, ui);
         _session.Start();
         Render();
@@ -225,18 +241,12 @@ internal sealed partial class VideoStreamView : Grid, IWidgetView, IWidgetSurfac
     /// </summary>
     private DecodeTarget DecodeTargetNow() => _target;
 
-    private void OnSizeChanged(object sender, SizeChangedEventArgs e)
-    {
-        UpdateTarget();
-        Render();
-    }
-
     private void UpdateTarget()
     {
         var scale = XamlRoot?.RasterizationScale ?? 1;
         _target = new DecodeTarget(
-            (int)Math.Ceiling(ActualWidth * scale),
-            (int)Math.Ceiling(ActualHeight * scale),
+            (int)Math.Ceiling(_area.Width * scale),
+            (int)Math.Ceiling(_area.Height * scale),
             _config.EffectiveFit,
             VideoStreamRules.IsSideways(_config.EffectiveRotation));
     }
@@ -252,10 +262,11 @@ internal sealed partial class VideoStreamView : Grid, IWidgetView, IWidgetSurfac
 
         _phase = phase;
         _detail = detail;
+        NotePhase(phase);
         Render();
     }
 
-    void IStreamSink.OnFrame(SoftwareBitmap frame)
+    void IStreamSink.OnFrame(SoftwareBitmap frame, FrameFacts facts)
     {
         if (_detached || _session is null || _pictureSource is not { } source)
         {
@@ -263,6 +274,7 @@ internal sealed partial class VideoStreamView : Grid, IWidgetView, IWidgetSurfac
             return;
         }
 
+        NoteFrame(facts);
         _ = ShowFrameAsync(source, frame);
     }
 
@@ -290,6 +302,7 @@ internal sealed partial class VideoStreamView : Grid, IWidgetView, IWidgetSurfac
             return;
         }
 
+        _transport = transport;
         _ = PlayVideoAsync(uri, transport);
     }
 
@@ -381,6 +394,14 @@ internal sealed partial class VideoStreamView : Grid, IWidgetView, IWidgetSurfac
             if (!_detached && _showingVideo)
             {
                 _phase = StreamPhase.Live;
+                _reconnects = 0;
+
+                // [S-1313] The player knows the video's own size; there is no per-frame rate to measure.
+                if (_player?.PlaybackSession is { } playback)
+                {
+                    _facts = new FrameFacts((int)playback.NaturalVideoWidth, (int)playback.NaturalVideoHeight, _transport);
+                }
+
                 Render();
             }
         });
@@ -406,6 +427,7 @@ internal sealed partial class VideoStreamView : Grid, IWidgetView, IWidgetSurfac
         StopSession();
         _phase = StreamPhase.Retrying;
         _detail = detail;
+        NotePhase(StreamPhase.Retrying);
         Render();
 
         var retry = DispatcherQueue.CreateTimer();
@@ -499,6 +521,7 @@ internal sealed partial class VideoStreamView : Grid, IWidgetView, IWidgetSurfac
         }
 
         _messageHost.Visibility = live ? Visibility.Collapsed : Visibility.Visible;
+        RenderChrome();
 
         if (message is null)
         {
@@ -509,8 +532,8 @@ internal sealed partial class VideoStreamView : Grid, IWidgetView, IWidgetSurfac
         _messageIcon.Glyph = glyph;
 
         // Shed detail on a small tile: the icon first, then the body size.
-        _messageIcon.Visibility = ActualHeight > 0 && ActualHeight < IconNeedsHeight ? Visibility.Collapsed : Visibility.Visible;
-        _message.Apply(ActualWidth > 0 && ActualWidth < BodyNeedsWidth ? FluentType.Caption : FluentType.Body);
+        _messageIcon.Visibility = _area.IsMeasured && _area.Height < IconNeedsHeight ? Visibility.Collapsed : Visibility.Visible;
+        _message.Apply(_area.IsMeasured && _area.Width < BodyNeedsWidth ? FluentType.Caption : FluentType.Body);
         ToolTipService.SetToolTip(_messageHost, _phase == StreamPhase.Retrying ? _detail : null);
     }
 

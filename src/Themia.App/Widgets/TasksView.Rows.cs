@@ -224,7 +224,6 @@ internal sealed partial class TasksView
         row.Tapped += OnRowTapped;
         row.DoubleTapped += OnRowDoubleTapped;
         row.RightTapped += OnRowRightTapped;
-        row.KeyDown += OnRowKeyDown;
         row.LostFocus += OnRowLostFocus;
         HookDrag(row);
 
@@ -326,7 +325,6 @@ internal sealed partial class TasksView
             row.Tapped -= OnRowTapped;
             row.DoubleTapped -= OnRowDoubleTapped;
             row.RightTapped -= OnRowRightTapped;
-            row.KeyDown -= OnRowKeyDown;
             row.LostFocus -= OnRowLostFocus;
             UnhookDrag(row);
             marker.Tapped -= OnMarkerTapped;
@@ -430,10 +428,11 @@ internal sealed partial class TasksView
     // ---- the keyboard ([S-787]) ----------------------------------------------------------------------
 
     /// <summary>
-    /// Whether this widget wants the keyboard: an editor is open or a row is focused. The one place
-    /// that asks the surface, so when the shell grows a shared keyboard lease only this changes.
+    /// [S-808] Whether an editor is being typed into. The arrows need nothing asked: a click anywhere
+    /// in the widget gives it the shell's keyboard lease (<see cref="IWidgetKeys"/>), and an editor
+    /// closing keeps it. This is only the text box's share of the same lease.
     /// </summary>
-    private void UpdateKeyboard() => _surface?.RequestTextInput(!_detached && (_editor is not null || _rowFocused));
+    private void UpdateKeyboard() => _surface?.RequestTextInput(!_detached && _editor is not null);
 
     private void FocusRow(Border row)
     {
@@ -445,7 +444,6 @@ internal sealed partial class TasksView
         _rowFocused = true;
         _focusTaskId = task.Id;
         _focusIndex = Math.Max(0, TaskRows().IndexOf(row));
-        UpdateKeyboard();
         row.Focus(FocusState.Keyboard);
         row.StartBringIntoView();
     }
@@ -473,65 +471,79 @@ internal sealed partial class TasksView
     {
         _rowFocused = false;
         _focusTaskId = null;
-        UpdateKeyboard();
     }
 
-    private void OnRowKeyDown(object sender, KeyRoutedEventArgs args)
+    /// <summary>
+    /// [S-787]/[S-808] A key from the shell's keyboard lease: Up/Down/Home/End move the row focus,
+    /// Enter ticks, Delete deletes, F2 renames, Escape (also the lease ending) lets go. With no row
+    /// focused yet a movement key lands on an end ([S-812]). An open editor owns its own keys; the
+    /// lease ending while one is open only forgets the row, and the box's blur commits it.
+    /// </summary>
+    public bool HandleKey(WidgetKey key)
     {
-        if (sender is not Border { Tag: TaskItem task } row || _editor is not null || Key(args.Key) is not { } key)
+        if (_detached)
         {
-            return;
+            return false;
         }
 
-        args.Handled = true;
+        if (_editor is not null)
+        {
+            if (key == WidgetKey.Escape)
+            {
+                ReleaseRowFocus();
+            }
+
+            return false;
+        }
+
         var rows = TaskRows();
-        var decision = TaskLayout.Decide(key, rows.IndexOf(row), rows.Count);
+        var index = _rowFocused ? FocusedIndex(rows) : -1;
+        var decision = TaskLayout.Decide(key, index, rows.Count);
+        var task = decision.Index >= 0 && decision.Index < rows.Count ? rows[decision.Index].Tag as TaskItem : null;
 
         switch (decision.Command)
         {
             case TaskKeyCommand.Focus:
                 FocusRow(rows[decision.Index]);
-                break;
+                return true;
 
-            case TaskKeyCommand.Toggle:
+            case TaskKeyCommand.Toggle when task is not null:
                 SetCompleted(task, !task.Completed);
-                break;
+                return true;
 
-            case TaskKeyCommand.Delete:
+            case TaskKeyCommand.Delete when task is not null:
                 _focusIndex = decision.Index;
                 Delete(task);
-                break;
+                return true;
 
-            case TaskKeyCommand.Rename:
-                BeginRename(row, task);
-                break;
+            case TaskKeyCommand.Rename when task is not null:
+                BeginRename(rows[decision.Index], task);
+                return true;
 
-            case TaskKeyCommand.Release:
+            case TaskKeyCommand.Release when _rowFocused:
                 ReleaseRowFocus();
 
                 // Rebuilt rows drop the focus rect with the focus.
                 _drawnPlan = null;
                 Render();
-                break;
+                return true;
+
+            default:
+                return false;
         }
     }
 
-    private static TaskKey? Key(VirtualKey key) => key switch
+    /// <summary>The focused task's row now, or the row in its old place when the task has gone.</summary>
+    private int FocusedIndex(List<Border> rows)
     {
-        VirtualKey.Up => TaskKey.Up,
-        VirtualKey.Down => TaskKey.Down,
-        VirtualKey.Home => TaskKey.Home,
-        VirtualKey.End => TaskKey.End,
-        VirtualKey.Enter => TaskKey.Enter,
-        VirtualKey.Delete => TaskKey.Delete,
-        VirtualKey.F2 => TaskKey.Rename,
-        VirtualKey.Escape => TaskKey.Escape,
-        _ => null,
-    };
+        var at = rows.FindIndex(r => r.Tag is TaskItem t && t.Id == _focusTaskId);
+        return at >= 0 ? at : Math.Clamp(_focusIndex, 0, Math.Max(0, rows.Count - 1));
+    }
 
     /// <summary>
-    /// [S-787] Leaving the list gives the keyboard back. Moving between rows, into an editor, or a
-    /// redraw replacing the focused row is not leaving it.
+    /// [S-787] Leaving the list (focus moving to the widget's own buttons, or away with the lease)
+    /// drops the row focus. Moving between rows, into an editor, or a redraw replacing the focused
+    /// row is not leaving it.
     /// </summary>
     private void OnRowLostFocus(object sender, RoutedEventArgs args)
     {

@@ -13,7 +13,7 @@ using Themia.Core.Widgets;
 namespace Themia.App.Widgets;
 
 /// <summary>
-/// Headlines from one feed, as a Windows 11 list.
+/// Headlines from one or several feeds, merged newest first, as a Windows 11 list.
 /// <para>
 /// Everything on this widget was written by somebody else and fetched over the network: a title, a
 /// summary, a link. All of it is <b>text</b> here and nothing else — set as
@@ -24,83 +24,106 @@ namespace Themia.App.Widgets;
 /// <para>
 /// Double-click to open, not single. A widget sits under the pointer's path across the desktop, and
 /// one stray click sending a browser to a stranger's URL is how a glanceable surface becomes a
-/// hazard.
+/// hazard. On the largest tile a single click selects the item for the reading pane instead.
 /// </para>
 /// </summary>
-internal sealed partial class RssView : Grid, IWidgetView, IWidgetHeaderContent, IWidgetSurfaceAware
+internal sealed partial class RssView : Grid, IWidgetView, IWidgetHeaderContent, IWidgetSurfaceAware,
+    IWidgetSizeAware, IWidgetContextActions, IWidgetKeys
 {
     private const string Scope = "rss";
 
-    /// <summary>Under this width the source line is dropped; the headline is what the widget is for.</summary>
-    private const double SourceNeedsWidth = 220;
-
     private readonly TextBlock _freshness = Fluent.Text(FluentType.Caption, "TextFillColorTertiaryBrush");
-    private readonly StackPanel _list = new() { Spacing = 0 };
+    private readonly ProgressRing _spinner = new() { Width = 12, Height = 12, IsActive = false, Visibility = Visibility.Collapsed };
+    private readonly StackPanel _trailing = new() { Orientation = Orientation.Horizontal, Spacing = Fluent.Space1 };
+
+    private readonly Grid _rows = new();
     private readonly ScrollViewer _scroll;
     private readonly StackPanel _emptyState;
     private readonly TextBlock _emptyMessage = new();
 
-    private readonly List<IDisposable> _hovers = [];
+    private readonly List<IDisposable> _rowHooks = [];
+
+    /// <summary>The row element of each shown entry, in entry order.</summary>
+    private readonly List<Border> _rowElements = [];
 
     private readonly Brush _freshBrush = FluentLayout.Themed("TextFillColorTertiaryBrush", Colors.Gray);
     private readonly Brush _staleBrush = FluentLayout.Themed("SystemFillColorCautionBrush", Colors.Goldenrod);
 
     private readonly RefreshSchedule _schedule = new(Scope, "feed");
 
+    /// <summary>The last answer per feed address, held through failures ([S-25]).</summary>
+    private readonly Dictionary<string, Fetched<FeedDocument>> _parts = new(StringComparer.Ordinal);
+
     private Ticker? _ticker;
     private RssConfig _config = new();
 
     /// <summary>
     /// [S-13a] A copy of the settings this view last acted on, which is what a change is measured
-    /// against. Not <c>_config</c>: the settings page edits the live config object in place, so by
-    /// the time a change arrives the "previous" config already holds the new values, and comparing
-    /// the two found no difference — a new address or place stayed unfetched until the next tick.
+    /// against. Not <c>_config</c>: the settings page edits the live config object in place.
     /// </summary>
     private RssConfig _applied = new();
 
-    /// <summary>The card this view draws on, which owns the header it names.</summary>
     private IWidgetSurface? _surface;
     private IDisposable? _subscription;
     private TimeSpan _subscribedInterval = TimeSpan.Zero;
     private CancellationTokenSource? _inFlight;
     private int _generation;
+    private ScrollFade? _fade;
 
-    private Fetched<FeedDocument>? _feed;
-    private bool _showSource = true;
+    private WidgetArea _area;
+    private FeedPlan _plan;
+    private MergedFeed _merged = new(string.Empty, [], []);
+
+    /// <summary>[S-1306] The keyboard cursor and, in the reading layout, the selected item.</summary>
+    private int? _cursor;
+
     private bool _detached;
 
     public RssView()
     {
-        RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
+        ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(0) });
 
         _scroll = new ScrollViewer
         {
-            Content = _list,
-            Padding = WidgetLayout.ListInset,
+            Content = _rows,
+            Padding = new Thickness(0, FeedLayout.ListInset / 2, 0, FeedLayout.ListInset / 2),
             HorizontalScrollMode = ScrollMode.Disabled,
             HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
             VerticalScrollBarVisibility = ScrollBarVisibility.Hidden,
+            VerticalAlignment = VerticalAlignment.Top,
         };
 
         _emptyState = Fluent.EmptyState(Glyphs.Rss, _emptyMessage, out _);
         _emptyState.Visibility = Visibility.Collapsed;
+        SetColumnSpan(_emptyState, 2);
+
+        _spinner.VerticalAlignment = VerticalAlignment.Center;
+        _trailing.Children.Add(_spinner);
+        _trailing.Children.Add(_freshness);
+
+        BuildPane();
 
         Children.Add(_scroll);
+        Children.Add(_pane);
         Children.Add(_emptyState);
-
-        SizeChanged += OnSizeChanged;
     }
 
     /// <summary>
-    /// The age of the feed, in the card's header. Built in the constructor because the card reads
-    /// this once, when it builds that header.
+    /// The age of the feeds and, while a refresh is out, a spinner ([S-1303]). Built in the
+    /// constructor because the card reads this once, when it builds that header.
     /// </summary>
-    public FrameworkElement? HeaderTrailing => _freshness;
+    public FrameworkElement? HeaderTrailing => _trailing;
+
+    /// <summary>[S-1303] Refresh: the network now, past the cache and any back-off.</summary>
+    public IReadOnlyList<WidgetAction> ContextActions =>
+        _config.FeedUrls.Count == 0 ? [] : [new WidgetAction(Glyphs.Refresh, "Refresh", () => Reload(force: true))];
 
     public void Attach(Ticker ticker, WidgetConfig config)
     {
         _ticker = ticker;
         _detached = false;
+        _fade = new ScrollFade(_scroll, _rows);
         ApplyConfig(config);
     }
 
@@ -111,24 +134,32 @@ internal sealed partial class RssView : Grid, IWidgetView, IWidgetHeaderContent,
         PublishTitle();
     }
 
+    public void ApplySize(WidgetArea area)
+    {
+        _area = area;
+        Render();
+    }
+
     public void ApplyConfig(WidgetConfig config)
     {
         var next = config as RssConfig ?? new RssConfig();
         var previous = _applied;
         _config = next;
         _applied = (RssConfig)next.Clone();
-        PublishTitle();
 
-        // Only the address and the cap change what comes back. Toggling the preview or the source
-        // line redraws what is already in hand — it must not fetch the feed again.
-        var needsFetch = previous.FeedUrl != next.FeedUrl
+        // Only the addresses and the cap change what comes back. Toggling the preview or the source
+        // line redraws what is already in hand — it must not fetch the feeds again.
+        var needsFetch = !previous.FeedUrls.SequenceEqual(next.FeedUrls)
             || previous.EffectiveMaxItems != next.EffectiveMaxItems;
 
         if (needsFetch)
         {
-            _feed = null;
+            _parts.Clear();
+            _cursor = null;
             _schedule.Reset();
         }
+
+        PublishTitle();
 
         if (Resubscribe())
         {
@@ -137,7 +168,7 @@ internal sealed partial class RssView : Grid, IWidgetView, IWidgetHeaderContent,
 
         if (needsFetch)
         {
-            Reload();
+            Reload(force: false);
         }
         else
         {
@@ -169,7 +200,7 @@ internal sealed partial class RssView : Grid, IWidgetView, IWidgetHeaderContent,
 
         if (_schedule.MayFetch(DateTimeOffset.Now))
         {
-            Reload();
+            Reload(force: false);
             return;
         }
 
@@ -177,67 +208,94 @@ internal sealed partial class RssView : Grid, IWidgetView, IWidgetHeaderContent,
         Render();
     }
 
-    private void Reload()
+    private void Reload(bool force)
     {
         if (_detached)
         {
             return;
         }
 
-        var resolved = _config.ResolvedUrl;
+        var urls = _config.FeedUrls;
 
-        if (!resolved.IsValid)
+        if (urls.Count == 0)
         {
-            // An empty box is "not set up"; anything else is refused, and the reason is kept so the
-            // widget can say which rule the address broke rather than "that did not work".
-            var status = resolved.Problem == WebUrlProblem.Empty ? FetchStatus.NotConfigured : FetchStatus.Refused;
-            _schedule.Record(status, _config.TickInterval, WebInput.Explain(resolved.Problem), DateTimeOffset.Now);
+            // An empty list is "not set up"; a list of refused addresses is refused, and the reason
+            // is kept so the widget can say which rule an address broke.
+            var refused = _config.ResolvedFeeds.FirstOrDefault(r => !r.IsValid);
+            var status = _config.ResolvedFeeds.Count == 0 ? FetchStatus.NotConfigured : FetchStatus.Refused;
+            _schedule.Record(status, _config.TickInterval, WebInput.Explain(refused.Problem), DateTimeOffset.Now);
             Render();
             return;
         }
 
-        var url = resolved.Url;
+        if (force)
+        {
+            // The user asked: the back-off of a failing feed must not swallow the click.
+            _schedule.Reset();
+        }
+
         var cap = _config.EffectiveMaxItems;
 
-        _feed ??= FeedService.Peek(url, cap);
+        // Restored or shared answers draw at once, before the network has said anything.
+        foreach (var url in urls)
+        {
+            if (!_parts.ContainsKey(url) && FeedService.Peek(url, cap) is { } held)
+            {
+                _parts[url] = held;
+            }
+        }
 
         _inFlight?.Cancel();
         var cts = new CancellationTokenSource();
         _inFlight = cts;
         var generation = ++_generation;
 
+        ShowSpinner(true);
         Render();
-        _ = LoadAsync(url, cap, generation, cts);
+        _ = LoadAsync(urls, cap, force, generation, cts);
     }
 
-    private async Task LoadAsync(string url, int cap, int generation, CancellationTokenSource cts)
+    private async Task LoadAsync(IReadOnlyList<string> urls, int cap, bool force, int generation, CancellationTokenSource cts)
     {
         try
         {
-            var result = await FeedService
-                .LoadAsync(url, cap, _config.TickInterval, cts.Token)
+            var results = await Task
+                .WhenAll(urls.Select(url => FeedService.LoadAsync(url, cap, _config.TickInterval, cts.Token, force)))
                 .ConfigureAwait(true);
 
-            // A late reply for a feed the widget has since left. Dropped rather than drawn.
+            // A late reply for feeds the widget has since left. Dropped rather than drawn.
             if (_detached || generation != _generation)
             {
                 return;
             }
 
-            _schedule.Record(result.Status, _config.TickInterval, result.Detail, DateTimeOffset.Now);
-
-            if (result.Value is not null)
+            for (var i = 0; i < urls.Count; i++)
             {
-                _feed = result;
-            }
-            else if (_feed is { } held)
-            {
-                // The articles stay on screen; the header says how old they are and the tooltip
-                // says what went wrong. Hiding a failed refresh outright is what let the original
-                // sit two days stale with nothing on screen to show for it.
-                _feed = held.Stale(result.Status, result.Detail);
+                var result = results[i];
+
+                if (result.Value is not null)
+                {
+                    _parts[urls[i]] = result;
+                }
+                else if (_parts.TryGetValue(urls[i], out var held) && held.Value is not null)
+                {
+                    // The articles stay on screen; the header says how old they are and what failed.
+                    _parts[urls[i]] = held.Stale(result.Status, result.Detail);
+                }
+                else
+                {
+                    _parts[urls[i]] = result;
+                }
             }
 
+            // One schedule for the widget: any feed answering is a success (the partial failure is
+            // in the header), all of them failing backs the whole widget off.
+            var ok = results.Any(r => r.Status == FetchStatus.Ok);
+            var first = results.FirstOrDefault(r => r.Status != FetchStatus.Ok);
+            _schedule.Record(ok ? FetchStatus.Ok : first?.Status ?? FetchStatus.BadResponse, _config.TickInterval, first?.Detail, DateTimeOffset.Now);
+
+            ShowSpinner(false);
+            PublishTitle();
             Render();
         }
         catch (OperationCanceledException)
@@ -249,24 +307,24 @@ internal sealed partial class RssView : Grid, IWidgetView, IWidgetHeaderContent,
             if (ReferenceEquals(_inFlight, cts))
             {
                 _inFlight = null;
+                ShowSpinner(false);
             }
 
             cts.Dispose();
         }
     }
 
-    private void OnSizeChanged(object sender, SizeChangedEventArgs e)
+    private void ShowSpinner(bool on)
     {
-        var source = e.NewSize.Width >= SourceNeedsWidth;
-
-        if (source == _showSource)
-        {
-            return;
-        }
-
-        _showSource = source;
-        Render();
+        _spinner.IsActive = on;
+        _spinner.Visibility = on ? Visibility.Visible : Visibility.Collapsed;
     }
+
+    /// <summary>The feeds in the order the user listed them, each with whatever is held for it.</summary>
+    private List<FeedPart> Parts()
+        => [.. _config.FeedUrls.Select(url => _parts.TryGetValue(url, out var part)
+            ? new FeedPart(url, part.Value, part.Status, part.Detail)
+            : new FeedPart(url, null, FetchStatus.Loading, null))];
 
     private void Render()
     {
@@ -275,135 +333,92 @@ internal sealed partial class RssView : Grid, IWidgetView, IWidgetHeaderContent,
             return;
         }
 
-        ClearRows();
+        _merged = FeedAggregate.Merge(Parts(), _config.EffectiveMaxItems);
 
-        var now = DateTimeOffset.Now;
-        var held = _feed;
-        var document = held?.Value;
-
-        if (document is null || document.Entries.Count == 0)
+        if (_merged.Entries.Count == 0)
         {
-            var status = _schedule.Status;
-
-            _emptyMessage.Text = status switch
-            {
-                FetchStatus.NotConfigured => "Add a feed address in settings",
-                FetchStatus.Refused => WebInput.Explain(_config.ResolvedUrl.Problem),
-                FetchStatus.Empty => "This feed has no articles",
-                _ => FetchState.Message(status),
-            };
-
+            ClearRows();
+            _emptyMessage.Text = EmptyText();
             _emptyState.Visibility = Visibility.Visible;
             _scroll.Visibility = Visibility.Collapsed;
+            _pane.Visibility = Visibility.Collapsed;
+            ColumnDefinitions[1].Width = new GridLength(0);
             _freshness.Text = string.Empty;
+            ToolTipService.SetToolTip(_freshness, null);
             return;
         }
 
         _emptyState.Visibility = Visibility.Collapsed;
         _scroll.Visibility = Visibility.Visible;
 
-        foreach (var entry in document.Entries)
+        _plan = FeedLayout.Plan(_area, _config.ShowSource, _config.ShowPreview, _config.ShowDate);
+
+        if (_cursor is { } cursor && cursor >= _merged.Entries.Count)
         {
-            _list.Children.Add(BuildRow(entry, now));
+            _cursor = _merged.Entries.Count - 1;
         }
 
-        UpdateFreshness(held!, now);
+        BuildRows(DateTimeOffset.Now);
+        UpdatePane();
+        UpdateFreshness(DateTimeOffset.Now);
     }
 
-    private void UpdateFreshness(Fetched<FeedDocument> held, DateTimeOffset now)
+    private string EmptyText()
     {
-        var failed = FetchState.IsFailure(held.Status);
-        var stale = failed || FetchState.IsStale(held.At, now, _config.TickInterval);
+        if (_config.FeedUrls.Count == 0)
+        {
+            var refused = _config.ResolvedFeeds.FirstOrDefault(r => !r.IsValid);
+            return _config.ResolvedFeeds.Count == 0 ? "Add a feed in settings" : WebInput.Explain(refused.Problem);
+        }
 
-        _freshness.Text = FetchState.Freshness(held.At, now);
+        if (_merged.Failures.Count > 0 && _parts.Count >= _config.FeedUrls.Count)
+        {
+            // Every reason, not the first (S-33): with several feeds, "the second one is 404" is
+            // the answer. A refusal by the network guard carries its own sentence.
+            return _merged.Failures.Count == 1 && _parts.Values.All(p => p.Status == FetchStatus.Empty)
+                ? "This feed has no articles"
+                : string.Join("\n", _merged.Failures);
+        }
+
+        return _schedule.Status == FetchStatus.Ok ? FetchState.Message(FetchStatus.Loading) : FetchState.Message(_schedule.Status);
+    }
+
+    /// <summary>
+    /// [S-1303] The header's age: of the oldest list in hand, in the caution colour when a feed
+    /// failed, when it is overdue, or when it was restored from disk and not yet refreshed
+    /// ([S-1300]); the tooltip names every failing feed and its reason.
+    /// </summary>
+    private void UpdateFreshness(DateTimeOffset now)
+    {
+        var held = _parts.Values.Where(p => p.Value is not null).ToList();
+
+        if (held.Count == 0)
+        {
+            _freshness.Text = string.Empty;
+            return;
+        }
+
+        var at = held.Min(p => p.At);
+        var restored = held.Any(p => p.Restored);
+        var failed = _merged.Failures.Count > 0;
+        var stale = failed || restored || FetchState.IsStale(at, now, _config.TickInterval);
+        var age = FetchState.Freshness(at, now);
+
+        _freshness.Text = age;
         _freshness.Foreground = stale ? _staleBrush : _freshBrush;
 
-        ToolTipService.SetToolTip(
-            _freshness,
-            failed
-                ? $"Last refresh failed: {FetchState.Message(held.Status)}. Showing articles from {FetchState.Freshness(held.At, now).ToLowerInvariant()}."
-                : $"Refreshed {FetchState.Freshness(held.At, now).ToLowerInvariant()}");
+        var tip = failed
+            ? $"Last refresh failed: {string.Join("; ", _merged.Failures)}. Showing articles from {age.ToLowerInvariant()}."
+            : restored
+                ? $"Saved {age.ToLowerInvariant()}; refreshing"
+                : $"Refreshed {age.ToLowerInvariant()}";
+
+        ToolTipService.SetToolTip(_freshness, tip);
     }
 
     /// <summary>
-    /// One article. A two- or three-line row rather than a fixed Fluent list row, because a
-    /// headline is the one thing here that legitimately wraps: trimming it to one line is what
-    /// turns a feed reader into a list of sentence fragments.
-    /// </summary>
-    private FrameworkElement BuildRow(FeedEntry entry, DateTimeOffset now)
-    {
-        var stack = new StackPanel { Spacing = 2, Margin = new Thickness(0, Fluent.Space2, 0, Fluent.Space2) };
-
-        if (_showSource && _config.ShowSource && Host(entry.Link) is { Length: > 0 } host)
-        {
-            var source = Fluent.Text(FluentType.Caption, "TextFillColorTertiaryBrush");
-            source.Text = host;
-            stack.Children.Add(source);
-        }
-
-        var headline = Fluent.Text(FluentType.Body);
-        headline.Text = entry.Title.Length > 0 ? entry.Title : "(untitled)";
-        headline.TextWrapping = TextWrapping.Wrap;
-        headline.MaxLines = 2;
-        stack.Children.Add(headline);
-
-        if (_config.ShowPreview && entry.Summary.Length > 0)
-        {
-            var preview = Fluent.Text(FluentType.Caption, "TextFillColorSecondaryBrush");
-            preview.Text = entry.Summary;
-            preview.TextWrapping = TextWrapping.Wrap;
-            preview.MaxLines = 2;
-            stack.Children.Add(preview);
-        }
-
-        if (_config.ShowDate && entry.Published is { } published)
-        {
-            var when = Fluent.Text(FluentType.Caption, "TextFillColorTertiaryBrush");
-            when.Text = FetchState.Freshness(published, now);
-            stack.Children.Add(when);
-        }
-
-        // Fluent.Row for the padding and the hover fill, with the minimum height dropped: the row
-        // is as tall as the headline needs and no taller.
-        var row = Fluent.Row(stack);
-        row.MinHeight = 0;
-        _hovers.Add(Fluent.Hover(row));
-
-        if (entry.Link.Length > 0)
-        {
-            row.DoubleTapped += (_, _) => Open(entry.Link);
-            ToolTipService.SetToolTip(row, entry.Link);
-        }
-
-        return row;
-    }
-
-    /// <summary>
-    /// The site an item came from, as a bare host name.
-    /// <para>
-    /// Parsed rather than pattern-matched, and only from a link the parser already accepted, so
-    /// what ends up on screen is <see cref="Uri.Host"/> — a value with no path, no query and no
-    /// room for anything a feed author wrote by hand.
-    /// </para>
-    /// </summary>
-    private static string Host(string link)
-    {
-        if (link.Length == 0 || !Uri.TryCreate(link, UriKind.Absolute, out var uri))
-        {
-            return string.Empty;
-        }
-
-        var host = uri.Host;
-        return host.StartsWith("www.", StringComparison.OrdinalIgnoreCase) ? host[4..] : host;
-    }
-
-    /// <summary>
-    /// Hand a link to the shell.
-    /// <para>
-    /// The address was checked when it was parsed — http or https, a real host, no credentials —
-    /// and it is checked once more here, because this is the call that actually launches something
-    /// and the gate belongs beside it rather than three files away.
-    /// </para>
+    /// Hand a link to the shell. The address was checked when it was parsed, and is checked once
+    /// more here, beside the call that actually launches something.
     /// </summary>
     private static void Open(string link)
     {
@@ -417,8 +432,7 @@ internal sealed partial class RssView : Grid, IWidgetView, IWidgetHeaderContent,
 
         try
         {
-            // using: ShellExecute hands back a process handle even when nothing waits on it, and
-            // leaking one per click on a surface that lives for weeks adds up.
+            // using: ShellExecute hands back a process handle even when nothing waits on it.
             using var process = Process.Start(new ProcessStartInfo
             {
                 FileName = checkedUrl.Url,
@@ -427,29 +441,19 @@ internal sealed partial class RssView : Grid, IWidgetView, IWidgetHeaderContent,
         }
         catch (Exception ex) when (ex is System.ComponentModel.Win32Exception or InvalidOperationException or IOException)
         {
-            // No browser associated, or the shell refused. The desktop stays up and the log says
-            // why nothing opened.
             Log.Warn(Scope, "could not open a feed link", ex);
         }
-    }
-
-    private void ClearRows()
-    {
-        foreach (var hover in _hovers)
-        {
-            hover.Dispose();
-        }
-
-        _hovers.Clear();
-        _list.Children.Clear();
     }
 
     public void Detach()
     {
         _detached = true;
 
-        SizeChanged -= OnSizeChanged;
         ClearRows();
+        ClearPaneHooks();
+
+        _fade?.Dispose();
+        _fade = null;
 
         _subscription?.Dispose();
         _subscription = null;
@@ -457,18 +461,18 @@ internal sealed partial class RssView : Grid, IWidgetView, IWidgetHeaderContent,
 
         _inFlight?.Cancel();
         _inFlight = null;
+        ShowSpinner(false);
 
         _ticker = null;
     }
+
     /// <summary>
-    /// Tell the card what this widget is about. The catalogue can only say "Weather" or
-    /// "Folder"; the widget knows which place, which folder, which ticker — and on a desktop
-    /// holding three of them, that is the only thing telling them apart.
+    /// The header title (S-04): the user's own, else the single feed's <c>&lt;title&gt;</c>, else
+    /// several feeds' names joined, else the catalogue's name.
     /// </summary>
     private void PublishTitle()
     {
-        var title = _config.Title;
+        var title = string.IsNullOrWhiteSpace(_config.Title) ? FeedAggregate.Title(Parts()) : _config.Title;
         _surface?.SetHeaderTitle(string.IsNullOrWhiteSpace(title) ? null : title);
     }
-
 }

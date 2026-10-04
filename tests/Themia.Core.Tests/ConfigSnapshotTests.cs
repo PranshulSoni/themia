@@ -13,12 +13,13 @@ public sealed class ConfigSnapshotTests
     [Fact]
     public void S13a_EditingTheLiveFeedConfigDoesNotReachTheSnapshot()
     {
-        var live = new RssConfig { FeedUrl = "https://a.example/feed.xml" };
+        var live = new RssConfig { Feeds = [new RssFeed { Url = "https://a.example/feed.xml" }] };
         var snapshot = (RssConfig)live.Clone();
 
-        live.FeedUrl = "https://b.example/feed.xml";
+        live.Feeds[0].Url = "https://b.example/feed.xml";
+        live.Feeds.Add(new RssFeed { Url = "https://c.example/feed.xml" });
 
-        Assert.Equal("https://a.example/feed.xml", snapshot.FeedUrl);
+        Assert.Equal(["https://a.example/feed.xml"], snapshot.FeedUrls);
     }
 
     [Fact]

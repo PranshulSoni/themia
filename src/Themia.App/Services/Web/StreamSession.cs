@@ -33,13 +33,19 @@ internal enum StreamPhase
 /// <param name="Height">Physical pixels down the frame area.</param>
 internal readonly record struct DecodeTarget(int Width, int Height, StreamFit Fit, bool Sideways);
 
+/// <summary>
+/// [S-1313] What came with a decoded frame: the camera's own size (before the decode scaled it to
+/// the tile) and how it arrived, for the camera's status chip and hover strip.
+/// </summary>
+internal readonly record struct FrameFacts(int SourceWidth, int SourceHeight, StreamTransport Transport);
+
 /// <summary>What a session reports. Always called on the UI thread.</summary>
 internal interface IStreamSink
 {
     void OnPhase(StreamPhase phase, string? detail);
 
     /// <summary>A decoded frame. The sink owns it and must dispose it.</summary>
-    void OnFrame(SoftwareBitmap frame);
+    void OnFrame(SoftwareBitmap frame, FrameFacts facts);
 
     /// <summary>The address is a video Windows can play itself; the sink takes it from here.</summary>
     void OnVideo(Uri uri, StreamTransport transport);
@@ -315,7 +321,7 @@ internal sealed class StreamSession : IDisposable
                     {
                         // One frame, shown, then hang up: leaving this method disposes the
                         // response, which is what closes the socket.
-                        if (await PresentAsync(frame, token).ConfigureAwait(false))
+                        if (await PresentAsync(frame, StreamTransport.Mjpeg, token).ConfigureAwait(false))
                         {
                             return (Outcome.Grabbed, null);
                         }
@@ -371,7 +377,7 @@ internal sealed class StreamSession : IDisposable
             body.Write(chunk, 0, read);
         }
 
-        if (!await PresentAsync(body.ToArray(), token).ConfigureAwait(false))
+        if (!await PresentAsync(body.ToArray(), StreamTransport.Image, token).ConfigureAwait(false))
         {
             return (Outcome.Unsupported, "The snapshot is not a picture");
         }
@@ -397,7 +403,7 @@ internal sealed class StreamSession : IDisposable
         {
             try
             {
-                await PresentAsync(frame, token).ConfigureAwait(false);
+                await PresentAsync(frame, StreamTransport.Mjpeg, token).ConfigureAwait(false);
             }
             catch (OperationCanceledException)
             {
@@ -416,9 +422,9 @@ internal sealed class StreamSession : IDisposable
     }
 
     /// <summary>Decode and hand over one frame. False when it would not decode.</summary>
-    private async Task<bool> PresentAsync(byte[] frame, CancellationToken token)
+    private async Task<bool> PresentAsync(byte[] frame, StreamTransport transport, CancellationToken token)
     {
-        var bitmap = await DecodeAsync(frame, _target()).ConfigureAwait(false);
+        var (bitmap, width, height) = await DecodeAsync(frame, _target()).ConfigureAwait(false);
 
         if (bitmap is null)
         {
@@ -435,6 +441,7 @@ internal sealed class StreamSession : IDisposable
         _undecodable = 0;
         var first = !_gotFrame;
         _gotFrame = true;
+        var facts = new FrameFacts(width, height, transport);
 
         Post(() =>
         {
@@ -443,7 +450,7 @@ internal sealed class StreamSession : IDisposable
                 _sink.OnPhase(StreamPhase.Live, null);
             }
 
-            _sink.OnFrame(bitmap);
+            _sink.OnFrame(bitmap, facts);
         }, bitmap);
 
         return true;
@@ -453,7 +460,8 @@ internal sealed class StreamSession : IDisposable
     /// Decode with WIC, scaled during decode to the size it will be drawn at — a 1080p camera in a
     /// 320px tile costs a 320px bitmap. Never scaled up: the card does that for free on the GPU.
     /// </summary>
-    private static async Task<SoftwareBitmap?> DecodeAsync(byte[] bytes, DecodeTarget target)
+    /// <returns>The bitmap (null when the bytes would not decode) and the frame's own size before scaling.</returns>
+    private static async Task<(SoftwareBitmap? Bitmap, int Width, int Height)> DecodeAsync(byte[] bytes, DecodeTarget target)
     {
         try
         {
@@ -467,7 +475,7 @@ internal sealed class StreamSession : IDisposable
 
             if (width == 0 || height == 0)
             {
-                return null;
+                return (null, 0, 0);
             }
 
             var (boxW, boxH) = target.Sideways ? (target.Height, target.Width) : (target.Width, target.Height);
@@ -487,17 +495,19 @@ internal sealed class StreamSession : IDisposable
                 InterpolationMode = BitmapInterpolationMode.Linear,
             };
 
-            return await decoder.GetSoftwareBitmapAsync(
+            var bitmap = await decoder.GetSoftwareBitmapAsync(
                 BitmapPixelFormat.Bgra8,
                 BitmapAlphaMode.Premultiplied,
                 transform,
                 ExifOrientationMode.IgnoreExifOrientation,
                 ColorManagementMode.DoNotColorManage);
+
+            return (bitmap, (int)Math.Min(width, int.MaxValue), (int)Math.Min(height, int.MaxValue));
         }
         catch (Exception ex) when (ex is System.Runtime.InteropServices.COMException or ArgumentException or InvalidOperationException)
         {
             // A torn or non-JPEG part. One frame lost; the next one is a fraction of a second away.
-            return null;
+            return (null, 0, 0);
         }
     }
 

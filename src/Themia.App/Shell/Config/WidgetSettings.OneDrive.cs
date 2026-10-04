@@ -7,8 +7,8 @@ using Themia.Core.Model;
 namespace Themia.App.Shell.Config;
 
 /// <summary>
-/// [S-606]/[S-607] The OneDrive widget's settings: which Microsoft account, where it starts, and how
-/// many items it lists. Accounts are signed in on the Accounts page; this one links there.
+/// [S-606]/[S-607] The OneDrive widget's settings: which Microsoft account, where it starts, how a
+/// file opens ([S-1291]) and how many items it lists at least ([S-1292]). Accounts are signed in on the Accounts page; this one links there.
 /// </summary>
 internal static partial class WidgetSettings
 {
@@ -55,7 +55,7 @@ internal static partial class WidgetSettings
 
         if (accounts.Count == 0 || accounts.Any(a => a.Problem is not null))
         {
-            rows.Add(FluentLayout.ClickRow(Glyphs.Contact, "Accounts",
+            rows.Add(FluentLayout.NavRow(Glyphs.Contact, "Accounts",
                 accounts.Count == 0 ? "Sign in to a Microsoft account" : "An account needs you to sign in again",
                 () => navigate(new ConfigTarget.App(AppPage.Accounts))));
         }
@@ -68,7 +68,13 @@ internal static partial class WidgetSettings
                 config.StartIn,
                 value => { config.StartIn = value; save(); })));
 
-        rows.Add(FluentLayout.Row(Glyphs.Count, "Items", "How many to load; a short widget shows fewer",
+        rows.Add(FluentLayout.Row(Glyphs.Open, "Open files with", "Folders always open with a single click",
+            FluentLayout.Choice<ItemClickMode>(
+                [(ItemClickMode.Double, "Double click"), (ItemClickMode.Single, "Single click")],
+                config.ClickMode,
+                value => { config.ClickMode = value; save(); })));
+
+        rows.Add(FluentLayout.Row(Glyphs.Count, "Items", "At least this many; a bigger widget lists more to fill its space",
             FluentLayout.Slider(config.EffectiveFileCount, OneDriveConfig.MinFiles, OneDriveConfig.MaxFiles, 5, string.Empty,
                 value => { config.FileCount = (int)Math.Round(value); save(); })));
     }

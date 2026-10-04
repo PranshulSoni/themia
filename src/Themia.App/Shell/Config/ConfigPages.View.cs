@@ -38,7 +38,7 @@ internal static partial class ConfigPages
         {
             if ((host.SurfaceUnderCursor() ?? host.Surfaces.FirstOrDefault()) is { } surface)
             {
-                host.ShowView(surface.Monitor.DeviceName, viewId);
+                host.ShowView(surface.Monitor.Id, viewId);
             }
         };
 

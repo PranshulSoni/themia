@@ -9,18 +9,33 @@ using Themia.Core.Storage;
 namespace Themia.App.Services;
 
 /// <summary>
-/// The displays: one widget surface per monitor, finding the surface at a point, and dragging a
-/// widget from one display to another.
+/// The displays: one widget surface per enabled monitor, kept in step with the monitors as they come
+/// and go, finding the surface at a point, and dragging a widget from one display to another.
 /// </summary>
 internal sealed partial class AppHost
 {
-    /// <summary>The surface whose display contains a point, in physical screen pixels.</summary>
+    /// <summary>Every connected display, enabled or not, as of the last display pass.</summary>
+    private List<MonitorTarget> _displays = [];
+
+    /// <summary>A display pass is already queued, so the next message need not queue another.</summary>
+    private bool _displayPassQueued;
+
+    /// <summary>
+    /// Every connected display, including the ones Themia is switched off on — Settings lists those
+    /// too, or there would be no way to switch them back on.
+    /// </summary>
+    public IReadOnlyList<MonitorTarget> Displays => _displays;
+
+    /// <summary>A connected display by its stable id, or null.</summary>
+    public MonitorTarget? FindDisplay(string id)
+        => _displays.FindIndex(d => d.Id == id) is var at and >= 0 ? _displays[at] : null;
+
+    /// <summary>The surface whose display contains a point, in physical screen pixels — taskbar included.</summary>
     public DesktopWindow? SurfaceAt(int x, int y)
     {
         foreach (var window in _windows)
         {
-            var area = window.Monitor.WorkArea;
-            if (x >= area.Left && x < area.Right && y >= area.Top && y < area.Bottom)
+            if (window.Monitor.Contains(x, y))
             {
                 return window;
             }
@@ -32,47 +47,223 @@ internal sealed partial class AppHost
     public DesktopWindow? SurfaceUnderCursor()
         => Win32.GetCursorPos(out var cursor) ? SurfaceAt(cursor.X, cursor.Y) : null;
 
-    /// <summary>Create one widget window per display, dropping any whose monitor disappeared.</summary>
-    public void RebuildWindows()
+    /// <summary>
+    /// Read the connected displays without touching any surface. The display pass does this as part
+    /// of its work; the settings renderer does it alone, to draw a display page with no surface up.
+    /// </summary>
+    public void RefreshDisplayList()
+    {
+        var monitors = Monitors.All();
+        if (monitors.Count > 0)
+        {
+            _displays = monitors;
+        }
+    }
+
+    /// <summary>
+    /// [S-848] Something about the displays changed: run one display pass soon.
+    /// <para>
+    /// Coalesced, not timed. Windows sends a burst of messages for one change — a monitor waking
+    /// sends several <c>WM_DISPLAYCHANGE</c> while it link-trains, and dragging the taskbar sends a
+    /// <c>WM_SETTINGCHANGE</c> per step — and the first one queues a pass at low priority, behind
+    /// the rest of the burst already in the queue. Each pass re-reads the topology from scratch and
+    /// is idempotent, so a message arriving after it simply queues the next.
+    /// </para>
+    /// </summary>
+    public void RequestDisplayPass()
+    {
+        if (_disposed || _displayPassQueued)
+        {
+            return;
+        }
+
+        _displayPassQueued = true;
+        if (!_dispatcher.TryEnqueue(DispatcherQueuePriority.Low, RunQueuedDisplayPass))
+        {
+            _displayPassQueued = false;
+            Log.Error(Scope, "could not queue a display pass; the surfaces keep their placement until the next display change");
+        }
+    }
+
+    private void RunQueuedDisplayPass()
+    {
+        _displayPassQueued = false;
+        if (!_disposed)
+        {
+            ReconcileDisplays();
+        }
+    }
+
+    /// <summary>
+    /// [S-844] The one display pass: give every enabled display a surface over its whole monitor,
+    /// close the surfaces whose display is gone or switched off, and re-place the rest.
+    /// <para>
+    /// Surfaces are matched by the display's stable id, never by enumeration order, so a monitor
+    /// that comes back in a different order keeps its own surface, view and layout; a surface that
+    /// survives keeps its cards, so a taskbar change restarts no widget.
+    /// </para>
+    /// </summary>
+    public void ReconcileDisplays()
     {
         var monitors = Monitors.All();
         if (monitors.Count == 0)
         {
-            Log.Warn(Scope, "no displays reported; keeping the existing windows");
+            // [S-846] Mid-change, not "no screens": build nothing, close nothing, wait for the next message.
+            Log.Warn(Scope, "no displays reported; keeping the existing surfaces until the next display change");
             return;
         }
 
-        // Give each display a view of its own before any surface is built. Without this every
-        // display falls back to the active view, so the same widgets are drawn on all of them and
-        // dragging one to another screen is a no-op by definition - it is already there.
-        var created = State.EnsureViewPerDisplay([.. monitors.Select(m => m.DeviceName)]);
+        _displays = monitors;
+        var byId = new Dictionary<string, MonitorTarget>(StringComparer.Ordinal);
+        foreach (var monitor in monitors)
+        {
+            byId.TryAdd(monitor.Id, monitor);
+        }
+
+        // A surface whose window died is closed and rebuilt rather than left as a husk.
+        foreach (var dead in _windows.Where(w => !w.IsAlive).ToList())
+        {
+            Log.Warn(Scope, $"the surface for {dead.Monitor.GdiName} lost its window; rebuilding it");
+            dead.CloseSurface();
+            _windows.Remove(dead);
+        }
+
+        var surfaces = new Dictionary<string, DisplayInfo>(StringComparer.Ordinal);
+        foreach (var window in _windows)
+        {
+            surfaces[window.Monitor.Id] = window.Monitor.Info;
+        }
+
+        var plan = DisplayPlan.Reconcile(surfaces, [.. monitors.Select(m => m.Info)], State.DisabledMonitors);
+
+        // Views before surfaces, so a new surface finds its own view on its first layout. Without a
+        // view per display every display falls back to the active view, the same widgets are drawn
+        // on all of them, and dragging one to another screen is a no-op by definition.
+        var created = State.EnsureViewPerDisplay(DisplayPlan.ViewKeys(plan.Enabled, State.MonitorViews));
         if (created > 0)
         {
             Log.Info(Scope, $"created {created} view(s) so every display has one of its own");
             _store.SaveSoon(State);
         }
 
-        CloseSurfaces();
-
-        _windows.Clear();
-
-        foreach (var monitor in monitors)
+        foreach (var id in plan.Close)
         {
+            var window = _windows.Find(w => w.Monitor.Id == id);
+            if (window is null)
+            {
+                continue;
+            }
+
+            window.CloseSurface();
+            _windows.Remove(window);
+            Log.Info(Scope, $"closed the surface for {window.Monitor.GdiName}");
+        }
+
+        foreach (var info in plan.Update)
+        {
+            if (_windows.Find(w => w.Monitor.Id == info.Id) is { } window && byId.TryGetValue(info.Id, out var monitor))
+            {
+                window.UpdateMonitor(monitor);
+            }
+        }
+
+        foreach (var info in plan.Create)
+        {
+            if (!byId.TryGetValue(info.Id, out var monitor))
+            {
+                continue;
+            }
+
             try
             {
                 var window = new DesktopWindow(this, monitor);
                 _windows.Add(window);
-                window.ShowSurface();
+                ShowOrHold(window);
+
+                // The id is what the state file keys this display by; the log is the one place it is shown.
+                Log.Info(Scope, $"surface up for {monitor.GdiName} as '{monitor.Id}'");
             }
             catch (Exception ex)
             {
                 // One bad display must not cost the user every other monitor's widgets.
-                Log.Error(Scope, $"could not create the widget surface for {monitor.DeviceName}", ex);
+                Log.Error(Scope, $"could not create the widget surface for {monitor.GdiName}", ex);
             }
         }
 
-        Log.Info(Scope, $"widget surface up on {_windows.Count} display(s)");
+        // [S-849] Every surface is checked against its monitor whether or not the monitor changed: a
+        // DPI change resizes the window to the rect Windows suggests, and that is not the monitor.
+        foreach (var window in _windows)
+        {
+            window.EnsurePlacement();
+        }
+
+        if (!plan.IsEmpty || created > 0)
+        {
+            Log.Info(Scope, $"display pass: {_windows.Count} surface(s) on {monitors.Count} display(s) " +
+                $"(+{plan.Create.Count} -{plan.Close.Count} ~{plan.Update.Count})");
+
+            // The settings tree lists the displays, and a display may now show another view.
+            StateChanged?.Invoke();
+        }
     }
+
+    /// <summary>
+    /// [S-845] Switch Themia on or off for one display. Refused (false) when it would leave no
+    /// display on: nothing would be left to reach edit mode or Settings from.
+    /// </summary>
+    public bool SetDisplayEnabled(string id, bool enabled)
+    {
+        ArgumentNullException.ThrowIfNull(id);
+
+        if (!enabled && !DisplayPlan.CanDisable([.. _displays.Select(d => d.Info)], State.DisabledMonitors, id))
+        {
+            Log.Warn(Scope, "refused to switch off the last display Themia is shown on");
+            return false;
+        }
+
+        Mutate(state =>
+        {
+            state.DisabledMonitors.RemoveAll(d => d == id);
+            if (!enabled)
+            {
+                state.DisabledMonitors.Add(id);
+            }
+        });
+
+        ReconcileDisplays();
+        return true;
+    }
+
+    /// <summary>
+    /// [S-850] Set one display's widget scale. 1 is stored as no entry, so only the displays the user
+    /// changed are saved.
+    /// </summary>
+    public void SetDisplayScale(string id, double scale)
+    {
+        ArgumentNullException.ThrowIfNull(id);
+
+        var clamped = double.IsFinite(scale)
+            ? Math.Clamp(scale, AppStateStore.MinMonitorScale, AppStateStore.MaxMonitorScale)
+            : 1.0;
+
+        Mutate(state =>
+        {
+            if (Math.Abs(clamped - 1.0) < 0.001)
+            {
+                state.MonitorScales.Remove(id);
+            }
+            else
+            {
+                state.MonitorScales[id] = clamped;
+            }
+        });
+    }
+
+    /// <summary>The displays that may hold a view of their own ([S-843]), for mutations that re-run [S-18].</summary>
+    private List<string> DisplayViewKeys()
+        => DisplayPlan.ViewKeys(
+            DisplayPlan.Enabled([.. _displays.Select(d => d.Info)], State.DisabledMonitors),
+            State.MonitorViews);
 
     /// <summary>
     /// [S-78] While a widget is dragged, show where it would land if released now.

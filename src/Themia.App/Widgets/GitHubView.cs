@@ -25,7 +25,7 @@ namespace Themia.App.Widgets;
 /// account at all it reads a public repository anonymously ([S-746]).
 /// </para>
 /// </summary>
-internal sealed partial class GitHubView : Grid, IWidgetView, IWidgetHeaderContent, IWidgetSurfaceAware, IWidgetContextActions, IWidgetSizeAware
+internal sealed partial class GitHubView : Grid, IWidgetView, IWidgetHeaderContent, IWidgetSurfaceAware, IWidgetContextActions, IWidgetSizeAware, IWidgetKeys
 {
     /// <summary>The numbers' column when the lists sit beside them on a wide strip.</summary>
     private const double SummaryColumnWidth = 170;
@@ -46,6 +46,9 @@ internal sealed partial class GitHubView : Grid, IWidgetView, IWidgetHeaderConte
     private readonly StackPanel _summary = new() { Spacing = SummaryGap };
     private readonly DevColumns _lists = new();
     private readonly List<IDisposable> _hovers = [];
+
+    /// <summary>[S-810] The rows' keyboard cursor, fed by the shell's keyboard lease.</summary>
+    private readonly RowCursor _cursor = new();
 
     private readonly FontIcon _ciDot = Fluent.Icon(Glyphs.Dot, "TextFillColorTertiaryBrush", 8);
     private readonly TextBlock _ciText = Fluent.Text(FluentType.Caption, "TextFillColorSecondaryBrush");
@@ -199,6 +202,17 @@ internal sealed partial class GitHubView : Grid, IWidgetView, IWidgetHeaderConte
     private void OnAccountsChanged() => Render();
 
     private void Render()
+    {
+        RenderRows();
+
+        // [S-810] Once the rows are in the tree, the keyboard focus goes back to its row.
+        _cursor.Restore();
+    }
+
+    /// <summary>[S-810] A key from the shell's keyboard lease, which a click on the widget gives it.</summary>
+    public bool HandleKey(WidgetKey key) => !_detached && _cursor.HandleKey(key);
+
+    private void RenderRows()
     {
         if (_detached)
         {
@@ -490,7 +504,10 @@ internal sealed partial class GitHubView : Grid, IWidgetView, IWidgetHeaderConte
 
             foreach (var row in sections[i].Rows.Take(quota[i]))
             {
-                list.Children.Add(DevRows.Build(row, layout, _hovers, row.Url is { } url ? () => DevRows.LinkMenu(url, null) : null));
+                Func<MenuFlyout>? menu = row.Url is { } url ? () => DevRows.LinkMenu(url, null) : null;
+                var built = DevRows.Build(row, layout, _hovers, menu);
+                list.Children.Add(built);
+                _cursor.Add(built, row.Url, menu);
                 placed++;
             }
         }
@@ -551,6 +568,7 @@ internal sealed partial class GitHubView : Grid, IWidgetView, IWidgetHeaderConte
         }
 
         _hovers.Clear();
+        _cursor.Clear();
         _lists.Reset(_lists.Count);
     }
 

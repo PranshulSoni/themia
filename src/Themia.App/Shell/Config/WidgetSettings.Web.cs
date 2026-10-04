@@ -61,7 +61,18 @@ internal static partial class WidgetSettings
             1,
             value => { config.RefreshSeconds = value; save(); });
 
-        rows.Add(FluentLayout.Note("Pause, rotate and reconnect from the widget's right-click menu. A paused camera stays paused across restarts and uses no network."));
+        rows.Add(FluentLayout.Header("Overlay"));
+
+        // [S-1312] Both off the picture until there is room: never on the small sizes.
+        rows.Add(FluentLayout.Row(Glyphs.Mouse, "Controls on hover",
+            "With the pointer on the picture: live state and frame age from medium size; pause, rotate, refresh, resolution and frame rate from large",
+            FluentLayout.Toggle(config.HoverControls, value => { config.HoverControls = value; save(); })));
+
+        rows.Add(FluentLayout.Row(Glyphs.Info, "Status chip",
+            "Always shows LIVE, reconnecting or the interval, and the stream type, at the largest size",
+            FluentLayout.Toggle(config.ShowStatus, value => { config.ShowStatus = value; save(); })));
+
+        rows.Add(FluentLayout.Note("Pause, rotate and reconnect from the widget's right-click menu too. A paused camera stays paused across restarts and uses no network. Cameras that need a user name and password are not supported."));
     }
 
     public static void WebElement(List<FrameworkElement> rows, WebElementConfig config, Action save)
@@ -91,15 +102,19 @@ internal static partial class WidgetSettings
 
         rows.Add(address);
 
+        var pickText = new TextBlock();
         var pick = new Button
         {
             Content = new StackPanel
             {
                 Orientation = Orientation.Horizontal,
                 Spacing = Fluent.Space2,
-                Children = { new FontIcon { Glyph = Glyphs.Pick, FontSize = 14 }, new TextBlock { Text = "Pick element…" } },
+                Children = { new FontIcon { Glyph = Glyphs.Pick, FontSize = 14 }, pickText },
             },
         };
+
+        // [S-1315] Unpin without hunting for the selector box.
+        var clear = FluentLayout.IconCommand(Glyphs.Clear, "Clear the pinned element");
 
         void Describe()
         {
@@ -107,7 +122,20 @@ internal static partial class WidgetSettings
             pickedLabel.Text = selector.Length == 0 ? "Nothing pinned yet"
                 : config.PickedLabel.Length > 0 ? $"“{config.PickedLabel}”"
                 : selector;
+
+            // [S-1315] The button says what it will do: pick, or pick a different element.
+            pickText.Text = selector.Length == 0 ? "Pick element…" : "Pick again…";
+            clear.Visibility = selector.Length == 0 ? Visibility.Collapsed : Visibility.Visible;
         }
+
+        clear.Click += (_, _) =>
+        {
+            config.Selector = string.Empty;
+            config.PickedLabel = string.Empty;
+            save();
+            selectorBox.Text = string.Empty;
+            Describe();
+        };
 
         pick.Click += (_, _) =>
         {
@@ -139,7 +167,15 @@ internal static partial class WidgetSettings
         var pickRow = FluentLayout.Row(Glyphs.Pick, "Element",
             "Opens the page: browse to it, then click Pick element and click what to pin", pick);
         rows.Add(pickRow);
-        rows.Add(FluentLayout.Row(Glyphs.Preview, "Pinned", null, pickedLabel));
+        pickedLabel.VerticalAlignment = VerticalAlignment.Center;
+        pickedLabel.TextTrimming = TextTrimming.CharacterEllipsis;
+        pickedLabel.MaxWidth = 260;
+        rows.Add(FluentLayout.Row(Glyphs.Preview, "Pinned", null, new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            Spacing = Fluent.Space2,
+            Children = { pickedLabel, clear },
+        }));
 
         var verdict = FluentLayout.Verdict();
 
@@ -181,11 +217,20 @@ internal static partial class WidgetSettings
         rows.Add(FluentLayout.FieldRow(Glyphs.Code, "Selector",
             "The CSS selector the picker wrote. Edit it by hand if a page changed", selectorBox, verdict));
 
+        rows.Add(FluentLayout.Header("Picture"));
+
+        // [S-1316] How the element fills the widget.
+        rows.Add(FluentLayout.Row(Glyphs.Fit, "Fit", "Whole element shows all of it, larger as the widget grows; fill width uses the full width and cuts off the bottom",
+            FluentLayout.Choice(
+                [(ElementFit.Whole, "Whole element"), (ElementFit.FillWidth, "Fill width")],
+                config.EffectiveFit,
+                value => { config.Fit = value; save(); })));
+
         FluentLayout.RefreshChoice(rows, WebElementRules.ClampRefreshMinutes(config.RefreshMinutes),
             value => { config.RefreshMinutes = value; save(); });
 
         rows.Add(FluentLayout.Note(
-            "The page is drawn by a browser that runs only while the widget refreshes, then closes. Sign-ins and cookie choices made in the picker are kept for it."));
+            "The page is drawn by a browser that runs only while the widget refreshes, then closes. Sign-ins and cookie choices made in the picker are kept for it. The last picture is kept, so it shows at once after a restart. Pages on your local network are refused unless local network access is on in Settings › General."));
     }
 
     /// <summary>

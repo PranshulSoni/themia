@@ -24,5 +24,5 @@ internal sealed class SurfaceDisplay(AppHost host, DesktopWindow surface) : IWid
     /// [S-19] This display only. Through the host, so it is the same mutation the toolbar's View
     /// menu makes and the same save.
     /// </summary>
-    public void ShowView(string viewId) => host.ShowView(surface.Monitor.DeviceName, viewId);
+    public void ShowView(string viewId) => host.ShowView(surface.Monitor.Id, viewId);
 }

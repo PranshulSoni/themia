@@ -66,8 +66,33 @@ public sealed class StocksConfig : WidgetConfig
     /// <summary>Say so when the listing exchange is shut. Crypto is never marked: it trades all week.</summary>
     public bool ShowMarketState { get; set; } = true;
 
+    /// <summary>
+    /// [S-1308] Ask for pre-market and after-hours bars (one-day and five-day charts only) and show
+    /// the last extended print under the price. Off by default, as in the original.
+    /// </summary>
+    public bool ShowExtendedHours { get; set; }
+
+    /// <summary>[S-1310] Mark the period's high and low on the chart.</summary>
+    public bool ShowMinMax { get; set; }
+
+    /// <summary>[S-1310] Fill the area under the trace. On by default: the trend reads at a glance.</summary>
+    public bool ShowAreaFill { get; set; } = true;
+
+    /// <summary>[S-1310] The colour of a rise, <c>#RRGGBB</c>; empty = the theme's success green.</summary>
+    public string UpColor { get; set; } = string.Empty;
+
+    /// <summary>[S-1310] The colour of a fall, <c>#RRGGBB</c>; empty = the theme's critical red.</summary>
+    public string DownColor { get; set; } = string.Empty;
+
     /// <summary>How often to ask, in minutes.</summary>
     public int RefreshMinutes { get; set; } = 5;
+
+    /// <summary>
+    /// Whether the request asks for extended-hours bars: only where they exist (a listed symbol)
+    /// and where they fit the chart (one and five days).
+    /// </summary>
+    [JsonIgnore]
+    public bool WantsPrePost => ShowExtendedHours && Market == QuoteMarket.Listed && Range is QuoteRange.Day or QuoteRange.FiveDays;
 
     /// <summary>The symbol as it is sent and displayed, or empty when it is not usable.</summary>
     [JsonIgnore]
@@ -82,6 +107,30 @@ public sealed class StocksConfig : WidgetConfig
     [JsonIgnore]
     public TimeSpan TickInterval => TimeSpan.FromMinutes(Math.Clamp(RefreshMinutes, 1, 120));
 
+    /// <summary>A hand-edited colour that is not <c>#RRGGBB</c> goes back to the theme's.</summary>
+    public override IReadOnlyList<string> Repair()
+    {
+        var repairs = new List<string>();
+
+        foreach (var (name, value, set) in new (string, string?, Action<string>)[]
+        {
+            ("up colour", UpColor, v => UpColor = v),
+            ("down colour", DownColor, v => DownColor = v),
+        })
+        {
+            var normal = HexColor.Normalise(value);
+
+            if (!string.IsNullOrEmpty(value) && normal.Length == 0)
+            {
+                repairs.Add($"stocks: {name} '{value}' is not a colour");
+            }
+
+            set(normal);
+        }
+
+        return repairs;
+    }
+
     public override WidgetConfig Clone() => new StocksConfig
     {
         Symbol = Symbol,
@@ -90,6 +139,11 @@ public sealed class StocksConfig : WidgetConfig
         Range = Range,
         ShowSparkline = ShowSparkline,
         ShowMarketState = ShowMarketState,
+        ShowExtendedHours = ShowExtendedHours,
+        ShowMinMax = ShowMinMax,
+        ShowAreaFill = ShowAreaFill,
+        UpColor = UpColor,
+        DownColor = DownColor,
         RefreshMinutes = RefreshMinutes,
     };
 }

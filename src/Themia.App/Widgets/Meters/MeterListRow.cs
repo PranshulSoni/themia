@@ -7,6 +7,7 @@ using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Shapes;
 using Themia.App.Services;
 using Themia.App.Shell;
+using Themia.Core.Diagnostics;
 using Themia.Core.Widgets;
 
 namespace Themia.App.Widgets.Meters;
@@ -16,19 +17,22 @@ namespace Themia.App.Widgets.Meters;
 /// digits, and — on a panel with room for it — a hairline bar of its share underneath. A compact
 /// Fluent row, edge to edge with the text inset; kept and rewritten in place on every sample.
 /// <para>
-/// No hover: nothing on a meter's row does anything when clicked, and a highlight that promises an
-/// action and then gives none is worse than no highlight.
+/// [S-1166] Hover only on a row that does something when clicked (a drive opens in Explorer): a
+/// highlight that promises an action and then gives none is worse than no highlight.
 /// </para>
 /// </summary>
 internal sealed class MeterListRow
 {
     private static readonly Brush TrackBrush = FluentLayout.Themed("ControlStrongFillColorDisabledBrush", Colors.Gray);
+    private static readonly Brush HoverBrush = Fluent.RowHover();
 
     private readonly TextBlock _name = Fluent.Text(FluentType.Body);
     private readonly TextBlock _value = Fluent.Text(FluentType.Body, "TextFillColorSecondaryBrush");
     private readonly Grid _bar = new() { Height = Fluent.Hairline * 2, Margin = new Thickness(0, Fluent.Space1 / 2, 0, 0) };
     private readonly Rectangle _fill = new();
     private readonly Rectangle _rest = new();
+    private readonly Brush _idle;
+    private Action? _open;
 
     public MeterListRow()
     {
@@ -68,6 +72,29 @@ internal sealed class MeterListRow
         };
 
         Host = Fluent.Row(grid, compact: true);
+        _idle = Host.Background;
+
+        Host.PointerEntered += (_, _) => Host.Background = _open is null ? _idle : HoverBrush;
+        Host.PointerExited += (_, _) => Host.Background = _idle;
+        Host.Tapped += (_, e) =>
+        {
+            if (_open is not { } open)
+            {
+                return;
+            }
+
+            e.Handled = true;
+
+            try
+            {
+                open();
+            }
+            catch (Exception ex)
+            {
+                // A row's click runs the kind's code; nothing it throws may reach the surface.
+                Log.Error("meter", "a meter row's click failed", ex);
+            }
+        };
     }
 
     public Border Host { get; }
@@ -77,6 +104,13 @@ internal sealed class MeterListRow
     {
         _name.Text = row.Name;
         _value.Text = row.Value;
+
+        if ((_open is null) != (row.Open is null))
+        {
+            Host.Background = _idle;
+        }
+
+        _open = row.Open;
 
         var bar = bars && row.Fraction is { } f && double.IsFinite(f);
         _bar.Visibility = bar ? Visibility.Visible : Visibility.Collapsed;

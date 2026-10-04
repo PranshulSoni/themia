@@ -33,7 +33,7 @@ namespace Themia.App.Widgets;
 /// on tall tiles, a time column where the width allows, and a count footer on large ones.
 /// </para>
 /// </summary>
-internal sealed partial class ClipboardView : Grid, IWidgetView, IWidgetHeaderContent, IWidgetSizeAware
+internal sealed partial class ClipboardView : Grid, IWidgetView, IWidgetHeaderContent, IWidgetSizeAware, IWidgetSurfaceAware, IWidgetKeys
 {
     private const string Scope = "clipboard-widget";
 
@@ -62,6 +62,7 @@ internal sealed partial class ClipboardView : Grid, IWidgetView, IWidgetHeaderCo
     private IDisposable? _watch;
     private IDisposable? _subscription;
     private Ticker? _ticker;
+    private IWidgetSurface? _surface;
     private int? _cursor;
     private bool _detached;
 
@@ -108,13 +109,21 @@ internal sealed partial class ClipboardView : Grid, IWidgetView, IWidgetHeaderCo
     /// </summary>
     public FrameworkElement? HeaderTrailing => _clear;
 
+    /// <inheritdoc />
+    public void Bind(IWidgetSurface surface) => _surface = surface;
+
     public void Attach(Ticker ticker, WidgetConfig config)
     {
         _ticker = ticker;
 
         // The listener is shared by every Clipboard widget on every display: subscribers are
         // counted and the message window is created with the first and destroyed with the last.
-        _watch ??= ClipboardWatcher.Subscribe(OnClipboardText);
+        // [S-1443] Never for a preview (the widget gallery): a gallery page or its PNG must not
+        // carry whatever happens to be on the user's clipboard.
+        if (_surface?.IsPreview != true)
+        {
+            _watch ??= ClipboardWatcher.Subscribe(OnClipboardText);
+        }
 
 #if DEBUG
         // [S-1443] The gallery's +fixture page: a made-up history, never the real clipboard's.
@@ -196,7 +205,7 @@ internal sealed partial class ClipboardView : Grid, IWidgetView, IWidgetHeaderCo
         {
             // Each state says which it is. "Nothing copied yet" and "the listener never started"
             // need very different things from the reader.
-            _emptyText.Text = ClipboardWatcher.IsRunning
+            _emptyText.Text = ClipboardWatcher.IsRunning || _surface?.IsPreview == true
                 ? "Nothing copied yet. Copy something and it appears here."
                 : "Windows would not let this app watch the clipboard.";
 
@@ -236,7 +245,7 @@ internal sealed partial class ClipboardView : Grid, IWidgetView, IWidgetHeaderCo
 
         // [S-1441] Wrapped, up to the plan's lines, with the entry's own line breaks kept.
         var text = Fluent.Text(FluentType.Body);
-        text.Text = ClipboardLayout.PreviewLines(entry.Text, _plan.PreviewLines, PreviewLength);
+        text.Text = ClipboardLayout.PreviewLines(entry.Text, _plan.PreviewLines, PreviewLength * _plan.PreviewLines);
         text.TextWrapping = _plan.PreviewLines > 1 ? TextWrapping.Wrap : TextWrapping.NoWrap;
         text.MaxLines = _plan.PreviewLines;
         text.TextTrimming = TextTrimming.CharacterEllipsis;
@@ -427,34 +436,51 @@ internal sealed partial class ClipboardView : Grid, IWidgetView, IWidgetHeaderCo
     // -----------------------------------------------------------------------------------------
 
     /// <summary>
-    /// [S-1444] A key from the shell's keyboard lease (not built yet: nothing calls this until the
-    /// lease routes keys to the widget last clicked — this is the whole of what it will call).
-    /// Up/Down/Home/End move a cursor through the entries, Enter copies the one under it back to
-    /// the clipboard, Escape drops the cursor. Returns whether the key was used.
+    /// [S-1444] [S-1561] A key from the shell's keyboard lease, decided by <see cref="ListKeys"/> like
+    /// every list's: Up/Down, Page Up/Down, Home/End move a cursor through the entries, Enter copies
+    /// the one under it back to the clipboard, Delete removes it from the history (the cursor stays
+    /// on the row that took its place), the Menu key opens its menu, Escape — also sent whenever the
+    /// lease ends — drops the cursor. Returns whether the key was used.
     /// </summary>
     public bool HandleKey(WidgetKey key)
     {
-        if (_detached || _history.Count == 0)
+        if (_detached)
         {
             return false;
         }
 
-        if (key == WidgetKey.Enter)
+        var decision = ListKeys.Decide(key, _cursor ?? -1, _history.Count);
+
+        switch (decision.Command)
         {
-            if (_cursor is { } at && at < _history.Count)
-            {
-                CopyBack(_history.Entries[at].Text);
+            case ListCommand.Focus:
+                _cursor = decision.Index;
+                ShowCursor();
                 return true;
-            }
 
-            return false;
+            case ListCommand.Open:
+                CopyBack(_history.Entries[decision.Index].Text);
+                return true;
+
+            case ListCommand.Delete:
+                // Render keeps a cursor that is still in range, which is the row that moved up.
+                _cursor = ListKeys.AfterRemoval(decision.Index, _history.Count - 1) is var next and >= 0 ? next : null;
+                Remove(_history.Entries[decision.Index].Text);
+                return true;
+
+            case ListCommand.Menu when decision.Index < _rows.Count:
+                ItemMenu.Build(RowMenu(_history.Entries[decision.Index].Text)).ShowAt(_rows[decision.Index]);
+                return true;
+
+            case ListCommand.Release:
+                var had = _cursor is not null;
+                _cursor = null;
+                ShowCursor();
+                return had;
+
+            default:
+                return false;
         }
-
-        var next = ItemCursor.Move(_history.Count, _cursor, key);
-        var used = next != _cursor || key == WidgetKey.Escape;
-        _cursor = next;
-        ShowCursor();
-        return used;
     }
 
     /// <summary>The cursor row carries the focus outline; the others none.</summary>

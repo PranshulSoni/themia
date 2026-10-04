@@ -1,0 +1,222 @@
+using Themia.Core.Model;
+using Themia.Core.Widgets;
+using Xunit;
+
+namespace Themia.Core.Tests;
+
+/// <summary>
+/// The pure half of the appearance engine (WP1, [S-820]..[S-833]): accent shades, the card's fill
+/// and border rules, font resolution, the scaled type ramp and the design presets.
+/// </summary>
+public sealed class DesignEngineTests
+{
+    private static double Lightness(RgbColor c) => ColorFormats.ToHsl(c).L;
+
+    [Fact]
+    public void S820_shades_walk_lightness_in_order_and_keep_the_accent()
+    {
+        var accent = new RgbColor(0x00, 0x78, 0xD4);
+        var shades = DesignLook.Shades(accent).ToArray();
+
+        Assert.Equal(accent, shades[3]);
+
+        for (var i = 1; i < shades.Length; i++)
+        {
+            Assert.True(Lightness(shades[i]) > Lightness(shades[i - 1]), $"shade {i} is not lighter than {i - 1}");
+        }
+    }
+
+    [Fact]
+    public void S820_shades_keep_the_hue()
+    {
+        var accent = new RgbColor(0x3D, 0xDC, 0x84);
+        var hue = ColorFormats.ToHsl(accent).H;
+
+        foreach (var shade in DesignLook.Shades(accent).ToArray())
+        {
+            Assert.InRange(ColorFormats.ToHsl(shade).H, hue - 3, hue + 3);
+        }
+    }
+
+    [Fact]
+    public void S820_shades_of_black_and_white_stay_in_range()
+    {
+        var white = DesignLook.Shades(new RgbColor(255, 255, 255));
+        Assert.Equal(new RgbColor(255, 255, 255), white.Light3);
+        Assert.True(Lightness(white.Dark3) < 0.5);
+
+        var black = DesignLook.Shades(new RgbColor(0, 0, 0));
+        Assert.Equal(new RgbColor(0, 0, 0), black.Dark3);
+        Assert.True(Lightness(black.Light3) > 0.5);
+    }
+
+    [Theory]
+    [InlineData("AccentFillColorDefaultBrush", true, 5)]
+    [InlineData("AccentFillColorDefaultBrush", false, 2)]
+    [InlineData("AccentTextFillColorPrimaryBrush", true, 6)]
+    [InlineData("AccentTextFillColorPrimaryBrush", false, 1)]
+    [InlineData("AccentTextFillColorSecondaryBrush", false, 0)]
+    [InlineData("SystemControlHighlightAccentBrush", false, 3)]
+    public void S820_accent_brushes_map_to_their_theme_shade(string key, bool dark, int shade)
+        => Assert.Equal(shade, DesignLook.AccentShade(key, dark));
+
+    [Fact]
+    public void S820_every_listed_accent_brush_has_a_shade_and_others_have_none()
+    {
+        foreach (var key in DesignLook.AccentBrushKeys)
+        {
+            Assert.NotNull(DesignLook.AccentShade(key, true));
+            Assert.NotNull(DesignLook.AccentShade(key, false));
+        }
+
+        Assert.Null(DesignLook.AccentShade("TextFillColorPrimaryBrush", true));
+    }
+
+    [Theory]
+    [InlineData(1.0, 255)]
+    [InlineData(0.0, 0)]
+    [InlineData(0.5, 128)]
+    [InlineData(2.0, 255)]
+    [InlineData(-1.0, 0)]
+    [InlineData(double.NaN, 255)]
+    public void S822_alpha_clamps_and_treats_garbage_as_opaque(double opacity, byte expected)
+        => Assert.Equal(expected, DesignLook.Alpha(opacity));
+
+    [Theory]
+    [InlineData(WidgetSurface.Card, 1.0, 1.0)]
+    [InlineData(WidgetSurface.Card, 0.05, 0.2)]
+    [InlineData(WidgetSurface.Card, double.NaN, 1.0)]
+    [InlineData(WidgetSurface.Translucent, 1.0, 0.6)]
+    [InlineData(WidgetSurface.Translucent, 0.2, 0.15)]
+    [InlineData(WidgetSurface.Transparent, 1.0, 0.0)]
+    public void S823_fill_opacity_follows_the_surface(WidgetSurface surface, double setting, double expected)
+        => Assert.Equal(expected, DesignLook.FillOpacity(surface, setting), 3);
+
+    [Fact]
+    public void S824_border_styles()
+    {
+        var solid = DesignLook.Border(WidgetSurface.Card, WidgetBorderStyle.Solid, 2, 0.5);
+        Assert.True(solid.Visible);
+        Assert.Equal(2, solid.Thickness);
+        Assert.Empty(solid.Dashes);
+        Assert.Equal(0.5, solid.Opacity);
+
+        var dashed = DesignLook.Border(WidgetSurface.Card, WidgetBorderStyle.Dashed, 1, 1);
+        Assert.Equal([3.0, 2.0], dashed.Dashes);
+        Assert.False(dashed.RoundCaps);
+
+        var dotted = DesignLook.Border(WidgetSurface.Card, WidgetBorderStyle.Dotted, 3, 1);
+        Assert.Equal([0.0, 2.0], dotted.Dashes);
+        Assert.True(dotted.RoundCaps);
+    }
+
+    [Fact]
+    public void S824_no_border_for_none_zero_width_or_a_transparent_widget()
+    {
+        Assert.False(DesignLook.Border(WidgetSurface.Card, WidgetBorderStyle.None, 2, 1).Visible);
+        Assert.False(DesignLook.Border(WidgetSurface.Card, WidgetBorderStyle.Solid, 0, 1).Visible);
+        Assert.False(DesignLook.Border(WidgetSurface.Card, WidgetBorderStyle.Solid, 2, 0).Visible);
+        Assert.False(DesignLook.Border(WidgetSurface.Transparent, WidgetBorderStyle.Solid, 2, 1).Visible);
+        Assert.Equal(8, DesignLook.Border(WidgetSurface.Card, WidgetBorderStyle.Solid, 50, 1).Thickness);
+    }
+
+    [Theory]
+    [InlineData(8, 8)]
+    [InlineData(-4, 0)]
+    [InlineData(99, 32)]
+    [InlineData(double.PositiveInfinity, 8)]
+    public void S825_corner_radius_clamps(double setting, double expected)
+        => Assert.Equal(expected, DesignLook.CornerRadius(setting));
+
+    [Theory]
+    [InlineData("system", null)]
+    [InlineData("", null)]
+    [InlineData(null, null)]
+    [InlineData("SERIF", "Georgia")]
+    [InlineData("sans", "Arial")]
+    [InlineData("mono", "Cascadia Mono, Consolas")]
+    [InlineData("  Bahnschrift  ", "Bahnschrift")]
+    [InlineData("Segoe UI Semibold", "Segoe UI Semibold")]
+    [InlineData("ms-appx:///evil.ttf#Evil", null)]
+    [InlineData("Arial, Wingdings", null)]
+    public void S826_font_family_resolves_presets_and_refuses_what_is_not_a_name(string? value, string? expected)
+        => Assert.Equal(expected, DesignLook.FontFamilyName(value));
+
+    [Fact]
+    public void S827_font_list_drops_vertical_faces_folds_duplicates_and_sorts()
+    {
+        var list = DesignLook.FontList(["Segoe UI", "@MS Gothic", "arial", "Arial", "", "Bad/Name", "Bahnschrift"]);
+        Assert.Equal(["arial", "Bahnschrift", "Segoe UI"], list);
+    }
+
+    [Fact]
+    public void S821_steps_scale_size_and_line_height_together()
+    {
+        var at1 = FluentType.StepsAt(1);
+        var at15 = FluentType.StepsAt(1.5);
+
+        Assert.Equal(12, at1[0].FontSize);
+        Assert.Equal(18, at15[0].FontSize);
+        Assert.Equal(24, at15[0].LineHeight);
+        Assert.Equal(at1[7].SemiBold, at15[7].SemiBold);
+    }
+
+    [Theory]
+    [InlineData(0.1, 0.5)]
+    [InlineData(5, 2.0)]
+    [InlineData(double.NaN, 1.0)]
+    [InlineData(0, 1.0)]
+    [InlineData(1.25, 1.25)]
+    public void S821_text_scale_clamps(double setting, double expected)
+        => Assert.Equal(expected, FluentType.ClampTextScale(setting));
+
+    [Fact]
+    public void S831_a_fresh_design_is_the_default_preset()
+        => Assert.Equal(DesignPresetId.Default, DesignPresets.Match(new DesignState()));
+
+    [Fact]
+    public void S832_applying_a_preset_sets_its_fields_and_nothing_else()
+    {
+        var design = new DesignState { UiScale = 1.5, FontScale = 1.25, IntroAnimation = IntroAnimation.Fade, GridSnap = false };
+
+        DesignPresets.Apply(design, DesignPresetId.Terminal);
+
+        Assert.Equal(DesignPresetId.Terminal, DesignPresets.Match(design));
+        Assert.Equal(AppTheme.Dark, design.Theme);
+        Assert.Equal("mono", design.FontFamily);
+        Assert.Equal(0, design.CornerRadiusPx);
+
+        // The user's own accessibility and motion choices survive.
+        Assert.Equal(1.5, design.UiScale);
+        Assert.Equal(1.25, design.FontScale);
+        Assert.Equal(IntroAnimation.Fade, design.IntroAnimation);
+        Assert.False(design.GridSnap);
+    }
+
+    [Fact]
+    public void S833_match_ignores_unowned_fields_and_colour_case_but_not_owned_ones()
+    {
+        var design = new DesignState();
+        DesignPresets.Apply(design, DesignPresetId.Paper);
+
+        design.FontScale = 1.75;
+        design.PrimaryColor = design.PrimaryColor.ToLowerInvariant();
+        Assert.Equal(DesignPresetId.Paper, DesignPresets.Match(design));
+
+        design.CornerRadiusPx += 1;
+        Assert.Null(DesignPresets.Match(design));
+    }
+
+    [Fact]
+    public void S830_every_preset_is_distinct_and_matches_itself()
+    {
+        foreach (var preset in DesignPresets.All)
+        {
+            var design = new DesignState();
+            DesignPresets.Apply(design, preset.Id);
+            Assert.Equal(preset.Id, DesignPresets.Match(design));
+        }
+
+        Assert.Equal(DesignPresets.All.Count, DesignPresets.All.Select(p => p.Values).Distinct().Count());
+    }
+}

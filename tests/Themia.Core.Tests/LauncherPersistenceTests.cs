@@ -61,7 +61,16 @@ public sealed class LauncherPersistenceTests : IDisposable
     [Fact]
     public async Task A_shortcut_list_survives_a_round_trip_in_order()
     {
-        var config = new ShortcutsConfig { OpenOnSingleClick = true, ShowTarget = true };
+        var config = new ShortcutsConfig
+        {
+            ClickMode = ItemClickMode.Single,
+            View = ShortcutViewMode.Details,
+            GridSize = ShortcutItemSize.Large,
+            ListSize = ShortcutItemSize.Small,
+            GridIconOnly = true,
+            GridStretchHeight = true,
+            ShowFileExtension = true,
+        };
 
         config.Items.Add(ShortcutItem.Create("https://example.com/", "Example"));
         config.Items.Add(ShortcutItem.Create(@"C:\Users\Someone\Documents"));
@@ -69,8 +78,13 @@ public sealed class LauncherPersistenceTests : IDisposable
 
         var reloaded = Assert.IsType<ShortcutsConfig>(await RoundTripAsync(config));
 
-        Assert.True(reloaded.OpenOnSingleClick);
-        Assert.True(reloaded.ShowTarget);
+        Assert.Equal(ItemClickMode.Single, reloaded.ClickMode);
+        Assert.Equal(ShortcutViewMode.Details, reloaded.View);
+        Assert.Equal(ShortcutItemSize.Large, reloaded.GridSize);
+        Assert.Equal(ShortcutItemSize.Small, reloaded.ListSize);
+        Assert.True(reloaded.GridIconOnly);
+        Assert.True(reloaded.GridStretchHeight);
+        Assert.True(reloaded.ShowFileExtension);
         Assert.Equal(3, reloaded.Items.Count);
         Assert.Equal("https://example.com/", reloaded.Items[0].Target);
         Assert.Equal("Example", reloaded.Items[0].Label);

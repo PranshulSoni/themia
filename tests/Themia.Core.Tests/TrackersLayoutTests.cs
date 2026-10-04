@@ -254,17 +254,44 @@ public class TrackersLayoutTests
         Assert.True(l.Distribution && l.Weekdays);
         Assert.True(l.RecentNotes >= 3);
 
+        Assert.False(l.Summary);
+
         var xl = Mood(XL);
+        Assert.True(xl.Summary);
         Assert.True(xl.RecentNotes > l.RecentNotes);
         Assert.Equal(12, xl.Weeks);
     }
 
     [Fact]
-    public void S1453_a_month_is_always_shown_whole()
+    public void S1453_a_month_view_is_whole_or_it_is_the_recent_weeks_never_a_partial_month()
     {
+        // The invariant, over every tier and every month length: either all of the month's weeks
+        // (Recent false), or a flagged replacement with fewer weeks than the month has. [S-1573]
         var config = new MoodTrackerConfig { Span = MoodSpan.Month };
+
+        foreach (var area in (WidgetArea[])[XS, S, M, Wide, Tall, L, XL])
+        {
+            foreach (var monthWeeks in (int[])[4, 5, 6])
+            {
+                var plan = MoodLayout.Plan(area, config, monthWeeks);
+
+                if (plan.Recent)
+                {
+                    Assert.Equal(MoodArrangement.Stacked, plan.Arrangement);
+                    Assert.InRange(plan.Weeks, 1, monthWeeks - 1);
+                }
+                else
+                {
+                    Assert.Equal(monthWeeks, plan.Weeks);
+                }
+            }
+        }
+
+        // Where the tile is big enough the month is whole.
+        Assert.False(MoodLayout.Plan(Wide, config, 6).Recent);
         Assert.Equal(6, MoodLayout.Plan(Wide, config, 6).Weeks);
-        Assert.Equal(6, MoodLayout.Plan(S, config, 6).Weeks);
+        Assert.False(MoodLayout.Plan(M, config, 6).Recent);
+        Assert.False(MoodLayout.Plan(Tall, config, 6).Recent);
     }
 
     private static MoodEntry Entry(string id, DateTimeOffset at, int level, string note = "")
@@ -290,6 +317,25 @@ public class TrackersLayoutTests
         Assert.Equal(4.5, averages[6]);   // Sunday is the last column of a Monday week
         Assert.Equal(1, averages[5]);     // Saturday
         Assert.Null(averages[0]);
+    }
+
+    [Fact]
+    public void S1454_summary_counts_logged_days_best_run_and_thoughts_up_to_today()
+    {
+        var today = LocalDay.From(Now);
+        List<MoodEntry> entries =
+        [
+            Entry("a", Now, 5, "x"),
+            Entry("b", Now.AddDays(-1), 1),
+            Entry("b2", Now.AddDays(-1), 2, "y"),
+            Entry("c", Now.AddDays(-2), 4),
+            Entry("d", Now.AddDays(-5), 3),
+            Entry("e", Now.AddDays(-30), 3, "outside"),
+        ];
+
+        // A month-like window running past today counts only the days that have happened.
+        var summary = MoodInsights.Summary(entries, today.AddDays(-9), today.AddDays(20), today);
+        Assert.Equal(new MoodSummary(LoggedDays: 4, Days: 10, BestRun: 3, Thoughts: 2), summary);
     }
 
     [Fact]

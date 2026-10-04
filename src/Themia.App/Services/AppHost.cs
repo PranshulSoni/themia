@@ -40,6 +40,14 @@ internal sealed partial class AppHost : IDisposable
         State = state;
         Ticker = new Ticker(dispatcher);
 
+        // [S-820] The appearance engine runs before anything is built from a brush, and first on
+        // every state change — subscribed before any surface — so the surfaces relayout against the
+        // new theme, accent, font and text size. A Windows theme or accent change re-runs the same
+        // path, which is how "use system setting" and the Windows accent follow Windows live.
+        Shell.DesignApplier.Apply(state.Design);
+        StateChanged += () => Shell.DesignApplier.Apply(State.Design);
+        Shell.DesignApplier.Watch(dispatcher, () => StateChanged?.Invoke());
+
         // Beside the state file, so a portable or test state path takes its accounts with it.
         Accounts = new Accounts.AccountService(dispatcher, Themia.Core.Accounts.AccountStore.PathBeside(store.Path));
         AppServices.Accounts = Accounts;
@@ -58,6 +66,9 @@ internal sealed partial class AppHost : IDisposable
 
         // [S-1420] The habit lists every Habits widget shares, beside the state file like the tasks.
         AppServices.Habits = new Habits.HabitPool(new Themia.Core.Habits.HabitListStore(Themia.Core.Habits.HabitListStore.PathBeside(store.Path)));
+
+        // [S-1340] The notes every Notes widget shares, in notes\ beside the state file.
+        AppServices.Notes = new Notes.NotePool(new Themia.Core.Notes.NoteStore(Themia.Core.Notes.NoteStore.DirectoryBeside(store.Path)));
 
         // [S-624] One GitHub client (one cache, one rate-limit gate per account) and one Claude
         // usage reader for every developer widget, on the shared ticker.
@@ -134,6 +145,10 @@ internal sealed partial class AppHost : IDisposable
     {
         _command.EditModeToggleRequested += () => SetEditMode(!_editMode);
 
+        // [S-848] Listening before the first surface is built, so a taskbar or display change that
+        // lands during startup (autostart at logon, before Explorer has docked the taskbar) is heard.
+        _command.DisplaysChanged += RequestDisplayPass;
+
         if (!_command.Create())
         {
             // Without it the hotkey and the second-launch route are both gone, and edit mode is
@@ -146,6 +161,10 @@ internal sealed partial class AppHost : IDisposable
         // one moment the user asked to see their desktop.
         DesktopZOrder.Start(_dispatcher);
 
+        // [S-927] Before the first surface is built, so an autostart under a running game holds the
+        // surfaces hidden instead of flashing every widget up and straight back down.
+        StartGameMode();
+
         // [S-459] Screen time is recorded whether or not a screen-time widget is on the desktop, so
         // the history is there the day one is added. Only the app starts it — never the gallery.
         _screenTime = ScreenTimeService.Start(
@@ -153,12 +172,26 @@ internal sealed partial class AppHost : IDisposable
             Path.Combine(Path.GetDirectoryName(_store.Path) ?? string.Empty, Themia.Core.Storage.ScreenTimeStore.FileName));
         AppServices.ScreenTime = _screenTime;
 
+        // [S-1301] The request-forgery guard reads the user's "local network access" switch on
+        // every check, so flipping it applies at once without a restart.
+        Services.Web.NetGuard.AllowPrivate = () => State.Preferences.AllowPrivateNetwork;
+
+        // [S-1300] The feed and stock widgets' last answers, drawn at once (marked stale) on a cold
+        // launch instead of "Loading". Before the windows, so the first render finds them.
+        Services.Web.NetworkCache.Persist(
+            Path.Combine(Path.GetDirectoryName(_store.Path) ?? string.Empty, Themia.Core.Storage.NetworkCacheStore.FileName));
+
         // [S-729] The weather widgets' last answers, so a cold launch draws them at once (marked
         // stale) instead of "Loading". Before the windows, so the first render finds them.
         Services.Web.WeatherService.Persist(
             Path.Combine(Path.GetDirectoryName(_store.Path) ?? string.Empty, Themia.Core.Storage.WeatherCacheStore.FileName));
 
-        RebuildWindows();
+        // [S-1319] The web element widgets' last renders, drawn at once (marked stale) on a cold
+        // launch instead of "Rendering the page…". Before the windows, so the first layout finds them.
+        Services.Web.ElementRenderCache.Persist(
+            Path.Combine(Path.GetDirectoryName(_store.Path) ?? string.Empty, Themia.Core.Storage.ElementRenderStore.FolderName));
+
+        ReconcileDisplays();
 
         // Seed the file on a fresh profile so the starting layout survives a restart even if the
         // user never touches anything.
@@ -201,6 +234,12 @@ internal sealed partial class AppHost : IDisposable
                 if (AppServices.Habits is { } habits)
                 {
                     await habits.FlushAsync().ConfigureAwait(true);
+                }
+
+                // [S-1348] The last sentence typed, written into the pool by the widget's detach.
+                if (AppServices.Notes is { } notes)
+                {
+                    await notes.FlushAsync().ConfigureAwait(true);
                 }
             }
             catch (Exception ex)
@@ -246,6 +285,7 @@ internal sealed partial class AppHost : IDisposable
         }
 
         _disposed = true;
+        StopGameMode();
         DesktopZOrder.Stop();
         Clipboard.Clear();
         AppServices.Mail = null;
@@ -256,6 +296,7 @@ internal sealed partial class AppHost : IDisposable
         AppServices.Drive?.Dispose();
         AppServices.Drive = null;
         AppServices.Habits = null;
+        AppServices.Notes = null;
         AppServices.GitHub = null;
         _gitHub.Dispose();
         AppServices.ClaudeUsage = null;

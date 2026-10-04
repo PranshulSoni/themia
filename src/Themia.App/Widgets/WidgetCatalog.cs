@@ -45,6 +45,12 @@ public interface IWidgetSurface
     /// widget is being typed into. The cost is inherent to Win32 focus and worth naming: while you
     /// type into a widget, the window you were in loses focus.
     /// </para>
+    /// <para>
+    /// [S-801] This is the shell's keyboard lease, held for typing: call it from a text box's
+    /// GotFocus / LostFocus. A widget that navigates with keys implements <see cref="IWidgetKeys"/>
+    /// instead and gets the lease on a click; when its editor closes it keeps the arrows. The lease
+    /// ends by itself on Escape, a click elsewhere and the widget going away.
+    /// </para>
     /// </summary>
     void RequestTextInput(bool wanted);
 
@@ -59,6 +65,14 @@ public interface IWidgetSurface
     /// desktop. A view whose buttons act on the machine — the power tile — must be inert there.
     /// </summary>
     bool IsPreview => false;
+
+    /// <summary>
+    /// [S-873] Paint nothing, or paint again: the card drops its fill, border and content and leaves
+    /// the window's hit region, so the desktop under it is clickable. For a widget that has nothing
+    /// to show right now (music with nothing playing). Edit mode always shows it, so a hidden widget
+    /// can still be found, moved and configured. Not persisted: the view decides it from its state.
+    /// </summary>
+    void SetHidden(bool hidden);
 }
 
 /// <summary>
@@ -186,7 +200,7 @@ internal static class WidgetCatalog
         new(WidgetKind.Clock, "Clock", "Time and date, digital or analog", Glyphs.Clock, 280, 140, WidgetCategory.Time),
         new(WidgetKind.Cpu, "CPU", "Processor load across all cores", Glyphs.Cpu, 200, 150, WidgetCategory.System),
         new(WidgetKind.Memory, "Memory", "Physical memory in use", Glyphs.Memory, 200, 150, WidgetCategory.System),
-        new(WidgetKind.Disk, "Disk", "Space used on a drive", Glyphs.Disk, 200, 150, WidgetCategory.System),
+        new(WidgetKind.Disk, "Disk", "Read and write activity, and space left", Glyphs.Disk, 200, 150, WidgetCategory.System),
         new(WidgetKind.Battery, "Battery", "Charge level and time remaining", Glyphs.Battery, 200, 150, WidgetCategory.System),
         new(WidgetKind.Network, "Network", "Bytes per second across the active adapters", Glyphs.Network, 200, 150, WidgetCategory.System),
         new(WidgetKind.Ping, "Ping", "Round-trip time to a host", Glyphs.Ping, 200, 150, WidgetCategory.System),
@@ -211,7 +225,7 @@ internal static class WidgetCatalog
         new(WidgetKind.WeatherNow, "Weather", "Conditions where you are", Glyphs.Weather, 260, 200, WidgetCategory.Information),
         new(WidgetKind.WeatherForecast, "Forecast", "The next few days", Glyphs.Forecast, 380, 220, WidgetCategory.Information),
         new(WidgetKind.Stocks, "Stocks", "Tickers and crypto, with a sparkline", Glyphs.Stocks, 320, 240, WidgetCategory.Information),
-        new(WidgetKind.Rss, "Feed", "Headlines from a feed you choose", Glyphs.Rss, 360, 280, WidgetCategory.Information),
+        new(WidgetKind.Rss, "Feed", "Headlines from the feeds you choose", Glyphs.Rss, 360, 280, WidgetCategory.Information),
         new(WidgetKind.Apps, "Apps", "Launch an installed application", Glyphs.Apps, 320, 240, WidgetCategory.Launch),
         new(WidgetKind.Shortcuts, "Shortcuts", "Links, files and folders you keep to hand", Glyphs.Shortcut, 320, 220, WidgetCategory.Launch),
         new(WidgetKind.OneDrive, "OneDrive", "Recent files, or a folder, on your OneDrive", Glyphs.OneDrive, 330, 320, WidgetCategory.Launch),

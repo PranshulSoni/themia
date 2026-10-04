@@ -32,7 +32,7 @@ namespace Themia.App.Widgets;
 /// </para>
 /// </summary>
 internal sealed partial class GalleryView : Grid, IWidgetView, IWidgetHeaderContent, IWidgetSurfaceAware,
-    IWidgetSizeAware, IWidgetContextActions
+    IWidgetSizeAware, IWidgetContextActions, IWidgetKeys
 {
     private const string Scope = "gallery-view";
 

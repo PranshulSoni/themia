@@ -1,4 +1,5 @@
 using System.Text.Json;
+using Themia.Core.Model;
 
 namespace Themia.Core.Widgets;
 
@@ -349,4 +350,102 @@ public static class WebElementRules
         value = element.GetString() ?? string.Empty;
         return true;
     }
+}
+
+/// <summary>
+/// [S-1316] How a captured element sits in the widget: its scale and the part of it that shows.
+/// </summary>
+/// <param name="Scale">DIPs per CSS pixel of the element.</param>
+/// <param name="Width">The visible part's width in DIPs, never wider than the box.</param>
+/// <param name="Height">The visible part's height in DIPs, never taller than the box.</param>
+/// <param name="FadeRight">The element runs on past the right edge; a soft fade says so.</param>
+/// <param name="FadeBottom">The element runs on past the bottom edge.</param>
+public readonly record struct ElementPlacement(double Scale, double Width, double Height, bool FadeRight, bool FadeBottom)
+{
+    /// <summary>Part of the element is cut off, so it is anchored top-left rather than centred.</summary>
+    public bool Cropped => FadeRight || FadeBottom;
+}
+
+/// <summary>
+/// [S-1316]/[S-1317] The web element's fit, as pure arithmetic: how big the picture is drawn, what is
+/// cropped, and how large the browser should capture it so the drawn picture stays sharp.
+/// </summary>
+public static class ElementFitRules
+{
+    /// <summary>
+    /// Below this scale a page element is a smudge (text under ~45% of its size is unreadable), so
+    /// the widget shows the element's top-left part at its own size instead of all of it shrunk.
+    /// </summary>
+    public const double MinLegibleScale = 0.45;
+
+    /// <summary>The most an element is blown up. Past this a small element is a poster, not a glance.</summary>
+    public const double MaxScale = 3;
+
+    /// <summary>The largest side of a captured picture, in physical pixels: a texture every GPU takes.</summary>
+    public const double MaxCapturePixels = 8192;
+
+    /// <summary>Under half a DIP of overhang is rounding, not a crop.</summary>
+    private const double Slack = 0.5;
+
+    /// <summary>A capture this much short of what is drawn is re-taken; less than this is not worth a browser.</summary>
+    public const double RecaptureMargin = 1.25;
+
+    /// <summary>
+    /// [S-1316] Place an element of <paramref name="elementWidth"/>×<paramref name="elementHeight"/>
+    /// CSS pixels in a box of DIPs. <see cref="ElementFit.Whole"/> scales it to fit both ways, up to
+    /// <see cref="MaxScale"/>; <see cref="ElementFit.FillWidth"/> to the width, cropping the bottom.
+    /// Either way, a scale under <see cref="MinLegibleScale"/> becomes 1:1 and crops instead.
+    /// </summary>
+    public static ElementPlacement Place(double boxWidth, double boxHeight, double elementWidth, double elementHeight, ElementFit fit)
+    {
+        if (!Positive(boxWidth) || !Positive(boxHeight) || !Positive(elementWidth) || !Positive(elementHeight))
+        {
+            return new ElementPlacement(1, 0, 0, false, false);
+        }
+
+        var across = boxWidth / elementWidth;
+        var scale = fit == ElementFit.FillWidth ? across : Math.Min(across, boxHeight / elementHeight);
+        scale = Math.Min(scale, MaxScale);
+
+        if (scale < MinLegibleScale)
+        {
+            scale = 1;
+        }
+
+        var width = elementWidth * scale;
+        var height = elementHeight * scale;
+
+        return new ElementPlacement(
+            scale,
+            Math.Min(width, boxWidth),
+            Math.Min(height, boxHeight),
+            width > boxWidth + Slack,
+            height > boxHeight + Slack);
+    }
+
+    /// <summary>
+    /// [S-1317] The zoom to capture at, on top of the display's own scale, so the picture drawn at
+    /// <paramref name="scale"/> has a physical pixel per pixel: at least 1 (a crop is drawn 1:1),
+    /// at most <see cref="MaxScale"/>, and never past <see cref="MaxCapturePixels"/> on a side.
+    /// </summary>
+    public static double CaptureZoom(double scale, double elementWidth, double elementHeight, double deviceScale)
+    {
+        var zoom = double.IsFinite(scale) ? Math.Clamp(scale, 1, MaxScale) : 1;
+        var longest = Math.Max(elementWidth, elementHeight) * (Positive(deviceScale) ? deviceScale : 1);
+
+        return Positive(longest) ? Math.Min(zoom, MaxCapturePixels / longest) : zoom;
+    }
+
+    /// <summary>
+    /// [S-1317] Whether the picture on screen, captured at <paramref name="capturedZoom"/>, is now
+    /// drawn so much larger that it has gone soft — the widget grew. Never for a shrink.
+    /// </summary>
+    public static bool NeedsRecapture(double scale, double capturedZoom)
+        => double.IsFinite(scale) && Positive(capturedZoom)
+            && Math.Min(scale, MaxScale) > capturedZoom * RecaptureMargin;
+
+    /// <summary>[S-1318] The footer line (host, age, a failed refresh) only at the largest size.</summary>
+    public static bool ShowsFooter(WidgetArea area) => area.AtLeast(SizeClass.Huge, SizeClass.Huge);
+
+    private static bool Positive(double value) => double.IsFinite(value) && value > 0;
 }

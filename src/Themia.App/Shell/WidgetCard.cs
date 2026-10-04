@@ -63,32 +63,101 @@ internal interface IWidgetCardHost
     void RequestSaveConfig();
 
     /// <summary>
-    /// A widget wants the keyboard, or is done with it. The surface is normally unfocusable, so this
-    /// is what makes typing into a widget reach it at all.
+    /// [S-801] A text box in the widget gained or lost focus. The surface is normally unfocusable, so
+    /// this — the keyboard lease, held for typing — is what makes typing into a widget reach it at all.
     /// </summary>
     void RequestTextInput(WidgetCard card, bool wanted);
+
+    /// <summary>
+    /// [S-800] The user pressed somewhere in this card outside edit mode: the keyboard lease moves to
+    /// it when its view takes keys (<see cref="IWidgetKeys"/>), and ends for whichever widget had it
+    /// otherwise.
+    /// </summary>
+    void KeyboardPress(WidgetCard card);
 
     /// <summary>The display these cards are on, for a widget that switches it; null where there is none.</summary>
     IWidgetDisplay? Display { get; }
 
     /// <summary>[S-1251] True for the gallery's host: its cards are previews and must not act on the machine.</summary>
     bool IsPreview => false;
+
+    /// <summary>
+    /// [S-871]/[S-873] The card's drawn frame changed — collapsed to its bar, hidden or shown — so it
+    /// is positioned again and the hit region redone. Nothing is persisted.
+    /// </summary>
+    void OnCardFrameChanged(WidgetCard card)
+    {
+        // ignore: a host with no hit region (the gallery) has nothing to redo
+    }
+
+    /// <summary>[S-874] Bring the widget to the front of the view, or send it to the back.</summary>
+    void RequestZOrder(WidgetCard card, bool front)
+    {
+        // ignore: a host with no view (the gallery) has no order to change
+    }
+
+    /// <summary>[S-866] A container's row (or tab) asked to act on one of its children.</summary>
+    void RequestChildAction(WidgetCard container, string childId, ContainerChildAction action)
+    {
+        // ignore: as above
+    }
+
+    /// <summary>[S-866] A container's child was dragged to <paramref name="index"/> among its siblings.</summary>
+    void RequestMoveChildTo(WidgetCard container, string childId, int index)
+    {
+        // ignore: as above
+    }
+
+    /// <summary>[S-870] Open the widget picker with <paramref name="container"/> chosen as where the new widget goes.</summary>
+    void RequestAddInside(WidgetCard container)
+    {
+        // ignore: the gallery has no picker
+    }
 }
 
 /// <summary>
 /// One widget on the desktop: the Fluent card chrome, the drag and resize affordances, and the
 /// right-click menu. The widget's own view is dropped inside and knows nothing about input.
 /// </summary>
-internal sealed partial class WidgetCard : Grid, IWidgetSurface
+internal sealed partial class WidgetCard : Grid, IWidgetSurface, IContainerSurface
 {
     private const string Scope = "card";
     private const double HandleSize = 10;
+
+    /// <summary>[S-871] The tallest control a header row holds (a group's collapse button).</summary>
+    public const double HeaderControlHeight = 24;
 
     private readonly IWidgetCardHost _host;
     private readonly Border _fill;
     private readonly Border _tint;
     private readonly Border _surface;
+
+    /// <summary>[S-824] The border, drawn as a shape because a <see cref="Border"/> cannot dash.</summary>
+    private readonly Rectangle _stroke;
+
+    /// <summary>
+    /// [S-826] Carries the design's font to the content: text inherits a font family from the
+    /// nearest presenter or control above it, and a <see cref="Border"/> has none to give.
+    /// </summary>
+    private readonly ContentPresenter _fontScope;
+
+    /// <summary>[S-821] The text size the text already on this card was laid out at.</summary>
+    private double _textScale = FluentType.TextScale;
     private readonly Grid _headerHost;
+
+    /// <summary>[S-862] The header, upright or turned up a side edge.</summary>
+    private readonly SidewaysPanel _headerTurn;
+
+    /// <summary>[S-863] The card's surface behind the header bar alone, for a view that paints its own area.</summary>
+    private readonly Border _headerBase = new() { IsHitTestVisible = false };
+
+    private readonly Border _headerTint = new() { IsHitTestVisible = false };
+
+    /// <summary>[S-873] The view asked to paint nothing (outside edit mode).</summary>
+    private bool _hidden;
+
+    /// <summary>[S-871] Collapsed to the header bar (a group).</summary>
+    private bool _collapsed;
     private readonly Grid _header;
     private readonly TextBlock _headerTitle;
 
@@ -100,6 +169,11 @@ internal sealed partial class WidgetCard : Grid, IWidgetSurface
     private readonly Border _editOutline;
     private readonly Grid _handles;
     private readonly FrameworkElement _view;
+
+    /// <summary>The header and the view together: what [S-850]'s content scale magnifies.</summary>
+    private readonly Grid _content;
+
+    private double _contentScale = 1.0;
 
     private FracRect _dragStartRect;
     private Point _dragStartPoint;
@@ -122,10 +196,19 @@ internal sealed partial class WidgetCard : Grid, IWidgetSurface
             _headerTitle,
             (_view as IWidgetHeaderContent)?.HeaderTrailing);
 
+        // Padding rather than margin, so a header fill ([S-828]) reaches the card's edges.
         _headerHost = new Grid
         {
             Children = { _header },
-            Margin = Fluent.HeaderMargin,
+            Padding = Fluent.HeaderMargin,
+        };
+
+        // [S-861] A click on a group's bar (not on its button) toggles it outside edit mode.
+        _headerHost.Tapped += OnHeaderTapped;
+
+        _headerTurn = new SidewaysPanel
+        {
+            Children = { new Grid { Children = { _headerBase, _headerTint, _headerHost } } },
         };
 
         // The view is bound and attached only once the header exists. A view that names itself
@@ -171,6 +254,7 @@ internal sealed partial class WidgetCard : Grid, IWidgetSurface
         // WidgetLayout.
         // Two rows, one of which is always empty: the header sits in whichever one its placement
         // asks for, so switching it costs a row index rather than a rebuild.
+        // [S-862] Three columns as well, for a header on the left or right edge.
         var content = new Grid
         {
             RowDefinitions =
@@ -179,17 +263,38 @@ internal sealed partial class WidgetCard : Grid, IWidgetSurface
                 new RowDefinition { Height = new GridLength(1, GridUnitType.Star) },
                 new RowDefinition { Height = GridLength.Auto },
             },
+            ColumnDefinitions =
+            {
+                new ColumnDefinition { Width = GridLength.Auto },
+                new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) },
+                new ColumnDefinition { Width = GridLength.Auto },
+            },
         };
 
         Grid.SetRow(_view, 1);
-        content.Children.Add(_headerHost);
+        Grid.SetColumn(_view, 1);
+        content.Children.Add(_headerTurn);
         content.Children.Add(_view);
+
+        _content = content;
+        _fontScope = new ContentPresenter
+        {
+            Content = content,
+            HorizontalContentAlignment = HorizontalAlignment.Stretch,
+            VerticalContentAlignment = VerticalAlignment.Stretch,
+        };
 
         _surface = new Border
         {
-            Child = content,
+            Child = _fontScope,
             Padding = new Thickness(0),
         };
+
+        // Over the content, as a CSS border sits round it: a full-bleed chart would otherwise cover
+        // the line along its edges. Never hit-testable, so it cannot take a click from the widget.
+        _stroke = new Rectangle { IsHitTestVisible = false };
+
+        _surface.SizeChanged += (_, _) => FitContent();
 
         _editOutline = new Border
         {
@@ -205,6 +310,7 @@ internal sealed partial class WidgetCard : Grid, IWidgetSurface
         Children.Add(_fill);
         Children.Add(_tint);
         Children.Add(_surface);
+        Children.Add(_stroke);
         Children.Add(_editOutline);
         Children.Add(_handles);
 
@@ -243,6 +349,10 @@ internal sealed partial class WidgetCard : Grid, IWidgetSurface
         PointerCaptureLost += OnPointerCaptureLost;
         RightTapped += OnRightTapped;
         DoubleTapped += OnDoubleTapped;
+
+        // [S-800] Handled presses too: a click on a row's button or a list item is still a click in
+        // this widget, and the controls inside mark their presses handled.
+        AddHandler(PointerPressedEvent, new PointerEventHandler(OnLeasePointerPressed), handledEventsToo: true);
     }
 
     public WidgetInstance Model { get; }
@@ -260,8 +370,9 @@ internal sealed partial class WidgetCard : Grid, IWidgetSurface
     /// <summary>
     /// Put the header where the widget asks for it, and name it.
     /// <para>
-    /// The title is the user's own when they set one, otherwise the catalogue's. Bottom placement
-    /// flips the margin as well as the row, or the gap would end up on the wrong side of it.
+    /// The title is the user's own when they set one, otherwise the catalogue's. A header on the far
+    /// edge (bottom, right) flips the padding as well, or the gap would end up on the wrong side of
+    /// it; a side header ([S-862]) is the same header turned to run up the edge.
     /// </para>
     /// </summary>
     public void ApplyHeader()
@@ -271,27 +382,56 @@ internal sealed partial class WidgetCard : Grid, IWidgetSurface
             : !string.IsNullOrWhiteSpace(_viewTitle) ? _viewTitle
             : WidgetCatalog.Definition(Model.Kind).Label;
 
+        var placement = HeaderEdge;
+        var side = HeaderRules.IsSide(placement);
+
         // Shed it on a tile too short to carry it, here rather than in twenty views: below this
         // the label is taking the room the content needs, and every widget drew the same
-        // conclusion separately with a slightly different threshold. A height of zero is a card
-        // that has not been measured yet, not a short one.
-        var tooShort = ActualHeight > 0 && ActualHeight < Fluent.HeaderHidesBelow;
-        var hidden = Model.Header == HeaderPlacement.Hidden || tooShort || _headerSuppressed;
+        // conclusion separately with a slightly different threshold. A size of zero is a card
+        // that has not been measured yet, not a short one. A collapsed card IS its bar ([S-871]).
+        var extent = side ? ActualWidth : ActualHeight;
+        var tooShort = !_collapsed && extent > 0 && extent < Fluent.HeaderHidesBelow;
+        var hidden = placement == HeaderPlacement.Hidden || tooShort || _headerSuppressed;
 
-        _headerHost.Visibility = hidden ? Visibility.Collapsed : Visibility.Visible;
+        _headerTurn.Visibility = hidden ? Visibility.Collapsed : Visibility.Visible;
 
         if (hidden)
         {
             return;
         }
 
-        var bottom = Model.Header == HeaderPlacement.Bottom;
-        Grid.SetRow(_headerHost, bottom ? 2 : 0);
+        var far = placement is HeaderPlacement.Bottom or HeaderPlacement.Right;
+        _headerTurn.Sideways = side;
+        Grid.SetRow(_headerTurn, placement == HeaderPlacement.Bottom ? 2 : 0);
+        Grid.SetRowSpan(_headerTurn, side ? 3 : 1);
+        Grid.SetColumn(_headerTurn, placement == HeaderPlacement.Right ? 2 : 0);
+        Grid.SetColumnSpan(_headerTurn, side ? 1 : 3);
 
-        _headerHost.Margin = bottom
-            ? new Thickness(Fluent.Space4, Fluent.Space2, Fluent.Space4, Fluent.Space4)
+        _headerHost.Padding = _collapsed ? new Thickness(Fluent.Space4, Fluent.Space2, Fluent.Space4, Fluent.Space2)
+            : far ? new Thickness(Fluent.Space4, Fluent.Space2, Fluent.Space4, Fluent.Space4)
             : Fluent.HeaderMargin;
+
+        ApplyHeaderFill();
     }
+
+    /// <summary>
+    /// Where the header is drawn: the user's placement, except that a collapsed card always has its
+    /// bar — a collapsed group with no header would be nothing to click to open it again.
+    /// </summary>
+    public HeaderPlacement HeaderEdge => _collapsed && Model.Header == HeaderPlacement.Hidden ? HeaderPlacement.Top : Model.Header;
+
+    /// <summary>[S-871] The header bar's thickness: what a collapsed card shrinks to, and a see-through group's band.</summary>
+    public static double BarThickness => (Fluent.Space2 * 2) + Math.Max(FluentType.BodyStrong.LineHeight, HeaderControlHeight);
+
+    /// <summary>[S-871] Whether the card is collapsed to its header bar.</summary>
+    public bool IsCollapsedToBar => _collapsed;
+
+    /// <summary>[S-872] What the window's hit region needs from this card.</summary>
+    public CardHit HitInfo(bool editMode) => new(
+        Shown: !_hidden || editMode,
+        BandOnly: !editMode && _view is IWidgetArea { BandOnly: true },
+        Header: _headerTurn.Visibility == Visibility.Visible ? HeaderEdge : HeaderPlacement.Hidden,
+        Bar: BarThickness);
 
     /// <summary>
     /// Hide the header because a container is already naming this widget.
@@ -313,10 +453,17 @@ internal sealed partial class WidgetCard : Grid, IWidgetSurface
         ApplyHeader();
     }
 
+    /// <summary>
+    /// Paint the card from the design: corner radius, fill colour and opacity, border, header fill and
+    /// font. The one per-card apply path ([S-820]..[S-829]); the app-wide half (theme, accent, text
+    /// size) is <see cref="DesignApplier"/>. Runs on every state change, and only sets properties, so
+    /// a slider dragged across the Appearance page re-paints cards without rebuilding any.
+    /// </summary>
     public void ApplyDesign()
     {
         var design = _host.Design;
-        var radius = new CornerRadius(design.CornerRadiusPx);
+        var radiusPx = DesignLook.CornerRadius(design.CornerRadiusPx);
+        var radius = new CornerRadius(radiusPx);
 
         _fill.CornerRadius = radius;
         _tint.CornerRadius = radius;
@@ -327,42 +474,166 @@ internal sealed partial class WidgetCard : Grid, IWidgetSurface
         _surface.CornerRadius = radius;
         _editOutline.CornerRadius = radius;
 
-        // The card paints its OWN base, rather than relying on a window background.
+        // [S-823] The card paints its OWN base, rather than relying on a window background.
         //
         // Fluent's CardBackgroundFillColor is a ~5% white overlay in dark theme: it is designed to
         // sit on top of an opaque window, not to be the only fill. The widget surface is genuinely
         // transparent, so using it alone made the card invisible and left the clock floating
         // unreadably over whatever was behind the window. SolidBackgroundFillColorBase is the
         // opaque surface colour that overlay is meant to sit on, so it is the correct base here.
-        var opacity = Math.Clamp(design.SurfaceOpacity, 0.2, 1.0);
+        // A colour of the user's own replaces both: it is meant to be exactly that colour.
+        var opacity = DesignLook.FillOpacity(Model.Surface, design.SurfaceOpacity);
+        var custom = DesignApplier.UserBrush(design.WidgetBackgroundColor);
 
-        switch (Model.Surface)
+        // [S-863] A view that paints its own area (a group) gets the card's surface behind its bar only.
+        var ownArea = _view is IWidgetArea;
+        _fill.Background = opacity <= 0 || ownArea ? null
+            : custom ?? FluentLayout.Themed("SolidBackgroundFillColorBaseBrush", Colors.Black);
+        _fill.BorderBrush = null;
+        _fill.BorderThickness = new Thickness(0);
+        _fill.Opacity = opacity <= 0 ? 1 : opacity;
+        _tint.Opacity = custom is null && !ownArea ? opacity : 0;
+
+        // [S-824] The border: style, width, colour and opacity, over the content.
+        var border = DesignLook.Border(Model.Surface, design.BorderStyle, design.BorderWidthPx, design.BorderOpacity);
+        if (border.Visible && (!_hidden || _host.EditMode))
         {
-            case WidgetSurface.Transparent:
-                // [S-32] No fill and no border: the content sits straight on the wallpaper.
-                _fill.Background = null;
-                _fill.BorderBrush = null;
-                _fill.BorderThickness = new Thickness(0);
-                _fill.Opacity = 1;
-                _tint.Opacity = 0;
+            _stroke.Visibility = Visibility.Visible;
+            _stroke.Stroke = DesignApplier.UserBrush(design.BorderColor)
+                ?? FluentLayout.Themed("CardStrokeColorDefaultBrush", Colors.Gray);
+            _stroke.StrokeThickness = border.Thickness;
+            _stroke.Opacity = border.Opacity;
+
+            // A shape strokes inside its bounds along a path inset by half the stroke, so the path's
+            // radius is the card's less that half, or the corners would not meet the fill's.
+            _stroke.RadiusX = _stroke.RadiusY = Math.Max(0, radiusPx - (border.Thickness / 2));
+
+            var dashes = new DoubleCollection();
+            foreach (var dash in border.Dashes)
+            {
+                dashes.Add(dash);
+            }
+
+            _stroke.StrokeDashArray = dashes;
+            _stroke.StrokeDashCap = border.RoundCaps ? PenLineCap.Round : PenLineCap.Flat;
+            _stroke.StrokeStartLineCap = _stroke.StrokeEndLineCap = _stroke.StrokeDashCap;
+        }
+        else
+        {
+            _stroke.Visibility = Visibility.Collapsed;
+        }
+
+        ApplyHeaderFill();
+
+        // [S-826] The design's font for everything in the card that does not pick its own; icons
+        // name Segoe Fluent Icons themselves, so their glyphs are untouched.
+        if (DesignApplier.ContentFont is { } font)
+        {
+            _fontScope.FontFamily = font;
+        }
+        else
+        {
+            _fontScope.ClearValue(ContentPresenter.FontFamilyProperty);
+        }
+    }
+
+    /// <summary>
+    /// [S-828] A header of its own colour; none means it shares the widget's fill. The corners on
+    /// the card's edge follow the card's so the strip does not square them — all four when the card
+    /// is collapsed to the bar. [S-863] Behind a group's bar the card's own surface, since the group
+    /// paints its area itself.
+    /// </summary>
+    private void ApplyHeaderFill()
+    {
+        var design = _host.Design;
+        var r = DesignLook.CornerRadius(design.CornerRadiusPx);
+
+        // A side header is turned a quarter: its upright top is the left edge, its bottom the right.
+        var radius = _collapsed ? new CornerRadius(r)
+            : HeaderEdge is HeaderPlacement.Bottom or HeaderPlacement.Right ? new CornerRadius(0, 0, r, r)
+            : new CornerRadius(r, r, 0, 0);
+
+        _headerHost.Background = DesignApplier.UserBrush(design.HeaderBackgroundColor, design.HeaderOpacity);
+        _headerHost.CornerRadius = radius;
+
+        var ownArea = _view is IWidgetArea;
+        var opacity = DesignLook.FillOpacity(Model.Surface, design.SurfaceOpacity);
+        var custom = DesignApplier.UserBrush(design.WidgetBackgroundColor);
+
+        _headerBase.Background = ownArea && opacity > 0
+            ? custom ?? FluentLayout.Themed("SolidBackgroundFillColorBaseBrush", Colors.Black)
+            : null;
+        _headerBase.Opacity = opacity;
+        _headerTint.Background = ownArea && custom is null && opacity > 0
+            ? FluentLayout.Themed("CardBackgroundFillColorDefaultBrush", Colors.Transparent)
+            : null;
+        _headerTint.Opacity = opacity;
+        _headerBase.CornerRadius = radius;
+        _headerTint.CornerRadius = radius;
+    }
+
+    /// <summary>
+    /// [S-873] Draw the card or nothing. Hidden, the fill, content and border collapse (the view
+    /// stays attached and keeps receiving its updates, so it can show itself again); edit mode
+    /// always draws it, faded, so it can be found.
+    /// </summary>
+    private void ApplyHidden()
+    {
+        var editing = _host.EditMode;
+        var visibility = !_hidden || editing ? Visibility.Visible : Visibility.Collapsed;
+
+        _fill.Visibility = visibility;
+        _tint.Visibility = visibility;
+        _surface.Visibility = visibility;
+        _surface.Opacity = _hidden && editing ? 0.5 : 1;
+    }
+
+    /// <summary>
+    /// [S-821] Bring text already on the card to the current text size, before the view lays itself
+    /// out again from the (already scaled) type ramp. Text a view builds from the ramp is right by
+    /// construction; this catches what it built once — labels, the header — so the card follows
+    /// the setting without being rebuilt. Only sizes set on the element itself are scaled; text
+    /// that inherits its size follows its parent.
+    /// </summary>
+    private void ApplyTextScale()
+    {
+        var scale = FluentType.TextScale;
+        if (Math.Abs(scale - _textScale) < 0.0001)
+        {
+            return;
+        }
+
+        var ratio = scale / _textScale;
+        _textScale = scale;
+        Rescale(_content, ratio);
+    }
+
+    private static void Rescale(DependencyObject node, double ratio)
+    {
+        switch (node)
+        {
+            case TextBlock text when text.ReadLocalValue(TextBlock.FontSizeProperty) != DependencyProperty.UnsetValue:
+                text.FontSize *= ratio;
+                if (text.LineHeight > 0)
+                {
+                    text.LineHeight *= ratio;
+                }
+
                 break;
 
-            case WidgetSurface.Translucent:
-                _fill.Background = FluentLayout.Themed("SolidBackgroundFillColorBaseBrush", Colors.Black);
-                _fill.BorderBrush = FluentLayout.Themed("CardStrokeColorDefaultBrush", Colors.Gray);
-                _fill.BorderThickness = new Thickness(1);
-                _fill.Opacity = Math.Clamp(opacity * 0.6, 0.15, 1.0);
-                _tint.Opacity = _fill.Opacity;
+            case RichTextBlock rich when rich.ReadLocalValue(RichTextBlock.FontSizeProperty) != DependencyProperty.UnsetValue:
+                rich.FontSize *= ratio;
                 break;
 
-            case WidgetSurface.Card:
-            default:
-                _fill.Background = FluentLayout.Themed("SolidBackgroundFillColorBaseBrush", Colors.Black);
-                _fill.BorderBrush = FluentLayout.Themed("CardStrokeColorDefaultBrush", Colors.Gray);
-                _fill.BorderThickness = new Thickness(1);
-                _fill.Opacity = opacity;
-                _tint.Opacity = opacity;
+            case Control control when control.ReadLocalValue(Control.FontSizeProperty) != DependencyProperty.UnsetValue:
+                control.FontSize *= ratio;
                 break;
+        }
+
+        var count = VisualTreeHelper.GetChildrenCount(node);
+        for (var i = 0; i < count; i++)
+        {
+            Rescale(VisualTreeHelper.GetChild(node, i), ratio);
         }
     }
 
@@ -383,6 +654,8 @@ internal sealed partial class WidgetCard : Grid, IWidgetSurface
         _editOutline.Visibility = editing ? Visibility.Visible : Visibility.Collapsed;
         _handles.Visibility = editing ? Visibility.Visible : Visibility.Collapsed;
         ApplySelection();
+        ApplyHidden();
+        (_view as IContainerChrome)?.ApplyEditMode(editing);
 
         // Outside edit mode the card must not eat pointer input at all: a clock is something you
         // look at, and the desktop underneath stays usable.
@@ -394,6 +667,9 @@ internal sealed partial class WidgetCard : Grid, IWidgetSurface
 
     public void ApplyConfig()
     {
+        // Before the view re-lays itself out from the ramp, or its fresh sizes would be scaled twice.
+        ApplyTextScale();
+
         if (_view is IWidgetView widgetView)
         {
             widgetView.ApplyConfig(Model.Config);
@@ -416,6 +692,53 @@ internal sealed partial class WidgetCard : Grid, IWidgetSurface
     public void SetLiveRect(FracRect rect) => LiveRect = rect;
 
     /// <summary>
+    /// [S-850] Magnify the card's content — header, text, icons, padding — without touching its cell:
+    /// the card stays exactly where it is and the same size, and the view lays out in the smaller
+    /// (or larger) logical space the scale leaves it, so it discloses less (or more) per [S-663].
+    /// </summary>
+    public void ApplyContentScale(double scale)
+    {
+        var next = double.IsFinite(scale) && scale > 0 ? scale : 1.0;
+        if (Math.Abs(next - _contentScale) < 0.0001)
+        {
+            return;
+        }
+
+        _contentScale = next;
+        FitContent();
+    }
+
+    /// <summary>
+    /// WinUI has no layout transform, so the content is laid out at the painted size divided by the
+    /// scale and then render-scaled back up to fill it exactly.
+    /// </summary>
+    private void FitContent()
+    {
+        if (Math.Abs(_contentScale - 1.0) < 0.0001)
+        {
+            _content.Width = double.NaN;
+            _content.Height = double.NaN;
+            _content.HorizontalAlignment = HorizontalAlignment.Stretch;
+            _content.VerticalAlignment = VerticalAlignment.Stretch;
+            _content.RenderTransform = null;
+            return;
+        }
+
+        var width = _surface.ActualWidth;
+        var height = _surface.ActualHeight;
+        if (width <= 0 || height <= 0)
+        {
+            return; // not laid out yet; SizeChanged brings it back here
+        }
+
+        _content.HorizontalAlignment = HorizontalAlignment.Left;
+        _content.VerticalAlignment = VerticalAlignment.Top;
+        _content.Width = width / _contentScale;
+        _content.Height = height / _contentScale;
+        _content.RenderTransform = new ScaleTransform { ScaleX = _contentScale, ScaleY = _contentScale };
+    }
+
+    /// <summary>
     /// Inset the painted surface inside the cell by half the gap.
     /// <para>
     /// Applied to the fill and the content only. The edit outline and the handles stay on the cell
@@ -430,6 +753,11 @@ internal sealed partial class WidgetCard : Grid, IWidgetSurface
 
         _fill.Margin = inset;
         _surface.Margin = inset;
+
+        // The tint and the border paint the same rounded box as the fill. The tint used to cover the
+        // whole cell, gap included, so the Fluent lift spilled half a gap past every card.
+        _tint.Margin = inset;
+        _stroke.Margin = inset;
     }
 
     // -----------------------------------------------------------------------------------------
@@ -512,6 +840,13 @@ internal sealed partial class WidgetCard : Grid, IWidgetSurface
             return;
         }
 
+        // A widget a stack or tab strip lays out has no place of its own on the grid to drag: the
+        // press goes on to the container's card, which moves the whole container.
+        if (_host.ViewForCards is { } cards && DrawnByContainer(cards))
+        {
+            return;
+        }
+
         _host.RequestSelect(this);
         Focus(FocusState.Pointer);
         _activeHandle = HitHandle(e.OriginalSource);
@@ -550,7 +885,7 @@ internal sealed partial class WidgetCard : Grid, IWidgetSurface
             ? GridGeometry.Resize(_dragStartRect, handle, dxFrac, dyFrac, metrics)
             : GridGeometry.Move(_dragStartRect, dxFrac, dyFrac);
 
-        LiveRect = GridGeometry.Settle(proposed, metrics, snap);
+        LiveRect = GridGeometry.Settle(proposed, metrics, snap, _activeHandle);
         _host.OnGeometryPreview(this);
         e.Handled = true;
     }
@@ -671,6 +1006,13 @@ internal sealed partial class WidgetCard : Grid, IWidgetSurface
             _host.RequestSelect(this);
 
             var menu = new MenuFlyout { Placement = FlyoutPlacementMode.BottomEdgeAlignedLeft };
+            var cards = _host.ViewForCards;
+
+            // [S-870] Holding widgets is what a container is for, so adding one inside comes first.
+            if (cards is not null && WidgetTree.IsContainer(Model.Kind) && cards.CanAddInto(Model.Id))
+            {
+                menu.Items.Add(Item(Glyphs.Add, "Add widget inside…", () => _host.RequestAddInside(this)));
+            }
 
             menu.Items.Add(Item("", "Configure…", () => _host.RequestConfigure(this)));
             // The view's own commands — pause a camera, refresh a page — sit under Configure,
@@ -689,6 +1031,22 @@ internal sealed partial class WidgetCard : Grid, IWidgetSurface
             if (move is not null)
             {
                 menu.Items.Add(move);
+            }
+
+            // [S-874] Layering, for a widget the grid places (a stack or tab strip lays its own out).
+            if (cards is not null && !DrawnByContainer(cards))
+            {
+                var front = Item(Glyphs.MoveUp, "Bring to front", () => _host.RequestZOrder(this, front: true));
+                front.IsEnabled = cards.CanBringToFront(Model.Id);
+                menu.Items.Add(front);
+
+                var back = Item(Glyphs.MoveDown, "Send to back", () => _host.RequestZOrder(this, front: false));
+                back.IsEnabled = cards.CanSendToBack(Model.Id);
+                menu.Items.Add(back);
+            }
+
+            if (menu.Items.Count > 0 && menu.Items[^1] is not MenuFlyoutSeparator)
+            {
                 menu.Items.Add(new MenuFlyoutSeparator());
             }
 
@@ -756,6 +1114,60 @@ internal sealed partial class WidgetCard : Grid, IWidgetSurface
     }
 
 
+    // ---- the keyboard lease ([S-800]) --------------------------------------------------------------
+
+    /// <summary>[S-800] Whether a click here takes the keyboard: the view navigates with keys, and this is a real desktop card.</summary>
+    public bool TakesKeys => _view is IWidgetKeys { WantsKeys: true } && !_host.IsPreview;
+
+    /// <summary>
+    /// [S-803] Hand the view a key from the lease. A view that throws is logged, not rethrown: the key
+    /// arrives from the surface's input handler, and one widget's bug must not take the surface down.
+    /// </summary>
+    public bool SendKey(WidgetKey key)
+    {
+        if (_view is not IWidgetKeys keys)
+        {
+            return false;
+        }
+
+        try
+        {
+            return keys.HandleKey(key);
+        }
+        catch (Exception ex)
+        {
+            Log.Error(Scope, $"{Model.Kind} threw handling {key}", ex);
+            return false;
+        }
+    }
+
+    private void OnLeasePointerPressed(object sender, PointerRoutedEventArgs e)
+    {
+        if (_host.EditMode || !OwnsPress(e.OriginalSource as DependencyObject))
+        {
+            return;
+        }
+
+        _host.KeyboardPress(this);
+    }
+
+    /// <summary>
+    /// Whether a press belongs to this card rather than to a widget inside it: a press in a stack's
+    /// child bubbles up through the stack's card too, and only the innermost card is the one clicked.
+    /// </summary>
+    private bool OwnsPress(DependencyObject? source)
+    {
+        for (var node = source; node is not null; node = VisualTreeHelper.GetParent(node))
+        {
+            if (node is WidgetCard card)
+            {
+                return ReferenceEquals(card, this);
+            }
+        }
+
+        return false;
+    }
+
     // ---- IWidgetSurface ------------------------------------------------------------------------
 
     /// <inheritdoc />
@@ -784,4 +1196,90 @@ internal sealed partial class WidgetCard : Grid, IWidgetSurface
         ApplyHeader();
     }
 
+    /// <inheritdoc />
+    void IWidgetSurface.SetHidden(bool hidden)
+    {
+        if (_hidden == hidden)
+        {
+            return;
+        }
+
+        _hidden = hidden;
+        ApplyHidden();
+        ApplyDesign();
+        _host.OnCardFrameChanged(this);
+    }
+
+    // ---- containers ([S-861]..[S-871]) ---------------------------------------------------------
+
+    /// <summary>Whether a stack or tab strip lays this widget out, rather than the grid.</summary>
+    private bool DrawnByContainer(ViewState view)
+        => view.Find(Model.ParentId) is { } parent && WidgetTree.OwnsChildGeometry(WidgetTree.ContainerOf(parent.Kind));
+
+    /// <summary>[S-861] A click on the header band of a view that owns its area (a group), not on a button in it.</summary>
+    private void OnHeaderTapped(object sender, TappedRoutedEventArgs e)
+    {
+        if (_host.EditMode || _view is not IWidgetArea area)
+        {
+            return;
+        }
+
+        for (var node = e.OriginalSource as DependencyObject; node is not null && !ReferenceEquals(node, _headerHost); node = VisualTreeHelper.GetParent(node))
+        {
+            if (node is ButtonBase)
+            {
+                return;
+            }
+        }
+
+        area.BandTapped();
+        e.Handled = true;
+    }
+
+    /// <inheritdoc />
+    bool IContainerSurface.EditMode => _host.EditMode;
+
+    /// <inheritdoc />
+    HeaderPlacement IContainerSurface.Header => HeaderEdge;
+
+    /// <inheritdoc />
+    WidgetSurface IContainerSurface.Surface => Model.Surface;
+
+    /// <inheritdoc />
+    void IContainerSurface.SetCollapsed(bool collapsed)
+    {
+        if (_collapsed == collapsed)
+        {
+            return;
+        }
+
+        _collapsed = collapsed;
+        ApplyHeader();
+        _host.OnCardFrameChanged(this);
+    }
+
+    /// <inheritdoc />
+    void IContainerSurface.ChildAction(string childId, ContainerChildAction action)
+        => _host.RequestChildAction(this, childId, action);
+
+    /// <inheritdoc />
+    bool IContainerSurface.CanMoveChild(string childId, int delta)
+        => _host.ViewForCards is { } view && view.CanMoveChild(childId, delta);
+
+    /// <inheritdoc />
+    void IContainerSurface.MoveChildTo(string childId, int index)
+        => _host.RequestMoveChildTo(this, childId, index);
+
+    /// <inheritdoc />
+    void IContainerSurface.AddInside() => _host.RequestAddInside(this);
+
+    /// <inheritdoc />
+    void IContainerSurface.SetHeaderGlyph(string? glyph)
+    {
+        // The header's icon is the first glyph Fluent.Header put in it.
+        if (_header.Children.OfType<FontIcon>().FirstOrDefault() is { } icon)
+        {
+            icon.Glyph = string.IsNullOrEmpty(glyph) ? WidgetCatalog.Definition(Model.Kind).Glyph : glyph;
+        }
+    }
 }

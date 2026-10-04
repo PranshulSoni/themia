@@ -37,6 +37,14 @@ internal sealed class MailFixture : IMailSource
         ("fixture-work", 13000, true, "Tom Okafor", "tom.okafor@contoso.com", "Thanks for the review", "Merged it this morning. The retry change already cut the flaky failures in half."),
         ("fixture-home", 17500, true, "Electric Co.", "billing@power.example", "Your October statement", "Your statement is ready. Amount due: 64.20, payable by the 28th."),
         ("fixture-work", 21000, true, "Calendar", "calendar@contoso.com", "Updated invitation: Design sync", "The meeting moved to Wednesday 15:00 and now includes the accessibility review."),
+        ("fixture-home", 26000, true, "Running Club", "hello@club.example", "Saturday route change", "We'll start from the boathouse this week because of the market in the square."),
+        ("fixture-work", 30500, true, "Dana Ruiz", "dana.ruiz@contoso.com", "Re: Hiring plan", "Agreed on two roles for Q1. I'll draft the descriptions and share them by Friday."),
+        ("fixture-home", 36000, true, "Bookshop", "orders@books.example", "Your order has shipped", "Two items are on their way and should arrive within three working days."),
+        ("fixture-work", 41000, true, "IT Service Desk", "it@contoso.com", "Laptop refresh: pick a slot", "Your replacement laptop is ready. Choose a 30-minute slot to swap it over."),
+        ("fixture-home", 47000, true, "Priya Nair", "priya@example.net", "Dinner on the 14th?", "We're thinking of the new place by the river. Does 19:30 work for you two?"),
+        ("fixture-work", 52000, true, "Marcus Webb", "m.webb@contoso.com", "Design review notes", "Summary of Tuesday's review is in the wiki; three follow-ups are assigned to us."),
+        ("fixture-home", 58000, true, "Insurance Co.", "service@insure.example", "Your policy renews next month", "Nothing changes in your cover. The new premium is shown in your account."),
+        ("fixture-work", 64000, true, "Lena Fischer", "lena.fischer@fabrikam.com", "Signed copy attached", "Thanks for the quick turnaround. The countersigned contract is attached for your files."),
     ];
 
     private readonly bool _populated;
@@ -83,7 +91,9 @@ internal sealed class MailFixture : IMailSource
             return MailFeedSnapshot.Empty;
         }
 
-        MailAccountOutcome Ok(MailAccount a) => new(a.Id, MailAccountState.Ok, FetchStatus.Ok, null);
+        // [S-1285] Folder counts as a probe reports them, for the big tile's summary line.
+        MailAccountOutcome Ok(MailAccount a) => new(a.Id, MailAccountState.Ok, FetchStatus.Ok, null,
+            a == Work ? new MailFolderStatus(1_284, 2) : new MailFolderStatus(377, 2));
 
         switch (_state)
         {

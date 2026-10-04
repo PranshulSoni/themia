@@ -56,6 +56,12 @@ internal static class AppServices
     public static Habits.HabitPool? Habits { get; internal set; }
 
     /// <summary>
+    /// [S-1348] The notes kept on this PC, shared by every Notes widget and its settings: the host's
+    /// one pool over <c>notes\</c> beside the state file, or the debug gallery's pool over a temp folder.
+    /// </summary>
+    public static Notes.NotePool? Notes { get; internal set; }
+
+    /// <summary>
     /// [S-624] Where the GitHub widgets read from: the host's one <see cref="Developer.GitHubService"/>,
     /// or the debug gallery's fixture. Null before the host has started.
     /// </summary>

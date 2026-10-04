@@ -32,7 +32,7 @@ public sealed class OneDriveConfig : WidgetConfig
     public int FileCount { get; set; } = 15;
 
     /// <summary>[S-1291] Whether a file opens on a single or a double click.</summary>
-    public ClickMode ClickMode { get; set; } = ClickMode.Double;
+    public ItemClickMode ClickMode { get; set; } = ItemClickMode.Double;
 
     [JsonIgnore]
     public int EffectiveFileCount => Math.Clamp(FileCount, MinFiles, MaxFiles);
@@ -60,7 +60,7 @@ public sealed class OneDriveConfig : WidgetConfig
         if (!Enum.IsDefined(ClickMode))
         {
             repairs.Add("OneDrive widget had an unknown click mode");
-            ClickMode = ClickMode.Double;
+            ClickMode = ItemClickMode.Double;
         }
 
         return repairs;

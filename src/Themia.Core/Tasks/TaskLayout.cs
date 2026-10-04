@@ -50,19 +50,6 @@ public readonly record struct SlotBox(double X, double Y, double Width, double H
     public bool Contains(double x, double y) => x >= X && x < X + Width && y >= Y && y < Y + Height;
 }
 
-/// <summary>[S-787] The keys a focused task row answers to.</summary>
-public enum TaskKey
-{
-    Up,
-    Down,
-    Home,
-    End,
-    Enter,
-    Delete,
-    Rename,
-    Escape,
-}
-
 /// <summary>[S-787] What a key does to the focused row.</summary>
 public enum TaskKeyCommand
 {
@@ -262,26 +249,36 @@ public static class TaskLayout
     /// [S-787] What a key does to the row at <paramref name="index"/> of <paramref name="count"/>.
     /// Arrows and Home/End move the focus and stop at the ends (no wrap, as in every Windows list);
     /// Enter ticks the task, Delete deletes it, F2 renames it, Escape gives the keyboard back.
+    /// [S-812] With no row focused (<paramref name="index"/> negative: the widget holds the keyboard
+    /// but the click was not on a row) a movement key lands on an end and the rest do nothing — Enter
+    /// must never tick a task the user has not pointed at.
     /// </summary>
-    public static TaskKeyResult Decide(TaskKey key, int index, int count)
+    public static TaskKeyResult Decide(WidgetKey key, int index, int count)
     {
-        if (count <= 0)
+        if (count <= 0 || index < 0)
         {
-            return key == TaskKey.Escape ? new(TaskKeyCommand.Release, -1) : new(TaskKeyCommand.None, -1);
+            return key switch
+            {
+                WidgetKey.Escape => new(TaskKeyCommand.Release, -1),
+                _ when count <= 0 => new(TaskKeyCommand.None, -1),
+                WidgetKey.Up or WidgetKey.Down or WidgetKey.Home => new(TaskKeyCommand.Focus, 0),
+                WidgetKey.End => new(TaskKeyCommand.Focus, count - 1),
+                _ => new(TaskKeyCommand.None, -1),
+            };
         }
 
         var at = Math.Clamp(index, 0, count - 1);
 
         return key switch
         {
-            TaskKey.Up => new(TaskKeyCommand.Focus, Math.Max(0, at - 1)),
-            TaskKey.Down => new(TaskKeyCommand.Focus, Math.Min(count - 1, at + 1)),
-            TaskKey.Home => new(TaskKeyCommand.Focus, 0),
-            TaskKey.End => new(TaskKeyCommand.Focus, count - 1),
-            TaskKey.Enter => new(TaskKeyCommand.Toggle, at),
-            TaskKey.Delete => new(TaskKeyCommand.Delete, at),
-            TaskKey.Rename => new(TaskKeyCommand.Rename, at),
-            TaskKey.Escape => new(TaskKeyCommand.Release, at),
+            WidgetKey.Up => new(TaskKeyCommand.Focus, Math.Max(0, at - 1)),
+            WidgetKey.Down => new(TaskKeyCommand.Focus, Math.Min(count - 1, at + 1)),
+            WidgetKey.Home => new(TaskKeyCommand.Focus, 0),
+            WidgetKey.End => new(TaskKeyCommand.Focus, count - 1),
+            WidgetKey.Enter => new(TaskKeyCommand.Toggle, at),
+            WidgetKey.Delete => new(TaskKeyCommand.Delete, at),
+            WidgetKey.Rename => new(TaskKeyCommand.Rename, at),
+            WidgetKey.Escape => new(TaskKeyCommand.Release, at),
             _ => new(TaskKeyCommand.None, at),
         };
     }

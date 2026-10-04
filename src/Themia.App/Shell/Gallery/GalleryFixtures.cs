@@ -30,14 +30,6 @@ internal static class GalleryFixtures
     /// <summary>The suffix that asks for a widget's fixture: <c>Kind+fixture</c>.</summary>
     public const string Suffix = "+fixture";
 
-    /// <summary>
-    /// A static page from httpbin, a service that exists to be requested by test code, with its
-    /// one paragraph block as the pinned element. (example.com now asks not to be used this way.)
-    /// </summary>
-    private const string WebElementPage = "https://httpbin.org/html";
-
-    private const string WebElementSelector = "body > div";
-
     private static MjpegFixtureServer? _camera;
 
     /// <summary>
@@ -51,7 +43,10 @@ internal static class GalleryFixtures
         or WidgetKind.Email
         or WidgetKind.Tasks or WidgetKind.OneDrive
         or WidgetKind.Calendar or WidgetKind.Contacts
-        or WidgetKind.Power or WidgetKind.Bluetooth
+        or WidgetKind.Power or WidgetKind.Bluetooth or WidgetKind.Battery
+        or WidgetKind.Disk or WidgetKind.Ping
+        or WidgetKind.Mixer or WidgetKind.Volume
+        or WidgetKind.Gpu
         or WidgetKind.GitHub or WidgetKind.GitHubIssues or WidgetKind.GitHubNotifications or WidgetKind.GitHubReviews or WidgetKind.ClaudeUsage
         || LayoutFixtures.Has(kind);
 
@@ -81,11 +76,24 @@ internal static class GalleryFixtures
         PowerFixture.Install(populated: false);
         BluetoothFixture.Install(populated: false);
 
+        // [S-1186] Battery: the plain page reads this machine (a desktop shows "No battery").
+        BatteryFixture.Install(populated: false);
+
+        // [S-1169] Disk and ping: the plain pages read this machine and probe the default host.
+        DiskPingFixture.InstallDisk(populated: false);
+        DiskPingFixture.InstallPing(populated: false);
+
         // [S-1420] Habits read the device's list pool; the plain page starts with none.
         HabitsFixture.Install(populated: false);
 
+        // [S-1368] Notes read the device's note store; the plain page gets an empty throwaway one.
+        NotesFixture.Install(populated: false);
+
         // [S-1443] Clipboard seeds its in-memory history from a fixture; the plain page has none.
         ClipboardFixture.Install(populated: false);
+
+        // [S-1233] Mixer and volume: the plain pages read this machine (read-only, never written).
+        AudioFixture.Install(populated: false);
     }
 
     /// <summary>The populated config for a kind, or null when it has no fixture.</summary>
@@ -95,15 +103,24 @@ internal static class GalleryFixtures
         {
             case WidgetKind.VideoStream:
                 _camera ??= MjpegFixtureServer.Start();
-                return _camera is null ? null : new VideoStreamConfig { Url = _camera.Url };
+                // [S-1312] With the status chip on, so the XL page shows it.
+                return _camera is null ? null : new VideoStreamConfig { Url = _camera.Url, ShowStatus = true };
 
             case WidgetKind.WebElement:
-                return new WebElementConfig { Url = WebElementPage, Selector = WebElementSelector, PickedLabel = "Moby-Dick" };
+                // [S-1319] A page on loopback, rendered offline; see WebElementFixture.
+                return WebElementFixture.Config();
 
             case WidgetKind.ScreenTime:
                 // [S-459] The history is not in the config, so the fixture is a data source.
                 ScreenTimeFixture.Install(populated: true);
-                return new ScreenTimeConfig();
+
+                // [S-1213] With a daily limit, so the large sizes show the limit bar.
+                return new ScreenTimeConfig { GoalSeconds = 6 * 3600 };
+
+            case WidgetKind.Gpu:
+                // [S-1207] The first two adapters, live: how several panels share every size. On a
+                // machine with one adapter the second panel says it is not there.
+                return new GpuConfig { Adapters = [0, 1] };
 
             case WidgetKind.Email:
                 // [S-557] The gallery has no accounts, so the inbox is a data source as well.
@@ -142,6 +159,30 @@ internal static class GalleryFixtures
                 // [S-1258] Fourteen paired devices, three connected with battery and signal.
                 BluetoothFixture.Install(populated: true);
                 return BluetoothFixture.Config();
+
+            case WidgetKind.Battery:
+                // [S-1186] A discharging laptop battery that reports every figure.
+                BatteryFixture.Install(populated: true);
+                return BatteryFixture.Config();
+
+            case WidgetKind.Disk:
+                // [S-1169] Three drives, busy, one nearly full and one removable.
+                DiskPingFixture.InstallDisk(populated: true);
+                return DiskPingFixture.DiskConfig();
+
+            case WidgetKind.Ping:
+                // [S-1169] A labelled router that answers in 3-40 ms and misses one probe in nine.
+                DiskPingFixture.InstallPing(populated: true);
+                return DiskPingFixture.PingConfig();
+
+            case WidgetKind.Mixer:
+                // [S-1233] Three devices, a microphone and seven apps; previews never write.
+                AudioFixture.Install(populated: true);
+                return AudioFixture.MixerConfig();
+
+            case WidgetKind.Volume:
+                AudioFixture.Install(populated: true);
+                return AudioFixture.VolumeConfig();
 
             default:
                 // The ported widgets' populated states, kept in their own file.

@@ -30,7 +30,7 @@ namespace Themia.App.Widgets;
 /// one, and on an XL tile the selected person's detail pane beside the list ([S-1274]).
 /// </para>
 /// </summary>
-internal sealed partial class ContactsView : Grid, IWidgetView, IWidgetHeaderContent, IWidgetSurfaceAware, IWidgetContextActions, IWidgetSizeAware
+internal sealed partial class ContactsView : Grid, IWidgetView, IWidgetHeaderContent, IWidgetSurfaceAware, IWidgetContextActions, IWidgetSizeAware, IWidgetKeys
 {
     private const string Scope = "contacts-widget";
 
@@ -69,7 +69,6 @@ internal sealed partial class ContactsView : Grid, IWidgetView, IWidgetHeaderCon
     private readonly List<IDisposable> _hovers = [];
     private readonly Dictionary<string, Border> _indicators = new(StringComparer.Ordinal);
     private readonly Dictionary<string, Border> _rows = new(StringComparer.Ordinal);
-    private readonly PointerEventHandler _outsidePressed;
 
     private IWidgetSurface? _surface;
     private IOfficeSource? _source;
@@ -80,7 +79,6 @@ internal sealed partial class ContactsView : Grid, IWidgetView, IWidgetHeaderCon
     private string? _appliedDefaultSearch;
     private string? _selectedId;
     private bool _searchOpen;
-    private UIElement? _root;
     private IReadOnlyList<Contact> _contacts = [];
     private IReadOnlyList<Contact> _visible = [];
     private Screen _screen = Screen.Loading;
@@ -183,12 +181,10 @@ internal sealed partial class ContactsView : Grid, IWidgetView, IWidgetHeaderCon
         Children.Add(_detailPane);
         Children.Add(_state);
 
-        // [S-580] Clicking the background clears the selection, as the classic widget did; a press
-        // anywhere else on the desktop surface clears it too ([S-1277]).
-        _outsidePressed = OnSurfacePressed;
+        // [S-580] Clicking the background clears the selection, as the classic widget did. A click
+        // anywhere else — another widget, the desktop, another app — ends the shell's keyboard lease,
+        // which this widget holds from the click that selected, and that arrives as Escape ([S-807]).
         Tapped += OnBackgroundTapped;
-        Loaded += OnLoaded;
-        Unloaded += OnUnloaded;
     }
 
     private enum Screen
@@ -302,9 +298,6 @@ internal sealed partial class ContactsView : Grid, IWidgetView, IWidgetHeaderCon
         _searchButton.Click -= OnSearchButton;
         _warning.Tapped -= OnWarningTapped;
         Tapped -= OnBackgroundTapped;
-        Loaded -= OnLoaded;
-        Unloaded -= OnUnloaded;
-        UnhookSurface();
         _state.Detach();
         ClearRows();
     }
@@ -492,57 +485,14 @@ internal sealed partial class ContactsView : Grid, IWidgetView, IWidgetHeaderCon
         }
     }
 
-    // ---- outside clicks and keys ([S-1277]) -----------------------------------------------------
-
-    private void OnLoaded(object sender, RoutedEventArgs args)
-    {
-        // The surface's root sees every press on this desktop, handled or not, so a click on
-        // another widget or on the desktop clears the selection as the classic blur did. A click in
-        // another app reaches no Themia window at all: that waits for the shell's mouse hook.
-        UnhookSurface();
-        _root = XamlRoot?.Content;
-        _root?.AddHandler(PointerPressedEvent, _outsidePressed, handledEventsToo: true);
-    }
-
-    private void OnUnloaded(object sender, RoutedEventArgs args) => UnhookSurface();
-
-    private void UnhookSurface()
-    {
-        _root?.RemoveHandler(PointerPressedEvent, _outsidePressed);
-        _root = null;
-    }
-
-    private void OnSurfacePressed(object sender, PointerRoutedEventArgs args)
-    {
-        if (_selectedId is not null && !IsInside(args.OriginalSource as DependencyObject))
-        {
-            OnOutsideClick();
-        }
-    }
-
-    /// <summary>Whether an element is this view or inside it (a flyout opened from it is not: it has its own root).</summary>
-    private bool IsInside(DependencyObject? element)
-    {
-        for (var node = element; node is not null; node = VisualTreeHelper.GetParent(node))
-        {
-            if (ReferenceEquals(node, this))
-            {
-                return true;
-            }
-        }
-
-        return false;
-    }
-
-    /// <summary>[S-1277] A click outside the widget clears the selection (the classic S-38).</summary>
-    public void OnOutsideClick() => Select(null);
+    // ---- keys ([S-1277], [S-807]) ----------------------------------------------------------------
 
     /// <summary>
-    /// [S-1277] A key from the shell's keyboard lease (the classic S-31/32): Up / Down / Home / End
-    /// move the selection through the people on screen, Escape clears it, Enter writes to the
-    /// selected person (else calls them). Nothing calls this yet — the surface takes no keystrokes
-    /// outside the search box ([S-584]) until the shell's lease exists; this is the whole of what it
-    /// will call. Returns whether the key was used.
+    /// [S-1277]/[S-807] A key from the shell's keyboard lease (the classic S-31/32), which the
+    /// widget holds from the click that selected someone: Up / Down / Home / End move the selection
+    /// through the people on screen, Escape clears it — and the lease ending on a click outside
+    /// arrives as Escape, which is the classic S-38 blur — Enter writes to the selected person (else
+    /// calls them). Returns whether the key was used.
     /// </summary>
     public bool HandleKey(WidgetKey key)
     {

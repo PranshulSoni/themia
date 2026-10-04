@@ -37,8 +37,9 @@ public static class CountdownLayout
     /// <summary>
     /// [S-1447] XS/S: the featured timer alone (+ "next" line). One timer: alone at any size, since a
     /// one-row list on a big tile is mostly empty. Wide strip: hero left, list right. M, Tall, L, XL:
-    /// hero on top and the others as rows under it. L/XL add a progress bar under the hero; XL under
-    /// each row too. Rows go compact (32px, no date) when narrow or short.
+    /// hero on top and the others as rows under it. Rows go compact on a short or narrow tile (a Wide
+    /// strip keeps the date as a column). L/XL add a progress bar under the hero; XL under
+    /// each row too.
     /// </summary>
     public static CountdownPlan Plan(WidgetArea area, int timers)
     {
@@ -54,8 +55,8 @@ public static class CountdownLayout
                 ? CountdownHero.Left
                 : CountdownHero.Top;
 
-        var compactRows = area.WidthClass == SizeClass.Compact
-            || (area.HeightClass == SizeClass.Compact && hero != CountdownHero.Left);
+        // A short tile holds more rows at 32px; a wide one keeps the date in its own column.
+        var compactRows = area.WidthClass == SizeClass.Compact || area.HeightClass == SizeClass.Compact;
 
         var large = area.AtLeast(SizeClass.Expanded, SizeClass.Expanded);
 

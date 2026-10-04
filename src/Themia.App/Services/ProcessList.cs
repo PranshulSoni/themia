@@ -22,18 +22,52 @@ namespace Themia.App.Services;
 /// <param name="CpuFraction">Share of the whole machine, 0..1, since the previous sample.</param>
 /// <param name="WorkingSetBytes">Physical memory currently charged to the process.</param>
 /// <param name="CpuKnown">False when the processor times could not be read at all.</param>
+/// <param name="Threads">[S-1144] Threads the process is running.</param>
+/// <param name="Handles">[S-1144] Kernel handles it holds open.</param>
 public readonly record struct ProcessUsage(
     int Pid,
     string Name,
     double CpuFraction,
     long WorkingSetBytes,
-    bool CpuKnown)
+    bool CpuKnown,
+    int Threads = 0,
+    int Handles = 0)
 {
     /// <summary>The CPU column, or <c>--</c> where the times are not readable.</summary>
     public string CpuText => CpuKnown ? Themia.Core.Widgets.Formatting.Percent(CpuFraction) : "--";
 
     /// <summary>The memory column.</summary>
     public string MemoryText => Themia.Core.Widgets.Formatting.Bytes(WorkingSetBytes);
+}
+
+/// <summary>[S-1144] Every process in one sample, counted: the idle process (pid 0) is not one.</summary>
+public readonly record struct ProcessTotals(int Processes, long Threads, long Handles);
+
+/// <summary>
+/// One whole pass over the process table: every row, unranked, and the totals. Shared between the
+/// widgets that want it within <see cref="ProcessList.Recent"/>'s age, so two of them on one tick
+/// cost one walk.
+/// </summary>
+public sealed class ProcessSnapshot(IReadOnlyList<ProcessUsage> rows, ProcessTotals totals)
+{
+    public static ProcessSnapshot Empty { get; } = new([], default);
+
+    public IReadOnlyList<ProcessUsage> Rows { get; } = rows;
+
+    public ProcessTotals Totals { get; } = totals;
+
+    /// <summary>The <paramref name="count"/> heaviest on <paramref name="sort"/>, heaviest first, ties by name then pid.</summary>
+    public IReadOnlyList<ProcessUsage> Top(int count, ProcessSort sort)
+    {
+        if (count <= 0 || Rows.Count == 0)
+        {
+            return [];
+        }
+
+        var ranked = Rows.ToArray();
+        Array.Sort(ranked, ProcessList.Ranking(sort));
+        return count >= ranked.Length ? ranked : ranked[..count];
+    }
 }
 
 /// <summary>
@@ -138,6 +172,38 @@ internal static unsafe partial class ProcessList
         return memory != 0 ? memory : Tiebreak(a, b);
     };
 
+    // The last whole pass, for Recent: the rows copied out of Scratch (which the next pass
+    // rewrites), when they were taken, and whether the pass worked.
+    private static ProcessSnapshot _recent = ProcessSnapshot.Empty;
+    private static long? _recentAt;
+
+    internal static Comparison<ProcessUsage> Ranking(ProcessSort sort) => sort == ProcessSort.Cpu ? ByCpu : ByMemory;
+
+    /// <summary>
+    /// [S-1145] The last pass if it is younger than <paramref name="maxAge"/>, else a new one. Every
+    /// widget that lists processes reads through this, so a processor meter and a process list on
+    /// the same desktop share one walk of the table per interval instead of each taking their own
+    /// — and each other's CPU baselines — on every tick.
+    /// </summary>
+    public static ProcessSnapshot Recent(TimeSpan maxAge)
+    {
+        var now = Environment.TickCount64;
+
+        if (_recentAt is { } at && now >= at && now - at < (long)maxAge.TotalMilliseconds)
+        {
+            return _recent;
+        }
+
+        if (!Sample())
+        {
+            _recentAt = now;
+            _recent = ProcessSnapshot.Empty;
+            return _recent;
+        }
+
+        return _recent;
+    }
+
     /// <summary>
     /// The <paramref name="count"/> heaviest processes on <paramref name="sort"/>, heaviest first.
     /// <para>
@@ -157,7 +223,7 @@ internal static unsafe partial class ProcessList
             return [];
         }
 
-        Scratch.Sort(sort == ProcessSort.Cpu ? ByCpu : ByMemory);
+        Scratch.Sort(Ranking(sort));
 
         var taken = Math.Min(count, Scratch.Count);
         var rows = new ProcessUsage[taken];
@@ -185,6 +251,19 @@ internal static unsafe partial class ProcessList
         }
 
         Prune();
+
+        // [S-1144] Counted over the pass just taken; pid 0 never got a row.
+        long threads = 0;
+        long handles = 0;
+
+        foreach (var row in Scratch)
+        {
+            threads += row.Threads;
+            handles += row.Handles;
+        }
+
+        _recent = new ProcessSnapshot(Scratch.ToArray(), new ProcessTotals(Scratch.Count, threads, handles));
+        _recentAt = Environment.TickCount64;
         return true;
     }
 
@@ -301,7 +380,9 @@ internal static unsafe partial class ProcessList
         var startTicks = entry.CreateTime;
         var name = NameOf(in entry, pid, startTicks);
 
-        Scratch.Add(new ProcessUsage(pid, name, Measure(pid, name, startTicks, cpuTicks, now), workingSet, true));
+        Scratch.Add(new ProcessUsage(
+            pid, name, Measure(pid, name, startTicks, cpuTicks, now), workingSet, true,
+            (int)Math.Min(entry.NumberOfThreads, int.MaxValue), (int)Math.Min(entry.HandleCount, int.MaxValue)));
     }
 
     /// <summary>
@@ -432,15 +513,19 @@ internal static unsafe partial class ProcessList
         int pid;
         string name;
         long workingSet;
+        int threads;
+        int handles;
 
         try
         {
             pid = process.Id;
             name = process.ProcessName;
 
-            // These three come out of the snapshot Process.GetProcesses() already took, so they do
-            // not need a handle and in practice never fail. The processor times below do.
+            // These come out of the snapshot Process.GetProcesses() already took, so they do not
+            // need a handle and in practice never fail. The processor times below do.
             workingSet = process.WorkingSet64;
+            threads = process.Threads.Count;
+            handles = process.HandleCount;
         }
         catch (InvalidOperationException)
         {
@@ -469,24 +554,24 @@ internal static unsafe partial class ProcessList
             // ignore: expected for elevated, other-session and protected processes, and it is the
             // steady state for about a third of them — logging would write hundreds of lines a
             // second. The row says CpuKnown: false instead of inventing a figure.
-            Scratch.Add(new ProcessUsage(pid, name, 0, workingSet, false));
+            Scratch.Add(new ProcessUsage(pid, name, 0, workingSet, false, threads, handles));
             return;
         }
         catch (InvalidOperationException)
         {
             // ignore: exited mid-read; memory is still worth showing for this one last tick
-            Scratch.Add(new ProcessUsage(pid, name, 0, workingSet, false));
+            Scratch.Add(new ProcessUsage(pid, name, 0, workingSet, false, threads, handles));
             return;
         }
         catch (ArgumentOutOfRangeException)
         {
             // ignore: a start time outside the FILETIME range is not a time this app can reason
             // about, so the row keeps its memory and declares its CPU unknown
-            Scratch.Add(new ProcessUsage(pid, name, 0, workingSet, false));
+            Scratch.Add(new ProcessUsage(pid, name, 0, workingSet, false, threads, handles));
             return;
         }
 
-        Scratch.Add(new ProcessUsage(pid, name, Measure(pid, name, startTicks, cpuTicks, now), workingSet, true));
+        Scratch.Add(new ProcessUsage(pid, name, Measure(pid, name, startTicks, cpuTicks, now), workingSet, true, threads, handles));
     }
 
     // ---- shared arithmetic ---------------------------------------------------------------------
@@ -696,6 +781,10 @@ internal static unsafe partial class ProcessList
 
         [FieldOffset(0x50)]
         public readonly nint UniqueProcessId;
+
+        /// <summary>[S-1144] After <c>InheritedFromUniqueProcessId</c> (0x58).</summary>
+        [FieldOffset(0x60)]
+        public readonly uint HandleCount;
 
         [FieldOffset(0x90)]
         public readonly nuint WorkingSetSize;

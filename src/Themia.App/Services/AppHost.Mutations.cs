@@ -104,8 +104,11 @@ internal sealed partial class AppHost
 
             // Displays named in the file that are not connected keep their assignment ([S-18]);
             // the ones that are connected and unnamed get a view of their own, as at startup.
-            state.EnsureViewPerDisplay([.. _windows.Select(w => w.Monitor.DeviceName)]);
+            state.EnsureViewPerDisplay(DisplayViewKeys());
         });
+
+        // The imported file carries its own per-display switches ([S-845]).
+        ReconcileDisplays();
 
         Log.Info(Scope, $"imported settings; the previous ones are at {backup}");
         return null;
@@ -154,6 +157,6 @@ internal sealed partial class AppHost
 
         // A display left without an assignment gets a fresh one rather than silently falling back
         // to whatever view happens to be active.
-        Mutate(state => state.EnsureViewPerDisplay([.. _windows.Select(w => w.Monitor.DeviceName)]));
+        Mutate(state => state.EnsureViewPerDisplay(DisplayViewKeys()));
     }
 }

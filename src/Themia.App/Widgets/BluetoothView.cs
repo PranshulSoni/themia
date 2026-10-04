@@ -149,6 +149,7 @@ internal sealed partial class BluetoothView : Grid, IWidgetView, IWidgetHeaderCo
 
         Children.Add(_scroll);
         Children.Add(_messageHost);
+        Children.Add(_detail);
     }
 
     /// <inheritdoc />
@@ -348,8 +349,12 @@ internal sealed partial class BluetoothView : Grid, IWidgetView, IWidgetHeaderCo
             _message.Text = BluetoothRules.StatusMessage(_snapshot.Status);
             _messageHost.Visibility = Visibility.Visible;
             _scroll.Visibility = Visibility.Collapsed;
+            ShowDetail(plan, devices, listHeight);
             return;
         }
+
+        // [S-1569] Which device the panel shows, so its row is lit while the panel is up.
+        _detailId = plan.Detail ? BluetoothRules.Selected(devices, _selectedId)?.Id : null;
 
         _messageHost.Visibility = Visibility.Collapsed;
         _scroll.Visibility = Visibility.Visible;
@@ -380,6 +385,8 @@ internal sealed partial class BluetoothView : Grid, IWidgetView, IWidgetHeaderCo
         _scroll.Height = _area.IsMeasured && perColumn > plan.VisibleRows
             ? (rows * plan.RowHeight) + inset.Top + inset.Bottom
             : double.NaN;
+
+        ShowDetail(plan, devices, listHeight);
     }
 
     private Border BuildRow(BluetoothDeviceEntry device, BluetoothRowPlan plan)
@@ -475,7 +482,28 @@ internal sealed partial class BluetoothView : Grid, IWidgetView, IWidgetHeaderCo
         var row = Fluent.Row(grid);
         row.MinHeight = plan.RowHeight;
         row.Height = plan.RowHeight;
-        _hovers.Add(Fluent.Hover(row));
+
+        // [S-1569] The device in the detail panel keeps its row lit (no hover, which would clear it
+        // on the way out); a click on another row puts that one in the panel.
+        if (_detailId is not null && device.Id == _detailId)
+        {
+            row.Background = FluentLayout.Themed("SubtleFillColorSecondaryBrush", Colors.Gray);
+        }
+        else
+        {
+            _hovers.Add(Fluent.Hover(row));
+        }
+
+        if (plan.Detail)
+        {
+            var id = device.Id;
+            row.Tapped += (_, args) =>
+            {
+                args.Handled = true;
+                _selectedId = id;
+                Render();
+            };
+        }
 
         // Everything the row knows, in words, for a reader who cannot see the dot or the bar.
         ToolTipService.SetToolTip(row, $"{device.Name} · {BluetoothRules.DetailLine(device, true, true, true)}");

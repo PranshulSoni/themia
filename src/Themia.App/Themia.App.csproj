@@ -15,8 +15,14 @@
          every compiled XAML file and the app died at the first InitializeComponent. -->
     <EnableMsixTooling>true</EnableMsixTooling>
 
-    <!-- Unpackaged: the Windows App SDK bootstrapper is initialised automatically. -->
-    <WindowsPackageType>None</WindowsPackageType>
+    <!--
+      [S-1060] Two shapes, one code base. Every build is unpackaged (F5, dotnet build, publish.ps1:
+      the Windows App SDK bootstrapper is initialised automatically) except the Microsoft Store
+      package, which scripts/package.ps1 builds with -p:ThemiaPackage=true from Package.appxmanifest.
+      The app asks PackageIdentity at run time which one it is; nothing is compiled differently.
+    -->
+    <WindowsPackageType Condition="'$(ThemiaPackage)' != 'true'">None</WindowsPackageType>
+    <WindowsPackageType Condition="'$(ThemiaPackage)' == 'true'">MSIX</WindowsPackageType>
     <WindowsAppSDKSelfContained>true</WindowsAppSDKSelfContained>
     <SelfContained>true</SelfContained>
     <RuntimeIdentifier>win-x64</RuntimeIdentifier>
@@ -56,6 +62,8 @@
 
   <ItemGroup>
     <Content Include="Assets\**" CopyToOutputDirectory="PreserveNewest" />
+    <!-- [S-1603] The licences of bundled third-party files ship beside the app, as they require. -->
+    <Content Include="..\..\THIRD-PARTY-NOTICES.md" Link="THIRD-PARTY-NOTICES.md" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
   <!--

@@ -1,0 +1,321 @@
+using System.Globalization;
+using System.Net;
+using System.Text;
+
+namespace Themia.Core.Widgets;
+
+/// <summary>One adapter's cumulative byte counters at one instant.</summary>
+/// <param name="Id">Stable identity (the adapter GUID): a rename is still the same adapter.</param>
+/// <param name="Name">The friendly name ("Wi-Fi", "Ethernet").</param>
+public readonly record struct InterfaceCounters(string Id, string Name, long Received, long Sent);
+
+/// <summary>One adapter's rates over the last interval, and what it moved since the meter started.</summary>
+public readonly record struct InterfaceRate(string Id, string Name, double Down, double Up, long SessionDown, long SessionUp)
+{
+    public double Total => Down + Up;
+}
+
+/// <summary>[S-1190] One throughput sample: the totals, each adapter's share, and the session totals.</summary>
+public sealed record ThroughputSample(double Down, double Up, IReadOnlyList<InterfaceRate> Interfaces, long SessionDown, long SessionUp);
+
+/// <summary>
+/// [S-1190] Per-adapter rates and session totals from cumulative counters.
+/// <para>
+/// Per adapter, not one sum: an adapter's counters reset when it is disabled, reconnected or
+/// replaced, and with a single sum one adapter's reset made the whole delta negative and threw away
+/// the other adapters' real traffic for that interval. Here only the adapter that reset reads 0 for
+/// one sample (its new counters become its baseline), and an adapter that appears starts from a
+/// baseline rather than reporting its whole lifetime as one second's traffic.
+/// </para>
+/// <para>
+/// Single-threaded by contract (the UI thread's tick). Session totals only ever add positive
+/// deltas, so a reset never makes "since start" go backwards.
+/// </para>
+/// </summary>
+public sealed class ThroughputTracker
+{
+    private readonly Dictionary<string, Baseline> _baselines = new(StringComparer.OrdinalIgnoreCase);
+    private long _lastTicks;
+    private bool _started;
+    private long _sessionDown;
+    private long _sessionUp;
+
+    /// <summary>Take one set of counters at <paramref name="ticksMs"/> (a monotonic clock) and return the rates since the last.</summary>
+    public ThroughputSample Update(IReadOnlyList<InterfaceCounters> counters, long ticksMs)
+    {
+        ArgumentNullException.ThrowIfNull(counters);
+
+        var elapsed = _started ? (ticksMs - _lastTicks) / 1000.0 : 0;
+        _lastTicks = ticksMs;
+        _started = true;
+
+        var rates = new List<InterfaceRate>(counters.Count);
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        double down = 0, up = 0;
+
+        foreach (var c in counters)
+        {
+            if (!seen.Add(c.Id))
+            {
+                continue;
+            }
+
+            double rateDown = 0, rateUp = 0;
+
+            if (_baselines.TryGetValue(c.Id, out var last))
+            {
+                var dr = c.Received - last.Received;
+                var ds = c.Sent - last.Sent;
+
+                // A fall is a reset, not traffic: this adapter reads 0 once and starts again.
+                if (dr >= 0 && ds >= 0)
+                {
+                    last = last with { SessionDown = last.SessionDown + dr, SessionUp = last.SessionUp + ds };
+                    _sessionDown += dr;
+                    _sessionUp += ds;
+
+                    if (elapsed > 0)
+                    {
+                        rateDown = dr / elapsed;
+                        rateUp = ds / elapsed;
+                    }
+                }
+            }
+            else
+            {
+                last = new Baseline(c.Received, c.Sent, 0, 0);
+            }
+
+            _baselines[c.Id] = last with { Received = c.Received, Sent = c.Sent };
+            down += rateDown;
+            up += rateUp;
+            rates.Add(new InterfaceRate(c.Id, c.Name, rateDown, rateUp, last.SessionDown, last.SessionUp));
+        }
+
+        // An adapter that went away keeps no baseline: if it comes back, its counters are new.
+        foreach (var id in _baselines.Keys.Where(id => !seen.Contains(id)).ToList())
+        {
+            _baselines.Remove(id);
+        }
+
+        return new ThroughputSample(down, up, NetworkRules.ByActivity(rates), _sessionDown, _sessionUp);
+    }
+
+    private readonly record struct Baseline(long Received, long Sent, long SessionDown, long SessionUp);
+}
+
+/// <summary>
+/// [S-1191] The recent window of down / up rates, for the bar a meter draws with its chart off.
+/// <para>
+/// The bar is scaled like the chart (<see cref="ChartScale.Peak"/>): against the busiest sample in
+/// the window, never below the floor. The first port scaled it to the busiest sample of the whole
+/// session, so one download pinned the bar near zero for the rest of the day.
+/// </para>
+/// </summary>
+public sealed class RateWindow
+{
+    private readonly Queue<(double Down, double Up)> _samples = new();
+    private int _capacity;
+
+    public RateWindow(int capacity) => _capacity = Math.Max(1, capacity);
+
+    /// <summary>How many samples the window holds. Shrinking drops the oldest.</summary>
+    public int Capacity
+    {
+        get => _capacity;
+        set
+        {
+            _capacity = Math.Max(1, value);
+            Trim();
+        }
+    }
+
+    public int Count => _samples.Count;
+
+    public void Push(double down, double up)
+    {
+        _samples.Enqueue((Finite(down), Finite(up)));
+        Trim();
+    }
+
+    public void Clear() => _samples.Clear();
+
+    /// <summary>The busiest download in the window (0 when empty).</summary>
+    public double PeakDown => _samples.Count == 0 ? 0 : _samples.Max(s => s.Down);
+
+    /// <summary>The busiest upload in the window (0 when empty).</summary>
+    public double PeakUp => _samples.Count == 0 ? 0 : _samples.Max(s => s.Up);
+
+    /// <summary>Where <paramref name="value"/> sits under the window's top (both directions share it), 0..1.</summary>
+    public double Fraction(double value, double floor)
+    {
+        var top = Math.Max(floor > 0 && double.IsFinite(floor) ? floor : 1, Math.Max(PeakDown, PeakUp));
+        return ChartScale.Fraction(Finite(value), top);
+    }
+
+    private void Trim()
+    {
+        while (_samples.Count > _capacity)
+        {
+            _samples.Dequeue();
+        }
+    }
+
+    private static double Finite(double value) => double.IsFinite(value) && value > 0 ? value : 0;
+}
+
+/// <summary>[S-1190]..[S-1196] The network meter's rules as pure functions.</summary>
+public static class NetworkRules
+{
+    /// <summary>
+    /// [S-1192] A packet-capture filter mirror (Npcap/WinPcap binds one per adapter, e.g.
+    /// "Ethernet-Npcap Packet Driver (NPCAP)-0000"): it re-reports the adapter beneath it, so
+    /// counting it doubles every figure (the original's themia-releases#33). Matched on the name or
+    /// the description, case-insensitively. The standalone "Npcap Loopback Adapter" is real,
+    /// distinct traffic and is not a mirror.
+    /// </summary>
+    public static bool IsCaptureMirror(string? name, string? description)
+        => Contains(name, "pcap packet driver") || Contains(description, "pcap packet driver");
+
+    /// <summary>
+    /// [S-1192] Whether an adapter's traffic is the machine's network traffic: up, not loopback or
+    /// a tunnel (the machine talking to itself, or a VPN counted twice), and not a capture mirror.
+    /// </summary>
+    public static bool Counts(bool up, bool loopbackOrTunnel, string? name, string? description)
+        => up && !loopbackOrTunnel && !IsCaptureMirror(name, description);
+
+    /// <summary>
+    /// [S-1192] An NDIS filter binding listed as an adapter of its own: "WiFi-QoS Packet
+    /// Scheduler-0000", "WiFi-WFP Native MAC Layer LightWeight Filter-0000", a vendor's capture
+    /// filter. Windows names each one "&lt;adapter&gt;-&lt;filter&gt;-NNNN" and every one re-reports the
+    /// adapter's own counters, so counting them multiplied the machine's throughput by however many
+    /// filters were bound (seven on the machine this was found on). Recognised by that shape, against
+    /// the names of the other adapters, so an adapter merely called "Lab-0001" is not dropped.
+    /// </summary>
+    public static bool IsFilterBinding(string name, IEnumerable<string> adapterNames)
+    {
+        ArgumentNullException.ThrowIfNull(adapterNames);
+
+        if (name.Length < 6 || name[^5] != '-' || !name[^4..].All(char.IsAsciiDigit))
+        {
+            return false;
+        }
+
+        return adapterNames.Any(other => other.Length > 0
+            && !string.Equals(other, name, StringComparison.OrdinalIgnoreCase)
+            && name.Length > other.Length + 6
+            && name.StartsWith(other + "-", StringComparison.OrdinalIgnoreCase));
+    }
+
+    /// <summary>Busiest first; ties (all idle) by name, so the list does not shuffle at rest.</summary>
+    public static IReadOnlyList<InterfaceRate> ByActivity(IEnumerable<InterfaceRate> rates)
+        => rates.OrderByDescending(r => r.Total)
+            .ThenByDescending(r => r.SessionDown + r.SessionUp)
+            .ThenBy(r => r.Name, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+    /// <summary>"↓ 1.2 MB/s  ↑ 80 KB/s".</summary>
+    public static string Pair(double down, double up) => $"↓ {Formatting.Rate(down)}  ↑ {Formatting.Rate(up)}";
+
+    /// <summary>"↓ 1.4 GB  ↑ 80 MB".</summary>
+    public static string Totals(long down, long up) => $"↓ {Formatting.Bytes(down)}  ↑ {Formatting.Bytes(up)}";
+
+    /// <summary>
+    /// [S-1193] A negotiated link speed as Windows Settings prints it: "1 Gbps", "2.5 Gbps",
+    /// "866 Mbps". Null for an adapter that reports none (0, or the −1 some virtual adapters use).
+    /// </summary>
+    public static string? LinkSpeed(long bitsPerSecond)
+    {
+        if (bitsPerSecond <= 0)
+        {
+            return null;
+        }
+
+        if (bitsPerSecond >= 1_000_000_000)
+        {
+            var g = bitsPerSecond / 1e9;
+            return $"{g.ToString(g % 1 == 0 ? "F0" : "0.#", CultureInfo.InvariantCulture)} Gbps";
+        }
+
+        if (bitsPerSecond >= 1_000_000)
+        {
+            return $"{Math.Round(bitsPerSecond / 1e6).ToString("F0", CultureInfo.InvariantCulture)} Mbps";
+        }
+
+        return $"{Math.Max(1, Math.Round(bitsPerSecond / 1e3)).ToString("F0", CultureInfo.InvariantCulture)} Kbps";
+    }
+
+    /// <summary>
+    /// [S-1193] The SSID bytes of a Wi-Fi connection as text: UTF-8, 1..32 bytes, nothing that is
+    /// not printable. A hidden network, or a name in another encoding, is null rather than mojibake.
+    /// </summary>
+    public static string? Ssid(ReadOnlySpan<byte> bytes)
+    {
+        if (bytes.Length is 0 or > 32)
+        {
+            return null;
+        }
+
+        string text;
+
+        try
+        {
+            text = new UTF8Encoding(false, throwOnInvalidBytes: true).GetString(bytes);
+        }
+        catch (DecoderFallbackException)
+        {
+            return null;
+        }
+
+        return text.Any(char.IsControl) || string.IsNullOrWhiteSpace(text) ? null : text;
+    }
+
+    /// <summary>
+    /// [S-1194] The body of the public-address service, validated: one IPv4 or IPv6 address and
+    /// nothing else, normalised. Anything else (an error page, a captive portal) is null — this
+    /// text is somebody else's, and it is shown on the desktop.
+    /// </summary>
+    public static string? PublicAddress(string? body)
+    {
+        var text = body?.Trim();
+
+        if (string.IsNullOrEmpty(text) || text.Length > 45 || !text.All(c => char.IsAsciiHexDigit(c) || c is '.' or ':'))
+        {
+            return null;
+        }
+
+        return IPAddress.TryParse(text, out var address) ? address.ToString() : null;
+    }
+
+    /// <summary>[S-1194] How long a public address is trusted before it is asked for again.</summary>
+    public static readonly TimeSpan PublicAddressLifetime = TimeSpan.FromMinutes(10);
+
+    /// <summary>
+    /// [S-1193] The connection line's value: "HomeNet · 82% · 866 Mbps" for Wi-Fi, "1 Gbps" for a
+    /// cable; null when there is nothing to say.
+    /// </summary>
+    public static string? ConnectionText(string? ssid, int? signalPercent, string? linkSpeed)
+    {
+        var parts = new List<string>(3);
+
+        if (ssid is not null)
+        {
+            parts.Add(ssid);
+        }
+
+        if (signalPercent is >= 0 and <= 100)
+        {
+            parts.Add($"{signalPercent.Value.ToString(CultureInfo.InvariantCulture)}%");
+        }
+
+        if (linkSpeed is not null)
+        {
+            parts.Add(linkSpeed);
+        }
+
+        return parts.Count == 0 ? null : string.Join(" · ", parts);
+    }
+
+    private static bool Contains(string? text, string what)
+        => text is not null && text.Contains(what, StringComparison.OrdinalIgnoreCase);
+}

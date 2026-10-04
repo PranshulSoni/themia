@@ -46,17 +46,25 @@ public static class GridGeometry
     }
 
     /// <summary>
-    /// [S-09] Clamp a rect fully on-screen and above the [S-08] size floor. Total: a non-finite or
-    /// inverted input collapses to a valid rect instead of propagating NaN into storage.
+    /// [S-09] Clamp a rect fully inside the screen's allowed area ([S-841]: the work area, so off the
+    /// taskbar) and above the [S-08] size floor. A rect bigger than the allowed area shrinks to it; a
+    /// rect outside it slides back in, keeping its size. Total: a non-finite or inverted input
+    /// collapses to a valid rect instead of propagating NaN into storage, and an allowed area
+    /// narrower than the floor still yields a floor-sized rect on the screen.
     /// </summary>
     public static FracRect Clamp(FracRect r, ScreenMetrics screen)
     {
         var (minW, minH) = MinFraction(screen);
+        var a = screen.Allowed;
 
-        var w = r.IsFinite ? Math.Clamp(r.W, minW, 1) : minW;
-        var h = r.IsFinite ? Math.Clamp(r.H, minH, 1) : minH;
-        var x = r.IsFinite ? Math.Clamp(r.X, 0, 1 - w) : 0;
-        var y = r.IsFinite ? Math.Clamp(r.Y, 0, 1 - h) : 0;
+        var w = r.IsFinite ? Math.Clamp(r.W, minW, Math.Max(minW, a.W)) : minW;
+        var h = r.IsFinite ? Math.Clamp(r.H, minH, Math.Max(minH, a.H)) : minH;
+        var x = r.IsFinite ? Math.Clamp(r.X, a.X, Math.Max(a.X, a.Right - w)) : a.X;
+        var y = r.IsFinite ? Math.Clamp(r.Y, a.Y, Math.Max(a.Y, a.Bottom - h)) : a.Y;
+
+        // Only reachable when the allowed area is narrower than the floor: stay on the screen.
+        x = Math.Clamp(x, 0, Math.Max(0, 1 - w));
+        y = Math.Clamp(y, 0, Math.Max(0, 1 - h));
 
         return new FracRect(x, y, w, h);
     }
@@ -80,9 +88,112 @@ public static class GridGeometry
         return new FracRect(x, y, w, h);
     }
 
-    /// <summary>Snap when the aid is enabled (Alt suppresses it mid-drag), then always clamp.</summary>
-    public static FracRect Settle(FracRect r, ScreenMetrics screen, bool snapEnabled)
-        => Clamp(snapEnabled ? Snap(r, screen) : r, screen);
+    /// <summary>
+    /// Snap when the aid is enabled (Alt suppresses it mid-drag), then always clamp.
+    /// <para>
+    /// [S-31a] A resize passes its handle. Then only the edges that handle moves are snapped and
+    /// kept inside the allowed area; the anchored edges stay exactly where they were. Snapping the
+    /// whole rect instead rounded the anchored edge too, and clamping the whole rect pushed a widget
+    /// whose bottom edge was dragged into the taskbar upwards instead of stopping the edge at it.
+    /// </para>
+    /// </summary>
+    public static FracRect Settle(FracRect r, ScreenMetrics screen, bool snapEnabled, ResizeHandle? resizing = null)
+    {
+        if (resizing is not { } handle || !r.IsFinite)
+        {
+            return Clamp(snapEnabled ? Snap(r, screen) : r, screen);
+        }
+
+        var (cols, rows) = GridDims(screen);
+        var (minW, minH) = MinFraction(screen);
+        var a = screen.Allowed;
+
+        double left = r.X, top = r.Y, right = r.Right, bottom = r.Bottom;
+
+        if (MovesLeft(handle))
+        {
+            left = Math.Max(a.X, snapEnabled ? Math.Round(left * cols) / cols : left);
+            left = Math.Min(left, right - minW);
+        }
+
+        if (MovesRight(handle))
+        {
+            right = Math.Min(a.Right, snapEnabled ? Math.Round(right * cols) / cols : right);
+            right = Math.Max(right, left + minW);
+        }
+
+        if (MovesTop(handle))
+        {
+            top = Math.Max(a.Y, snapEnabled ? Math.Round(top * rows) / rows : top);
+            top = Math.Min(top, bottom - minH);
+        }
+
+        if (MovesBottom(handle))
+        {
+            bottom = Math.Min(a.Bottom, snapEnabled ? Math.Round(bottom * rows) / rows : bottom);
+            bottom = Math.Max(bottom, top + minH);
+        }
+
+        // Whatever is still outside — an anchored edge the taskbar has since grown over — is the
+        // ordinary clamp's to fix.
+        return Clamp(FracRect.FromEdges(left, top, right, bottom), screen);
+    }
+
+    /// <summary>
+    /// [S-841] The work area as a fraction of its monitor: the region new geometry may use. Both
+    /// rects are in the same (physical) pixel space. A work area that does not overlap its monitor,
+    /// or a degenerate monitor, yields the whole screen: refusing every placement because Windows
+    /// reported something odd would be worse than allowing the taskbar band.
+    /// </summary>
+    public static FracRect AllowedArea(PixelRect monitor, PixelRect workArea)
+    {
+        if (!(monitor.Width > 0 && monitor.Height > 0) || Intersect(monitor, workArea) is not { } inside)
+        {
+            return FracRect.Full;
+        }
+
+        return NormaliseAllowed(new FracRect(
+            (inside.X - monitor.X) / monitor.Width,
+            (inside.Y - monitor.Y) / monitor.Height,
+            inside.Width / monitor.Width,
+            inside.Height / monitor.Height)) ?? FracRect.Full;
+    }
+
+    /// <summary>
+    /// An allowed area clipped to the screen, or null for "the whole screen" when it is unusable.
+    /// </summary>
+    public static FracRect? NormaliseAllowed(FracRect r)
+    {
+        if (!r.IsFinite)
+        {
+            return null;
+        }
+
+        var left = Math.Clamp(r.X, 0, 1);
+        var top = Math.Clamp(r.Y, 0, 1);
+        var right = Math.Clamp(r.Right, 0, 1);
+        var bottom = Math.Clamp(r.Bottom, 0, 1);
+
+        return right > left && bottom > top ? FracRect.FromEdges(left, top, right, bottom) : null;
+    }
+
+    /// <summary>[S-841] The allowed area in the screen's own DIPs, for chrome that must stay off the taskbar.</summary>
+    public static PixelRect AllowedPixels(ScreenMetrics screen)
+    {
+        var a = screen.Allowed;
+        return new PixelRect(a.X * screen.Width, a.Y * screen.Height, a.W * screen.Width, a.H * screen.Height);
+    }
+
+    /// <summary>The overlap of two rects, or null when they do not overlap.</summary>
+    public static PixelRect? Intersect(PixelRect a, PixelRect b)
+    {
+        var left = Math.Max(a.X, b.X);
+        var top = Math.Max(a.Y, b.Y);
+        var right = Math.Min(a.X + a.Width, b.X + b.Width);
+        var bottom = Math.Min(a.Y + a.Height, b.Y + b.Height);
+
+        return right > left && bottom > top ? new PixelRect(left, top, right - left, bottom - top) : null;
+    }
 
     /// <summary>Move a rect by a fractional delta. Size is untouched.</summary>
     public static FracRect Move(FracRect start, double dxFrac, double dyFrac)
@@ -139,7 +250,10 @@ public static class GridGeometry
     public static bool MovesBottom(ResizeHandle h)
         => h is ResizeHandle.BottomLeft or ResizeHandle.Bottom or ResizeHandle.BottomRight;
 
-    /// <summary>[S-11] Placement: centre a default-sized widget on the drop point, then snap and clamp.</summary>
+    /// <summary>
+    /// [S-11] Placement: centre a default-sized widget on the drop point, then snap and clamp — into
+    /// the allowed area, so a widget dropped on the taskbar lands just above it ([S-841]).
+    /// </summary>
     public static FracRect PlaceAt(
         double xFrac,
         double yFrac,
@@ -155,7 +269,8 @@ public static class GridGeometry
 
     /// <summary>
     /// [S-04] Resolve a stored fraction to its <b>cell</b> in pixels. The widget gap is deliberately
-    /// not applied here.
+    /// not applied here, and neither is the allowed area: [S-840] a fraction resolves against the
+    /// whole monitor, so a taskbar change never moves or rescales a widget already placed.
     /// <para>
     /// The gap is padding <i>inside</i> the cell, never part of the geometry. Folding it in here
     /// made the stored rect mean something different at every gap setting: the widget's size and
@@ -215,4 +330,8 @@ public static class GridGeometry
     }
 }
 
-public readonly record struct PixelRect(double X, double Y, double Width, double Height);
+public readonly record struct PixelRect(double X, double Y, double Width, double Height)
+{
+    public static PixelRect FromEdges(double left, double top, double right, double bottom)
+        => new(left, top, right - left, bottom - top);
+}

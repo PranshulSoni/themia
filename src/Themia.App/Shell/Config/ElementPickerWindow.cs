@@ -121,6 +121,12 @@ internal sealed class ElementPickerWindow
     private readonly Button _back;
     private readonly Action<PickerMessage> _picked;
     private readonly Uri _start;
+
+    /// <summary>[S-1314] Every page the user browses to here goes past the network guard first.</summary>
+    private readonly NavigationGate _gate = new();
+
+    /// <summary>Why the last navigation was refused, shown in place of the hint until the next one goes through.</summary>
+    private string? _refusal;
     private bool _closed;
 
     private ElementPickerWindow(Uri start, Action<PickerMessage> picked)
@@ -284,6 +290,7 @@ internal sealed class ElementPickerWindow
                 }
             };
 
+            core.NavigationStarting += OnNavigationStarting;
             core.WebMessageReceived += OnMessage;
             core.SourceChanged += (_, _) => ShowAddress();
             core.HistoryChanged += (_, _) => _back.IsEnabled = core.CanGoBack;
@@ -311,9 +318,63 @@ internal sealed class ElementPickerWindow
     }
 
     private void SetHint()
-        => _hint.Text = _pick.IsChecked == true
+    {
+        _hint.Text = _refusal ?? (_pick.IsChecked == true
             ? "Click an element to pin it. Esc to keep browsing"
-            : "Browse freely, then Pick element";
+            : "Browse freely, then Pick element");
+        _hint.Foreground = FluentLayout.Themed(_refusal is null ? "TextFillColorTertiaryBrush" : "SystemFillColorCautionBrush", Microsoft.UI.Colors.Gray);
+    }
+
+    /// <summary>
+    /// [S-1314] The original's <c>check_url</c> on the picker: a main-frame navigation to a host the
+    /// gate has not cleared is cancelled, checked, and started again only if the guard allows it.
+    /// A refusal is said in the toolbar and the page stays where it was. (A form post is re-sent as
+    /// a plain load after the check — the price of a check that has to wait for DNS.)
+    /// </summary>
+    private void OnNavigationStarting(CoreWebView2 sender, CoreWebView2NavigationStartingEventArgs args)
+    {
+        if (!NavigationGate.TryTarget(args.Uri, out var target))
+        {
+            args.Cancel = true;
+            Refuse("Only http and https pages can be opened here");
+            return;
+        }
+
+        if (_gate.IsCleared(target))
+        {
+            _refusal = null;
+            SetHint();
+            return;
+        }
+
+        args.Cancel = true;
+        _ = CheckThenGoAsync(sender, target);
+    }
+
+    private async Task CheckThenGoAsync(CoreWebView2 core, Uri target)
+    {
+        var verdict = await _gate.CheckAsync(target, CancellationToken.None).ConfigureAwait(true);
+
+        if (_closed)
+        {
+            return;
+        }
+
+        if (verdict.Allowed)
+        {
+            core.Navigate(target.AbsoluteUri);
+            return;
+        }
+
+        Log.Info(Scope, $"the picker refused {target.Host}");
+        Refuse(verdict.Reason ?? "That page was refused");
+    }
+
+    private void Refuse(string reason)
+    {
+        _refusal = reason;
+        SetHint();
+    }
 
     /// <summary>Tell the page which mode the toolbar is in; again after every navigation, since a new page starts browsing.</summary>
     private async Task ApplyPickModeAsync()

@@ -27,7 +27,7 @@ namespace Themia.App.Widgets;
 /// A list on this PC needs no account at all.
 /// </para>
 /// </summary>
-internal sealed partial class TasksView : Grid, IWidgetView, IWidgetHeaderContent, IWidgetSurfaceAware, IWidgetContextActions, IWidgetSizeAware
+internal sealed partial class TasksView : Grid, IWidgetView, IWidgetHeaderContent, IWidgetSurfaceAware, IWidgetContextActions, IWidgetSizeAware, IWidgetKeys
 {
     private const string Scope = "tasks-widget";
 

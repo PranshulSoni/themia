@@ -4,6 +4,9 @@ using Themia.Core.Model;
 
 namespace Themia.Core.Widgets;
 
+/// <summary>[S-1454] A window in numbers; see <see cref="MoodInsights.Summary"/>.</summary>
+public readonly record struct MoodSummary(int LoggedDays, int Days, int BestRun, int Thoughts);
+
 /// <summary>
 /// [S-1450] [S-1451] [S-1454] What a large Mood tile says beside its heatmap, and what a day says when
 /// it is hovered or right-clicked. Every function takes its window explicitly and reads no clock.
@@ -62,6 +65,46 @@ public static class MoodInsights
         }
 
         return averages;
+    }
+
+    /// <summary>
+    /// [S-1454] The window in four numbers: days logged, days that have happened in it (a rolling
+    /// window ends today; a month may run past it), the longest run of logged days inside it, and how
+    /// many entries carry a thought.
+    /// </summary>
+    public static MoodSummary Summary(IEnumerable<MoodEntry> entries, LocalDay from, LocalDay to, LocalDay today)
+    {
+        ArgumentNullException.ThrowIfNull(entries);
+
+        var last = to < today ? to : today;
+        var logged = new HashSet<LocalDay>();
+        var thoughts = 0;
+
+        foreach (var entry in entries)
+        {
+            if (!MoodRules.IsValid(entry) || !InWindow(entry, from, last))
+            {
+                continue;
+            }
+
+            logged.Add(LocalDay.From(entry.At));
+            if (!string.IsNullOrWhiteSpace(entry.Note))
+            {
+                thoughts++;
+            }
+        }
+
+        var days = last < from ? 0 : from.DaysUntil(last) + 1;
+        var best = 0;
+        var run = 0;
+
+        for (var i = 0; i < days; i++)
+        {
+            run = logged.Contains(from.AddDays(i)) ? run + 1 : 0;
+            best = Math.Max(best, run);
+        }
+
+        return new MoodSummary(logged.Count, days, best, thoughts);
     }
 
     /// <summary>
@@ -158,6 +201,9 @@ public static class MoodInsights
 
         return $"{date} · {MoodRules.LevelName(entry.Level)}: {entry.Note.Trim()}";
     }
+
+    /// <summary>"Oct": a month's short name, for the map's month labels. Out of range is empty.</summary>
+    public static string MonthName(int month) => month is >= 1 and <= 12 ? ShortMonths[month - 1] : string.Empty;
 
     /// <summary>Where a weekday sits in a week that starts on <paramref name="weekStart"/>, 0..6.</summary>
     public static int Column(DayOfWeek day, DayOfWeek weekStart) => (((int)day - (int)weekStart) + 7) % 7;

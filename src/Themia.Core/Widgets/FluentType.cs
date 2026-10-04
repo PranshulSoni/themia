@@ -25,29 +25,99 @@ public readonly record struct TypeStep(double FontSize, double LineHeight, bool 
 /// </summary>
 public static class FluentType
 {
+    /// <summary>
+    /// [S-821] The user's text size: every step below is the ramp's own size times this. The ramp is
+    /// scaled as a whole, so <see cref="Fit"/> still chooses among real steps and a layout that
+    /// fitted at 100% sheds a line rather than overflowing at 150%. Set only by the appearance
+    /// engine, on the UI thread; see <see cref="SetTextScale"/>.
+    /// </summary>
+    public static double TextScale { get; private set; } = 1.0;
+
+    /// <summary>The smallest and largest text size the setting allows (and the store clamps to).</summary>
+    public const double MinTextScale = 0.5;
+
+    public const double MaxTextScale = 2.0;
+
+    /// <summary>The unscaled Windows 11 ramp, smallest first.</summary>
+    private static readonly TypeStep[] BaseRamp =
+    [
+        new(12, 16, false),  // Caption
+        new(14, 20, false),  // Body
+        new(14, 20, true),   // BodyStrong
+        new(18, 24, false),  // BodyLarge
+        new(20, 28, true),   // Subtitle
+        new(28, 36, true),   // Title
+        new(40, 52, true),   // TitleLarge
+        new(68, 92, true),   // Display
+    ];
+
+    private static TypeStep[] _steps = StepsAt(1.0);
+
+    /// <summary>
+    /// [S-821] The ramp at a text scale, in <see cref="BaseRamp"/> order. Pure, so the scaling is
+    /// testable without touching the live <see cref="TextScale"/>. An unusable scale is 1; a usable
+    /// one is clamped to the setting's range.
+    /// </summary>
+    public static TypeStep[] StepsAt(double scale)
+    {
+        var factor = ClampTextScale(scale);
+        var steps = new TypeStep[BaseRamp.Length];
+
+        for (var i = 0; i < BaseRamp.Length; i++)
+        {
+            var step = BaseRamp[i];
+            steps[i] = new TypeStep(step.FontSize * factor, step.LineHeight * factor, step.SemiBold);
+        }
+
+        return steps;
+    }
+
+    /// <summary>The setting's value made safe: not finite or not positive is 1, the rest clamped.</summary>
+    public static double ClampTextScale(double scale)
+        => double.IsFinite(scale) && scale > 0 ? Math.Clamp(scale, MinTextScale, MaxTextScale) : 1.0;
+
+    /// <summary>
+    /// Change the live text scale. Returns whether it changed, so the caller knows whether text
+    /// already on screen has to follow. App code only: tests use <see cref="StepsAt"/>.
+    /// </summary>
+    public static bool SetTextScale(double scale)
+    {
+        var next = ClampTextScale(scale);
+        if (Math.Abs(next - TextScale) < 0.0001)
+        {
+            return false;
+        }
+
+        TextScale = next;
+        var steps = StepsAt(next);
+        _steps = steps;
+        _ramp = [steps[0], steps[1], steps[3], steps[4], steps[5], steps[6], steps[7]];
+        return true;
+    }
+
     /// <summary>12/16. Labels, timestamps, secondary metadata.</summary>
-    public static TypeStep Caption { get; } = new(12, 16, false);
+    public static TypeStep Caption => _steps[0];
 
     /// <summary>14/20. The default for body text.</summary>
-    public static TypeStep Body { get; } = new(14, 20, false);
+    public static TypeStep Body => _steps[1];
 
     /// <summary>14/20 semibold. A body line that needs emphasis, and the standard list-row title.</summary>
-    public static TypeStep BodyStrong { get; } = new(14, 20, true);
+    public static TypeStep BodyStrong => _steps[2];
 
     /// <summary>18/24. A larger body line.</summary>
-    public static TypeStep BodyLarge { get; } = new(18, 24, false);
+    public static TypeStep BodyLarge => _steps[3];
 
     /// <summary>20/28 semibold. Section headings.</summary>
-    public static TypeStep Subtitle { get; } = new(20, 28, true);
+    public static TypeStep Subtitle => _steps[4];
 
     /// <summary>28/36 semibold. Page titles.</summary>
-    public static TypeStep Title { get; } = new(28, 36, true);
+    public static TypeStep Title => _steps[5];
 
     /// <summary>40/52 semibold.</summary>
-    public static TypeStep TitleLarge { get; } = new(40, 52, true);
+    public static TypeStep TitleLarge => _steps[6];
 
     /// <summary>68/92 semibold. The largest step Fluent defines.</summary>
-    public static TypeStep Display { get; } = new(68, 92, true);
+    public static TypeStep Display => _steps[7];
 
     /// <summary>
     /// The same step, semibold. <see cref="Fit"/> can only return ramp entries and the ramp holds
@@ -76,9 +146,10 @@ public static class FluentType
     /// </summary>
     public static double EstimateWidth(TypeStep step, double characters) => Advance(step, characters);
 
-    /// <summary>The ramp in order, smallest first.</summary>
-    public static IReadOnlyList<TypeStep> Ramp { get; } =
-        [Caption, Body, BodyLarge, Subtitle, Title, TitleLarge, Display];
+    private static TypeStep[] _ramp = [_steps[0], _steps[1], _steps[3], _steps[4], _steps[5], _steps[6], _steps[7]];
+
+    /// <summary>The ramp in order, smallest first, at the live <see cref="TextScale"/>.</summary>
+    public static IReadOnlyList<TypeStep> Ramp => _ramp;
 
     /// <summary>
     /// The largest step whose line fits the box, never smaller than <paramref name="floor"/> and

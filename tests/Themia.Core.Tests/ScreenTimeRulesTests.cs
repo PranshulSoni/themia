@@ -38,13 +38,90 @@ public sealed class ScreenTimeRulesTests
     }
 
     [Fact]
-    public void S452_the_drawing_keeps_a_cap_when_the_legend_is_off()
+    public void S1211_the_setting_is_a_ceiling_and_0_means_as_many_as_fit()
     {
-        Assert.Equal(3, ScreenTimeRules.ChartCap(3));
-        Assert.Equal(ScreenTimeRules.DefaultMaxApps, ScreenTimeRules.ChartCap(0));
-        Assert.Equal(ScreenTimeRules.DefaultMaxApps, ScreenTimeRules.ChartCap(-1));
-        Assert.Equal(ScreenTimeRules.MaxAppsLimit, ScreenTimeRules.ChartCap(500));
+        Assert.Equal(ScreenTimeRules.MaxAppsLimit, ScreenTimeRules.Ceiling(0));
+        Assert.Equal(ScreenTimeRules.MaxAppsLimit, ScreenTimeRules.Ceiling(-1));
+        Assert.Equal(3, ScreenTimeRules.Ceiling(3));
+        Assert.Equal(ScreenTimeRules.MaxAppsLimit, ScreenTimeRules.Ceiling(500));
         Assert.Equal(0, ScreenTimeRules.EffectiveMaxApps(-4));
+        Assert.Equal(0, new ScreenTimeConfig().MaxApps);
+        Assert.True(new ScreenTimeConfig().ShowList);
+    }
+
+    [Theory]
+    [InlineData(0, 12, 12)]   // fit: every app
+    [InlineData(5, 12, 6)]    // ceiling 5 + an "Other" row
+    [InlineData(5, 5, 5)]     // exactly the ceiling: no "Other"
+    [InlineData(0, 0, 0)]
+    public void S1211_legend_wants_every_app_up_to_the_ceiling_plus_other(int maxApps, int apps, int wanted)
+    {
+        Assert.Equal(wanted, ScreenTimeRules.LegendWanted(maxApps, apps));
+    }
+
+    [Theory]
+    [InlineData(0, 12, 12, 12)]  // room for all: all named, no "Other"
+    [InlineData(0, 10, 12, 9)]   // ten rows for twelve apps: nine named, the tenth is "Other"
+    [InlineData(0, 3, 12, 7)]    // a short legend never shrinks the ring below seven names
+    [InlineData(0, 0, 12, 7)]    // legend off
+    [InlineData(3, 10, 12, 3)]   // the setting caps the drawing too
+    [InlineData(0, 4, 2, 7)]     // fewer apps than names: Segments takes what there is
+    public void S1212_the_drawing_names_what_the_legend_can_list(int maxApps, int rows, int apps, int cap)
+    {
+        Assert.Equal(cap, ScreenTimeRules.DrawingCap(maxApps, rows, apps));
+    }
+
+    [Theory]
+    [InlineData(30, "<1m")]
+    [InlineData(37 * 60, "37m")]
+    [InlineData((4 * 3600) + (37 * 60), "4.6h")]
+    [InlineData((9 * 3600) + (58 * 60), "10h")]
+    [InlineData((12 * 3600) + (40 * 60), "13h")]
+    [InlineData(double.NaN, "<1m")]
+    public void S1210_compact_durations_drop_the_minutes(double seconds, string text)
+    {
+        Assert.Equal(text, ScreenTimeRules.CompactDuration(seconds));
+    }
+
+    [Fact]
+    public void S1210_the_ring_text_is_never_wider_than_the_hole()
+    {
+        var seconds = (4 * 3600) + (37 * 60);
+
+        // A large hole keeps the full duration at a large step.
+        var (large, largeStep) = ScreenTimeRules.RingText(seconds, 200, 60);
+        Assert.Equal("4h 37m", large);
+        Assert.True(largeStep.FontSize > FluentType.Caption.FontSize);
+
+        // The XS ring's hole (about 40 DIPs) cannot hold "4h 37m" even at Caption: it drops the minutes.
+        var (small, smallStep) = ScreenTimeRules.RingText(seconds, 40, 20);
+        Assert.Equal("4.6h", small);
+        Assert.True(FluentType.EstimateWidth(smallStep, small.Length) <= 40);
+    }
+
+    [Fact]
+    public void S1214_the_week_strip_is_the_seven_days_ending_on_the_shown_day()
+    {
+        Assert.True(LocalDay.TryParse("2026-10-04", out var sunday));
+
+        var days = ScreenTimeRules.DaysEnding(sunday, 7);
+
+        Assert.Equal(7, days.Count);
+        Assert.Equal("2026-09-28", days[0].Key);
+        Assert.Equal("2026-10-04", days[^1].Key);
+    }
+
+    [Fact]
+    public void S1215_stats_line_under_a_day_and_under_a_window()
+    {
+        Assert.True(LocalDay.TryParse("2026-09-28", out var monday));
+        var week = ScreenTimeRules.DaysEnding(monday.AddDays(6), 7)
+            .Select((day, i) => (day, i == 1 ? 5L * 3600 : 3600L))
+            .ToList();
+
+        Assert.Equal("7-day average 1h 34m · busiest Tue 5h 0m", ScreenTimeRules.StatsLine(week, 9, ScreenTimePeriod.Day));
+        Assert.Equal("busiest Tue 29 Sep 5h 0m · 9 apps", ScreenTimeRules.StatsLine(week, 9, ScreenTimePeriod.Week));
+        Assert.Equal(string.Empty, ScreenTimeRules.StatsLine([(monday, 0L)], 0, ScreenTimePeriod.Day));
     }
 
     [Fact]

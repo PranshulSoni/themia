@@ -184,22 +184,22 @@ public sealed class TaskLayoutTests
     [Fact]
     public void S787_arrows_and_home_end_stop_at_the_ends()
     {
-        Assert.Equal(new TaskKeyResult(TaskKeyCommand.Focus, 0), TaskLayout.Decide(TaskKey.Up, 0, 5));
-        Assert.Equal(new TaskKeyResult(TaskKeyCommand.Focus, 4), TaskLayout.Decide(TaskKey.Down, 4, 5));
-        Assert.Equal(new TaskKeyResult(TaskKeyCommand.Focus, 3), TaskLayout.Decide(TaskKey.Down, 2, 5));
-        Assert.Equal(new TaskKeyResult(TaskKeyCommand.Focus, 0), TaskLayout.Decide(TaskKey.Home, 3, 5));
-        Assert.Equal(new TaskKeyResult(TaskKeyCommand.Focus, 4), TaskLayout.Decide(TaskKey.End, 1, 5));
+        Assert.Equal(new TaskKeyResult(TaskKeyCommand.Focus, 0), TaskLayout.Decide(WidgetKey.Up, 0, 5));
+        Assert.Equal(new TaskKeyResult(TaskKeyCommand.Focus, 4), TaskLayout.Decide(WidgetKey.Down, 4, 5));
+        Assert.Equal(new TaskKeyResult(TaskKeyCommand.Focus, 3), TaskLayout.Decide(WidgetKey.Down, 2, 5));
+        Assert.Equal(new TaskKeyResult(TaskKeyCommand.Focus, 0), TaskLayout.Decide(WidgetKey.Home, 3, 5));
+        Assert.Equal(new TaskKeyResult(TaskKeyCommand.Focus, 4), TaskLayout.Decide(WidgetKey.End, 1, 5));
     }
 
     [Fact]
     public void S787_enter_toggles_delete_deletes_f2_renames_escape_releases()
     {
-        Assert.Equal(TaskKeyCommand.Toggle, TaskLayout.Decide(TaskKey.Enter, 1, 3).Command);
-        Assert.Equal(TaskKeyCommand.Delete, TaskLayout.Decide(TaskKey.Delete, 1, 3).Command);
-        Assert.Equal(TaskKeyCommand.Rename, TaskLayout.Decide(TaskKey.Rename, 1, 3).Command);
-        Assert.Equal(TaskKeyCommand.Release, TaskLayout.Decide(TaskKey.Escape, 1, 3).Command);
-        Assert.Equal(TaskKeyCommand.None, TaskLayout.Decide(TaskKey.Enter, 0, 0).Command);
-        Assert.Equal(TaskKeyCommand.Release, TaskLayout.Decide(TaskKey.Escape, 0, 0).Command);
+        Assert.Equal(TaskKeyCommand.Toggle, TaskLayout.Decide(WidgetKey.Enter, 1, 3).Command);
+        Assert.Equal(TaskKeyCommand.Delete, TaskLayout.Decide(WidgetKey.Delete, 1, 3).Command);
+        Assert.Equal(TaskKeyCommand.Rename, TaskLayout.Decide(WidgetKey.Rename, 1, 3).Command);
+        Assert.Equal(TaskKeyCommand.Release, TaskLayout.Decide(WidgetKey.Escape, 1, 3).Command);
+        Assert.Equal(TaskKeyCommand.None, TaskLayout.Decide(WidgetKey.Enter, 0, 0).Command);
+        Assert.Equal(TaskKeyCommand.Release, TaskLayout.Decide(WidgetKey.Escape, 0, 0).Command);
     }
 
     [Fact]

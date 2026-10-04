@@ -148,7 +148,7 @@ These are choices or known platform limits, not oversights:
 - **Pomodoro has one alarm cue**, not the original's twelve ringtones and a volume slider.
 - **Sun &amp; moon takes coordinates directly**, because there is no geocoding service here and widgets
   make no network calls of their own.
-- **Mixed-DPI multi-monitor is untested.** Placement uses each monitor's physical work area and
+- **Mixed-DPI multi-monitor is untested.** Placement uses each monitor's physical bounds and
   layout uses the window's own rasterization scale, so it should be correct, but this machine runs
   both displays at 150% and I could not exercise the mixed case.
 - **No sync, licensing, updater or localization.** Out of scope for a vertical slice.

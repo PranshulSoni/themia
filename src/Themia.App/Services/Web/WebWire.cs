@@ -234,6 +234,61 @@ internal sealed class YahooMeta
     /// <summary>Today's pre, regular and post windows, already resolved for the exchange's calendar.</summary>
     [JsonPropertyName("currentTradingPeriod")]
     public YahooTradingPeriod? CurrentTradingPeriod { get; init; }
+
+    // [S-1309] The exchange's zone: its offset now, in seconds, and its short name ("EDT").
+    [JsonPropertyName("gmtoffset")]
+    public long? GmtOffset { get; init; }
+
+    [JsonPropertyName("timezone")]
+    public string? Timezone { get; init; }
+
+    [JsonPropertyName("hasPrePostMarketData")]
+    public bool? HasPrePostMarketData { get; init; }
+
+    // [S-1311] The facts a large tile shows. Each optional: an index has no volume, a currency
+    // pair no exchange name worth showing.
+    [JsonPropertyName("regularMarketDayHigh")]
+    public double? DayHigh { get; init; }
+
+    [JsonPropertyName("regularMarketDayLow")]
+    public double? DayLow { get; init; }
+
+    [JsonPropertyName("fiftyTwoWeekHigh")]
+    public double? YearHigh { get; init; }
+
+    [JsonPropertyName("fiftyTwoWeekLow")]
+    public double? YearLow { get; init; }
+
+    [JsonPropertyName("regularMarketVolume")]
+    public double? Volume { get; init; }
+
+    [JsonPropertyName("fullExchangeName")]
+    public string? FullExchangeName { get; init; }
+}
+
+/// <summary>[S-1307] <c>v1/finance/search</c>: the instruments matching a query.</summary>
+internal sealed class YahooSearchReply
+{
+    [JsonPropertyName("quotes")]
+    public List<YahooSearchQuote>? Quotes { get; init; }
+}
+
+internal sealed class YahooSearchQuote
+{
+    [JsonPropertyName("symbol")]
+    public string? Symbol { get; init; }
+
+    [JsonPropertyName("shortname")]
+    public string? ShortName { get; init; }
+
+    [JsonPropertyName("longname")]
+    public string? LongName { get; init; }
+
+    [JsonPropertyName("quoteType")]
+    public string? QuoteType { get; init; }
+
+    [JsonPropertyName("exchDisp")]
+    public string? Exchange { get; init; }
 }
 
 internal sealed class YahooTradingPeriod
@@ -273,6 +328,25 @@ internal sealed class CoinPrice
     public double? Change24H { get; init; }
 }
 
+/// <summary>[S-1307] CoinGecko's <c>search</c>: the coins matching a query.</summary>
+internal sealed class CoinSearchReply
+{
+    [JsonPropertyName("coins")]
+    public List<CoinSearchHit>? Coins { get; init; }
+}
+
+internal sealed class CoinSearchHit
+{
+    [JsonPropertyName("id")]
+    public string? Id { get; init; }
+
+    [JsonPropertyName("name")]
+    public string? Name { get; init; }
+
+    [JsonPropertyName("symbol")]
+    public string? Symbol { get; init; }
+}
+
 /// <summary><c>coins/{id}/market_chart</c>: an array of <c>[epochMilliseconds, price]</c> pairs.</summary>
 internal sealed class CoinChartReply
 {
@@ -293,4 +367,6 @@ internal sealed class CoinChartReply
 [JsonSerializable(typeof(YahooChartReply))]
 [JsonSerializable(typeof(Dictionary<string, CoinPrice>))]
 [JsonSerializable(typeof(CoinChartReply))]
+[JsonSerializable(typeof(YahooSearchReply))]
+[JsonSerializable(typeof(CoinSearchReply))]
 internal sealed partial class WebJsonContext : JsonSerializerContext;

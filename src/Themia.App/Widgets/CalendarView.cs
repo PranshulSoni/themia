@@ -30,7 +30,7 @@ namespace Themia.App.Widgets;
 /// <c>InvariantGlobalization</c>, so there is no culture to read either from.
 /// </para>
 /// </summary>
-internal sealed partial class CalendarView : Grid, IWidgetView, IWidgetHeaderContent, IWidgetSurfaceAware, IWidgetContextActions, IWidgetSizeAware
+internal sealed partial class CalendarView : Grid, IWidgetView, IWidgetHeaderContent, IWidgetSurfaceAware, IWidgetContextActions, IWidgetSizeAware, IWidgetKeys
 {
     private const string Scope = "calendar-widget";
 
@@ -405,16 +405,27 @@ internal sealed partial class CalendarView : Grid, IWidgetView, IWidgetHeaderCon
     }
 
     /// <summary>
-    /// [S-1269] A key from the shell's keyboard lease (the classic S-31..34). Nothing calls this yet:
-    /// the desktop surface takes no keystrokes outside a text box ([S-584]), and the lease that will
-    /// route keys to the widget last clicked is the shell's to build; this is the whole of what it
-    /// will call. Returns whether the key was used.
+    /// [S-1269]/[S-806] A key from the shell's keyboard lease (the classic S-31..34), which the
+    /// calendar holds once it is clicked. Escape (also the lease ending) hides the cursor day.
+    /// Returns whether the key was used.
     /// </summary>
     public bool HandleKey(WidgetKey key)
     {
         if (_detached || _screen != Screen.Ready)
         {
             return false;
+        }
+
+        if (key == WidgetKey.Escape)
+        {
+            if (!_cursorShown)
+            {
+                return false;
+            }
+
+            _cursorShown = false;
+            Render();
+            return true;
         }
 
         var layout = Layout();

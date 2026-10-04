@@ -23,7 +23,7 @@ namespace Themia.App.Widgets;
 /// every sampling tick, a resolved name — and when the user moves through the days.
 /// </para>
 /// </summary>
-internal sealed partial class ScreenTimeView : Grid, IWidgetView, IWidgetSurfaceAware, IWidgetHeaderContent
+internal sealed partial class ScreenTimeView : Grid, IWidgetView, IWidgetSurfaceAware, IWidgetHeaderContent, IWidgetSizeAware
 {
     /// <summary>A legend row: Fluent's compact list row.</summary>
     private const double RowHeight = Fluent.RowHeightCompact;
@@ -67,6 +67,8 @@ internal sealed partial class ScreenTimeView : Grid, IWidgetView, IWidgetSurface
     private string? _pinned;
     private string? _focus;
     private Model _model = Model.Empty;
+    private IReadOnlyList<ScreenTimeSegment> _segments = [];
+    private WidgetArea _area;
     private bool _detached;
 
     public ScreenTimeView()
@@ -94,10 +96,18 @@ internal sealed partial class ScreenTimeView : Grid, IWidgetView, IWidgetSurface
         _nav.Children.Add(_forward);
         _nav.Children.Add(_today);
 
-        Children.Add(_body);
-        Children.Add(_empty);
+        _footer.VerticalAlignment = VerticalAlignment.Bottom;
 
-        SizeChanged += (_, _) => Render();
+        Children.Add(_body);
+        Children.Add(_footer);
+        Children.Add(_empty);
+    }
+
+    /// <inheritdoc />
+    public void ApplySize(WidgetArea area)
+    {
+        _area = area;
+        Render();
     }
 
     /// <inheritdoc />
@@ -193,7 +203,7 @@ internal sealed partial class ScreenTimeView : Grid, IWidgetView, IWidgetSurface
         bool Window,
         int Days,
         long Total,
-        IReadOnlyList<ScreenTimeSegment> Segments,
+        IReadOnlyList<ScreenTimeApp> Apps,
         IReadOnlyList<ScreenTimeDay> Range,
         IReadOnlyList<(string Date, long Seconds)> Totals,
         long Busiest,
@@ -207,7 +217,6 @@ internal sealed partial class ScreenTimeView : Grid, IWidgetView, IWidgetSurface
     {
         var period = ScreenTimeRules.ClampPeriod(_config.Period);
         var hidden = ScreenTimeRules.Hidden(_config.HiddenApps);
-        var cap = ScreenTimeRules.ChartCap(_config.MaxApps);
 
         if (period == ScreenTimePeriod.Day)
         {
@@ -215,7 +224,7 @@ internal sealed partial class ScreenTimeView : Grid, IWidgetView, IWidgetSurface
             var apps = ScreenTimeRules.Visible(day.Apps, hidden);
             var total = ScreenTimeRules.Sum(apps);
 
-            return new Model(false, 1, total, ScreenTimeRules.Segments(apps, total, cap, "Other"), [day], [], 0, day.Switches, hidden);
+            return new Model(false, 1, total, ScreenTimeRules.Top(apps, apps.Count), [day], [], 0, day.Switches, hidden);
         }
 
         var length = ScreenTimeRules.RangeLength(period);
@@ -228,7 +237,7 @@ internal sealed partial class ScreenTimeView : Grid, IWidgetView, IWidgetSurface
             true,
             length,
             windowTotal,
-            ScreenTimeRules.Segments(aggregate, windowTotal, cap, "Other"),
+            ScreenTimeRules.Top(aggregate, aggregate.Count),
             range,
             totals,
             ScreenTimeRules.Busiest(totals),
@@ -262,7 +271,8 @@ internal sealed partial class ScreenTimeView : Grid, IWidgetView, IWidgetSurface
         _empty.Visibility = Visibility.Collapsed;
         _body.Visibility = Visibility.Visible;
 
-        if (_focus is not null && !_model.Segments.Any(s => s.Key == _focus) && !_model.Totals.Any(t => t.Date == _focus))
+        if (_focus is not null && _focus != ScreenTimeRules.OtherKey
+            && !_model.Apps.Any(a => a.App == _focus) && !_model.Totals.Any(t => t.Date == _focus))
         {
             _focus = null;
         }
@@ -275,15 +285,16 @@ internal sealed partial class ScreenTimeView : Grid, IWidgetView, IWidgetSurface
         _emptyText.Text = message;
         _empty.Visibility = Visibility.Visible;
         _body.Visibility = Visibility.Collapsed;
+        _footer.Visibility = Visibility.Collapsed;
     }
 
     /// <summary>[S-454] The header: day navigation for a day, the window's name for a window.</summary>
     private void UpdateNav()
     {
-        var narrow = ActualWidth > 0 && ActualWidth <= 220;
+        var narrow = _area.IsMeasured && _area.Width <= 220;
         var window = ScreenTimeRules.ClampPeriod(_config.Period) != ScreenTimePeriod.Day;
 
-        _nav.Visibility = ActualWidth > 0 && ActualWidth < NavHidesBelow ? Visibility.Collapsed : Visibility.Visible;
+        _nav.Visibility = _area.IsMeasured && _area.Width < NavHidesBelow ? Visibility.Collapsed : Visibility.Visible;
 
         _back.Visibility = window ? Visibility.Collapsed : Visibility.Visible;
         _forward.Visibility = window ? Visibility.Collapsed : Visibility.Visible;
@@ -310,20 +321,20 @@ internal sealed partial class ScreenTimeView : Grid, IWidgetView, IWidgetSurface
     private long? DayLimit => ScreenTimeRules.Limit(_config.GoalSeconds);
 
     /// <summary>[S-452]/[S-453]/[S-457] The headline: the total (a window's per-day average when judged), and the line under it.</summary>
-    private (string Total, string Detail, bool Over) Headline()
+    private (double Seconds, string Detail, bool Over) Headline()
     {
         if (_focus is { } focus)
         {
-            if (_model.Segments.FirstOrDefault(s => s.Key == focus) is { } segment)
+            if (_segments.FirstOrDefault(s => s.Key == focus) is { } segment)
             {
                 var share = ScreenTimeRules.Share(segment.Seconds, _model.Total);
-                return (ScreenTimeRules.FormatDuration(segment.Seconds), $"{segment.Name} · {Math.Round(share * 100)}%", false);
+                return (segment.Seconds, $"{segment.Name} · {Math.Round(share * 100)}%", false);
             }
 
             var day = _model.Totals.FirstOrDefault(t => t.Date == focus);
             if (day.Date is not null && LocalDay.TryParse(day.Date, out var date))
             {
-                return (ScreenTimeRules.FormatDuration(day.Seconds), Formatting.DayHeading(date.Date, (_source?.Today ?? date).Date), false);
+                return (day.Seconds, Formatting.DayHeading(date.Date, (_source?.Today ?? date).Date), false);
             }
         }
 
@@ -357,13 +368,29 @@ internal sealed partial class ScreenTimeView : Grid, IWidgetView, IWidgetSurface
             parts.Add(_model.Switches == 1 ? "1 switch" : string.Create(CultureInfo.InvariantCulture, $"{_model.Switches} switches"));
         }
 
-        return (ScreenTimeRules.FormatDuration(_model.Total), string.Join(" · ", parts), over);
+        return (_model.Total, string.Join(" · ", parts), over);
     }
 
-    private void ApplyHeadline(TextBlock total, TextBlock detail)
+    /// <summary>
+    /// Write the headline into a total and its line. In the ring's hole (<paramref name="hole"/> is
+    /// its text box) the total takes the largest type that fits, and drops its minutes when even
+    /// Caption cannot hold them ([S-1210]); elsewhere the caller has sized it.
+    /// </summary>
+    private void ApplyHeadline(TextBlock total, TextBlock detail, (double Width, double Height)? hole = null)
     {
-        var (text, line, over) = Headline();
-        total.Text = text;
+        var (seconds, line, over) = Headline();
+
+        if (hole is { } box)
+        {
+            var (text, step) = ScreenTimeRules.RingText(seconds, box.Width, box.Height);
+            total.Apply(step);
+            total.Text = text;
+        }
+        else
+        {
+            total.Text = ScreenTimeRules.FormatDuration(seconds);
+        }
+
         total.Foreground = over ? CriticalBrush : PrimaryBrush;
         detail.Text = line;
         detail.Visibility = line.Length > 0 ? Visibility.Visible : Visibility.Collapsed;
@@ -417,7 +444,7 @@ internal sealed partial class ScreenTimeView : Grid, IWidgetView, IWidgetSurface
 
         if (_ringTotal is not null && _ringDetail is not null)
         {
-            ApplyHeadline(_ringTotal, _ringDetail);
+            ApplyHeadline(_ringTotal, _ringDetail, _ringHole);
         }
     }
 

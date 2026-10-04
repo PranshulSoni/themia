@@ -216,6 +216,12 @@ public enum HeaderPlacement
 
     /// <summary>No header. The widget is the content and nothing else.</summary>
     Hidden = 2,
+
+    /// <summary>[S-862] Along the left edge, turned to read bottom to top. Groups only (<see cref="HeaderRules"/>).</summary>
+    Left = 3,
+
+    /// <summary>[S-862] Along the right edge, turned like <see cref="Left"/>. Groups only.</summary>
+    Right = 4,
 }
 
 /// <summary>

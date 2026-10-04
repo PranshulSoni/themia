@@ -18,15 +18,11 @@ internal static partial class ConfigPages
     {
         var rows = new List<FrameworkElement> { FluentLayout.Header("System") };
 
-        var startup = FluentLayout.Toggle(StartupRegistration.IsEnabled(), value =>
-        {
-            // Reflect what the registry actually ended up at, so a failed write does not leave the
-            // toggle claiming something untrue.
-            var achieved = StartupRegistration.SetEnabled(value);
-            host.Mutate(s => s.Design.RunAtStartup = achieved, relayout: false);
-        });
+        AddStartupRows(rows, host);
 
-        rows.Add(FluentLayout.Row(Glyphs.Startup, "Start with Windows", "Adds a per-user startup entry", startup));
+        // [S-930] / [S-920] The two desktop-integration switches, as in the original's General page.
+        rows.Add(DesktopIconsRow(host));
+        rows.Add(GameModeRow(host));
 
         var editToggle = FluentLayout.Toggle(host.EditMode, host.SetEditMode);
 
@@ -39,13 +35,58 @@ internal static partial class ConfigPages
         rows.Add(FluentLayout.Row(Glyphs.Edit, "Edit layout",
             "Show the drag handles and the snap grid on the desktop", editToggle));
 
+        // [S-847] A display Themia has not seen before shows this view instead of an empty one of its own.
+        var newDisplayOptions = new List<(string Value, string Label)> { (string.Empty, "A new view of its own") };
+        newDisplayOptions.AddRange(host.State.Views.Select(v => (v.Id, v.Name)));
+        var newDisplayView = new ComboBox { MinWidth = 220 };
+        foreach (var (value, label) in newDisplayOptions)
+        {
+            newDisplayView.Items.Add(new ComboBoxItem { Content = label, Tag = value });
+        }
+
+        newDisplayView.SelectedIndex = Math.Max(0, newDisplayOptions.FindIndex(o => o.Value == (host.State.DefaultViewForNewDisplays ?? string.Empty)));
+        newDisplayView.SelectionChanged += (_, _) =>
+        {
+            if (newDisplayView.SelectedItem is ComboBoxItem { Tag: string id })
+            {
+                host.Mutate(s => s.DefaultViewForNewDisplays = string.IsNullOrEmpty(id) ? null : id, relayout: false);
+            }
+        };
+
+        rows.Add(FluentLayout.Row(Glyphs.Display, "New displays show",
+            "The view a monitor shows the first time it is connected", newDisplayView, "monitor", "default view"));
+
+        // [S-1301]/[S-965] The network guard's one switch, as in the original: off, a feed, a
+        // favicon, a pinned page or an account server may not make Themia reach loopback, the LAN
+        // or a cloud metadata address.
+        rows.Add(FluentLayout.Row(Glyphs.Network, "Local network access",
+            "Let feeds, web elements and accounts reach addresses on this computer and your local network, such as a self-hosted feed, a mail or calendar server on a NAS, or a router page. Off blocks them, which protects against pages that try to reach your network",
+            FluentLayout.Toggle(host.State.Preferences.AllowPrivateNetwork,
+                value => host.Mutate(s => s.Preferences.AllowPrivateNetwork = value, relayout: false)),
+            "private network", "LAN", "SSRF"));
+
         rows.Add(FluentLayout.Header("Data"));
 
         var openFolder = new Button { Content = "Open data folder" };
         openFolder.Click += (_, _) => OpenDataFolder();
 
-        rows.Add(FluentLayout.Row(Glyphs.Info, "Settings and log",
-            "Where the layout, settings and log file live", openFolder));
+        rows.Add(FluentLayout.Row(Glyphs.Info, "Settings",
+            "Where the layout and settings live", openFolder));
+
+        // [S-990] Kept last, as in the original. Developer mode adds the Logs page to the menu and,
+        // with it, the verbose switch; leaving it turns verbose logging off too ([S-982]).
+        rows.Add(FluentLayout.Header("Developer"));
+        rows.Add(FluentLayout.Row(Glyphs.Code, "Developer mode",
+            "Adds the Logs page with verbose logging, for troubleshooting. What it unlocks is not meant for everyday use",
+            FluentLayout.Toggle(host.State.Preferences.DevMode, value => host.Mutate(s =>
+            {
+                s.Preferences.DevMode = value;
+                if (!value)
+                {
+                    s.Preferences.VerboseLogging = false;
+                }
+            }, relayout: false)),
+            "developer", "dev mode", "logs", "debug"));
 
         return Page("General", rows);
     }

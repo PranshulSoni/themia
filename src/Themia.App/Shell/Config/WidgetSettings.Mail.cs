@@ -40,7 +40,7 @@ internal static partial class WidgetSettings
                 value => { email.Folder = value; save(); })));
 
         rows.Add(FluentLayout.Row(Glyphs.Count, "Messages",
-            "The newest this many, across every account; a short widget shows fewer",
+            "At least the newest this many, across every account; a bigger widget lists more to fill its space",
             FluentLayout.Slider(email.EffectiveMaxCount, 1, 50, 1, string.Empty,
                 value => { email.MaxCount = (int)Math.Round(value); save(); })));
 

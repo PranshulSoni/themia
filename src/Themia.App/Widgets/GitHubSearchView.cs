@@ -21,7 +21,7 @@ namespace Themia.App.Widgets;
 /// every list on the desktop does; right-click has the page, its link and its repository ([S-749]).
 /// </para>
 /// </summary>
-internal sealed partial class GitHubSearchView : Grid, IWidgetView, IWidgetHeaderContent, IWidgetSurfaceAware, IWidgetContextActions, IWidgetSizeAware
+internal sealed partial class GitHubSearchView : Grid, IWidgetView, IWidgetHeaderContent, IWidgetSurfaceAware, IWidgetContextActions, IWidgetSizeAware, IWidgetKeys
 {
     /// <summary>[S-743] Two-line rows from this body height: a little lower than other lists, because the repository is what makes an item findable.</summary>
     private const double TwoLineFrom = 168;
@@ -31,6 +31,9 @@ internal sealed partial class GitHubSearchView : Grid, IWidgetView, IWidgetHeade
     private readonly StackPanel _list = new() { Spacing = 0 };
     private readonly ScrollViewer _scroll;
     private readonly List<IDisposable> _hovers = [];
+
+    /// <summary>[S-810] The rows' keyboard cursor, fed by the shell's keyboard lease.</summary>
+    private readonly RowCursor _cursor = new();
 
     private IGitHubSource? _source;
     private IDevFeed<IReadOnlyList<SearchItem>>? _feed;
@@ -153,6 +156,17 @@ internal sealed partial class GitHubSearchView : Grid, IWidgetView, IWidgetHeade
 
     private void Render()
     {
+        RenderRows();
+
+        // [S-810] Once the rows are in the tree, the keyboard focus goes back to its row.
+        _cursor.Restore();
+    }
+
+    /// <summary>[S-810] A key from the shell's keyboard lease, which a click on the widget gives it.</summary>
+    public bool HandleKey(WidgetKey key) => !_detached && _cursor.HandleKey(key);
+
+    private void RenderRows()
+    {
         if (_detached)
         {
             return;
@@ -190,7 +204,7 @@ internal sealed partial class GitHubSearchView : Grid, IWidgetView, IWidgetHeade
             var meta = Reviews && item.Author.Length > 0 && !_layout.Detail ? $"{item.Repo} · {item.Author}" : item.Repo;
             var lead = Reviews && item.Draft ? $"#{item.Number} draft" : $"#{item.Number}";
 
-            _list.Children.Add(DevRows.Build(
+            var row = DevRows.Build(
                 new DevRowText(
                     item.Title,
                     lead,
@@ -203,7 +217,10 @@ internal sealed partial class GitHubSearchView : Grid, IWidgetView, IWidgetHeade
                     item.Labels),
                 _layout,
                 _hovers,
-                () => Menu(item)));
+                () => Menu(item));
+
+            _list.Children.Add(row);
+            _cursor.Add(row, item.HtmlUrl, () => Menu(item));
         }
     }
 
@@ -231,6 +248,7 @@ internal sealed partial class GitHubSearchView : Grid, IWidgetView, IWidgetHeade
         }
 
         _hovers.Clear();
+        _cursor.Clear();
         _list.Children.Clear();
     }
 

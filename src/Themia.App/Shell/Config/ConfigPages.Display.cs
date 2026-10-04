@@ -1,27 +1,82 @@
-﻿using Microsoft.UI;
-using Microsoft.UI.Text;
-using Microsoft.UI.Xaml;
+﻿using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
-using Microsoft.UI.Xaml.Media;
 using Themia.App.Services;
-using Themia.App.Widgets;
-using Themia.Core.Diagnostics;
 using Themia.Core.Model;
-using Themia.Core.Widgets;
+using Themia.Core.Storage;
 
 namespace Themia.App.Shell.Config;
 
-/// <summary>One display's page.</summary>
+/// <summary>
+/// [S-853] One display's page: whether Themia is shown there, which view it shows, how much it
+/// magnifies widgets, and what Windows reports about it.
+/// </summary>
 internal static partial class ConfigPages
 {
     private static FrameworkElement BuildDisplay(AppHost host, string monitorId)
     {
-        var surface = host.Surfaces.FirstOrDefault(s => s.Monitor.DeviceName == monitorId);
-        if (surface is null)
+        if (host.FindDisplay(monitorId) is not { } display)
         {
             return Page("Display", [Note("This display is no longer connected.")]);
         }
 
+        var state = host.State;
+        var enabled = !state.DisabledMonitors.Contains(monitorId);
+        var connected = host.Displays.Select(d => d.Info).ToList();
+
+        // [S-845] The last display Themia is on cannot be switched off: with no surface there is no
+        // edit mode and no way back here.
+        var canToggle = !enabled || DisplayPlan.CanDisable(connected, state.DisabledMonitors, monitorId);
+        ToggleSwitch? show = null;
+        var reverting = false;
+        show = FluentLayout.Toggle(enabled, on =>
+        {
+            // Refused (logged by the host): put the switch back rather than show a state that isn't so.
+            if (!reverting && !host.SetDisplayEnabled(monitorId, on) && show is not null)
+            {
+                reverting = true;
+                show.IsOn = !on;
+                reverting = false;
+            }
+        });
+        show.IsEnabled = canToggle;
+
+        var rows = new List<FrameworkElement>
+        {
+            FluentLayout.Row(Glyphs.Display, "Show Themia on this display",
+                canToggle
+                    ? "Off hides every widget here and lets the whole screen through to the desktop"
+                    : "Themia has to stay on at least one display",
+                show, "enable", "disable", "hide", "monitor"),
+
+            FluentLayout.Row(Glyphs.View, "Shows", "Which view this display renders", ViewChoice(host, monitorId), "view"),
+
+            FluentLayout.Row(Glyphs.Scale, "Widget scale",
+                "Makes everything inside the widgets on this display bigger or smaller; where they sit and their size stay the same",
+                FluentLayout.Slider(
+                    (state.MonitorScales.TryGetValue(monitorId, out var scale) ? scale : 1.0) * 100,
+                    AppStateStore.MinMonitorScale * 100,
+                    AppStateStore.MaxMonitorScale * 100,
+                    5,
+                    "%",
+                    value => host.SetDisplayScale(monitorId, value / 100)),
+                "zoom", "size", "text size", "magnify"),
+
+            FluentLayout.Row(Glyphs.Display, "Resolution",
+                $"Widgets are laid out over the whole screen; the taskbar leaves {display.WorkArea.Width} × {display.WorkArea.Height} for placing new ones",
+                new TextBlock
+                {
+                    Text = $"{display.Bounds.Width} × {display.Bounds.Height}",
+                    VerticalAlignment = VerticalAlignment.Center,
+                },
+                "work area", "taskbar"),
+        };
+
+        return Page(display.ShortName, rows, display.Describe());
+    }
+
+    /// <summary>The view drop-down: an explicit view, or the active view.</summary>
+    private static ComboBox ViewChoice(AppHost host, string monitorId)
+    {
         var options = new List<(string Value, string Label)> { (string.Empty, "Follow the active view") };
         options.AddRange(host.State.Views.Select(v => (v.Id, v.Name)));
 
@@ -54,15 +109,6 @@ internal static partial class ConfigPages
             });
         };
 
-        var area = surface.Monitor.WorkArea;
-
-        var rows = new List<FrameworkElement>
-        {
-            FluentLayout.Row(Glyphs.View, "Shows", "Which view this display renders", combo),
-            FluentLayout.Row(Glyphs.Display, "Work area", $"{area.Width} x {area.Height} physical pixels",
-                new TextBlock { Text = surface.Monitor.IsPrimary ? "Primary" : string.Empty }),
-        };
-
-        return Page(monitorId, rows);
+        return combo;
     }
 }

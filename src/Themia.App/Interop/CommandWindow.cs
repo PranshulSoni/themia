@@ -29,6 +29,11 @@ internal sealed unsafe class CommandWindow : IDisposable
     private const uint WsPopup = 0x80000000;
     private const int HotkeyId = 1;
 
+    private const uint WmDisplayChange = 0x007E;
+    private const uint WmSettingChange = 0x001A;
+    private const uint WmDpiChanged = 0x02E0;
+    private const nint SpiSetWorkArea = 0x002F;
+
     private static CommandWindow? _instance;
     private static ushort _atom;
 
@@ -38,12 +43,30 @@ internal sealed unsafe class CommandWindow : IDisposable
     /// </summary>
     private static uint _activateMessage;
 
+    /// <summary>
+    /// Explorer's "the taskbar was (re)created" broadcast. After an Explorer restart the taskbar comes
+    /// back with its own size and position, and nothing else announces the new work area reliably.
+    /// </summary>
+    private static uint _taskbarCreatedMessage;
+
     private nint _hwnd;
     private bool _hotkeyRegistered;
     private bool _disposed;
 
     /// <summary>Raised when the user asks for edit mode, by hotkey or by launching the app again.</summary>
     public event Action? EditModeToggleRequested;
+
+    /// <summary>
+    /// [S-848] A display was added, removed, re-arranged, re-sized or re-scaled, or the work area
+    /// changed (the taskbar moved, was resized, or auto-hide was switched). Raised on the UI thread,
+    /// once per message: the receiver coalesces.
+    /// <para>
+    /// This window hears them because it is a real top-level window: <c>WM_DISPLAYCHANGE</c> and
+    /// <c>WM_SETTINGCHANGE</c> are broadcast to every top-level window, shown or not, and never to a
+    /// message-only one.
+    /// </para>
+    /// </summary>
+    public event Action? DisplaysChanged;
 
     /// <summary>
     /// Hand the request to a copy that is already running and report that we should stand down.
@@ -137,6 +160,12 @@ internal sealed unsafe class CommandWindow : IDisposable
             Log.Warn(Scope, "could not register the activation message; launching Themia again will not reach this copy");
         }
 
+        _taskbarCreatedMessage = Win32.RegisterWindowMessage("TaskbarCreated");
+        if (_taskbarCreatedMessage == 0)
+        {
+            Log.Warn(Scope, "could not register TaskbarCreated; an Explorer restart may leave widgets placed for the old taskbar");
+        }
+
         RegisterHotkey();
         return true;
     }
@@ -187,6 +216,15 @@ internal sealed unsafe class CommandWindow : IDisposable
                 {
                     self.EditModeToggleRequested?.Invoke();
                     return 0;
+                }
+
+                if (msg == WmDisplayChange
+                    || msg == WmDpiChanged
+                    || (msg == WmSettingChange && wParam == SpiSetWorkArea)
+                    || (_taskbarCreatedMessage != 0 && msg == _taskbarCreatedMessage))
+                {
+                    // Not handled: DefWindowProc still sees it, as every other window's does.
+                    self.DisplaysChanged?.Invoke();
                 }
             }
         }

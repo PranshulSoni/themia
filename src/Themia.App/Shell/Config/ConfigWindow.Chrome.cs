@@ -362,24 +362,14 @@ internal sealed partial class ConfigWindow
             return;
         }
 
-        var theme = _host.State.Design.Theme;
-
-        root.RequestedTheme = theme switch
-        {
-            AppTheme.Light => ElementTheme.Light,
-            AppTheme.Dark => ElementTheme.Dark,
-            _ => ElementTheme.Default,
-        };
+        // [S-822] The engine's effective theme, resolved even for "use system setting": the brushes
+        // code hands out are that theme's, so the window's own controls have to be the same one.
+        root.RequestedTheme = DesignApplier.Theme;
 
         // The caption buttons follow the same choice, or they draw dark glyphs on a dark page.
         try
         {
-            _window.AppWindow.TitleBar.PreferredTheme = theme switch
-            {
-                AppTheme.Light => TitleBarTheme.Light,
-                AppTheme.Dark => TitleBarTheme.Dark,
-                _ => TitleBarTheme.UseDefaultAppMode,
-            };
+            _window.AppWindow.TitleBar.PreferredTheme = DesignApplier.IsDark ? TitleBarTheme.Dark : TitleBarTheme.Light;
         }
         catch (Exception ex)
         {

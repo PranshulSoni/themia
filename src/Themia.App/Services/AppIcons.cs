@@ -7,51 +7,74 @@ using Themia.Core.Diagnostics;
 namespace Themia.App.Services;
 
 /// <summary>
-/// An executable's own icon, as something XAML can draw.
+/// The icon Explorer shows for a file, a folder, an executable or a Windows location
+/// (<c>shell:RecycleBinFolder</c>, <c>shell:Downloads</c>), as something XAML can draw.
 /// <para>
-/// The extraction — shell icon lookup, then the icon's pixels copied out through GDI — runs on the
-/// thread pool, because the first look at a binary is disk I/O. Only the last step, wrapping the
-/// pixels in a bitmap, happens on the UI thread, where XAML objects must be made. Each path is
-/// extracted once per run and the bitmap shared by every widget that shows it; a path with no
-/// usable icon is remembered as such, so it is not asked again on every refresh.
+/// One extraction path for all of them: the shell item for the parsing name, asked through
+/// <c>IShellItemImageFactory</c> for its icon (never a thumbnail) at the pixel size wanted. A
+/// <c>shell:</c> name has no file-system path, so this is also the only way to get the Recycle Bin's
+/// or This PC's real icon ([S-1383]); and asking at the drawn size keeps a 48 DIP tile sharp at 200%.
 /// </para>
 /// <para>
-/// Every handle the extraction takes — the icon, its two bitmaps, the memory DC — is released on
-/// every path out, by the <c>finally</c> that owns it.
+/// The extraction runs on the thread pool, because the first look at a binary is disk I/O. Only the
+/// last step, wrapping the pixels in a bitmap, happens on the UI thread, where XAML objects must be
+/// made. Each (path, size, variant) is extracted once per run and the bitmap shared by every widget
+/// that shows it; one with no usable icon is remembered as such. A <c>variant</c> keeps two states of
+/// one item apart (the Recycle Bin empty and full), so the one cached never stands for the other.
+/// </para>
+/// <para>
+/// Every handle the extraction takes (the COM object, the bitmap, the memory DC) is released on
+/// every path out, by the <c>finally</c> that owns it. Callers decide what may be probed at all
+/// (<see cref="Themia.Core.Widgets.LaunchTargets.MayProbe"/>): looking at a UNC path connects to its
+/// server.
 /// </para>
 /// </summary>
 internal static partial class AppIcons
 {
     private const string Scope = "app-icons";
 
-    /// <summary>Pixels per side: crisp at 200% for an icon drawn at 20 DIPs, and still small in memory.</summary>
-    private const int Size = 48;
+    /// <summary>Pixels per side by default: crisp at 200% for an icon drawn at 20 DIPs, and still small in memory.</summary>
+    public const int DefaultSize = 48;
 
     private static readonly Dictionary<string, ImageSource?> Ready = new(StringComparer.OrdinalIgnoreCase);
     private static readonly Dictionary<string, Task<Pixels?>> Pending = new(StringComparer.OrdinalIgnoreCase);
 
+    /// <summary>
+    /// One extraction at a time. The shell answers E_PENDING to concurrent first-time icon requests
+    /// (its icon cache is still filling for the first one), so asking one by one is what makes the
+    /// first answer the real one.
+    /// </summary>
+    private static readonly SemaphoreSlim OneAtATime = new(1, 1);
+
     private sealed record Pixels(int Width, int Height, byte[] Bgra);
 
+    /// <summary>The icon for <paramref name="path"/> at the default size, or null when it has none.</summary>
+    public static Task<ImageSource?> GetAsync(string path) => GetAsync(path, DefaultSize);
+
     /// <summary>
-    /// The icon for <paramref name="path"/>, or null when it has none. UI thread only: it builds the
-    /// bitmap there, and the two caches are only ever touched from it.
+    /// The icon for <paramref name="path"/> (a file-system path or a <c>shell:</c> name) at
+    /// <paramref name="size"/> pixels, or null when it has none. UI thread only: it builds the bitmap
+    /// there, and the two caches are only ever touched from it.
     /// </summary>
-    public static async Task<ImageSource?> GetAsync(string path)
+    public static async Task<ImageSource?> GetAsync(string path, int size, string? variant = null)
     {
         if (string.IsNullOrWhiteSpace(path))
         {
             return null;
         }
 
-        if (Ready.TryGetValue(path, out var known))
+        size = Math.Clamp(size, 16, 256);
+        var key = string.Concat(size.ToString(System.Globalization.CultureInfo.InvariantCulture), "|", variant, "|", path);
+
+        if (Ready.TryGetValue(key, out var known))
         {
             return known;
         }
 
-        if (!Pending.TryGetValue(path, out var task))
+        if (!Pending.TryGetValue(key, out var task))
         {
-            task = Task.Run(() => Extract(path));
-            Pending[path] = task;
+            task = ExtractSerialisedAsync(path, size);
+            Pending[key] = task;
         }
 
         Pixels? pixels;
@@ -65,16 +88,30 @@ internal static partial class AppIcons
             pixels = null;
         }
 
-        Pending.Remove(path);
+        Pending.Remove(key);
 
-        if (Ready.TryGetValue(path, out known))
+        if (Ready.TryGetValue(key, out known))
         {
             return known;
         }
 
         var image = pixels is null ? null : ToBitmap(pixels);
-        Ready[path] = image;
+        Ready[key] = image;
         return image;
+    }
+
+    private static async Task<Pixels?> ExtractSerialisedAsync(string path, int size)
+    {
+        await OneAtATime.WaitAsync().ConfigureAwait(false);
+
+        try
+        {
+            return await Task.Run(() => Extract(path, size)).ConfigureAwait(false);
+        }
+        finally
+        {
+            OneAtATime.Release();
+        }
     }
 
     private static WriteableBitmap ToBitmap(Pixels pixels)
@@ -85,120 +122,136 @@ internal static partial class AppIcons
         return bitmap;
     }
 
-    private static unsafe Pixels? Extract(string path)
+    private static unsafe Pixels? Extract(string path, int size)
     {
-        nint icon = 0;
+        // The shell's objects want COM on this thread. Multithreaded, so a pool thread needs no
+        // message pump; an apartment-threaded icon handler is hosted for us by COM. A thread that is
+        // already initialised the other way (RPC_E_CHANGED_MODE) is used as it is and not
+        // uninitialised.
+        var initialised = CoInitializeEx(0, CoInitMultithreaded);
+        nint factory = 0;
+        nint bitmap = 0;
 
         try
         {
-            if (SHDefExtractIcon(path, 0, 0, &icon, null, Size) != 0 || icon == 0)
+            var iid = ImageFactoryIid;
+
+            if (SHCreateItemFromParsingName(path, 0, &iid, &factory) < 0 || factory == 0)
             {
                 return null;
             }
 
-            return Read(icon);
+            // IShellItemImageFactory::GetImage is slot 3, after IUnknown's three.
+            var getImage = (delegate* unmanaged[Stdcall]<nint, IconSize, int, nint*, int>)(*(nint**)factory)[3];
+
+            var hrImage = getImage(factory, new IconSize(size, size), IconOnly, &bitmap);
+
+            // E_PENDING: the shell is still extracting this icon for an earlier caller. Asked once
+            // more, at once (no wait); a second E_PENDING is an icon this run does without.
+            if (hrImage == EPending)
+            {
+                hrImage = getImage(factory, new IconSize(size, size), IconOnly, &bitmap);
+            }
+
+            if (hrImage < 0 || bitmap == 0)
+            {
+                return null;
+            }
+
+            return Read(bitmap);
         }
         finally
         {
-            if (icon != 0)
+            if (bitmap != 0)
             {
-                DestroyIcon(icon);
+                DeleteObject(bitmap);
+            }
+
+            if (factory != 0)
+            {
+                var release = (delegate* unmanaged[Stdcall]<nint, uint>)(*(nint**)factory)[2];
+                release(factory);
+            }
+
+            if (initialised >= 0)
+            {
+                CoUninitialize();
             }
         }
     }
 
-    /// <summary>An icon's pixels as premultiplied BGRA, or null for a monochrome or unreadable icon.</summary>
-    private static unsafe Pixels? Read(nint icon)
+    /// <summary>A 32-bit bitmap's pixels as premultiplied BGRA, or null for one that cannot be read.</summary>
+    private static unsafe Pixels? Read(nint bitmap)
     {
-        if (!GetIconInfo(icon, out var info))
+        BitmapHeader bm;
+        if (GetObject(bitmap, sizeof(BitmapHeader), &bm) == 0 || bm.Width <= 0 || bm.Height <= 0 || bm.Width > 256 || bm.Height > 256)
         {
             return null;
         }
 
-        nint memory = 0;
+        var memory = CreateCompatibleDC(0);
+        if (memory == 0)
+        {
+            return null;
+        }
 
         try
         {
-            if (info.Color == 0)
-            {
-                return null;
-            }
-
-            BitmapHeader bm;
-            if (GetObject(info.Color, sizeof(BitmapHeader), &bm) == 0 || bm.Width <= 0 || bm.Height <= 0 || bm.Width > 256 || bm.Height > 256)
-            {
-                return null;
-            }
-
-            memory = CreateCompatibleDC(0);
-            if (memory == 0)
-            {
-                return null;
-            }
-
             var width = bm.Width;
             var height = bm.Height;
             var color = new byte[width * height * 4];
 
-            if (!Bits(memory, info.Color, width, height, color))
+            if (!Bits(memory, bitmap, width, height, color))
             {
                 return null;
             }
 
             var hasAlpha = false;
-            for (var i = 3; i < color.Length; i += 4)
-            {
-                if (color[i] != 0)
-                {
-                    hasAlpha = true;
-                    break;
-                }
-            }
+            var straight = false;
 
-            // An old-style icon carries its transparency in the mask instead of an alpha channel.
-            if (!hasAlpha)
-            {
-                var mask = new byte[width * height * 4];
-                var haveMask = info.Mask != 0 && Bits(memory, info.Mask, width, height, mask);
-
-                for (var i = 0; i < color.Length; i += 4)
-                {
-                    color[i + 3] = haveMask && mask[i] != 0 ? (byte)0 : (byte)255;
-                }
-            }
-
-            // XAML wants premultiplied alpha; GDI hands over straight alpha.
             for (var i = 0; i < color.Length; i += 4)
             {
                 var alpha = color[i + 3];
-                if (alpha == 255)
+                hasAlpha |= alpha != 0;
+
+                // A channel brighter than its alpha cannot be premultiplied: the shell handed over
+                // straight alpha (it does for some icons and not others), so it is converted below.
+                straight |= color[i] > alpha || color[i + 1] > alpha || color[i + 2] > alpha;
+            }
+
+            if (!hasAlpha)
+            {
+                // No alpha channel at all: an opaque bitmap.
+                for (var i = 3; i < color.Length; i += 4)
                 {
-                    continue;
+                    color[i] = 255;
                 }
 
-                color[i] = (byte)(color[i] * alpha / 255);
-                color[i + 1] = (byte)(color[i + 1] * alpha / 255);
-                color[i + 2] = (byte)(color[i + 2] * alpha / 255);
+                return new Pixels(width, height, color);
+            }
+
+            if (straight)
+            {
+                // XAML wants premultiplied alpha.
+                for (var i = 0; i < color.Length; i += 4)
+                {
+                    var alpha = color[i + 3];
+                    if (alpha == 255)
+                    {
+                        continue;
+                    }
+
+                    color[i] = (byte)(color[i] * alpha / 255);
+                    color[i + 1] = (byte)(color[i + 1] * alpha / 255);
+                    color[i + 2] = (byte)(color[i + 2] * alpha / 255);
+                }
             }
 
             return new Pixels(width, height, color);
         }
         finally
         {
-            if (memory != 0)
-            {
-                DeleteDC(memory);
-            }
-
-            if (info.Color != 0)
-            {
-                DeleteObject(info.Color);
-            }
-
-            if (info.Mask != 0)
-            {
-                DeleteObject(info.Mask);
-            }
+            DeleteDC(memory);
         }
     }
 
@@ -221,15 +274,18 @@ internal static partial class AppIcons
         }
     }
 
+    /// <summary>IShellItemImageFactory's SIIGBF_ICONONLY: the item's icon, never a thumbnail of its contents.</summary>
+    private const int IconOnly = 0x4;
+
+    private const int EPending = unchecked((int)0x8000000A);
+
+    private const uint CoInitMultithreaded = 0x0;
+
+    /// <summary>IID_IShellItemImageFactory.</summary>
+    private static readonly Guid ImageFactoryIid = new("bcc18b79-ba16-442f-80c4-8a59c30c463b");
+
     [StructLayout(LayoutKind.Sequential)]
-    private struct IconInfo
-    {
-        public int IsIcon;
-        public uint HotspotX;
-        public uint HotspotY;
-        public nint Mask;
-        public nint Color;
-    }
+    private readonly record struct IconSize(int Width, int Height);
 
     [StructLayout(LayoutKind.Sequential)]
     private struct BitmapHeader
@@ -263,16 +319,14 @@ internal static partial class AppIcons
         public uint Palette0;
     }
 
-    [LibraryImport("shell32.dll", EntryPoint = "SHDefExtractIconW", StringMarshalling = StringMarshalling.Utf16)]
-    private static unsafe partial int SHDefExtractIcon(string iconFile, int index, uint flags, nint* large, nint* small, uint size);
+    [LibraryImport("shell32.dll", StringMarshalling = StringMarshalling.Utf16)]
+    private static unsafe partial int SHCreateItemFromParsingName(string path, nint bindContext, Guid* iid, nint* item);
 
-    [LibraryImport("user32.dll")]
-    [return: MarshalAs(UnmanagedType.Bool)]
-    private static partial bool DestroyIcon(nint icon);
+    [LibraryImport("ole32.dll")]
+    private static partial int CoInitializeEx(nint reserved, uint flags);
 
-    [LibraryImport("user32.dll")]
-    [return: MarshalAs(UnmanagedType.Bool)]
-    private static partial bool GetIconInfo(nint icon, out IconInfo info);
+    [LibraryImport("ole32.dll")]
+    private static partial void CoUninitialize();
 
     [LibraryImport("gdi32.dll", EntryPoint = "GetObjectW")]
     private static unsafe partial int GetObject(nint handle, int size, void* buffer);

@@ -21,7 +21,7 @@ namespace Themia.App.Widgets;
 /// shows at once and the feed then reads the truth.
 /// </para>
 /// </summary>
-internal sealed partial class GitHubNotificationsView : Grid, IWidgetView, IWidgetHeaderContent, IWidgetSurfaceAware, IWidgetContextActions, IWidgetSizeAware
+internal sealed partial class GitHubNotificationsView : Grid, IWidgetView, IWidgetHeaderContent, IWidgetSurfaceAware, IWidgetContextActions, IWidgetSizeAware, IWidgetKeys
 {
     /// <summary>Below this body height the list is not grouped: a heading would cost one of few rows.</summary>
     private const double GroupingNeedsHeight = 160;
@@ -29,6 +29,9 @@ internal sealed partial class GitHubNotificationsView : Grid, IWidgetView, IWidg
     private readonly DevChrome _chrome = new(Glyphs.Bell);
     private readonly DevColumns _lists = new();
     private readonly List<IDisposable> _hovers = [];
+
+    /// <summary>[S-810] The rows' keyboard cursor, fed by the shell's keyboard lease.</summary>
+    private readonly RowCursor _cursor = new();
 
     /// <summary>Threads marked read here and not yet confirmed by a fetch, so the change shows at once.</summary>
     private readonly HashSet<(string AccountId, string Id)> _readHere = [];
@@ -163,6 +166,17 @@ internal sealed partial class GitHubNotificationsView : Grid, IWidgetView, IWidg
 
     private void Render()
     {
+        RenderRows();
+
+        // [S-810] Once the rows are in the tree, the keyboard focus goes back to its row.
+        _cursor.Restore();
+    }
+
+    /// <summary>[S-810] A key from the shell's keyboard lease, which a click on the widget gives it.</summary>
+    public bool HandleKey(WidgetKey key) => !_detached && _cursor.HandleKey(key);
+
+    private void RenderRows()
+    {
         if (_detached)
         {
             return;
@@ -267,7 +281,7 @@ internal sealed partial class GitHubNotificationsView : Grid, IWidgetView, IWidg
             detail = string.Empty;
         }
 
-        list.Children.Add(DevRows.Build(
+        var row = DevRows.Build(
             new DevRowText(
                 item.Title,
                 reason,
@@ -280,7 +294,10 @@ internal sealed partial class GitHubNotificationsView : Grid, IWidgetView, IWidg
                 Unread: marks ? item.Unread : null),
             _layout,
             _hovers,
-            () => Menu(item)));
+            () => Menu(item));
+
+        list.Children.Add(row);
+        _cursor.Add(row, item.HtmlUrl, () => Menu(item));
     }
 
     /// <summary>[S-621][S-749] A thread's own menu: open it, copy its link, open its repository, mark it or its repository read.</summary>
@@ -384,6 +401,7 @@ internal sealed partial class GitHubNotificationsView : Grid, IWidgetView, IWidg
         }
 
         _hovers.Clear();
+        _cursor.Clear();
         _lists.Reset(_lists.Count);
     }
 

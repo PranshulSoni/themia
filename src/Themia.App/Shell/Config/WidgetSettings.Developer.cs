@@ -387,7 +387,7 @@ internal static partial class WidgetSettings
 
         if (accounts.Count == 0 || accounts.Any(a => a.Problem is not null))
         {
-            rows.Add(FluentLayout.ClickRow(Glyphs.Contact, "Accounts",
+            rows.Add(FluentLayout.NavRow(Glyphs.Contact, "Accounts",
                 accounts.Count == 0 ? $"Sign in to {service}" : "An account needs you to sign in again",
                 () => navigate(new ConfigTarget.App(AppPage.Accounts))));
         }

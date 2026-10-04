@@ -182,18 +182,17 @@ internal sealed partial class HabitTrackerView
     // ---- the keyboard ([S-1428]) --------------------------------------------------------------------
 
     /// <summary>
-    /// Whether this widget wants the keyboard: an editor is open or a row is focused. The one place
-    /// that asks the surface — when the shell grows its shared keyboard lease, only this changes; the
-    /// row and editor handlers below already carry every key.
+    /// [S-809] Whether an editor is being typed into. The arrows need nothing asked: a click anywhere
+    /// in the widget gives it the shell's keyboard lease (<see cref="IWidgetKeys"/>), and an editor
+    /// closing keeps it. This is only the text box's share of the same lease.
     /// </summary>
-    private void UpdateKeyboard() => _surface?.RequestTextInput(!_detached && (_editor is not null || _rowFocused));
+    private void UpdateKeyboard() => _surface?.RequestTextInput(!_detached && _editor is not null);
 
     private void FocusRow(HabitRow row)
     {
         _rowFocused = true;
         _focusId = row.Id;
         _focusIndex = Math.Max(0, _rows.IndexOf(row));
-        UpdateKeyboard();
         row.Host.Focus(FocusState.Keyboard);
         row.Host.StartBringIntoView();
     }
@@ -225,56 +224,68 @@ internal sealed partial class HabitTrackerView
     {
         _rowFocused = false;
         _focusId = null;
-        UpdateKeyboard();
     }
 
-    private void OnRowKey(HabitRow row, KeyRoutedEventArgs args)
+    /// <summary>
+    /// [S-1428]/[S-809] A key from the shell's keyboard lease: the arrows and Home/End move the row
+    /// focus, Tab / Shift+Tab wrap, Enter ticks, F2 renames, Delete removes, Escape (also the lease
+    /// ending) lets go. With no row focused yet a movement key lands on an end ([S-812]). An open
+    /// editor owns its own keys.
+    /// </summary>
+    public bool HandleKey(WidgetKey key)
     {
-        if (_editor is not null || Key(args.Key) is not { } key)
+        if (_detached)
         {
-            return;
+            return false;
         }
 
-        args.Handled = true;
-        var decision = HabitLayout.Decide(key, _rows.IndexOf(row), _rows.Count);
+        if (_editor is not null)
+        {
+            if (key == WidgetKey.Escape)
+            {
+                ReleaseRowFocus();
+            }
+
+            return false;
+        }
+
+        var index = _rowFocused ? FocusedIndex() : -1;
+        var decision = HabitLayout.Decide(key, index, _rows.Count);
+        var row = decision.Index >= 0 && decision.Index < _rows.Count ? _rows[decision.Index] : null;
 
         switch (decision.Command)
         {
-            case HabitKeyCommand.Focus:
-                FocusRow(_rows[decision.Index]);
-                break;
+            case HabitKeyCommand.Focus when row is not null:
+                FocusRow(row);
+                return true;
 
-            case HabitKeyCommand.Toggle:
+            case HabitKeyCommand.Toggle when row is not null:
                 Toggle(row.Id);
-                break;
+                return true;
 
-            case HabitKeyCommand.Delete:
+            case HabitKeyCommand.Delete when row is not null:
                 Delete(row.Id);
-                break;
+                return true;
 
-            case HabitKeyCommand.Rename:
+            case HabitKeyCommand.Rename when row is not null:
                 BeginRename(row.Id);
-                break;
+                return true;
 
-            case HabitKeyCommand.Release:
+            case HabitKeyCommand.Release when _rowFocused:
                 ReleaseRowFocus();
-                break;
+                return true;
+
+            default:
+                return false;
         }
     }
 
-    private static HabitKey? Key(VirtualKey key) => key switch
+    /// <summary>The focused habit's row now, or the row in its old place when the habit has gone.</summary>
+    private int FocusedIndex()
     {
-        VirtualKey.Up => HabitKey.Up,
-        VirtualKey.Down => HabitKey.Down,
-        VirtualKey.Home => HabitKey.Home,
-        VirtualKey.End => HabitKey.End,
-        VirtualKey.Tab => ShiftDown() ? HabitKey.ShiftTab : HabitKey.Tab,
-        VirtualKey.Enter => HabitKey.Enter,
-        VirtualKey.Delete => HabitKey.Delete,
-        VirtualKey.F2 => HabitKey.Rename,
-        VirtualKey.Escape => HabitKey.Escape,
-        _ => null,
-    };
+        var at = _focusId is null ? -1 : _rows.FindIndex(r => r.Id == _focusId);
+        return at >= 0 ? at : Math.Clamp(_focusIndex, 0, Math.Max(0, _rows.Count - 1));
+    }
 
     private static bool ShiftDown()
         => InputKeyboardSource.GetKeyStateForCurrentThread(VirtualKey.Shift).HasFlag(CoreVirtualKeyStates.Down);
@@ -658,8 +669,6 @@ internal sealed partial class HabitTrackerView
             Host.IsTabStop = true;
             Host.UseSystemFocusVisuals = true;
             Host.Tapped += OnRowTapped;
-            Host.KeyDown += OnKeyDown;
-            Host.PreviewKeyDown += OnPreviewKeyDown;
             Host.LostFocus += OnLostFocus;
 
             _hover = Fluent.Hover(Host);
@@ -829,23 +838,6 @@ internal sealed partial class HabitTrackerView
             }
         }
 
-        private void OnKeyDown(object sender, KeyRoutedEventArgs args)
-        {
-            if (args.Key != VirtualKey.Tab)
-            {
-                _owner.OnRowKey(this, args);
-            }
-        }
-
-        /// <summary>Tab before focus navigation takes it: it moves between rows, wrapping.</summary>
-        private void OnPreviewKeyDown(object sender, KeyRoutedEventArgs args)
-        {
-            if (args.Key == VirtualKey.Tab && ReferenceEquals(args.OriginalSource, Host))
-            {
-                _owner.OnRowKey(this, args);
-            }
-        }
-
         private void OnLostFocus(object sender, RoutedEventArgs args) => _owner.OnRowLostFocus();
 
         /// <summary>Safe to call twice: every handle is idempotent.</summary>
@@ -857,8 +849,6 @@ internal sealed partial class HabitTrackerView
             _box.DoubleTapped -= OnBoxDoubleTapped;
             _name.DoubleTapped -= OnNameDoubleTapped;
             Host.Tapped -= OnRowTapped;
-            Host.KeyDown -= OnKeyDown;
-            Host.PreviewKeyDown -= OnPreviewKeyDown;
             Host.LostFocus -= OnLostFocus;
         }
     }

@@ -23,7 +23,7 @@ namespace Themia.App.Shell;
 
 /// <summary>
 /// The widget surface for one display: a borderless, transparent, never-focused window covering the
-/// monitor's work area, holding every card in that monitor's view.
+/// <b>whole monitor</b> ([S-840]), holding every card in that monitor's view.
 /// <para>
 /// One window per monitor rather than one per widget. A widget is a card on a shared pane, so the
 /// process pays for one HWND, one composition target and one render thread per display no matter
@@ -48,12 +48,6 @@ internal sealed partial class DesktopWindow : IWidgetCardHost
     private readonly TextBlock _ghostLabel;
     private readonly Grid _root;
     private readonly List<WidgetCard> _cards = [];
-
-    /// <summary>
-    /// The cards currently asking for the keyboard. A set rather than a flag because two widgets on
-    /// one surface can each be typed into, and the last one to finish is the one that gives it back.
-    /// </summary>
-    private readonly HashSet<WidgetCard> _textInputWanted = [];
 
     private MonitorTarget _monitor;
     private nint _hwnd;
@@ -108,23 +102,31 @@ internal sealed partial class DesktopWindow : IWidgetCardHost
             Background = new SolidColorBrush(Colors.Transparent),
             Children = { _gridOverlay, _widgetLayer, _ghostLayer, _toolbar, _placementHint },
 
-            // Focusable so edit-mode keyboard commands (copy / cut / paste / delete) land here.
+            // Focusable so edit-mode keyboard commands (copy / cut / paste / delete) and the keys of
+            // a widget holding the keyboard lease ([S-800]) land here.
             IsTabStop = true,
         };
 
+        // [S-860] Lease keys tunnel to the holder before a ScrollViewer inside its card can take
+        // them; the bubble is for edit-mode shortcuts and the lease's Escape.
+        _root.PreviewKeyDown += OnPreviewKeyDown;
         _root.KeyDown += OnKeyDown;
 
         _root.PointerPressed += OnRootPointerPressed;
+        AttachShellCleanup();
         _root.PointerMoved += OnRootPointerMoved;
         _root.PointerExited += OnRootPointerExited;
 
         _window = new Window
         {
-            Title = $"Themia ({monitor.DeviceName})",
+            Title = $"Themia ({monitor.GdiName})",
             Content = _root,
         };
 
         ConfigureWindow();
+
+        // [S-802] Losing activation is how a click on the desktop or another app ends the lease.
+        _window.Activated += OnWindowActivated;
 
         _root.SizeChanged += (_, _) => Relayout();
         _root.Loaded += OnRootLoaded;
@@ -156,7 +158,8 @@ internal sealed partial class DesktopWindow : IWidgetCardHost
     }
 
     /// <summary>
-    /// The coordinate space fractional rects resolve into: the window's client area in DIPs.
+    /// The coordinate space fractional rects resolve into: the window's client area in DIPs, which is
+    /// the whole monitor ([S-840]), with the work area as the region new geometry may use ([S-841]).
     /// <para>
     /// Derived from the real client rect divided by the real rasterization scale, <b>not</b> from
     /// <c>ActualWidth</c>. On a scaled display the root's ActualWidth was observed still holding the
@@ -169,14 +172,16 @@ internal sealed partial class DesktopWindow : IWidgetCardHost
     {
         get
         {
+            var info = _monitor.Info;
+            var allowed = GridGeometry.AllowedArea(info.Bounds, info.WorkArea);
+            var scale = RasterScale;
+
             if (Win32.GetClientRect(_hwnd, out var client) && client.Width > 0 && client.Height > 0)
             {
-                var scale = RasterScale;
-                return new ScreenMetrics(client.Width / scale, client.Height / scale);
+                return new ScreenMetrics(client.Width / scale, client.Height / scale) { Allowed = allowed };
             }
 
-            var fallbackScale = RasterScale;
-            return new ScreenMetrics(_monitor.WorkArea.Width / fallbackScale, _monitor.WorkArea.Height / fallbackScale);
+            return new ScreenMetrics(_monitor.Bounds.Width / scale, _monitor.Bounds.Height / scale) { Allowed = allowed };
         }
     }
 
@@ -188,6 +193,23 @@ internal sealed partial class DesktopWindow : IWidgetCardHost
 
     /// <summary>The display this surface covers.</summary>
     public MonitorTarget Monitor => _monitor;
+
+    /// <summary>False once the surface is closed or its window was destroyed under it ([S-844] rebuilds it).</summary>
+    public bool IsAlive => !_closed && Win32.IsWindow(_hwnd);
+
+    /// <summary>
+    /// [S-850] How much this display magnifies widget content: its own scale times the app-wide widget
+    /// scale. Content only — a widget's cell stays where it is and the same size.
+    /// </summary>
+    private double ContentScale
+    {
+        get
+        {
+            var display = _host.State.MonitorScales.TryGetValue(_monitor.Id, out var own) && double.IsFinite(own) && own > 0 ? own : 1.0;
+            var app = double.IsFinite(Design.UiScale) && Design.UiScale > 0 ? Design.UiScale : 1.0;
+            return display * app;
+        }
+    }
 
     /// <summary>The id of the view this surface is currently showing.</summary>
     public string CurrentViewId => ViewForThisMonitor(_host.State).Id;
@@ -201,14 +223,7 @@ internal sealed partial class DesktopWindow : IWidgetCardHost
     {
         get
         {
-            if (!Win32.GetCursorPos(out var cursor))
-            {
-                return false;
-            }
-
-            var area = _monitor.WorkArea;
-            return cursor.X >= area.Left && cursor.X < area.Right
-                && cursor.Y >= area.Top && cursor.Y < area.Bottom;
+            return Win32.GetCursorPos(out var cursor) && _monitor.Contains(cursor.X, cursor.Y);
         }
     }
 
@@ -227,6 +242,12 @@ internal sealed partial class DesktopWindow : IWidgetCardHost
         card.SetLeaving(false);
 
         if (card.IsMoving && TryHandOffToOtherDisplay(card))
+        {
+            return;
+        }
+
+        // [S-875] Dropped onto a container: in it (the mutation saves the new rect as well).
+        if (card.IsMoving && TryDropIntoContainer(card))
         {
             return;
         }
@@ -252,11 +273,7 @@ internal sealed partial class DesktopWindow : IWidgetCardHost
             return false;
         }
 
-        var area = _monitor.WorkArea;
-        var insideThisDisplay = cursor.X >= area.Left && cursor.X < area.Right
-            && cursor.Y >= area.Top && cursor.Y < area.Bottom;
-
-        if (insideThisDisplay)
+        if (_monitor.Contains(cursor.X, cursor.Y))
         {
             return false;
         }
@@ -277,11 +294,14 @@ internal sealed partial class DesktopWindow : IWidgetCardHost
         var rect = target.RectForDrop(cursor, card.Model.Rect);
         _host.MoveWidgetToView(card.Model.Id, sourceViewId, targetViewId, rect);
         _host.Select(card.Model.Id);
-        Log.Info(Scope, $"widget handed to {target.Monitor.DeviceName} (view '{targetViewId}')");
+        Log.Info(Scope, $"widget handed to {target.Monitor.GdiName} (view '{targetViewId}')");
         return true;
     }
 
-    /// <summary>Centre a widget of the given size on a physical screen point of THIS display.</summary>
+    /// <summary>
+    /// Centre a widget of the given size on a physical screen point of THIS display, then snap and
+    /// clamp it into the work area ([S-841]): a drop on the taskbar lands just above it.
+    /// </summary>
     public FracRect RectForDrop(Win32.Point cursor, FracRect size)
     {
         var (xFrac, yFrac) = FractionOf(cursor);
@@ -289,10 +309,10 @@ internal sealed partial class DesktopWindow : IWidgetCardHost
         return GridGeometry.Settle(raw, Metrics, Design.GridSnap);
     }
 
-    /// <summary>Where a physical screen point falls on this display, as a fraction.</summary>
+    /// <summary>Where a physical screen point falls on this display, as a fraction of the whole monitor.</summary>
     private (double X, double Y) FractionOf(Win32.Point point)
     {
-        var area = _monitor.WorkArea;
+        var area = _monitor.Bounds;
         if (area.Width <= 0 || area.Height <= 0)
         {
             return (0.5, 0.5);

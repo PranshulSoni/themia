@@ -13,11 +13,9 @@ namespace Themia.App.Widgets;
 /// What a person can do to the gallery while looking at it: the slideshow's hover bar, opening a
 /// picture, the picture's own menu and the widget's menu entries.
 /// <para>
-/// Keyboard ([S-29] in the original: Left / Right / Space while the widget has focus) is not wired:
-/// the desktop surface takes no keyboard outside edit mode, and asking for it would pull focus away
-/// from whatever the user is working in to move a photo frame on. <see cref="Previous"/>,
-/// <see cref="Next"/> and <see cref="TogglePause"/> are the whole of what a key handler would call,
-/// so the shell's keyboard lease can attach them when it exists.
+/// Keyboard ([S-29] in the original, [S-811] here): Left / Right step the slideshow and Space pauses
+/// it, while the widget holds the shell's keyboard lease — which a click on it gives, and Escape or a
+/// click anywhere else takes back, so a photo frame never pulls focus off the user's work unasked.
 /// </para>
 /// </summary>
 internal sealed partial class GalleryView
@@ -163,6 +161,36 @@ internal sealed partial class GalleryView
                 JumpTo(frame.Index);
                 args.Handled = true;
             };
+        }
+    }
+
+    /// <summary>
+    /// [S-811] A key from the shell's keyboard lease: Left / Right step and Space pauses the slideshow.
+    /// The other layouts show every picture at once and have nothing to step.
+    /// </summary>
+    public bool HandleKey(WidgetKey key)
+    {
+        if (_detached || _config.Layout != GalleryLayout.Slideshow || _scan.Paths.Count == 0)
+        {
+            return false;
+        }
+
+        switch (key)
+        {
+            case WidgetKey.Left:
+                Previous();
+                return true;
+
+            case WidgetKey.Right:
+                Next();
+                return true;
+
+            case WidgetKey.Space:
+                TogglePause();
+                return true;
+
+            default:
+                return false;
         }
     }
 

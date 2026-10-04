@@ -3,19 +3,17 @@ using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Themia.App.Shell;
 using Themia.Core.Widgets;
-using Windows.System;
 
 namespace Themia.App.Widgets;
 
 /// <summary>
-/// [S-1288] The keyboard focus of a row in a widget's list (Mail, OneDrive; the file explorer next):
-/// the ring that marks it and the keys the list answers. Which row a key lands on is
-/// <see cref="ListKeys"/>'s; the view keeps the index and carries out the command.
+/// [S-1288] The keyboard focus of a row in a widget's list (Mail, OneDrive, Notes): the ring that
+/// marks it. Which row a key lands on is <see cref="ListKeys"/>'s; the view keeps the index and
+/// carries out the command.
 /// <para>
-/// A click on a row focuses it; Escape lets go. Keys reach a view only while its surface can take
-/// the keyboard — the shell's keyboard lease (WP11) grants that on a click in a list widget and
-/// takes it back on a click outside; until it lands, a click still marks the row, and the view's
-/// <c>KeyDown</c> handler is already in place for the lease to feed.
+/// A click on a row focuses it; Escape lets go. [S-1560] Keys reach the view through the shell's
+/// keyboard lease (<see cref="IWidgetKeys"/>), already mapped to <see cref="WidgetKey"/> — there is
+/// no per-view <c>KeyDown</c> and no second key vocabulary.
 /// </para>
 /// </summary>
 internal static class RowFocus
@@ -40,22 +38,6 @@ internal static class RowFocus
             row.StartBringIntoView();
         }
     }
-
-    /// <summary>The list key a platform key means, or null for a key the list leaves alone.</summary>
-    public static ListKey? Key(VirtualKey key) => key switch
-    {
-        VirtualKey.Up => ListKey.Up,
-        VirtualKey.Down => ListKey.Down,
-        VirtualKey.PageUp => ListKey.PageUp,
-        VirtualKey.PageDown => ListKey.PageDown,
-        VirtualKey.Home => ListKey.Home,
-        VirtualKey.End => ListKey.End,
-        VirtualKey.Enter => ListKey.Enter,
-        VirtualKey.Delete => ListKey.Delete,
-        VirtualKey.F2 => ListKey.Rename,
-        VirtualKey.Escape => ListKey.Escape,
-        _ => null,
-    };
 
     private static Microsoft.UI.Xaml.Media.Brush Transparent() => FluentLayout.Themed("SubtleFillColorTransparentBrush", Colors.Transparent);
 }

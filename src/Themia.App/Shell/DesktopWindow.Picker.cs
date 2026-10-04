@@ -24,16 +24,20 @@ namespace Themia.App.Shell;
 /// <summary>Adding a widget: the picker, the ghost and the click that places it.</summary>
 internal sealed partial class DesktopWindow
 {
-    /// <summary>How many columns the picker spreads its sections across.</summary>
-    private const int PickerColumns = 4;
+    /// <summary>
+    /// Room a group keeps free at the top of its area for its own header when a widget is created
+    /// inside it, so the new member does not cover the group's title and collapse button.
+    /// </summary>
+    private const double GroupHeaderAllowancePx = 40;
 
     /// <summary>
-    /// [S-420] The widget picker: every widget, in sections, laid out in columns.
+    /// [S-420] The widget picker: a flyout rather than a page in the settings window, because
+    /// choosing a widget is a moment's decision made while looking at the desktop, and the settings
+    /// window covers the desktop.
     /// <para>
-    /// A flyout rather than a page in the settings window, because choosing a widget is a moment's
-    /// decision made while looking at the desktop, and the settings window covers the desktop. The
-    /// columns are balanced by <see cref="ColumnLayout"/>, which keeps the reading order and never
-    /// splits a section from its heading.
+    /// [S-955] Its content is rebuilt every time it opens, because what it offers depends on things
+    /// that change while it is closed: which containers this display shows, which widget is
+    /// selected, and whether developer mode is on.
     /// </para>
     /// </summary>
     private Flyout BuildAddFlyout()
@@ -54,78 +58,111 @@ internal sealed partial class DesktopWindow
             },
         };
 
-        var sections = WidgetCatalog.All
-            .GroupBy(d => d.Category)
-            .OrderBy(g => g.Key)
-            .Select(g => (Category: g.Key, Items: g.ToList()))
-            .ToList();
-
-        // A heading costs about one row, so it counts as one when balancing the columns.
-        var columnOf = ColumnLayout.Partition([.. sections.Select(s => s.Items.Count + 1)], PickerColumns);
-        var columnCount = columnOf.Length == 0 ? 0 : columnOf.Max() + 1;
-
-        var grid = new Grid { ColumnSpacing = Fluent.Space4 };
-        var columns = new StackPanel[columnCount];
-
-        for (var c = 0; c < columnCount; c++)
+        flyout.Opening += (_, _) =>
         {
-            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-            columns[c] = new StackPanel { MinWidth = 176 };
-            Grid.SetColumn(columns[c], c);
-            grid.Children.Add(columns[c]);
-        }
+            var (targets, initial) = PickerTargets();
+            flyout.Content = new WidgetPicker(
+                _host.State.Preferences.DevMode,
+                targets,
+                initial,
+                (definition, target) => OnPicked(flyout, definition, target),
+                flyout.Hide);
+        };
 
-        for (var i = 0; i < sections.Count; i++)
-        {
-            var column = columns[columnOf[i]];
-
-            var heading = Fluent.Text(FluentType.Caption, "TextFillColorSecondaryBrush");
-            heading.Text = WidgetCatalog.Title(sections[i].Category);
-            heading.Margin = new Thickness(Fluent.Space3, column.Children.Count == 0 ? 0 : Fluent.Space4, 0, Fluent.Space1);
-            column.Children.Add(heading);
-
-            foreach (var definition in sections[i].Items)
-            {
-                column.Children.Add(PickerItem(definition, flyout));
-            }
-        }
-
-        flyout.Content = grid;
+        // [S-949] Typing searches at once: the caret is in the box as soon as the picker is open.
+        flyout.Opened += (_, _) => (flyout.Content as WidgetPicker)?.FocusSearch();
         return flyout;
     }
 
-    private Button PickerItem(WidgetDefinition definition, Flyout flyout)
+    /// <summary>
+    /// [S-955] The desktop, then every container on this display that will take one more widget,
+    /// in view order. A container that is selected when the picker opens is where it starts: the
+    /// user pointed at it before asking to add something.
+    /// </summary>
+    private (List<PickerTarget> Targets, int Initial) PickerTargets()
     {
-        var button = new Button
+        var targets = new List<PickerTarget> { new(null, "Desktop") };
+        var initial = 0;
+        var view = ViewForThisMonitor(_host.State);
+        var seen = new Dictionary<string, int>(StringComparer.CurrentCultureIgnoreCase);
+
+        foreach (var widget in view.Widgets)
         {
-            Content = new StackPanel
+            if (!WidgetTree.IsContainer(widget.Kind) || !view.CanAddInto(widget.Id))
             {
-                Orientation = Orientation.Horizontal,
-                Spacing = Fluent.Space3,
-                Children =
-                {
-                    new FontIcon { Glyph = definition.Glyph, FontSize = 16 },
-                    new TextBlock { Text = definition.Label, VerticalAlignment = VerticalAlignment.Center },
-                },
-            },
-            HorizontalAlignment = HorizontalAlignment.Stretch,
-            HorizontalContentAlignment = HorizontalAlignment.Left,
-            Background = Brush("SubtleFillColorTransparentBrush", Colors.Transparent),
-            BorderThickness = new Thickness(0),
-            Padding = new Thickness(Fluent.Space3, 6, Fluent.Space3, 6),
-        };
+                continue;
+            }
 
-        ToolTipService.SetToolTip(button, definition.Description);
-        Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(button, definition.Label);
+            // Two untitled groups would otherwise both read "Group".
+            var name = string.IsNullOrWhiteSpace(widget.Label) ? WidgetCatalog.Definition(widget.Kind).Label : widget.Label.Trim();
+            seen[name] = seen.TryGetValue(name, out var count) ? count + 1 : 1;
+            if (seen[name] > 1)
+            {
+                name = $"{name} {seen[name]}";
+            }
 
-        var kind = definition.Kind;
-        button.Click += (_, _) =>
+            if (string.Equals(widget.Id, _host.SelectedWidgetId, StringComparison.Ordinal))
+            {
+                initial = targets.Count;
+            }
+
+            targets.Add(new PickerTarget(widget.Id, name));
+        }
+
+        return (targets, initial);
+    }
+
+    /// <summary>
+    /// [S-421, S-956] A widget was chosen. For the desktop that starts click-to-place; for a
+    /// container it is created inside it at once, since the container decides where it goes.
+    /// </summary>
+    private void OnPicked(Flyout flyout, WidgetDefinition definition, PickerTarget target)
+    {
+        flyout.Hide();
+
+        if (target.ContainerId is not { } containerId)
         {
-            flyout.Hide();
-            _host.BeginPlacement(kind);
-        };
+            _host.BeginPlacement(definition.Kind);
+            return;
+        }
 
-        return button;
+        AddIntoContainer(containerId, definition);
+    }
+
+    /// <summary>
+    /// [S-956] Create a widget inside a container in one write, then select it. The settings window
+    /// is not opened, for the reason [S-421] gives: adding and configuring are two decisions.
+    /// </summary>
+    private void AddIntoContainer(string containerId, WidgetDefinition definition)
+    {
+        var metrics = Metrics;
+
+        // The default size is in pixels; a group member keeps its own rect on this display's grid,
+        // so it is converted against this display, as a placement would be.
+        var size = metrics.IsUsable
+            ? FracRect.FromPixels(0, 0, definition.DefaultWidthPx, definition.DefaultHeightPx, metrics)
+            : new FracRect(0, 0, 0.2, 0.2);
+        var headerRoom = metrics.IsUsable ? GroupHeaderAllowancePx / metrics.Height : 0;
+
+        if (!ViewForThisMonitor(_host.State).CanAddInto(containerId))
+        {
+            // The tree changed between opening the picker and choosing (another display, a paste).
+            Log.Warn(Scope, $"refused to add a {definition.Kind} into '{containerId}'");
+            return;
+        }
+
+        string? addedId = null;
+        _host.Mutate(state =>
+            addedId = ViewForThisMonitor(state).AddInto(containerId, definition.Kind, size.W, size.H, headerRoom)?.Id);
+
+        if (addedId is null)
+        {
+            Log.Warn(Scope, $"could not add a {definition.Kind} into '{containerId}'");
+            return;
+        }
+
+        _host.Select(addedId);
+        Log.Info(Scope, $"added a {definition.Kind} into '{containerId}'");
     }
 
     private static Border BuildPlacementHint(TextBlock text) => new()
@@ -318,8 +355,6 @@ internal sealed partial class DesktopWindow
         _root.Focus(FocusState.Pointer);
     }
 
-    private static Brush Brush(string key, Windows.UI.Color fallback)
-        => Application.Current.Resources.TryGetValue(key, out var value) && value is Brush brush
-            ? brush
-            : new SolidColorBrush(fallback);
+    // [S-822] Through the appearance engine, so the ghost and the grid follow the theme and accent.
+    private static Brush Brush(string key, Windows.UI.Color fallback) => DesignApplier.Brush(key, fallback);
 }

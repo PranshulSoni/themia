@@ -61,8 +61,14 @@ public sealed class ScreenTimeConfig : WidgetConfig
 
     public ScreenTimeStyle Style { get; set; } = ScreenTimeStyle.Doughnut;
 
-    /// <summary>[S-452] How many apps the legend lists, 0 to 50; 0 lists none.</summary>
-    public int MaxApps { get; set; } = ScreenTimeRules.DefaultMaxApps;
+    /// <summary>
+    /// [S-1211] The most apps the legend lists, 1 to 50, or 0 (the default) for as many as the tile
+    /// has room for. A ceiling over what fits, never a fixed length: a bigger tile lists more.
+    /// </summary>
+    public int MaxApps { get; set; }
+
+    /// <summary>[S-1211] Whether the apps are listed beside or under the drawing at all.</summary>
+    public bool ShowList { get; set; } = true;
 
     /// <summary>[S-453] In a window, the average per day beside the total and on each row.</summary>
     public bool ShowAverage { get; set; } = true;
@@ -87,6 +93,7 @@ public sealed class ScreenTimeConfig : WidgetConfig
         Period = Period,
         Style = Style,
         MaxApps = MaxApps,
+        ShowList = ShowList,
         ShowAverage = ShowAverage,
         ShowSwitches = ShowSwitches,
         ShowPercent = ShowPercent,

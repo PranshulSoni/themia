@@ -46,7 +46,7 @@ public static class MailLayout
     public const double InlineStripBelowHeight = 220;
 
     /// <summary>[S-1283] On one line the preview needs this much width beside the subject to say anything.</summary>
-    public const double InlinePreviewNeedsWidth = 520;
+    public const double InlinePreviewNeedsWidth = 440;
 
     /// <summary>[S-1283] On one line the account column needs this much width.</summary>
     public const double InlineAccountNeedsWidth = 560;

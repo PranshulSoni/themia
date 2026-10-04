@@ -1,57 +1,83 @@
 using Microsoft.UI;
+using Microsoft.UI.Text;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Documents;
 using Microsoft.UI.Xaml.Media;
+using Microsoft.UI.Xaml.Shapes;
 using Themia.App.Services;
 using Themia.App.Shell;
 using Themia.Core.Diagnostics;
 using Themia.Core.Model;
 using Themia.Core.Widgets;
+using Glyphs = Themia.App.Shell.Glyphs;
 
 namespace Themia.App.Widgets;
 
 /// <summary>
 /// The busiest processes, ranked — a Task Manager list sized to whatever tile it is dropped into.
 /// <para>
+/// [S-1151] Its disclosure ladder: as many whole rows as the tile holds (up to the configured
+/// ceiling) with the ranked figure; the other figure, then threads, then the pid as the width allows
+/// ([S-1152]); on a tile Expanded in height, column headers that sort the list when clicked and a
+/// footer with the totals; on one Expanded both ways, a hairline share bar under each row ([S-1153]).
+/// </para>
+/// <para>
 /// The rows are built once and rewritten in place on every sample. Rebuilding the list each tick
 /// was the obvious first version and it flickered: every row was a new visual, so the whole list
 /// blinked twice a second even when nothing about it had changed.
 /// </para>
 /// </summary>
-internal sealed partial class ProcessesView : Grid, IWidgetView, IWidgetHeaderContent
+internal sealed partial class ProcessesView : Grid, IWidgetView, IWidgetHeaderContent, IWidgetSizeAware, IWidgetSurfaceAware, IWidgetContextActions, IWidgetKeys
 {
     private const string Scope = "processes-widget";
 
     /// <summary>
     /// The height of a row: Fluent's compact list row, the same one Task Manager and Explorer's
-    /// details view use.
-    /// <para>
-    /// A fixed height, not a fraction of the tile. The row count is a setting, but the tile's height
-    /// is not — twenty rows in a 140px widget is seven pixels each, which is a texture rather than a
-    /// list, and rows that grow with the window are a web idea that reads as the wrong application
-    /// next to Explorer. The tile shows as many rows of the right height as it has room for, and
-    /// they are the top of the ranking, which is the part worth seeing.
-    /// </para>
+    /// details view use. Fixed, not a fraction of the tile: the tile shows as many rows of the right
+    /// height as it has room for, and they are the top of the ranking, which is the part worth seeing.
     /// </summary>
     private const double RowHeight = Fluent.RowHeightCompact;
 
+    /// <summary>Below this, the numeric columns stop holding open their full width and the ranking label goes.</summary>
+    private const double NarrowBelow = 160;
+
+    private static readonly TimeSpan ProcessAge = TimeSpan.FromSeconds(2);
+
     private readonly TextBlock _caption = Fluent.Text(FluentType.Caption, "TextFillColorTertiaryBrush");
 
-    // The Grid is what the rows are measured against: it is stretched by its star row, so its height
-    // is the space the list actually has. The StackPanel inside it holds the rows at their own fixed
-    // height, top down.
-    private readonly Grid _list = new();
-    private readonly StackPanel _stack = new();
+    private readonly Grid _columns = new() { ColumnSpacing = ProcessTable.Spacing };
+    private readonly TextBlock[] _columnLabels = new TextBlock[5];
+    private readonly StackPanel _stack = new() { VerticalAlignment = VerticalAlignment.Top };
+    private readonly TextBlock _footer = Fluent.Text(FluentType.Caption, "TextFillColorTertiaryBrush");
     private readonly TextBlock _empty = Fluent.Text(FluentType.Body, "TextFillColorSecondaryBrush");
     private readonly List<Row> _rows = [];
 
+    /// <summary>[S-1566] The pid of each row on screen, top first: what the keyboard cursor moves over.</summary>
+    private readonly List<string> _shownKeys = [];
+
+    private readonly Brush _secondaryBrush = FluentLayout.Themed("TextFillColorSecondaryBrush", Colors.Gray);
+    private readonly Brush _tertiaryBrush = FluentLayout.Themed("TextFillColorTertiaryBrush", Colors.Gray);
+
     private Ticker? _ticker;
+    private IWidgetSurface? _surface;
     private ProcessesConfig _config = new();
     private IDisposable? _subscription;
     private TimeSpan _subscribedInterval = TimeSpan.Zero;
-    private IReadOnlyList<ProcessUsage> _latest = [];
+    private ProcessSnapshot _latest = ProcessSnapshot.Empty;
+    private bool _failed;
     private bool _detached;
+
+    private WidgetArea _area;
+    private int _rowCount;
+    private ProcessColumn _shown = ProcessColumn.Cpu;
+    private bool _bars;
+
+    /// <summary>[S-1566] The process under the keyboard cursor (its pid), or null; it follows the process through re-rankings.</summary>
+    private string? _cursor;
+
+    /// <summary>The row that carries the ring, or -1; rows are reused, so it is re-marked only when it moves.</summary>
+    private int _marked = -1;
 
     public ProcessesView()
     {
@@ -60,8 +86,11 @@ internal sealed partial class ProcessesView : Grid, IWidgetView, IWidgetHeaderCo
         // at construction — so it is built here, not on first use.
         _caption.HorizontalAlignment = HorizontalAlignment.Right;
 
-        _stack.VerticalAlignment = VerticalAlignment.Top;
-        _list.Children.Add(_stack);
+        BuildColumns();
+
+        _footer.Margin = new Thickness(Fluent.Space4, Fluent.Space1, Fluent.Space4, Fluent.Space2);
+        _footer.MaxLines = 1;
+        Typography.SetNumeralAlignment(_footer, FontNumeralAlignment.Tabular);
 
         _empty.TextWrapping = TextWrapping.Wrap;
         _empty.TextTrimming = TextTrimming.None;
@@ -69,26 +98,36 @@ internal sealed partial class ProcessesView : Grid, IWidgetView, IWidgetHeaderCo
         _empty.VerticalAlignment = VerticalAlignment.Center;
         _empty.Padding = WidgetLayout.SideInset;
         _empty.TextAlignment = TextAlignment.Center;
+        _empty.Text = "Could not read the process list.";
         _empty.Visibility = Visibility.Collapsed;
 
+        RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
+        RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
 
-        Grid.SetRow(_list, 0);
-        Grid.SetRow(_empty, 0);
+        Grid.SetRow(_columns, 0);
+        Grid.SetRow(_stack, 1);
+        Grid.SetRow(_footer, 2);
+        Grid.SetRowSpan(_empty, 3);
 
-        Children.Add(_list);
+        Children.Add(_columns);
+        Children.Add(_stack);
+        Children.Add(_footer);
         Children.Add(_empty);
-
-        SizeChanged += OnSizeChanged;
-
-        // The list's own size, as well as the widget's: when the card is resized the parent's
-        // SizeChanged runs before its children have been arranged, so the height read there is the
-        // previous layout's. This one carries the height the rows actually got.
-        _list.SizeChanged += OnSizeChanged;
     }
 
     /// <inheritdoc />
     public FrameworkElement? HeaderTrailing => _caption;
+
+    /// <summary>[S-1154] Re-rank without opening settings: the list's one state worth flipping in place.</summary>
+    public IReadOnlyList<WidgetAction> ContextActions =>
+    [
+        _config.Sort == ProcessSort.Cpu
+            ? new WidgetAction(Glyphs.Memory, "Rank by memory", () => SetSort(ProcessSort.Memory))
+            : new WidgetAction(Glyphs.Cpu, "Rank by processor", () => SetSort(ProcessSort.Cpu)),
+    ];
+
+    public void Bind(IWidgetSurface surface) => _surface = surface;
 
     public void Attach(Ticker ticker, WidgetConfig config)
     {
@@ -100,17 +139,38 @@ internal sealed partial class ProcessesView : Grid, IWidgetView, IWidgetHeaderCo
     public void ApplyConfig(WidgetConfig config)
     {
         _config = config as ProcessesConfig ?? new ProcessesConfig();
-
         _caption.Text = _config.Sort == ProcessSort.Cpu ? "by CPU" : "by memory";
 
-        // Subscribing fires a tick of its own, so a cadence change redraws on its own. Everything
-        // else — the row count, the memory column, the ranking — changes the shape of what is
-        // already on screen and has to be redrawn now, or the widget would sit wrong until the next
-        // sample two seconds later.
+        // Subscribing fires a tick of its own; otherwise the shape of what is on screen changed
+        // (rows, columns, ranking) and is redrawn now from a fresh sample.
+        Lay();
+
         if (!Resubscribe())
         {
             Sample();
         }
+    }
+
+    public void ApplySize(WidgetArea area)
+    {
+        _area = area;
+        Lay();
+        Render();
+    }
+
+    /// <summary>[S-1154] Change the ranking, persist it, and redraw from the sample in hand.</summary>
+    private void SetSort(ProcessSort sort)
+    {
+        if (_config.Sort == sort)
+        {
+            return;
+        }
+
+        _config.Sort = sort;
+        _caption.Text = sort == ProcessSort.Cpu ? "by CPU" : "by memory";
+        _surface?.RequestSave();
+        Lay();
+        Render();
     }
 
     /// <summary>True when the subscription was rebuilt, which also fires an immediate tick.</summary>
@@ -118,9 +178,8 @@ internal sealed partial class ProcessesView : Grid, IWidgetView, IWidgetHeaderCo
     {
         var interval = _config.TickInterval;
 
-        // Only when the cadence actually changed. Dropping and remaking the subscription on every
-        // config touch made dragging a settings slider stutter, because each frame tore down the
-        // timer subscription for every widget on the desktop and built it again.
+        // Only when the cadence actually changed: remaking the subscription on every config touch
+        // made dragging a settings slider stutter.
         if (_subscription is not null && interval == _subscribedInterval)
         {
             return false;
@@ -141,108 +200,103 @@ internal sealed partial class ProcessesView : Grid, IWidgetView, IWidgetHeaderCo
 
         try
         {
-            _latest = ProcessList.Top(Math.Min(_config.EffectiveMaxCount, Capacity()), _config.Sort);
+            _latest = ProcessList.Recent(ProcessAge);
+            _failed = _latest.Rows.Count == 0;
         }
         catch (Exception ex)
         {
             // A widget that cannot read the process table says so, rather than taking the whole
             // surface down from inside a tick.
             Log.Error(Scope, "could not sample the process list", ex);
-            _latest = [];
+            _latest = ProcessSnapshot.Empty;
+            _failed = true;
         }
 
         Render();
     }
 
-    /// <summary>How many whole rows this tile has room to draw.</summary>
-    private int Capacity()
+    /// <summary>
+    /// [S-1151] [S-1152] [S-1153] Climb the ladder for the current area: the header and footer on a
+    /// tall tile, whole rows of what is left, then the columns the width holds.
+    /// </summary>
+    private void Lay()
     {
-        var height = _list.ActualHeight;
+        var measured = _area.IsMeasured;
+        var tall = measured && _area.HeightClass >= SizeClass.Expanded;
+        var room = new Disclosure(measured ? _area.Width : double.MaxValue, measured ? _area.Height : _config.EffectiveMaxCount * RowHeight);
 
-        // Before the first layout pass there is no height to divide. The configured count is the
-        // honest guess, and the first resize corrects it.
-        if (!double.IsFinite(height) || height <= 0)
+        var header = tall && room.Take(FluentType.Caption.LineHeight + Fluent.Space1);
+        var footer = tall && _config.ShowTotals && room.Take(FluentType.Caption.LineHeight + Fluent.Space1 + Fluent.Space2);
+
+        _rowCount = Math.Max(1, room.TakeRows(RowHeight, _config.EffectiveMaxCount));
+
+        var inner = measured ? _area.Width - (Fluent.Space4 * 2) : double.MaxValue;
+        _shown = ProcessTable.Columns(inner, new ProcessColumnOptions(_config.Sort, _config.ShowMemory, _config.ShowThreads, _config.ShowPid));
+        _bars = measured && _area.AtLeast(SizeClass.Expanded, SizeClass.Expanded);
+
+        _columns.Visibility = header ? Visibility.Visible : Visibility.Collapsed;
+        _footer.Visibility = footer ? Visibility.Visible : Visibility.Collapsed;
+
+        // On a tile too narrow for the title and the ranking label both, the label goes: the single
+        // column of numbers left on such a tile is the ranking, so it says itself.
+        _caption.Visibility = measured && _area.Width < NarrowBelow ? Visibility.Collapsed : Visibility.Visible;
+
+        if (header)
         {
-            return _config.EffectiveMaxCount;
+            ShowColumnLabels();
         }
 
-        return Math.Max(1, (int)(height / RowHeight));
+        Resize(_rowCount);
     }
 
-    /// <summary>
-    /// Puts <see cref="_latest"/> on screen, reusing the row visuals that are already there.
-    /// </summary>
+    /// <summary>Puts the latest sample on screen, reusing the row visuals that are already there.</summary>
     private void Render()
     {
-        var count = _latest.Count;
-
-        if (count == 0)
+        if (_detached)
         {
-            _empty.Text = "Could not read the process list.";
-            _empty.Visibility = Visibility.Visible;
-            _list.Visibility = Visibility.Collapsed;
             return;
         }
 
-        _empty.Visibility = Visibility.Collapsed;
-        _list.Visibility = Visibility.Visible;
+        _empty.Visibility = _failed ? Visibility.Visible : Visibility.Collapsed;
+        _stack.Visibility = _failed ? Visibility.Collapsed : Visibility.Visible;
 
-        Resize(count);
-
-        var columns = Columns();
-        var narrow = InnerWidth() < NarrowBelow;
-
-        for (var i = 0; i < count; i++)
+        if (_failed)
         {
-            _rows[i].Show(_latest[i], columns, narrow);
+            return;
+        }
+
+        var top = _latest.Top(_rowCount, _config.Sort);
+        _shownKeys.Clear();
+        var narrow = _area.IsMeasured && _area.Width - (Fluent.Space4 * 2) < NarrowBelow;
+        var physical = _bars && _config.Sort == ProcessSort.Memory && MemoryCounters.Read(detailed: false) is { } memory ? (double)memory.Total : 0;
+
+        for (var i = 0; i < _rows.Count; i++)
+        {
+            var shown = i < top.Count;
+            _rows[i].Host.Visibility = shown ? Visibility.Visible : Visibility.Collapsed;
+
+            if (shown)
+            {
+                var usage = top[i];
+                double? share = !_bars ? null
+                    : _config.Sort == ProcessSort.Cpu ? (usage.CpuKnown ? usage.CpuFraction : null)
+                    : physical > 0 ? usage.WorkingSetBytes / physical : null;
+
+                _rows[i].Show(usage, _shown, narrow, share);
+                _shownKeys.Add(usage.Pid.ToString(System.Globalization.CultureInfo.InvariantCulture));
+            }
+        }
+
+        MarkCursor();
+
+        if (_footer.Visibility == Visibility.Visible)
+        {
+            var totals = _latest.Totals;
+            _footer.Text = CpuRules.Totals(totals.Processes, totals.Threads);
         }
     }
 
-    /// <summary>
-    /// The width the name and the numbers share: the tile less the row's own inset. An unmeasured
-    /// list is treated as wide, which is the layout it had before it knew its size.
-    /// </summary>
-    private double InnerWidth()
-    {
-        var width = _list.ActualWidth;
-        return double.IsFinite(width) && width > 0 ? width - (Fluent.Space4 * 2) : double.MaxValue;
-    }
-
-    /// <summary>Below this, the numeric columns stop holding open their full width.</summary>
-    private const double NarrowBelow = 160;
-
-    /// <summary>Both numeric columns need this much, with a name still long enough to read.</summary>
-    private const double BothColumnsFrom = 232;
-
-    /// <summary>
-    /// [S-648] Which numbers a row shows. Both when there is room; otherwise only the one the list
-    /// is ranked by, because that is the column the ranking is about. Three columns in a 200px tile
-    /// left the name four letters ("VB…", "bra…"), and in a 120px one squeezed it out entirely, so
-    /// the tile was a column of percentages belonging to nothing.
-    /// </summary>
-    private ProcessColumns Columns()
-    {
-        if (!_config.ShowMemory)
-        {
-            return ProcessColumns.Cpu;
-        }
-
-        if (InnerWidth() >= BothColumnsFrom)
-        {
-            return ProcessColumns.Both;
-        }
-
-        return _config.Sort == ProcessSort.Memory ? ProcessColumns.Memory : ProcessColumns.Cpu;
-    }
-
-    /// <summary>
-    /// Grows or shrinks the list to <paramref name="count"/> rows.
-    /// <para>
-    /// Rows beyond the count are collapsed rather than removed: the count moves when the user drags
-    /// the row slider, and destroying and rebuilding visuals through that drag is what made the list
-    /// flicker.
-    /// </para>
-    /// </summary>
+    /// <summary>Grows or shrinks the list to <paramref name="count"/> rows; extra rows are collapsed, not destroyed.</summary>
     private void Resize(int count)
     {
         while (_rows.Count < count)
@@ -258,26 +312,95 @@ internal sealed partial class ProcessesView : Grid, IWidgetView, IWidgetHeaderCo
         }
     }
 
-    private void OnSizeChanged(object sender, SizeChangedEventArgs e)
+    /// <summary>[S-1153] The column header row: same columns and widths as the rows under it.</summary>
+    private void BuildColumns()
     {
-        // A torn-down widget has no rows left to re-fit, and rebuilding them here would hand new
-        // hover handlers to a view nothing will ever detach again.
+        // The rows carry the keyboard ring inside their edge, so the headings step in by as much.
+        _columns.Margin = new Thickness(Fluent.Space4 + RowFocus.Ring, 0, Fluent.Space4 + RowFocus.Ring, Fluent.Space1);
+        _columns.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+
+        string[] labels = ["Name", "CPU", "Memory", "Threads", "PID"];
+
+        for (var i = 0; i < labels.Length; i++)
+        {
+            if (i > 0)
+            {
+                _columns.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            }
+
+            var label = Fluent.Text(FluentType.Caption, "TextFillColorTertiaryBrush");
+            label.Text = labels[i];
+            label.MaxLines = 1;
+
+            if (i > 0)
+            {
+                label.TextAlignment = TextAlignment.Right;
+                label.MinWidth = ProcessTable.WidthOf(Row.ColumnAt(i));
+            }
+
+            Grid.SetColumn(label, i);
+            _columnLabels[i] = label;
+            _columns.Children.Add(label);
+        }
+
+        // Task Manager's gesture: clicking a figure's heading ranks the list on it.
+        _columnLabels[1].Tapped += (_, e) => { e.Handled = true; SetSort(ProcessSort.Cpu); };
+        _columnLabels[2].Tapped += (_, e) => { e.Handled = true; SetSort(ProcessSort.Memory); };
+    }
+
+    private void ShowColumnLabels()
+    {
+        for (var i = 1; i < _columnLabels.Length; i++)
+        {
+            var column = Row.ColumnAt(i);
+            _columnLabels[i].Visibility = _shown.HasFlag(column) ? Visibility.Visible : Visibility.Collapsed;
+
+            // The ranked column's heading is the one in a stronger grey: the sort, said without a chip.
+            var ranked = (column == ProcessColumn.Cpu && _config.Sort == ProcessSort.Cpu)
+                || (column == ProcessColumn.Memory && _config.Sort == ProcessSort.Memory);
+            _columnLabels[i].Foreground = ranked ? _secondaryBrush : _tertiaryBrush;
+            _columnLabels[i].FontWeight = ranked ? FontWeights.SemiBold : FontWeights.Normal;
+        }
+    }
+
+    /// <summary>
+    /// [S-1566] A key from the shell's keyboard lease: Up/Down/Home/End move a cursor over the
+    /// processes shown, which stays on its process as the ranking reshuffles (<see cref="KeyedCursor"/>);
+    /// Escape — also sent whenever the lease ends — drops it.
+    /// </summary>
+    public bool HandleKey(WidgetKey key)
+    {
         if (_detached)
+        {
+            return false;
+        }
+
+        var result = KeyedCursor.Move(_shownKeys, _cursor, key);
+        _cursor = result.Key;
+        MarkCursor();
+        return result.Used;
+    }
+
+    private void MarkCursor()
+    {
+        var at = KeyedCursor.IndexOf(_shownKeys, _cursor) ?? -1;
+
+        if (at == _marked)
         {
             return;
         }
 
-        // On a tile too narrow for the title and the ranking label both, the label goes: the
-        // single column of numbers left on such a tile is the ranking, so it says itself.
-        _caption.Visibility = ActualWidth > 0 && ActualWidth < NarrowBelow ? Visibility.Collapsed : Visibility.Visible;
-
-        // A shorter tile holds fewer rows, so a resize can change what the list should contain and
-        // not just how big it is; a narrower one can change which columns it has room for.
-        // Redrawn from the sample already in hand; the next tick refills it if the tile grew.
-        if (_latest.Count > 0)
+        if (_marked >= 0 && _marked < _rows.Count)
         {
-            Render();
+            RowFocus.Mark(_rows[_marked].Host, false);
         }
+
+        if (at >= 0 && at < _rows.Count)
+        {
+            RowFocus.Mark(_rows[at].Host, true);
+        }
+
+        _marked = at;
     }
 
     public void Detach()
@@ -287,8 +410,7 @@ internal sealed partial class ProcessesView : Grid, IWidgetView, IWidgetHeaderCo
         _subscription = null;
 
         // The rows go with the subscription that fed them, hover handlers and all: a handler left
-        // hooked keeps its row alive and re-lights it after teardown. Attach rebuilds them on the
-        // first sample, which is what a re-attached widget draws anyway.
+        // hooked keeps its row alive and re-lights it after teardown.
         foreach (var row in _rows)
         {
             row.Detach();
@@ -298,110 +420,129 @@ internal sealed partial class ProcessesView : Grid, IWidgetView, IWidgetHeaderCo
         _stack.Children.Clear();
     }
 
-    /// <summary>
-    /// One row's visuals, kept so a sample can rewrite them instead of replacing them.
-    /// </summary>
+    /// <summary>One row's visuals, kept so a sample can rewrite them instead of replacing them.</summary>
     private sealed class Row
     {
-        /// <summary>The width the numeric columns hold open, so the name column does not jog.</summary>
-        private const double CpuWidth = Fluent.Space6 * 2;
-
-        private const double MemoryWidth = Fluent.Space4 * 4;
-
         // A value that could not be read is a colour, not an opacity: the same disabled brush every
-        // other unavailable thing on the desktop uses, so it follows the theme. Shared by every row,
-        // because a stock brush looked up twenty times is the same brush twenty times.
+        // other unavailable thing on the desktop uses, so it follows the theme.
         private static readonly Brush KnownBrush = FluentLayout.Themed("TextFillColorSecondaryBrush", Colors.Gray);
-
         private static readonly Brush UnknownBrush = FluentLayout.Themed("TextFillColorDisabledBrush", Colors.Gray);
+        private static readonly Brush AccentBrush = FluentLayout.Themed("AccentFillColorDefaultBrush", Colors.DodgerBlue);
+        private static readonly Brush TrackBrush = FluentLayout.Themed("ControlStrongFillColorDisabledBrush", Colors.Gray);
 
         private readonly TextBlock _name = Fluent.Text(FluentType.Body);
-        private readonly TextBlock _cpu = Fluent.Text(FluentType.Body, "TextFillColorSecondaryBrush");
-        private readonly TextBlock _memory = Fluent.Text(FluentType.Body, "TextFillColorSecondaryBrush");
+        private readonly TextBlock[] _figures = new TextBlock[4];
+        private readonly Grid _bar = new() { Height = Fluent.Hairline * 2, VerticalAlignment = VerticalAlignment.Bottom };
+        private readonly Rectangle _fill = new();
         private readonly IDisposable _hover;
+        private readonly Grid _grid;
 
         public Row()
         {
             _name.MaxLines = 1;
 
-            // Right-aligned, because a column of numbers that are not aligned on their last digit
-            // cannot be compared at a glance, which is the only reason to rank them. Tabular
-            // figures as well: proportional digits change width as the value changes, so a column
-            // sampled twice a second visibly shuffles.
-            _cpu.TextAlignment = TextAlignment.Right;
-            _cpu.MinWidth = CpuWidth;
-            Typography.SetNumeralAlignment(_cpu, FontNumeralAlignment.Tabular);
-
-            _memory.TextAlignment = TextAlignment.Right;
-            _memory.MinWidth = MemoryWidth;
-            Typography.SetNumeralAlignment(_memory, FontNumeralAlignment.Tabular);
-
-            Grid.SetColumn(_name, 0);
-            Grid.SetColumn(_cpu, 1);
-            Grid.SetColumn(_memory, 2);
-
-            var grid = new Grid
+            var grid = _grid = new Grid
             {
-                ColumnSpacing = Fluent.Space3,
-                ColumnDefinitions =
-                {
-                    new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) },
-                    new ColumnDefinition { Width = GridLength.Auto },
-                    new ColumnDefinition { Width = GridLength.Auto },
-                },
-                Children = { _name, _cpu, _memory },
+                ColumnSpacing = ProcessTable.Spacing,
+                ColumnDefinitions = { new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) } },
             };
 
-            // A Fluent compact row: a fixed height, the standard inset as its own padding so the
-            // row — and the highlight it draws — reaches both edges of the widget, and no divider
-            // underneath. Windows 11 lists separate rows with space and hover, not with a rule.
-            Host = Fluent.Row(grid, compact: true);
+            Grid.SetColumn(_name, 0);
+            grid.Children.Add(_name);
 
-            // Hover, the way every list on Windows does it. Held, because a handler left hooked
-            // keeps the row alive and re-lights it after the widget has been torn down.
+            for (var i = 0; i < _figures.Length; i++)
+            {
+                // Right-aligned tabular figures: a column of numbers that are not aligned on their last
+                // digit cannot be compared at a glance, and proportional digits shuffle every sample.
+                var figure = Fluent.Text(FluentType.Body, "TextFillColorSecondaryBrush");
+                figure.TextAlignment = TextAlignment.Right;
+                Typography.SetNumeralAlignment(figure, FontNumeralAlignment.Tabular);
+                grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+                Grid.SetColumn(figure, i + 1);
+                grid.Children.Add(figure);
+                _figures[i] = figure;
+            }
+
+            // [S-1153] The share bar: a hairline along the bottom of the row, under the text.
+            _bar.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(0, GridUnitType.Star) });
+            _bar.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            _fill.Fill = AccentBrush;
+            var rest = new Rectangle { Fill = TrackBrush };
+            Grid.SetColumn(rest, 1);
+            _bar.Children.Add(_fill);
+            _bar.Children.Add(rest);
+            Grid.SetColumnSpan(_bar, 5);
+            grid.Children.Add(_bar);
+
+            // A Fluent compact row: fixed height, the standard inset as its own padding so the row —
+            // and the highlight it draws — reaches both edges of the widget, no divider underneath.
+            Host = Fluent.Row(grid, compact: true);
+            RowFocus.Prepare(Host);
             _hover = Fluent.Hover(Host);
         }
 
         public Border Host { get; }
 
+        /// <summary>The figure column at header index <paramref name="index"/> (1-based; 0 is the name).</summary>
+        public static ProcessColumn ColumnAt(int index) => index switch
+        {
+            1 => ProcessColumn.Cpu,
+            2 => ProcessColumn.Memory,
+            3 => ProcessColumn.Threads,
+            4 => ProcessColumn.Pid,
+            _ => ProcessColumn.None,
+        };
+
         /// <summary>Unhook the hover. Safe to call twice: the handle itself is idempotent.</summary>
         public void Detach() => _hover.Dispose();
 
         /// <summary>Rewrite this row in place.</summary>
-        public void Show(ProcessUsage usage, ProcessColumns columns, bool narrow)
+        public void Show(ProcessUsage usage, ProcessColumn columns, bool narrow, double? share)
         {
-            _name.Text = usage.Name;
-            _cpu.Text = usage.CpuText;
+            _name.Text = ProcessLabels.For(usage);
 
-            // A row whose CPU could not be read is greyed as well as marked, so "--" reads as
-            // "not available" rather than as a column the eye should be comparing.
-            _cpu.Foreground = usage.CpuKnown ? KnownBrush : UnknownBrush;
+            // On a narrow tile the gap gives way too, so the name keeps a few more letters.
+            _grid.ColumnSpacing = narrow ? Fluent.Space1 : ProcessTable.Spacing;
 
-            var showCpu = columns != ProcessColumns.Memory;
-            var showMemory = columns != ProcessColumns.Cpu;
-
-            _cpu.Visibility = showCpu ? Visibility.Visible : Visibility.Collapsed;
-            _memory.Visibility = showMemory ? Visibility.Visible : Visibility.Collapsed;
-
-            // On a narrow tile a column holding open its widest value takes the name's room for a
-            // digit it may never show; the value's own width is enough there.
-            _cpu.MinWidth = narrow ? 0 : CpuWidth;
-            _memory.MinWidth = narrow ? 0 : MemoryWidth;
-
-            if (showMemory)
+            for (var i = 0; i < _figures.Length; i++)
             {
-                _memory.Text = usage.MemoryText;
+                var column = ColumnAt(i + 1);
+                var figure = _figures[i];
+                var visible = columns.HasFlag(column);
+                figure.Visibility = visible ? Visibility.Visible : Visibility.Collapsed;
+
+                if (!visible)
+                {
+                    continue;
+                }
+
+                // On a narrow tile a column holding open its widest value takes the name's room for a
+                // digit it may never show; the value's own width is enough there.
+                figure.MinWidth = narrow ? 0 : ProcessTable.WidthOf(column);
+                figure.Text = column switch
+                {
+                    ProcessColumn.Cpu => usage.CpuText,
+                    ProcessColumn.Memory => usage.MemoryText,
+                    ProcessColumn.Threads => CpuRules.Count(usage.Threads),
+                    _ => usage.Pid.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                };
+
+                // A row whose CPU could not be read is greyed as well as marked, so "--" reads as
+                // "not available" rather than as a figure to compare.
+                figure.Foreground = column == ProcessColumn.Cpu && !usage.CpuKnown ? UnknownBrush : KnownBrush;
             }
 
-            ToolTipService.SetToolTip(Host, $"{usage.Name} (pid {usage.Pid})");
+            var bar = share is { } s && double.IsFinite(s);
+            _bar.Visibility = bar ? Visibility.Visible : Visibility.Collapsed;
+
+            if (bar)
+            {
+                var clamped = Math.Clamp(share!.Value, 0, 1);
+                _bar.ColumnDefinitions[0].Width = new GridLength(clamped, GridUnitType.Star);
+                _bar.ColumnDefinitions[1].Width = new GridLength(1 - clamped, GridUnitType.Star);
+            }
+
+            ToolTipService.SetToolTip(Host, $"{usage.Name}.exe (pid {usage.Pid})");
         }
     }
-}
-
-/// <summary>Which numeric columns a process row has room for. [S-648]</summary>
-internal enum ProcessColumns
-{
-    Both,
-    Cpu,
-    Memory,
 }

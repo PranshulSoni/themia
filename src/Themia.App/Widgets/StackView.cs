@@ -1,6 +1,6 @@
-using Microsoft.UI;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Input;
 using Themia.App.Services;
 using Themia.App.Shell;
 using Themia.Core.Model;
@@ -9,37 +9,50 @@ using Themia.Core.Widgets;
 namespace Themia.App.Widgets;
 
 /// <summary>
-/// An accordion: every child is a row, and one of them is open.
+/// An accordion: every child is a row, and at most one of them is open.
 /// <para>
 /// Unlike a group, this owns its children's geometry — their stored rect means nothing while they
 /// are in here, and means what it always did the moment they leave. Nothing is written back to it,
 /// so taking a widget out of a stack puts it exactly where it was before it went in.
 /// </para>
+/// <para>
+/// [S-864] Every child starts closed; a row click opens that child and closes the open one, a click
+/// on the open child's row closes it. [S-867] Each row is the stack's own — icon, name, chevron — and
+/// the open child is drawn under it as a bare body (the card hides its header), so no row ever
+/// depends on how a child lays out its own header. [S-865] The ladder is <see cref="ContainerLayout.Plan"/>.
+/// </para>
 /// </summary>
-internal sealed partial class StackView : Grid, IWidgetView, IWidgetContainerView, IWidgetSurfaceAware
+internal sealed partial class StackView : Grid, IWidgetView, IWidgetContainerView, IWidgetSurfaceAware,
+    IContainerChrome, IWidgetSizeAware, IWidgetKeys
 {
-    private readonly StackPanel _rows = new();
-    private readonly StackPanel _empty;
+    private readonly ContainerPlaceholder _empty;
     private readonly List<IDisposable> _hovers = [];
     private readonly List<FrameworkElement> _children = [];
+    private readonly List<Border> _rows = [];
 
+    /// <summary>Holds the rows (and the open child) in whichever arrangement the ladder picked.</summary>
+    private readonly Grid _host = new();
+
+    /// <summary>The row strip of the wide arrangement; never a child card (cards are Grids too).</summary>
+    private Grid? _strip;
+
+    private ChildReorder? _reorder;
     private StackConfig _config = new();
     private IWidgetSurface? _surface;
+    private WidgetArea _area;
+    private StackPlan? _plan;
+    private int _cursor = -1;
 
     public StackView()
     {
-        // [S-642] The shared empty state rather than a bare text block of its own, so it sheds to
-        // fit a small tile like every other one instead of running off the top and bottom of it.
-        _empty = Fluent.EmptyState(
-            WidgetCatalog.Definition(WidgetKind.Stack).Glyph,
-            new TextBlock { Text = "Nothing in here yet. Drag a widget onto it in edit mode." },
-            out _);
-
-        _rows.Orientation = Orientation.Vertical;
-
-        Children.Add(_rows);
+        _empty = new ContainerPlaceholder(WidgetCatalog.Definition(WidgetKind.Stack).Glyph, () => Container?.AddInside());
+        Children.Add(_host);
         Children.Add(_empty);
     }
+
+    private IContainerSurface? Container => _surface as IContainerSurface;
+
+    private bool Editing => Container?.EditMode ?? false;
 
     /// <inheritdoc />
     public void Bind(IWidgetSurface surface) => _surface = surface;
@@ -59,7 +72,7 @@ internal sealed partial class StackView : Grid, IWidgetView, IWidgetContainerVie
 
         // Same children in the same order is the common case on a layout pass, and rebuilding then
         // would drop the row under the pointer and restart the open child's animation.
-        if (Same(children))
+        if (children.SequenceEqual(_children))
         {
             return;
         }
@@ -69,118 +82,251 @@ internal sealed partial class StackView : Grid, IWidgetView, IWidgetContainerVie
         Rebuild();
     }
 
-    private bool Same(IReadOnlyList<FrameworkElement> children)
+    /// <inheritdoc />
+    public void ApplySize(WidgetArea area)
     {
-        if (children.Count != _children.Count)
-        {
-            return false;
-        }
+        _area = area;
+        _empty.ApplySize(area);
 
-        for (var i = 0; i < children.Count; i++)
+        // Only a different plan rebuilds: the open child's height is a star row and follows by itself.
+        if (Plan() != _plan)
         {
-            if (!ReferenceEquals(children[i], _children[i]))
-            {
-                return false;
-            }
+            Rebuild();
         }
-
-        return true;
     }
+
+    /// <inheritdoc />
+    public void ApplyEditMode(bool editing) => _empty.ApplyEditMode(editing);
+
+    private List<string> Ids() => [.. _children.Select(c => c is WidgetCard card ? card.Model.Id : string.Empty)];
+
+    private int OpenIndex() => ContainerRules.OpenIndex(Ids(), _config.OpenChildId);
+
+    private StackPlan Plan()
+        => ContainerLayout.Plan(_area.IsMeasured ? _area : new WidgetArea(320, 240), _children.Count, OpenIndex() >= 0, Fluent.RowHeight);
 
     private void Rebuild()
     {
         ClearRows();
 
-        _empty.Visibility = _children.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
-        _rows.Visibility = _children.Count == 0 ? Visibility.Collapsed : Visibility.Visible;
+        var any = _children.Count > 0;
+        _empty.Visibility = any ? Visibility.Collapsed : Visibility.Visible;
+        _host.Visibility = any ? Visibility.Visible : Visibility.Collapsed;
 
-        if (_children.Count == 0)
+        if (!any)
         {
+            _plan = null;
             return;
         }
 
+        var plan = Plan();
+        _plan = plan;
         var open = OpenIndex();
+        var strip = plan.Arrangement == StackArrangement.Strip;
 
+        var rowsPanel = new Grid();
+        _strip = rowsPanel;
         for (var i = 0; i < _children.Count; i++)
         {
             var child = _children[i];
             var isOpen = i == open;
 
-            // The row is the handle; the child is what it opens. A closed child is collapsed rather
-            // than merely short, so a widget nobody can see is not laying itself out or ticking a
-            // layout pass it cannot be read from.
-            child.Visibility = isOpen ? Visibility.Visible : Visibility.Collapsed;
+            // [S-414] A closed child is collapsed rather than merely short, so a widget nobody can
+            // see is not laying itself out; an open one too small to read is not drawn either.
+            child.Visibility = isOpen && plan.BodyShown ? Visibility.Visible : Visibility.Collapsed;
 
-            var index = i;
-            var row = Fluent.Row(Title(child, isOpen), compact: true);
-            row.Tapped += (_, _) => Open(index);
-            _hovers.Add(Fluent.Hover(row));
+            var row = Row(child, isOpen, plan.Icons, i);
+            _rows.Add(row);
 
-            _rows.Children.Add(row);
-            _rows.Children.Add(child);
-        }
-    }
-
-    /// <summary>
-    /// Which child is open. An id naming a child that is gone opens the first one: a stack with
-    /// everything rolled up looks broken rather than tidy.
-    /// </summary>
-    private int OpenIndex()
-    {
-        if (_config.OpenChildId is { } id)
-        {
-            for (var i = 0; i < _children.Count; i++)
+            if (strip)
             {
-                if (_children[i] is WidgetCard card && string.Equals(card.Model.Id, id, StringComparison.Ordinal))
+                rowsPanel.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+                Grid.SetColumn(row, i);
+                rowsPanel.Children.Add(row);
+            }
+            else
+            {
+                // Rows down the tile, the open child in a star row under its own.
+                _host.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+                Grid.SetRow(row, _host.RowDefinitions.Count - 1);
+                _host.Children.Add(row);
+
+                if (isOpen && plan.BodyShown)
                 {
-                    return i;
+                    _host.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
+                    Grid.SetRow(child, _host.RowDefinitions.Count - 1);
+                    _host.Children.Add(child);
                 }
             }
         }
 
-        return 0;
+        if (strip)
+        {
+            // [S-865] A wide strip: the rows side by side along the top, the open child under them all.
+            _host.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+            _host.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
+            _host.Children.Add(rowsPanel);
+            if (open >= 0 && plan.BodyShown)
+            {
+                Grid.SetRow(_children[open], 1);
+                _host.Children.Add(_children[open]);
+            }
+        }
+        else if (open < 0 || !plan.BodyShown)
+        {
+            // Nothing below the rows: a filler row keeps them at the top.
+            _host.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
+        }
+
+        _reorder = new ChildReorder(strip ? rowsPanel : _host, strip ? Orientation.Horizontal : Orientation.Vertical,
+            () => Editing, (id, index) => Container?.MoveChildTo(id, index));
+        for (var i = 0; i < _rows.Count; i++)
+        {
+            _reorder.Add(_rows[i], Ids()[i]);
+        }
+
+        MarkCursor();
     }
 
-    private static FrameworkElement Title(FrameworkElement child, bool isOpen)
+    /// <summary>[S-867] One row: the child's icon (from S), its name and a chevron that turns when it opens.</summary>
+    private Border Row(FrameworkElement child, bool isOpen, bool icons, int index)
     {
-        var name = child is WidgetCard card
-            ? (string.IsNullOrWhiteSpace(card.Model.Label)
-                ? WidgetCatalog.Definition(card.Model.Kind).Label
-                : card.Model.Label)
-            : "Widget";
+        var card = child as WidgetCard;
+        var name = card is null ? "Widget"
+            : string.IsNullOrWhiteSpace(card.Model.Label) ? WidgetCatalog.Definition(card.Model.Kind).Label
+            : card.Model.Label;
 
-        var chevron = Fluent.Icon(isOpen ? Glyphs.MoveUp : Glyphs.MoveDown, "TextFillColorTertiaryBrush", 12);
-        var text = Fluent.Text(isOpen ? FluentType.BodyStrong : FluentType.Body, "TextFillColorPrimaryBrush");
+        var text = Fluent.Text(isOpen ? FluentType.BodyStrong : FluentType.Body);
         text.Text = name;
         text.VerticalAlignment = VerticalAlignment.Center;
+        text.TextTrimming = TextTrimming.CharacterEllipsis;
+        text.TextWrapping = TextWrapping.NoWrap;
+
+        var chevron = Fluent.Icon(isOpen ? Glyphs.ChevronUp : Glyphs.ChevronDown, "TextFillColorTertiaryBrush", 12);
 
         var grid = new Grid
         {
             ColumnSpacing = Fluent.Space2,
             ColumnDefinitions =
             {
+                new ColumnDefinition { Width = GridLength.Auto },
                 new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) },
                 new ColumnDefinition { Width = GridLength.Auto },
             },
         };
 
-        Grid.SetColumn(text, 0);
-        Grid.SetColumn(chevron, 1);
+        if (icons && card is not null)
+        {
+            var icon = Fluent.Icon(WidgetCatalog.Definition(card.Model.Kind).Glyph);
+            icon.VerticalAlignment = VerticalAlignment.Center;
+            grid.Children.Add(icon);
+        }
+
+        Grid.SetColumn(text, 1);
+        Grid.SetColumn(chevron, 2);
         grid.Children.Add(text);
         grid.Children.Add(chevron);
-        return grid;
+
+        var row = Fluent.Row(grid);
+        RowFocus.Prepare(row);
+        Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(row, name);
+
+        // [S-864] Clicks on the row band only: the open child's own clicks never reach here, since
+        // it is a sibling of the row, not inside it. Inert in edit mode: the card owns the pointer.
+        row.Tapped += (_, e) =>
+        {
+            if (!Editing)
+            {
+                _cursor = index;
+                Toggle(index);
+                e.Handled = true;
+            }
+        };
+
+        row.RightTapped += (_, e) => ItemMenu.Show(row, e, Menu(index));
+        _hovers.Add(Fluent.Hover(row));
+        return row;
     }
 
-    private void Open(int index)
+    /// <summary>[S-866] A row's menu: the child's settings, move up/down (not past the ends), take it out.</summary>
+    private List<ItemMenuEntry> Menu(int index)
+    {
+        if (index < 0 || index >= _children.Count || _children[index] is not WidgetCard card || Container is not { } container)
+        {
+            return [];
+        }
+
+        var id = card.Model.Id;
+        return
+        [
+            new(Glyphs.Settings, "Configure…", () => container.ChildAction(id, ContainerChildAction.Configure)),
+            ItemMenuEntry.Separator,
+            new(Glyphs.MoveUp, "Move up", () => container.ChildAction(id, ContainerChildAction.MoveUp), Disabled: !container.CanMoveChild(id, -1)),
+            new(Glyphs.MoveDown, "Move down", () => container.ChildAction(id, ContainerChildAction.MoveDown), Disabled: !container.CanMoveChild(id, 1)),
+            ItemMenuEntry.Separator,
+            new(Glyphs.TakeOut, "Take out of the stack", () => container.ChildAction(id, ContainerChildAction.TakeOut)),
+        ];
+    }
+
+    private void Toggle(int index)
     {
         if (index < 0 || index >= _children.Count)
         {
             return;
         }
 
-        _config.OpenChildId = _children[index] is WidgetCard card ? card.Model.Id : null;
+        _config.OpenChildId = ContainerRules.Toggle(Ids(), _config.OpenChildId, index);
         Rebuild();
         _surface?.RequestSave();
+    }
+
+    // ---- keys ([S-865], the original's Enter/Space on a row) -------------------------------------
+
+    /// <inheritdoc />
+    public bool HandleKey(WidgetKey key)
+    {
+        if (_children.Count == 0)
+        {
+            return false;
+        }
+
+        switch (key)
+        {
+            case WidgetKey.Up or WidgetKey.Left:
+                _cursor = _cursor < 0 ? 0 : Math.Max(0, _cursor - 1);
+                break;
+            case WidgetKey.Down or WidgetKey.Right:
+                _cursor = _cursor < 0 ? 0 : Math.Min(_children.Count - 1, _cursor + 1);
+                break;
+            case WidgetKey.Home:
+                _cursor = 0;
+                break;
+            case WidgetKey.End:
+                _cursor = _children.Count - 1;
+                break;
+            case WidgetKey.Enter or WidgetKey.Space when _cursor >= 0:
+                Toggle(_cursor);
+                return true;
+            case WidgetKey.Menu when _cursor >= 0 && _cursor < _rows.Count:
+                ItemMenu.Build(Menu(_cursor)).ShowAt(_rows[_cursor]);
+                return true;
+            case WidgetKey.Escape:
+                _cursor = -1;
+                break;
+            default:
+                return false;
+        }
+
+        MarkCursor();
+        return true;
+    }
+
+    private void MarkCursor()
+    {
+        for (var i = 0; i < _rows.Count; i++)
+        {
+            RowFocus.Mark(_rows[i], i == _cursor);
+        }
     }
 
     private void ClearRows()
@@ -191,10 +337,16 @@ internal sealed partial class StackView : Grid, IWidgetView, IWidgetContainerVie
         }
 
         _hovers.Clear();
+        _reorder?.Dispose();
+        _reorder = null;
+        _rows.Clear();
 
         // The children belong to the surface, not to this panel: detaching them here is what lets
         // them go back onto the grid when they leave the stack.
-        _rows.Children.Clear();
+        _strip?.Children.Clear();
+        _strip = null;
+        _host.Children.Clear();
+        _host.RowDefinitions.Clear();
     }
 
     public void Detach()

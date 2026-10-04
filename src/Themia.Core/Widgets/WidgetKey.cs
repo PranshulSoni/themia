@@ -1,12 +1,13 @@
 namespace Themia.Core.Widgets;
 
 /// <summary>
-/// The keys a widget may be handed while it holds the keyboard: the navigation set the classic
-/// widgets answered through their low-level keyboard hook (arrows, Home / End, Enter, Escape).
+/// [S-803] The keys a widget may be handed while it holds the keyboard lease: the navigation set the
+/// classic widgets answered through their low-level keyboard hook (arrows, Page Up / Down, Home /
+/// End, Tab, Enter, Space, Delete, F2, the Menu key, Escape).
 /// <para>
 /// A closed set rather than a raw virtual-key code, so a widget's key map is a pure function that
 /// can be tested here, and the shell's keyboard lease (which decides <i>whether</i> a widget gets a
-/// key) is the only place that knows about Win32 key codes.
+/// key) is the only place that knows about platform key codes (<see cref="WidgetKeys"/>).
 /// </para>
 /// </summary>
 public enum WidgetKey
@@ -18,5 +19,35 @@ public enum WidgetKey
     Home,
     End,
     Enter,
+
+    /// <summary>
+    /// Let go. Also what the shell sends when the lease ends any other way (a click elsewhere, the
+    /// surface losing activation, edit mode), so a view has one place that drops its cursor.
+    /// </summary>
     Escape,
+
+    PageUp,
+    PageDown,
+    Tab,
+    ShiftTab,
+    Space,
+    Delete,
+
+    /// <summary>F2.</summary>
+    Rename,
+
+    /// <summary>The Menu key or Shift+F10: the focused item's context menu.</summary>
+    Menu,
+
+    /// <summary>[S-1225] + (main row or numeric pad): turn a level up.</summary>
+    Plus,
+
+    /// <summary>[S-1225] − (main row or numeric pad): turn a level down.</summary>
+    Minus,
+
+    /// <summary>
+    /// [S-1225] The M key: mute in the audio widgets. The one letter that is a widget key — every
+    /// other letter stays type-ahead, and a view that has no mute simply does not use it.
+    /// </summary>
+    Mute,
 }

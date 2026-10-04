@@ -5,8 +5,10 @@ using System.Net.NetworkInformation;
 using System.Net.Sockets;
 using System.Security.Authentication;
 using System.Text;
+using Themia.App.Services.Net;
 using Themia.Core.Accounts;
 using Themia.Core.Diagnostics;
+using Themia.Core.Widgets;
 
 namespace Themia.App.Services.Accounts;
 
@@ -123,37 +125,21 @@ internal static class AccountHttp
 {
     private const string Scope = "accounts.http";
 
-    private const string UserAgent = "Themia/1.0 (Windows desktop widgets; +https://themia.app)";
-
     /// <summary>The whole-request deadline. Applied per request, so a slow page cannot borrow from the next.</summary>
     private static readonly TimeSpan RequestTimeout = TimeSpan.FromSeconds(30);
 
     /// <summary>What is read into memory at most. A mailbox page or a calendar REPORT is far smaller.</summary>
     private const int MaxBytes = 16 * 1024 * 1024;
 
-    private static readonly HttpClient Client = Create();
-
-    private static HttpClient Create()
-    {
-        var handler = new SocketsHttpHandler
-        {
-            AutomaticDecompression = DecompressionMethods.All,
-            ConnectTimeout = TimeSpan.FromSeconds(10),
-            PooledConnectionLifetime = TimeSpan.FromMinutes(5),
-            PooledConnectionIdleTimeout = TimeSpan.FromMinutes(2),
-            AllowAutoRedirect = false,
-
-            // A DAV server that answers with a digest challenge would otherwise need its own
-            // handler; basic auth is what the classic app sent, and what these servers accept.
-            PreAuthenticate = false,
-        };
-
-        // The deadline is per request (a linked token), so the client itself never times out a
-        // request on its own schedule.
-        var client = new HttpClient(handler) { Timeout = Timeout.InfiniteTimeSpan };
-        client.DefaultRequestHeaders.UserAgent.ParseAdd(UserAgent);
-        return client;
-    }
+    /// <summary>
+    /// [S-960]/[S-965] The guarded client: every connection — Microsoft, Google, GitHub, Anthropic,
+    /// and the DAV and GitHub servers a user typed in — resolves, is judged and connects through
+    /// <see cref="Web.NetGuard"/>, so a server on this machine or the local network (a NAS) is reached
+    /// exactly when the user's "local network access" switch is on. The deadline is per request (a
+    /// linked token), so the client itself never times a request out on its own schedule. A DAV
+    /// server's digest challenge is not answered; basic auth is what the classic app sent.
+    /// </summary>
+    private static readonly HttpClient Client = GuardedHttp.Create(NetReach.Internet, TimeSpan.FromSeconds(10), Timeout.InfiniteTimeSpan);
 
     /// <summary>
     /// Send a request, following redirects and retrying throttles, and return whatever status it
@@ -324,6 +310,12 @@ internal static class AccountHttp
 
     private static AccountException Transport(Uri url, HttpRequestException ex)
     {
+        if (Web.NetRefusedException.Find(ex) is { } refused)
+        {
+            // The guard said no; its sentence says why and where the switch is.
+            return new AccountException(AccountError.Refused, refused.Message, 0, ex);
+        }
+
         if (!NetworkInterface.GetIsNetworkAvailable())
         {
             return new AccountException(AccountError.Offline, "This PC is not connected to a network.", 0, ex);

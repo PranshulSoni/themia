@@ -29,7 +29,7 @@ namespace Themia.App.Widgets;
 /// row, a double-click opens it, right-click offers what its account allows ([S-544]).
 /// </para>
 /// </summary>
-internal sealed partial class EmailView : Grid, IWidgetView, IWidgetHeaderContent, IWidgetSurfaceAware, IWidgetContextActions, IWidgetSizeAware
+internal sealed partial class EmailView : Grid, IWidgetView, IWidgetHeaderContent, IWidgetSurfaceAware, IWidgetContextActions, IWidgetSizeAware, IWidgetKeys
 {
     private const string Scope = "email-widget";
 
@@ -171,8 +171,6 @@ internal sealed partial class EmailView : Grid, IWidgetView, IWidgetHeaderConten
         Children.Add(_scroll);
         Children.Add(_footer);
         Children.Add(_emptyHost);
-
-        KeyDown += OnKeyDown;
     }
 
     /// <inheritdoc />
@@ -494,7 +492,8 @@ internal sealed partial class EmailView : Grid, IWidgetView, IWidgetHeaderConten
         => _source?.Accounts.FirstOrDefault(a => a.Id == message.AccountId) is { ReadOnly: false };
 
     /// <summary>[S-544] A message's own commands, offered only where its account allows them.</summary>
-    private void ShowMessageMenu(FrameworkElement anchor, MailMessage message, RightTappedRoutedEventArgs args)
+    /// <param name="args">The right-click, for the menu to open at the pointer; null for the Menu key, which opens it at the row.</param>
+    private void ShowMessageMenu(FrameworkElement anchor, MailMessage message, RightTappedRoutedEventArgs? args)
     {
         var menu = new MenuFlyout();
         var canChange = CanChange(message);
@@ -535,7 +534,14 @@ internal sealed partial class EmailView : Grid, IWidgetView, IWidgetHeaderConten
             menu.Items.Add(Item(Glyphs.Delete, DeleteLabel(message), () => Change(message, MailChange.Delete)));
         }
 
-        menu.ShowAt(anchor, args.GetPosition(anchor));
+        if (args is null)
+        {
+            menu.ShowAt(anchor);
+        }
+        else
+        {
+            menu.ShowAt(anchor, args.GetPosition(anchor));
+        }
     }
 
     private static string DeleteLabel(MailMessage message) => message.Folder == MailFolder.Deleted ? "Delete permanently" : "Delete";
@@ -691,7 +697,6 @@ internal sealed partial class EmailView : Grid, IWidgetView, IWidgetHeaderConten
         }
 
         _detached = true;
-        KeyDown -= OnKeyDown;
         _warning.Tapped -= OnWarningTapped;
         _sort.Tapped -= OnSortTapped;
         _sortHover.Dispose();

@@ -8,7 +8,8 @@ using Themia.Core.Widgets;
 namespace Themia.App.Shell.Config;
 
 /// <summary>
-/// Settings rows for the GPU meter, the mixer and screen time.
+/// Settings rows for screen time (the GPU meter's are in <c>WidgetSettings.Gpu.cs</c>, the mixer's in
+/// <c>WidgetSettings.Mixer.cs</c>).
 /// <para>
 /// Same shape as the rest of <see cref="WidgetSettings"/>: each control writes straight to the live
 /// config and saves, because the widget is on the desktop behind the window and watching it change
@@ -17,105 +18,6 @@ namespace Themia.App.Shell.Config;
 /// </summary>
 internal static partial class WidgetSettings
 {
-    public static void Gpu(List<FrameworkElement> rows, GpuConfig config, Action save)
-    {
-        ArgumentNullException.ThrowIfNull(rows);
-        ArgumentNullException.ThrowIfNull(config);
-        ArgumentNullException.ThrowIfNull(save);
-
-        rows.Add(FluentLayout.Header("GPU"));
-
-        // [S-433] One switch per adapter, offered only when there is a choice to make. The picker
-        // reflects the raw selection: unticking the last adapter leaves it empty, and the widget
-        // falls back to the primary adapter on its own.
-        var adapters = GpuSampler.Adapters();
-        if (adapters.Count > 1)
-        {
-            foreach (var adapter in adapters)
-            {
-                var index = adapter.Index;
-                var selected = GpuRules.SelectedAdapters(config.Adapters).Contains(index);
-
-                rows.Add(FluentLayout.Row(Glyphs.Gpu, adapter.Name,
-                    adapter.DedicatedBytes > 0 ? $"{Formatting.Bytes(adapter.DedicatedBytes)} of its own memory" : "Shares system memory",
-                    FluentLayout.Toggle(selected, on =>
-                    {
-                        var list = GpuRules.SelectedAdapters(config.Adapters);
-                        list.Remove(index);
-
-                        if (on)
-                        {
-                            list.Add(index);
-                        }
-
-                        config.Adapters = list;
-                        save();
-                    })));
-            }
-
-            rows.Add(FluentLayout.Note("With two or more switched on, each adapter gets its own panel."));
-        }
-
-        AddGraphToggle(rows, config, save);
-
-        rows.Add(FluentLayout.Row(Glyphs.Memory, "Dedicated memory", "The adapter's own video memory, with a bar",
-            FluentLayout.Toggle(config.ShowDedicated, value => { config.ShowDedicated = value; save(); })));
-
-        rows.Add(FluentLayout.Row(Glyphs.Memory, "Shared memory", "System memory the adapter is borrowing",
-            FluentLayout.Toggle(config.ShowShared, value => { config.ShowShared = value; save(); })));
-
-        // [S-439] Only an NVIDIA driver answers these; elsewhere the rows stay hidden whatever is set.
-        rows.Add(FluentLayout.Header("From the driver"));
-        rows.Add(FluentLayout.Note("NVIDIA cards report these. Other adapters leave the rows out."));
-
-        rows.Add(FluentLayout.Row(Glyphs.Sun, "Temperature", null,
-            FluentLayout.Toggle(config.ShowTemperature, value => { config.ShowTemperature = value; save(); })));
-
-        rows.Add(FluentLayout.Row(Glyphs.Lightning, "Power draw", null,
-            FluentLayout.Toggle(config.ShowPower, value => { config.ShowPower = value; save(); })));
-
-        rows.Add(FluentLayout.Row(Glyphs.Motion, "Fan speed", null,
-            FluentLayout.Toggle(config.ShowFan, value => { config.ShowFan = value; save(); })));
-
-        rows.Add(FluentLayout.Row(Glyphs.Timer, "Clocks", "Core and memory clock",
-            FluentLayout.Toggle(config.ShowClocks, value => { config.ShowClocks = value; save(); })));
-
-        rows.Add(FluentLayout.Row(Glyphs.Video, "Video engines", "Encoder and decoder load",
-            FluentLayout.Toggle(config.ShowVideoEngines, value => { config.ShowVideoEngines = value; save(); })));
-
-        FluentLayout.RefreshSeconds(rows, "the adapters are sampled", Math.Clamp(config.IntervalSeconds, 1, 60), 1, 60, 1,
-            value => { config.IntervalSeconds = value; save(); });
-    }
-
-    public static void Mixer(List<FrameworkElement> rows, MixerConfig config, Action save)
-    {
-        ArgumentNullException.ThrowIfNull(rows);
-        ArgumentNullException.ThrowIfNull(config);
-        ArgumentNullException.ThrowIfNull(save);
-
-        rows.Add(FluentLayout.Header("Mixer"));
-
-        // [S-442] The original request: one slider per app, not one per tab.
-        rows.Add(FluentLayout.Row(Glyphs.Group, "One row per app",
-            "A browser playing in three tabs gets one slider instead of three",
-            FluentLayout.Toggle(config.GroupByApp, value => { config.GroupByApp = value; save(); })));
-
-        rows.Add(FluentLayout.Row(Glyphs.Volume, "Master volume", "The device's own level, as the first row",
-            FluentLayout.Toggle(config.ShowMaster, value => { config.ShowMaster = value; save(); })));
-
-        rows.Add(FluentLayout.Row(Glyphs.Play, "Only apps playing now",
-            "Leave out apps that hold an audio session but are silent",
-            FluentLayout.Toggle(config.OnlyActive, value => { config.OnlyActive = value; save(); })));
-
-        rows.Add(FluentLayout.Row(Glyphs.Bell, "System sounds", "Windows' own notification sounds",
-            FluentLayout.Toggle(config.ShowSystemSounds, value => { config.ShowSystemSounds = value; save(); })));
-
-        rows.Add(FluentLayout.Row(Glyphs.Apps, "App icons", "Each app's own icon rather than a generic one",
-            FluentLayout.Toggle(config.ShowIcons, value => { config.ShowIcons = value; save(); })));
-
-        rows.Add(FluentLayout.Note("The list follows Windows as apps start and stop playing, and moves to whichever output device is the default."));
-    }
-
     public static void ScreenTime(List<FrameworkElement> rows, ScreenTimeConfig config, Action save)
     {
         ArgumentNullException.ThrowIfNull(rows);
@@ -166,10 +68,16 @@ internal static partial class WidgetSettings
 
         rows.Add(FluentLayout.Row(Glyphs.Palette, "Style", "A day draws its apps; a window draws its days", style));
 
-        rows.Add(FluentLayout.Row(Glyphs.Count, "Apps listed",
-            "How many the legend holds; 0 lists none and keeps the drawing",
+        // [S-1211] The list is a switch; its length is a ceiling over what the tile has room for.
+        rows.Add(FluentLayout.Row(Glyphs.Apps, "List the apps", "Beside or under the drawing, busiest first",
+            FluentLayout.Toggle(config.ShowList, value => { config.ShowList = value; save(); }),
+            "legend"));
+
+        rows.Add(FluentLayout.Row(Glyphs.Count, "Most apps listed",
+            "0 lists as many as the widget has room for",
             FluentLayout.Slider(ScreenTimeRules.EffectiveMaxApps(config.MaxApps), 0, ScreenTimeRules.MaxAppsLimit, 1, string.Empty,
-                value => { config.MaxApps = (int)Math.Round(value); save(); })));
+                value => { config.MaxApps = (int)Math.Round(value); save(); }),
+            "apps listed", "max apps"));
 
         rows.Add(FluentLayout.Header("Figures"));
 

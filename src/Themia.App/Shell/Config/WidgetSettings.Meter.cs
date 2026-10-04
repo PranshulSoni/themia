@@ -4,7 +4,7 @@ using Themia.Core.Widgets;
 
 namespace Themia.App.Shell.Config;
 
-/// <summary>The rows every meter shares, and the meters with nothing of their own yet.</summary>
+/// <summary>The rows every meter shares.</summary>
 internal static partial class WidgetSettings
 {
     /// <summary>
@@ -36,22 +36,4 @@ internal static partial class WidgetSettings
             "Draw a chart of the recent samples",
             FluentLayout.Toggle(gauge.ShowGraph, value => { gauge.ShowGraph = value; save(); }),
             "graph", "chart", "sparkline"));
-
-    public static void Cpu(List<FrameworkElement> rows, CpuConfig cpu, Action save)
-    {
-        ArgumentNullException.ThrowIfNull(rows);
-        ArgumentNullException.ThrowIfNull(cpu);
-        ArgumentNullException.ThrowIfNull(save);
-
-        MeterRows(rows, cpu, save, "the load is read");
-    }
-
-    public static void Network(List<FrameworkElement> rows, NetworkConfig network, Action save)
-    {
-        ArgumentNullException.ThrowIfNull(rows);
-        ArgumentNullException.ThrowIfNull(network);
-        ArgumentNullException.ThrowIfNull(save);
-
-        MeterRows(rows, network, save, "the adapters are read");
-    }
 }

@@ -82,14 +82,20 @@ public static class VolumeRules
     /// The line under the readout. Says <i>muted</i> in words as well as in the glyph, because a
     /// state carried only by an icon is a state some readers do not get at all.
     /// </summary>
-    public static string Caption(double scalar, bool muted)
+    /// <param name="device">[S-1232] The device's name, which replaces "Output level" when known.</param>
+    public static string Caption(double scalar, bool muted, string? device = null)
     {
         if (muted)
         {
             return "Muted";
         }
 
-        return Percent(scalar) == 0 ? "Turned down" : "Output level";
+        if (Percent(scalar) == 0)
+        {
+            return "Turned down";
+        }
+
+        return string.IsNullOrWhiteSpace(device) ? "Output level" : device.Trim();
     }
 
     /// <summary>The big number. Kept separate from the caption so the tile can drop one and not the other.</summary>

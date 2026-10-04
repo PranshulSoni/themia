@@ -6,6 +6,8 @@ using System.Net.Sockets;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization.Metadata;
+using Themia.App.Services.Net;
+using Themia.Core.Accounts;
 using Themia.Core.Diagnostics;
 using Themia.Core.Widgets;
 
@@ -38,17 +40,13 @@ internal static class WebFetch
     private const string Scope = "web";
 
     /// <summary>
-    /// Identifies the app to the services it uses. Public APIs ask for this, some of them enforce
-    /// it, and a host that wants to complain about this app's traffic deserves to know who to
-    /// complain to.
-    /// </summary>
-    private const string UserAgent = "Themia/1.0 (Windows desktop widgets; +https://themia.app)";
-
-    /// <summary>
     /// A widget refreshes on a timer, so the honest deadline is short: a request that has not
     /// answered in this long has nothing to add that the next tick will not get sooner.
     /// </summary>
     private static readonly TimeSpan RequestTimeout = TimeSpan.FromSeconds(20);
+
+    /// <summary>A dead host should be reported as unreachable in seconds, not held open until the whole-request deadline.</summary>
+    private static readonly TimeSpan ConnectTimeout = TimeSpan.FromSeconds(8);
 
     /// <summary>
     /// A ceiling on what is read into memory, applied to the stream rather than to a
@@ -57,32 +55,14 @@ internal static class WebFetch
     /// </summary>
     private const int MaxBytes = 4 * 1024 * 1024;
 
-    private static readonly HttpClient Client = Create();
+    /// <summary>
+    /// [S-960] The client for everything on the internet: every connection through the guard, the
+    /// local network only when the user's switch allows it.
+    /// </summary>
+    private static readonly HttpClient Client = GuardedHttp.Create(NetReach.Internet, ConnectTimeout, RequestTimeout);
 
-    private static HttpClient Create()
-    {
-        var handler = new SocketsHttpHandler
-        {
-            AutomaticDecompression = DecompressionMethods.All,
-
-            // A dead host should be reported as unreachable in seconds, not held open until the
-            // whole-request deadline.
-            ConnectTimeout = TimeSpan.FromSeconds(8),
-
-            // A process that lives for weeks would otherwise pin a connection to an IP address
-            // that DNS stopped pointing at days ago.
-            PooledConnectionLifetime = TimeSpan.FromMinutes(5),
-            PooledConnectionIdleTimeout = TimeSpan.FromMinutes(2),
-
-            // A feed that redirects is normal; a feed that redirects nine times is a loop.
-            MaxAutomaticRedirections = 5,
-            AllowAutoRedirect = true,
-        };
-
-        var client = new HttpClient(handler) { Timeout = RequestTimeout };
-        client.DefaultRequestHeaders.UserAgent.ParseAdd(UserAgent);
-        return client;
-    }
+    /// <summary>[S-967] The client for a service on this computer (the hardware monitor): loopback only, never proxied.</summary>
+    private static readonly HttpClient LocalClient = GuardedHttp.Create(NetReach.ThisMachine, ConnectTimeout, RequestTimeout);
 
     /// <summary>
     /// Fetch a URL as text, mapping every way it can go wrong onto a named
@@ -94,7 +74,41 @@ internal static class WebFetch
     /// answer nobody is waiting for.
     /// </para>
     /// </summary>
-    public static async Task<WebResponse> GetAsync(Uri uri, string accept, CancellationToken token)
+    /// <param name="reach">
+    /// [S-960] Where the address may go. Every request is guarded — each hop, the first and every
+    /// redirect, connects through <see cref="NetGuard"/> — and a refusal comes back as
+    /// <see cref="FetchStatus.Refused"/> with the sentence to show as the detail.
+    /// </param>
+    public static async Task<WebResponse> GetAsync(Uri uri, string accept, CancellationToken token, NetReach reach = NetReach.Internet)
+    {
+        var (status, body, detail) = await FetchAsync(uri, accept, reach, MaxBytes, token).ConfigureAwait(false);
+
+        // UTF-8 with replacement, not with an exception: a feed declaring one encoding and serving
+        // another is common, the app builds with InvariantGlobalization so most legacy code pages
+        // are not available to decode it with anyway, and a replacement character in one headline
+        // is a far better outcome than the whole widget reporting a failure.
+        return status == FetchStatus.Ok && body is not null
+            ? new WebResponse(FetchStatus.Ok, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false, throwOnInvalidBytes: false).GetString(body), null)
+            : new WebResponse(status, string.Empty, detail);
+    }
+
+    /// <summary>
+    /// Fetch a small binary resource (an icon), capped at <paramref name="maxBytes"/>. Same
+    /// statuses and the same guard as <see cref="GetAsync"/>.
+    /// </summary>
+    public static Task<(FetchStatus Status, byte[]? Body, string? Detail)> GetBytesAsync(
+        Uri uri,
+        string accept,
+        int maxBytes,
+        CancellationToken token)
+        => FetchAsync(uri, accept, NetReach.Internet, Math.Clamp(maxBytes, 1, MaxBytes), token);
+
+    private static async Task<(FetchStatus Status, byte[]? Body, string? Detail)> FetchAsync(
+        Uri uri,
+        string accept,
+        NetReach reach,
+        int maxBytes,
+        CancellationToken token)
     {
         ArgumentNullException.ThrowIfNull(uri);
 
@@ -104,43 +118,71 @@ internal static class WebFetch
         if (uri.Scheme != Uri.UriSchemeHttps && uri.Scheme != Uri.UriSchemeHttp)
         {
             Log.Warn(Scope, $"refused a non-http request to '{uri.Scheme}:'");
-            return new WebResponse(FetchStatus.Refused, string.Empty, $"scheme {uri.Scheme}");
-        }
-
-        using var request = new HttpRequestMessage(HttpMethod.Get, uri);
-
-        if (!string.IsNullOrEmpty(accept))
-        {
-            request.Headers.Accept.ParseAdd(accept);
+            return (FetchStatus.Refused, null, $"scheme {uri.Scheme}");
         }
 
         try
         {
-            using var response = await Client
-                .SendAsync(request, HttpCompletionOption.ResponseHeadersRead, token)
-                .ConfigureAwait(false);
+            var current = uri;
 
-            if (response.StatusCode == HttpStatusCode.TooManyRequests)
+            for (var hop = 0; ; hop++)
             {
-                // Its own status, because it is the one failure whose correct response is to stop
-                // asking for a long time rather than to try again on the next tick.
-                return new WebResponse(FetchStatus.RateLimited, string.Empty, "HTTP 429 Too Many Requests");
+                using var request = new HttpRequestMessage(HttpMethod.Get, current);
+
+                if (!string.IsNullOrEmpty(accept))
+                {
+                    request.Headers.Accept.ParseAdd(accept);
+                }
+
+                using var response = await (reach == NetReach.ThisMachine ? LocalClient : Client)
+                    .SendAsync(request, HttpCompletionOption.ResponseHeadersRead, token)
+                    .ConfigureAwait(false);
+
+                // [S-966] Redirects are followed here, never by the stack, so each hop is a new
+                // request that meets the guard: a public feed answering 302 to http://192.168.1.1/ is
+                // the textbook way around a check made only on the first address. Which hops are
+                // followed at all is the accounts' rule (RedirectRules): http(s) only, never https
+                // down to http, never from a public host into the local network.
+                if (RedirectRules.IsRedirect((int)response.StatusCode))
+                {
+                    if (hop >= RedirectRules.MaxHops || response.Headers.Location is not { } location)
+                    {
+                        return (FetchStatus.BadResponse, null, hop >= RedirectRules.MaxHops ? "too many redirects" : "a redirect with no address");
+                    }
+
+                    var next = location.IsAbsoluteUri ? location : new Uri(current, location);
+
+                    if (!RedirectRules.MayFollow(current, next))
+                    {
+                        return (FetchStatus.Refused, null, $"refused a redirect to {next.Scheme}://{next.IdnHost}");
+                    }
+
+                    current = next;
+                    continue;
+                }
+
+                if (response.StatusCode == HttpStatusCode.TooManyRequests)
+                {
+                    // Its own status, because it is the one failure whose correct response is to stop
+                    // asking for a long time rather than to try again on the next tick.
+                    return (FetchStatus.RateLimited, null, "HTTP 429 Too Many Requests");
+                }
+
+                if (!response.IsSuccessStatusCode)
+                {
+                    // The status line, not the body: a 403 challenge page or a 404 HTML document would
+                    // otherwise be handed to the parser and reported as "not a feed", which sends the
+                    // reader looking in the wrong place.
+                    var line = $"HTTP {(int)response.StatusCode} {response.ReasonPhrase}".TrimEnd();
+                    return (FetchStatus.BadResponse, null, line);
+                }
+
+                var body = await ReadAsync(response, maxBytes, token).ConfigureAwait(false);
+
+                return body is null
+                    ? (FetchStatus.BadResponse, null, $"reply larger than {maxBytes} bytes")
+                    : (FetchStatus.Ok, body, null);
             }
-
-            if (!response.IsSuccessStatusCode)
-            {
-                // The status line, not the body: a 403 challenge page or a 404 HTML document would
-                // otherwise be handed to the parser and reported as "not a feed", which sends the
-                // reader looking in the wrong place.
-                var line = $"HTTP {(int)response.StatusCode} {response.ReasonPhrase}".TrimEnd();
-                return new WebResponse(FetchStatus.BadResponse, string.Empty, line);
-            }
-
-            var body = await ReadAsync(response, token).ConfigureAwait(false);
-
-            return body is null
-                ? new WebResponse(FetchStatus.BadResponse, string.Empty, $"reply larger than {MaxBytes} bytes")
-                : new WebResponse(FetchStatus.Ok, body, null);
         }
         catch (OperationCanceledException) when (token.IsCancellationRequested)
         {
@@ -150,16 +192,21 @@ internal static class WebFetch
         catch (OperationCanceledException)
         {
             // Cancelled without the caller asking is HttpClient's own deadline.
-            return new WebResponse(FetchStatus.TimedOut, string.Empty, $"no reply within {RequestTimeout.TotalSeconds:F0}s");
+            return (FetchStatus.TimedOut, null, $"no reply within {RequestTimeout.TotalSeconds:F0}s");
+        }
+        catch (HttpRequestException ex) when (NetRefusedException.Find(ex) is { } refused)
+        {
+            // The guard said no: its own status, and the sentence that says why and what to do.
+            return (FetchStatus.Refused, null, refused.Message);
         }
         catch (HttpRequestException ex)
         {
-            return new WebResponse(Classify(ex), string.Empty, Describe(ex));
+            return (Classify(ex), null, Describe(ex));
         }
         catch (IOException ex)
         {
             // A connection dropped mid-body.
-            return new WebResponse(FetchStatus.Unreachable, string.Empty, ex.Message);
+            return (FetchStatus.Unreachable, null, ex.Message);
         }
     }
 
@@ -202,14 +249,14 @@ internal static class WebFetch
     }
 
     /// <summary>
-    /// Read the body, refusing to grow past <see cref="MaxBytes"/>.
+    /// Read the body, refusing to grow past <paramref name="maxBytes"/>.
     /// <para>
     /// Bounded while reading rather than after: a host that streams forever would otherwise be
     /// stopped only by the request deadline, having already put whatever it sent into this
     /// process's memory.
     /// </para>
     /// </summary>
-    private static async Task<string?> ReadAsync(HttpResponseMessage response, CancellationToken token)
+    private static async Task<byte[]?> ReadAsync(HttpResponseMessage response, int maxBytes, CancellationToken token)
     {
         await using var stream = await response.Content.ReadAsStreamAsync(token).ConfigureAwait(false);
         using var buffer = new MemoryStream();
@@ -225,7 +272,7 @@ internal static class WebFetch
                 break;
             }
 
-            if (buffer.Length + read > MaxBytes)
+            if (buffer.Length + read > maxBytes)
             {
                 return null;
             }
@@ -233,12 +280,7 @@ internal static class WebFetch
             buffer.Write(chunk, 0, read);
         }
 
-        // UTF-8 with replacement, not with an exception: a feed declaring one encoding and serving
-        // another is common, the app builds with InvariantGlobalization so most legacy code pages
-        // are not available to decode it with anyway, and a replacement character in one headline
-        // is a far better outcome than the whole widget reporting a failure.
-        return new UTF8Encoding(encoderShouldEmitUTF8Identifier: false, throwOnInvalidBytes: false)
-            .GetString(buffer.GetBuffer(), 0, (int)buffer.Length);
+        return buffer.ToArray();
     }
 
     /// <summary>

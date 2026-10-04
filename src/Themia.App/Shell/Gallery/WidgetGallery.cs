@@ -86,7 +86,22 @@ internal sealed class WidgetGallery : IDisposable
     private WidgetGallery(DispatcherQueue dispatcher, bool interactive)
     {
         _ticker = new Ticker(dispatcher);
-        _host = new GalleryCardHost(_ticker);
+
+        // [S-829] A design to render with, so appearance changes can be looked at without the app.
+        // Opened from the running app, the gallery shows the app's own design and must not apply
+        // another: the engine's resources are app-wide.
+        DesignState design;
+        if (interactive)
+        {
+            design = DesignApplier.Current ?? new DesignState();
+        }
+        else
+        {
+            design = GalleryDesign();
+            DesignApplier.Apply(design);
+        }
+
+        _host = new GalleryCardHost(_ticker, design);
         GalleryFixtures.Prepare();
 
         foreach (var definition in WidgetCatalog.All)
@@ -130,7 +145,7 @@ internal sealed class WidgetGallery : IDisposable
                 new RowDefinition { Height = new GridLength(1, GridUnitType.Star) },
             },
 
-            RequestedTheme = ElementTheme.Dark,
+            RequestedTheme = DesignApplier.Theme,
         };
 
         _frame = new Border
@@ -145,11 +160,17 @@ internal sealed class WidgetGallery : IDisposable
             {
                 StartPoint = new Windows.Foundation.Point(0, 0),
                 EndPoint = new Windows.Foundation.Point(1, 1),
-                GradientStops =
-                {
-                    new GradientStop { Color = Windows.UI.Color.FromArgb(255, 0x10, 0x16, 0x24), Offset = 0 },
-                    new GradientStop { Color = Windows.UI.Color.FromArgb(255, 0x24, 0x1a, 0x30), Offset = 1 },
-                },
+                GradientStops = DesignApplier.IsDark
+                    ? new GradientStopCollection
+                    {
+                        new GradientStop { Color = Windows.UI.Color.FromArgb(255, 0x10, 0x16, 0x24), Offset = 0 },
+                        new GradientStop { Color = Windows.UI.Color.FromArgb(255, 0x24, 0x1a, 0x30), Offset = 1 },
+                    }
+                    : new GradientStopCollection
+                    {
+                        new GradientStop { Color = Windows.UI.Color.FromArgb(255, 0xC9, 0xD6, 0xE8), Offset = 0 },
+                        new GradientStop { Color = Windows.UI.Color.FromArgb(255, 0xE6, 0xD9, 0xEC), Offset = 1 },
+                    },
             },
         };
 
@@ -181,6 +202,35 @@ internal sealed class WidgetGallery : IDisposable
         }
 
         _window.AppWindow.Resize(wanted);
+    }
+
+    /// <summary>Environment variable holding a <see cref="DesignState"/> as JSON (the state file's shape).</summary>
+    public const string DesignVariable = "THEMIA_GALLERY_DESIGN";
+
+    /// <summary>
+    /// [S-829] The design the gallery renders with: <see cref="DesignVariable"/> when set (e.g.
+    /// <c>{"theme":"Light","primaryColor":"#3DDC84","borderStyle":"Dashed","borderWidthPx":2}</c>),
+    /// otherwise the default. It is validated like the state file; malformed JSON is logged and the
+    /// default used, never half-read.
+    /// </summary>
+    private static DesignState GalleryDesign()
+    {
+        var json = Environment.GetEnvironmentVariable(DesignVariable);
+        if (string.IsNullOrWhiteSpace(json))
+        {
+            return new DesignState();
+        }
+
+        // Read as a state document, so the design goes through the same validation and clamps as
+        // the state file's own.
+        var parsed = Themia.Core.Storage.AppStateStore.Parse($"{{\"schemaVersion\":1,\"design\":{json}}}");
+        if (parsed.State is { } state)
+        {
+            return state.Design;
+        }
+
+        Log.Error(Scope, $"{DesignVariable} is not a design ({parsed.Problem}); rendering the default design", parsed.Error);
+        return new DesignState();
     }
 
     /// <summary>Open the gallery for a person to look at, starting on one widget.</summary>
@@ -363,6 +413,7 @@ internal sealed class WidgetGallery : IDisposable
             // The size is the painted card: the gap is the space between widgets on a desktop and
             // there is nothing here for it to separate.
             card.ApplyGap(0);
+            card.ApplyContentScale(_host.Design.UiScale);
             Canvas.SetLeft(card, x[row]);
             Canvas.SetTop(card, rowTop[row] + LabelHeight);
             _page.Children.Add(card);
@@ -461,11 +512,11 @@ internal sealed class WidgetGallery : IDisposable
     /// A card host with nowhere to go: the gallery shows widgets, it does not lay them out, save them
     /// or edit them, so every request is accepted and ignored.
     /// </summary>
-    private sealed class GalleryCardHost(Ticker ticker) : IWidgetCardHost
+    private sealed class GalleryCardHost(Ticker ticker, DesignState design) : IWidgetCardHost
     {
         public ScreenMetrics Metrics { get; } = new(1920, 1080);
 
-        public DesignState Design { get; } = new();
+        public DesignState Design => design;
 
         public Ticker Ticker => ticker;
 
@@ -540,6 +591,11 @@ internal sealed class WidgetGallery : IDisposable
         public void RequestTextInput(WidgetCard card, bool wanted)
         {
             // ignore: the gallery window is an ordinary window and takes the keyboard by itself
+        }
+
+        public void KeyboardPress(WidgetCard card)
+        {
+            // ignore: gallery cards are previews and take no keys ([S-800], WidgetCard.TakesKeys)
         }
 
         /// <summary>A pretend display with a few views, so the view switcher shows a real row.</summary>

@@ -24,7 +24,7 @@ internal sealed partial class ConfigWindow
             _nav.MenuItems.Clear();
 
             _nav.MenuItems.Add(Header("Themia"));
-            AddAppPages(_nav.MenuItems, AppPageSlot.Main);
+            AddAppPages(_nav.MenuItems, AppPageSlot.Main, _host.State);
 
             _nav.MenuItems.Add(new NavigationViewItemSeparator());
             _nav.MenuItems.Add(Header("Views"));
@@ -33,14 +33,14 @@ internal sealed partial class ConfigWindow
             {
                 // A view's widgets hang under it, so the tree says where each widget actually lives
                 // rather than listing them all flat.
-                var node = Item(view.Name, Glyphs.View, new ConfigTarget.View(view.Id));
+                var node = Item(view.Name, NavIcons.Create(NavIcon.ContentView), new ConfigTarget.View(view.Id));
 
                 foreach (var widget in view.Widgets)
                 {
                     var definition = Widgets.WidgetCatalog.Definition(widget.Kind);
                     node.MenuItems.Add(Item(
                         string.IsNullOrWhiteSpace(widget.Label) ? definition.Label : widget.Label!,
-                        definition.Glyph,
+                        new FontIcon { Glyph = definition.Glyph },
                         new ConfigTarget.Widget(widget.Id)));
                 }
 
@@ -48,17 +48,19 @@ internal sealed partial class ConfigWindow
                 _nav.MenuItems.Add(node);
             }
 
-            if (_host.Surfaces.Count > 0)
+            // [S-853] Every connected display, including one Themia is switched off on: its page is
+            // where it is switched back on.
+            if (_host.Displays.Count > 0)
             {
                 _nav.MenuItems.Add(new NavigationViewItemSeparator());
                 _nav.MenuItems.Add(Header("Displays"));
 
-                foreach (var surface in _host.Surfaces)
+                foreach (var display in _host.Displays)
                 {
                     _nav.MenuItems.Add(Item(
-                        surface.Monitor.ShortName,
-                        Glyphs.Display,
-                        new ConfigTarget.Display(surface.Monitor.DeviceName)));
+                        display.ShortName,
+                        NavIcons.Create(NavIcon.Laptop),
+                        new ConfigTarget.Display(display.Id)));
                 }
             }
 
@@ -67,7 +69,7 @@ internal sealed partial class ConfigWindow
             // [S-493] About is the very last entry, pinned to the foot of the menu under everything
             // else, as in karpo and Windows Settings. Anything else that wants the footer goes
             // ABOVE it in ConfigPages.AppPages, never after it.
-            AddAppPages(_nav.FooterMenuItems, AppPageSlot.Footer);
+            AddAppPages(_nav.FooterMenuItems, AppPageSlot.Footer, _host.State);
 
             SelectForTarget();
         }
@@ -77,24 +79,29 @@ internal sealed partial class ConfigWindow
         }
     }
 
-    /// <summary>The registered app pages of one slot, in their registered order.</summary>
-    private static void AddAppPages(IList<object> items, AppPageSlot slot)
+    /// <summary>The registered app pages of one slot that are available now, in their registered order.</summary>
+    private static void AddAppPages(IList<object> items, AppPageSlot slot, AppState state)
     {
         foreach (var page in ConfigPages.AppPages)
         {
-            if (page.Slot == slot)
+            if (page.Slot == slot && page.IsAvailable(state))
             {
-                items.Add(Item(page.Title, page.Glyph, new ConfigTarget.App(page.Page)));
+                items.Add(Item(page.Title, NavIcons.Create(page.Icon), new ConfigTarget.App(page.Page)));
             }
         }
     }
 
     private static NavigationViewItemHeader Header(string text) => new() { Content = text };
 
-    private static NavigationViewItem Item(string text, string glyph, ConfigTarget target) => new()
+    /// <summary>
+    /// [S-1602] A menu entry. Pages, views and displays carry full-colour icons, as the categories
+    /// of Windows Settings do; a widget nested under its view keeps its monochrome kind glyph, the
+    /// same one its card header and the picker show, so it reads as part of the view above it.
+    /// </summary>
+    private static NavigationViewItem Item(string text, IconElement icon, ConfigTarget target) => new()
     {
         Content = text,
-        Icon = new FontIcon { Glyph = glyph },
+        Icon = icon,
         Tag = target,
     };
 

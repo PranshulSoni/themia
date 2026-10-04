@@ -32,18 +32,18 @@ internal static partial class WidgetSettings
             + "Closing Themia forgets the lot."));
 
         rows.Add(FluentLayout.Row(Glyphs.Clock, "Show when it was copied",
-            "Hidden automatically when the widget is too narrow",
+            "Beside each entry, or under it on a tall widget; hidden when the widget is small",
             FluentLayout.Toggle(config.ShowTimestamp, value => { config.ShowTimestamp = value; save(); })));
 
         // The one setting here that genuinely changes exposure, so it says so: fewer entries kept
         // is less sitting in memory.
         rows.Add(FluentLayout.Row(Glyphs.Count, "Entries",
-            "How many the list holds. Lowering it forgets the oldest straight away",
+            "How many the list holds, 1 to 200. Lowering it forgets the oldest straight away",
             FluentLayout.Slider(
                 config.EffectiveCapacity,
                 ClipboardHistory.MinCapacity,
                 ClipboardHistory.MaxCapacity,
-                5,
+                1,
                 string.Empty,
                 value => { config.Capacity = (int)Math.Round(value); save(); })));
 

@@ -1,0 +1,91 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  [S-1060] The Microsoft Store package of Themia (single-project MSIX).
+
+  Only `scripts/package.ps1` packages with this manifest (it builds with -p:ThemiaPackage=true). The
+  everyday F5 / `dotnet build` / `scripts/publish.ps1` builds stay unpackaged and ignore it.
+
+  STORE RESERVATION VALUES - placeholders until the name is reserved in Partner Center.
+  Partner Center > Themia > Product management > Product identity lists the three values to copy
+  over the placeholders below, verbatim:
+    Package/Identity/Name                 -> Identity Name           (placeholder: LometicsGmbH.Themia.RESERVE)
+    Package/Identity/Publisher            -> Publisher (a CN=GUID)  (placeholder: CN=00000000-0000-0000-0000-000000000000)
+    Package/Properties/PublisherDisplayName (already "Lometics GmbH"; must match the account's publisher display name)
+  The Store re-signs the upload with its own certificate for that publisher; no certificate is ever
+  made, imported or referenced for this package. package.ps1 refuses a Store upload while a
+  placeholder is still here and builds a local test package instead.
+
+  Version: the single source of the release version. The Store wants the fourth part 0; package.ps1
+  stamps the same version into the executable.
+-->
+<Package
+  xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10"
+  xmlns:uap="http://schemas.microsoft.com/appx/manifest/uap/windows10"
+  xmlns:desktop="http://schemas.microsoft.com/appx/manifest/desktop/windows10"
+  xmlns:rescap="http://schemas.microsoft.com/appx/manifest/foundation/windows10/restrictedcapabilities"
+  IgnorableNamespaces="uap desktop rescap">
+
+  <Identity
+    Name="LometicsGmbH.Themia.RESERVE"
+    Publisher="CN=00000000-0000-0000-0000-000000000000"
+    Version="0.1.0.0" />
+
+  <Properties>
+    <DisplayName>Themia</DisplayName>
+    <PublisherDisplayName>Lometics GmbH</PublisherDisplayName>
+    <Logo>Assets\Package\StoreLogo.png</Logo>
+  </Properties>
+
+  <Dependencies>
+    <TargetDeviceFamily Name="Windows.Desktop" MinVersion="10.0.17763.0" MaxVersionTested="10.0.26100.0" />
+  </Dependencies>
+
+  <Resources>
+    <Resource Language="en-us" />
+  </Resources>
+
+  <Applications>
+    <Application Id="App"
+      Executable="$targetnametoken$.exe"
+      EntryPoint="$targetentrypoint$">
+      <uap:VisualElements
+        DisplayName="Themia"
+        Description="Widgets on your Windows desktop."
+        BackgroundColor="transparent"
+        Square150x150Logo="Assets\Package\Square150x150Logo.png"
+        Square44x44Logo="Assets\Package\Square44x44Logo.png">
+        <uap:DefaultTile
+          Wide310x150Logo="Assets\Package\Wide310x150Logo.png"
+          Square71x71Logo="Assets\Package\SmallTile.png"
+          Square310x310Logo="Assets\Package\LargeTile.png"
+          ShortName="Themia" />
+        <uap:SplashScreen Image="Assets\Package\SplashScreen.png" BackgroundColor="#0a0a0c" />
+      </uap:VisualElements>
+
+      <Extensions>
+        <!--
+          [S-1062] "Start with Windows" for the packaged build ([S-937], Services/Autostart.cs). Off
+          until the user turns it on in Settings > General; the id is AutostartRules.StartupTaskId.
+        -->
+        <desktop:Extension Category="windows.startupTask">
+          <desktop:StartupTask TaskId="ThemiaStartup" Enabled="false" DisplayName="Themia" />
+        </desktop:Extension>
+      </Extensions>
+    </Application>
+  </Applications>
+
+  <!--
+    [S-1061] Only what the app uses:
+    - runFullTrust: Themia is a Win32 desktop app (desktop windows, hooks, WASAPI, the Wi-Fi API).
+    - radios + bluetooth: the Bluetooth widget reads the radio state, paired devices and their
+      battery over GATT; with package identity those WinRT calls are refused without them.
+    Deliberately NOT declared: location (only the Wi-Fi network name needs it, and the network tile
+    already shows the link without a name when it is refused), internetClient (full-trust apps are
+    not subject to it), broadFileSystemAccess, and every other broad capability.
+  -->
+  <Capabilities>
+    <rescap:Capability Name="runFullTrust" />
+    <DeviceCapability Name="radios" />
+    <DeviceCapability Name="bluetooth" />
+  </Capabilities>
+</Package>

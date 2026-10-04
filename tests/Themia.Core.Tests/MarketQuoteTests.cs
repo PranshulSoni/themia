@@ -195,14 +195,15 @@ public class MarketQuoteTests
     {
         // These services pad illiquid minutes with nulls. A non-nullable bind would turn each one
         // into a price of 0.00 and draw a chart that falls off a cliff every few bars.
-        var closes = MarketQuote.Closes([181.2, null, 182.4, double.NaN, 183.0]);
+        var bars = MarketQuote.Bars([100, 160, 220, 280, 340], [181.2, null, 182.4, double.NaN, 183.0]);
 
-        Assert.Equal([181.2, 182.4, 183.0], closes);
+        Assert.Equal([181.2, 182.4, 183.0], MarketQuote.Closes(bars));
+        Assert.Equal([100L, 220L, 340L], bars.Select(b => b.Time));
     }
 
     [Fact]
     public void An_absent_series_is_empty_rather_than_null()
-        => Assert.Empty(MarketQuote.Closes(null));
+        => Assert.Empty(MarketQuote.Bars(null, null));
 
     [Fact]
     public void The_series_is_scaled_to_itself_and_not_to_zero()

@@ -257,7 +257,11 @@ public static class RedirectRules
             && string.Equals(a.IdnHost, b.IdnHost, StringComparison.OrdinalIgnoreCase)
             && a.Port == b.Port;
 
-    /// <summary>A literal loopback, private, link-local address, or <c>localhost</c>.</summary>
+    /// <summary>
+    /// [S-966] A literal address the network guard classes as local (loopback, private, link-local,
+    /// reserved — <see cref="NetworkGuard.IsBlocked"/>, the one table of address classes), or
+    /// <c>localhost</c>.
+    /// </summary>
     public static bool IsLocal(Uri uri)
     {
         ArgumentNullException.ThrowIfNull(uri);
@@ -267,34 +271,7 @@ public static class RedirectRules
             return true;
         }
 
-        if (!IPAddress.TryParse(uri.IdnHost.Trim('[', ']'), out var address))
-        {
-            return false;
-        }
-
-        if (IPAddress.IsLoopback(address))
-        {
-            return true;
-        }
-
-        if (address.AddressFamily == AddressFamily.InterNetworkV6)
-        {
-            return address.IsIPv6LinkLocal || address.IsIPv6SiteLocal || address.IsIPv6UniqueLocal
-                || (address.IsIPv4MappedToIPv6 && IsPrivateV4(address.MapToIPv4()));
-        }
-
-        return IsPrivateV4(address);
-    }
-
-    private static bool IsPrivateV4(IPAddress address)
-    {
-        var b = address.GetAddressBytes();
-        return b[0] == 10
-            || b[0] == 127
-            || (b[0] == 172 && b[1] >= 16 && b[1] <= 31)
-            || (b[0] == 192 && b[1] == 168)
-            || (b[0] == 169 && b[1] == 254)
-            || b[0] == 0;
+        return NetworkGuard.TryLiteral(uri.IdnHost, out var address) && NetworkGuard.IsBlocked(address);
     }
 }
 

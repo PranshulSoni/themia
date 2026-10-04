@@ -91,6 +91,13 @@ internal static class Glyphs
     public static readonly string Volume1 = From(0xE993);
     public static readonly string Volume2 = From(0xE994);
     public static readonly string Volume3 = From(0xE995);
+
+    // [S-1224] The microphone row of the audio widgets, and its muted state.
+    public static readonly string Microphone = From(0xE720);
+    public static readonly string MicrophoneOff = From(0xEC54);
+
+    // [S-1222] An output device in the audio widgets' device picker.
+    public static readonly string Speakers = From(0xE7F5);
     public static readonly string Previous = From(0xE892);
     public static readonly string Next = From(0xE893);
     public static readonly string Headphone = From(0xE7F6);
@@ -190,6 +197,20 @@ internal static class Glyphs
     public static readonly string Gauge = From(0xEC4A);
     public static readonly string Tag = From(0xE8EC);
     public static readonly string Dot = From(0xE91F);
+
+    // [S-1365] The note formatting bar. Checked against SegoeIcons.ttf's cmap and a rendered sheet:
+    // a bold B, a slanted I, a struck S, a bulleted list, a checked list. The font has no numbered
+    // list and no heading mark; those two buttons are lettered ("1.", "H").
+    public static readonly string Bold = From(0xE8DD);
+    public static readonly string Italic = From(0xE8DB);
+    public static readonly string Strikethrough = From(0xEDE0);
+    public static readonly string BulletList = From(0xE8FD);
+    public static readonly string Checklist = From(0xE9D5);
+    public static readonly string ChevronDown = From(0xE70D);
+    public static readonly string ChevronUp = From(0xE70E);
+
+    /// <summary>[S-866] Take a widget out of its container.</summary>
+    public static readonly string TakeOut = From(0xE8A7);
 
     private static string From(int codePoint) => char.ConvertFromUtf32(codePoint);
 }

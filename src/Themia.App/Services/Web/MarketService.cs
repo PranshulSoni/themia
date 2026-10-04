@@ -4,25 +4,6 @@ using Themia.Core.Widgets;
 
 namespace Themia.App.Services.Web;
 
-/// <summary>One instrument's quote, already validated and reduced to what a widget draws.</summary>
-/// <param name="Symbol">The symbol as asked for.</param>
-/// <param name="Name">The service's own name for it, or empty.</param>
-/// <param name="Price">The last price, in <paramref name="Currency"/>.</param>
-/// <param name="ChangePercent">The move against the previous close, or null when there is no baseline.</param>
-/// <param name="Currency">ISO code; USD for crypto, since that is what is asked for.</param>
-/// <param name="PriceHint">The venue's tick precision, when it sent one.</param>
-/// <param name="Closes">The sparkline series, oldest first, with every unusable sample dropped.</param>
-/// <param name="Sessions">Today's trading windows, when the service sent a usable schedule.</param>
-internal sealed record TickerQuote(
-    string Symbol,
-    string Name,
-    double? Price,
-    double? ChangePercent,
-    string Currency,
-    int? PriceHint,
-    IReadOnlyList<double> Closes,
-    TradingSessions Sessions);
-
 /// <summary>
 /// The two keyless quote services: Yahoo's v8 chart endpoint for anything listed, CoinGecko's
 /// public v3 for coins.
@@ -47,35 +28,95 @@ internal static class MarketService
     private const string CoinPriceEndpoint = "https://api.coingecko.com/api/v3/simple/price";
     private const string CoinChartEndpoint = "https://api.coingecko.com/api/v3/coins/";
 
-    private static readonly WebCache<TickerQuote> Cache = new(Scope);
+    private const string SearchEndpoint = "https://query2.finance.yahoo.com/v1/finance/search";
+    private const string CoinSearchEndpoint = "https://api.coingecko.com/api/v3/search";
 
-    public static Task<Fetched<TickerQuote>> QuoteAsync(
+    /// <summary>The shared answers; also what <see cref="NetworkCache"/> saves and restores ([S-1300]).</summary>
+    internal static WebCache<TickerQuote> Cache { get; } = new(Scope);
+
+    /// <param name="prePost">[S-1308] Ask for extended-hours bars too (part of the cache key).</param>
+    /// <param name="force">[S-1311] The Refresh action: past the freshness check.</param>
+    public static async Task<Fetched<TickerQuote>> QuoteAsync(
         string symbol,
         QuoteMarket market,
         QuoteRange range,
+        bool prePost,
         TimeSpan freshFor,
-        CancellationToken token)
+        CancellationToken token,
+        bool force = false)
     {
-        var key = Key(symbol, market, range);
+        var key = Key(symbol, market, range, prePost);
 
-        return Cache.GetAsync(
+        var result = await Cache.GetAsync(
             key,
             freshFor,
             ct => market == QuoteMarket.Crypto
                 ? LoadCoinAsync(symbol, range, ct)
-                : LoadListedAsync(symbol, range, ct),
-            token);
+                : LoadListedAsync(symbol, range, prePost, ct),
+            token,
+            force).ConfigureAwait(false);
+
+        if (result.Status == FetchStatus.Ok && !result.Restored)
+        {
+            NetworkCache.SaveSoon();
+        }
+
+        return result;
     }
 
-    public static Fetched<TickerQuote>? Peek(string symbol, QuoteMarket market, QuoteRange range)
-        => Cache.Peek(Key(symbol, market, range));
+    public static Fetched<TickerQuote>? Peek(string symbol, QuoteMarket market, QuoteRange range, bool prePost)
+        => Cache.Peek(Key(symbol, market, range, prePost));
 
-    private static string Key(string symbol, QuoteMarket market, QuoteRange range)
-        => $"{market}|{symbol}|{range}";
+    internal static string Key(string symbol, QuoteMarket market, QuoteRange range, bool prePost)
+        => $"{market}|{symbol}|{range}|{(prePost ? "prepost" : "regular")}";
+
+    /// <summary>
+    /// [S-1307] Symbols matching <paramref name="query"/>: Yahoo's search and CoinGecko's, asked
+    /// together, merged alternately. A service that fails contributes nothing (logged), so a
+    /// CoinGecko rate limit still leaves the share results.
+    /// </summary>
+    public static async Task<IReadOnlyList<SymbolHit>> SearchAsync(string query, CancellationToken token)
+    {
+        if (!MarketSearch.IsQuery(query))
+        {
+            return [];
+        }
+
+        var escaped = Uri.EscapeDataString(query.Trim());
+        var listed = WebFetch.GetJsonAsync(
+            new Uri($"{SearchEndpoint}?q={escaped}&quotesCount={MarketSearch.MaxPerService}&newsCount=0"),
+            WebJsonContext.Default.YahooSearchReply,
+            token);
+        var coins = WebFetch.GetJsonAsync(
+            new Uri($"{CoinSearchEndpoint}?query={escaped}"),
+            WebJsonContext.Default.CoinSearchReply,
+            token);
+
+        var (listedStatus, listedReply, listedDetail) = await listed.ConfigureAwait(false);
+        var (coinStatus, coinReply, coinDetail) = await coins.ConfigureAwait(false);
+
+        if (listedStatus != FetchStatus.Ok)
+        {
+            Log.Info(Scope, $"symbol search: {FetchState.Message(listedStatus)} {listedDetail}".TrimEnd());
+        }
+
+        if (coinStatus != FetchStatus.Ok)
+        {
+            Log.Info(Scope, $"coin search: {FetchState.Message(coinStatus)} {coinDetail}".TrimEnd());
+        }
+
+        var listedHits = MarketSearch.Listed((listedReply?.Quotes ?? [])
+            .Select(q => new ListedCandidate(q.Symbol, q.ShortName, q.LongName, q.QuoteType, q.Exchange)));
+        var coinHits = MarketSearch.Coins((coinReply?.Coins ?? [])
+            .Select(c => new CoinCandidate(c.Id, c.Name, c.Symbol)));
+
+        return MarketSearch.Merge(listedHits, coinHits);
+    }
 
     private static async Task<Fetched<TickerQuote>> LoadListedAsync(
         string symbol,
         QuoteRange range,
+        bool prePost,
         CancellationToken token)
     {
         var now = DateTimeOffset.Now;
@@ -90,7 +131,8 @@ internal static class MarketService
 
         var uri = new Uri(
             $"{ChartEndpoint}{Uri.EscapeDataString(symbol)}"
-            + $"?range={RangeParameter(range)}&interval={IntervalParameter(range)}");
+            + $"?range={RangeParameter(range)}&interval={IntervalParameter(range)}"
+            + (prePost ? "&includePrePost=true" : string.Empty));
 
         var (status, reply, detail) = await WebFetch
             .GetJsonAsync(uri, WebJsonContext.Default.YahooChartReply, token)
@@ -113,11 +155,11 @@ internal static class MarketService
 
         var price = Sane(meta.RegularMarketPrice);
         var previous = Sane(meta.ChartPreviousClose) ?? Sane(meta.PreviousClose);
-        var closes = MarketQuote.Closes(result.Indicators?.Quote is { Count: > 0 } series ? series[0].Close : null);
+        var bars = MarketQuote.Bars(result.Timestamp, result.Indicators?.Quote is { Count: > 0 } series ? series[0].Close : null);
 
         // A quote with no price at all is not a quote. Falling back to the last bar is the
         // documented behaviour and covers an instrument between sessions.
-        price ??= closes.Count > 0 ? closes[^1] : null;
+        price ??= bars.Count > 0 ? bars[^1].Close : null;
 
         if (price is null)
         {
@@ -131,8 +173,22 @@ internal static class MarketService
             MarketQuote.PercentChange(price, previous),
             (meta.Currency ?? "USD").Trim().ToUpperInvariant(),
             meta.PriceHint,
-            closes,
-            Sessions(meta.CurrentTradingPeriod));
+            bars,
+            Sessions(meta.CurrentTradingPeriod))
+        {
+            ExchangeOffset = ExchangeTime.Offset(meta.GmtOffset),
+            ZoneName = ExchangeTime.Zone(meta.Timezone),
+            QuoteType = (meta.InstrumentType ?? string.Empty).Trim(),
+            HasPrePost = prePost && meta.HasPrePostMarketData == true,
+            Stats = new QuoteStats(
+                previous,
+                Sane(meta.DayHigh),
+                Sane(meta.DayLow),
+                Sane(meta.YearHigh),
+                Sane(meta.YearLow),
+                Sane(meta.Volume) is { } volume && volume >= 0 && volume < 1e15 ? (long)volume : null,
+                (meta.FullExchangeName ?? string.Empty).Trim()),
+        };
 
         return new Fetched<TickerQuote>(FetchStatus.Ok, quote, null, now);
     }
@@ -172,7 +228,7 @@ internal static class MarketService
         // the price that succeeded, so its failure is swallowed into an empty series — the one
         // place in these four widgets where a failure is not surfaced, because the widget has
         // something better to show and the missing chart is visible on its own.
-        var closes = await CoinClosesAsync(escaped, range, token).ConfigureAwait(false);
+        var bars = await CoinBarsAsync(escaped, range, token).ConfigureAwait(false);
 
         var quote = new TickerQuote(
             id,
@@ -181,7 +237,7 @@ internal static class MarketService
             Sane(coin.Change24H),
             "USD",
             null,
-            closes,
+            bars,
 
             // Crypto has no exchange calendar: it trades every minute of every day, so there is no
             // session to be outside of and no "market closed" to report.
@@ -190,7 +246,7 @@ internal static class MarketService
         return new Fetched<TickerQuote>(FetchStatus.Ok, quote, null, now);
     }
 
-    private static async Task<IReadOnlyList<double>> CoinClosesAsync(
+    private static async Task<IReadOnlyList<QuoteBar>> CoinBarsAsync(
         string escapedId,
         QuoteRange range,
         CancellationToken token)
@@ -205,22 +261,24 @@ internal static class MarketService
         {
             // Logged, not surfaced: the price is on screen and a missing chart is visible
             // without being told. This is the one swallowed failure in the four widgets.
-            Log.Debug(Scope, $"no sparkline for {escapedId}: {FetchState.Message(status)} {detail}".TrimEnd());
+            Log.Info(Scope, $"no chart for {escapedId}: {FetchState.Message(status)} {detail}".TrimEnd());
             return [];
         }
 
-        var closes = new List<double>(reply.Prices.Count);
+        var times = new List<long?>(reply.Prices.Count);
+        var closes = new List<double?>(reply.Prices.Count);
 
         foreach (var pair in reply.Prices)
         {
             // Each entry is [epochMilliseconds, price]. A pair that is not a pair is dropped.
-            if (pair.Count >= 2 && double.IsFinite(pair[1]) && pair[1] > 0)
+            if (pair.Count >= 2 && double.IsFinite(pair[0]) && double.IsFinite(pair[1]) && pair[1] > 0)
             {
+                times.Add((long)(pair[0] / 1000));
                 closes.Add(pair[1]);
             }
         }
 
-        return closes;
+        return MarketQuote.Bars(times, closes);
     }
 
     private static TradingSessions Sessions(YahooTradingPeriod? period)
@@ -291,6 +349,12 @@ internal static class MarketService
         QuoteRange.TenYears => "3650",
         _ => "1",
     };
+
+#if DEBUG
+    /// <summary>[S-1311] The gallery's fixture: a fixed quote seeded as a fresh answer, offline and the same every run.</summary>
+    internal static void SeedGallery(QuoteMarket market, QuoteRange range, bool prePost, TickerQuote quote)
+        => Cache.Seed(Key(quote.Symbol, market, range, prePost), new Fetched<TickerQuote>(FetchStatus.Ok, quote, null, DateTimeOffset.Now.AddMinutes(-1)));
+#endif
 
     private static double? Sane(double? value)
         => value is { } number && double.IsFinite(number) ? number : null;

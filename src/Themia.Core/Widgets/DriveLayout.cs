@@ -58,6 +58,14 @@ public static class DriveLayout
         _ => 168,
     };
 
+    private static int DisplayOrder(DriveColumn column) => column switch
+    {
+        DriveColumn.Modified => 0,
+        DriveColumn.ModifiedBy => 1,
+        DriveColumn.Location => 2,
+        _ => 3,
+    };
+
     /// <summary>The column header's words.</summary>
     public static string Label(DriveColumn column) => column switch
     {
@@ -96,7 +104,9 @@ public static class DriveLayout
 
         if (columns.Count > 0)
         {
-            return new DriveFit(DriveRowMode.Columns, columns, height >= HeaderNeedsHeight);
+            // Given room by priority, shown in Explorer's order: the size last, at the right edge,
+            // where its right-aligned figures do not crowd the words of the next column.
+            return new DriveFit(DriveRowMode.Columns, [.. columns.OrderBy(c => DisplayOrder(c.Column))], height >= HeaderNeedsHeight);
         }
 
         return new DriveFit(!compact && textWidth >= TwoLineNeedsWidth ? DriveRowMode.TwoLine : DriveRowMode.NameOnly, [], false);
