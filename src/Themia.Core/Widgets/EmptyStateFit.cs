@@ -24,7 +24,8 @@ public static class EmptyStateFit
             return 0;
         }
 
-        return Math.Max(1, (int)Math.Floor((height + Tolerance) / lineHeight));
+        // Lines are rows like any other ([S-662]): one place counts them.
+        return Math.Max(1, Disclosure.WholeRows(height, lineHeight));
     }
 
     /// <summary>

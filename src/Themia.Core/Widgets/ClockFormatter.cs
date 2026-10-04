@@ -6,6 +6,12 @@ namespace Themia.Core.Widgets;
 /// <summary>What a clock widget shows at one instant. Plain data, so the view is a pure projection.</summary>
 public readonly record struct ClockReading(string Time, string? Meridiem, string? Date, double HourAngle, double MinuteAngle, double SecondAngle);
 
+/// <summary>[S-665] What a larger clock adds under its date.</summary>
+/// <param name="ShortDate">"Sun 4 Oct": the date for a tile too narrow for the long one.</param>
+/// <param name="Week">"Week 40 · Day 278".</param>
+/// <param name="Zone">"UTC+02:00 · W. Europe Daylight Time".</param>
+public readonly record struct ClockDetails(string ShortDate, string Week, string Zone);
+
 /// <summary>
 /// Turns an instant plus a <see cref="ClockConfig"/> into display strings and hand angles.
 /// <para>
@@ -39,6 +45,40 @@ public static class ClockFormatter
         var hourAngle = ((hour24 % 12) * 30.0) + (local.Minute * 0.5);
 
         return new ClockReading(time, meridiem, date, hourAngle, minuteAngle, secondAngle);
+    }
+
+    /// <summary>
+    /// [S-665] The lines a clock only shows when it has room for them: the date short enough for a
+    /// narrow tile, the week and day of the year, and the time zone. Read once per render rather than
+    /// folded into <see cref="ClockReading"/>, because a small clock never draws them.
+    /// </summary>
+    public static ClockDetails Details(DateTimeOffset utcNow, ClockConfig config)
+    {
+        ArgumentNullException.ThrowIfNull(config);
+
+        var zone = config.ResolveTimeZone();
+        var local = TimeZoneInfo.ConvertTime(utcNow, zone);
+
+        var shortDate = $"{DayNames[(int)local.DayOfWeek][..3]} {local.Day} {MonthNames[local.Month - 1][..3]}";
+        var week = $"Week {ISOWeek.GetWeekOfYear(local.DateTime)} · Day {local.DayOfYear}";
+        var name = zone.IsDaylightSavingTime(local) ? zone.DaylightName : zone.StandardName;
+        var offset = Offset(local.Offset);
+        var zoneLine = string.IsNullOrWhiteSpace(name) || name == offset ? offset : $"{offset} · {name}";
+
+        return new ClockDetails(shortDate, week, zoneLine);
+    }
+
+    /// <summary>"UTC", "UTC+02:00", "UTC-03:30".</summary>
+    public static string Offset(TimeSpan offset)
+    {
+        if (offset == TimeSpan.Zero)
+        {
+            return "UTC";
+        }
+
+        var sign = offset < TimeSpan.Zero ? "-" : "+";
+        var magnitude = offset.Duration();
+        return $"UTC{sign}{magnitude.Hours:D2}:{magnitude.Minutes:D2}";
     }
 
     /// <summary>12-hour clocks show 12, not 0, for both midnight and noon.</summary>

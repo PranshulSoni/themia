@@ -19,35 +19,56 @@ namespace Themia.App.Widgets;
 /// memory, disk and battery is only where the number comes from, so that is the only thing the kind
 /// selects.
 /// </para>
+/// <para>
+/// [S-664] Its disclosure ladder, smallest tile first: the reading; its caption (beside it, or under
+/// it when the line is too narrow); the sparkline (or, with the graph off, a bar); for the meters
+/// whose value moves, the min / avg / max over the chart — a line once the tile is Regular in
+/// height, three stat tiles once it is Expanded in width (beside the reading on a wide strip, under
+/// it on a panel) or Expanded in height on a tall column (one under another) — and for a meter whose value does not move, the same tiles carry the reading's
+/// own breakdown instead; a scale line naming the span the chart covers, once it is Expanded both
+/// ways. A wider chart spans a longer history
+/// rather than drawing the same minute with fatter slots. Whatever the rungs leave goes to the
+/// reading up to the top of the ramp, and past that to the chart.
+/// </para>
 /// </summary>
-internal sealed partial class MeterView : Grid, IWidgetView
+internal sealed partial class MeterView : Grid, IWidgetView, IWidgetSizeAware
 {
     private const string Scope = "meter";
-    private const int HistoryLength = 60;
 
-    /// <summary>The graph's minimum height, and what the reading leaves room for when it is shown.</summary>
     /// <summary>The graph never shrinks below this: under it a trace is a smudge, not a chart.</summary>
     private const double SparklineHeight = Fluent.Space6;
-
-    /// <summary>Nor grows past it: a chart taller than the number it annotates inverts the tile.</summary>
-    private const double SparklineMaxHeight = 96;
-
-    /// <summary>The share of the tile the graph takes between those two bounds.</summary>
-    private const double SparklineShare = 0.32;
 
     /// <summary>What the fallback bar costs the reading in height, the bar being a thin Fluent one.</summary>
     private const double BarHeight = Fluent.Space1;
 
     private readonly WidgetKind _kind;
+    private readonly MeterUnit _unit;
     private readonly TextBlock _primary = Fluent.Text(FluentType.Subtitle);
     private readonly TextBlock _secondary = Fluent.Text(FluentType.Caption, "TextFillColorTertiaryBrush");
+    private readonly TextBlock _stats = Fluent.Text(FluentType.Caption, "TextFillColorSecondaryBrush");
+    private readonly TextBlock _span = Fluent.Text(FluentType.Caption, "TextFillColorTertiaryBrush");
+    private readonly TextBlock _top = Fluent.Text(FluentType.Caption, "TextFillColorTertiaryBrush");
+    private readonly Grid _scale = new();
+    private readonly Grid _tiles = new();
+    private readonly TextBlock[] _tileLabels = new TextBlock[3];
+    private readonly TextBlock[] _tileValues = new TextBlock[3];
+
+    // What the tiles show when the value does not move: the reading's own breakdown (a drive's
+    // used / free / total), straight from the last sample.
+    private IReadOnlyList<MeterFact>? _facts;
+    private bool _tilesShowFacts;
     private readonly Grid _reading = new();
     private readonly ProgressBar _bar = new();
     private readonly Polygon _sparkFill = new();
     private readonly Polyline _sparkLine = new();
     private readonly Grid _sparkHost = new();
     private readonly StackPanel? _absentState;
-    private readonly Queue<double> _history = new(HistoryLength);
+
+    // Two histories side by side: the fraction the chart plots, and the value in the reading's own
+    // unit that the summary line describes. Both hold the most a chart can span; how many of them
+    // are drawn is the window, which follows the chart's width.
+    private readonly Queue<double> _history = new(MeterHistory.Capacity);
+    private readonly Queue<double> _values = new(MeterHistory.Capacity);
 
     // Looked up once. The reading swaps between them on every sample, and a resource lookup per
     // sample per widget is a dictionary hit and a possible log line for nothing.
@@ -67,6 +88,12 @@ internal sealed partial class MeterView : Grid, IWidgetView
     private TypeStep _heroStep;
     private TypeStep _captionStep;
 
+    // The last area the card gave the view, and what the ladder settled on there.
+    private WidgetArea _area;
+    private int _window = MeterHistory.MinimumWindow;
+    private bool _compactStats;
+    private TypeStep _tileStep = FluentType.BodyStrong;
+
     private bool _graph;
     private bool _absent;
 
@@ -84,9 +111,14 @@ internal sealed partial class MeterView : Grid, IWidgetView
         // three sides. Text carries the inset instead, exactly as a list row does — the chart is
         // the widget's surface, not something sitting on it, and a chart floating inside a margin
         // reads as a picture of a chart.
-        RowSpacing = Fluent.Space2;
-
         _kind = kind;
+        _unit = kind switch
+        {
+            WidgetKind.Network => MeterUnit.Rate,
+            WidgetKind.Ping => MeterUnit.Latency,
+            _ => MeterUnit.Percent,
+        };
+
         _config = WidgetConfig.CreateDefault(kind);
 
         var definition = WidgetCatalog.Definition(kind);
@@ -115,10 +147,6 @@ internal sealed partial class MeterView : Grid, IWidgetView
         // be read a moment ago, which is [S-82]'s dimmed "--" rather than an empty state.
         _absentState = kind == WidgetKind.Battery ? BuildAbsentState(definition.Glyph) : null;
 
-        // The reading on its own line, the sparkline below it. Drawing the trace *behind* the number
-        // meant the graph read as decoration and the number was read against a moving background;
-        // neither was easy to look at.
-        //
         // A Grid, not a StackPanel: a horizontal StackPanel measures its children with unbounded
         // width, so the caption never learns how much room it has and TextTrimming never fires. On a
         // narrow tile it simply ran past the edge of the card and was cut mid-word — "up 105 KB/".
@@ -137,36 +165,55 @@ internal sealed partial class MeterView : Grid, IWidgetView
         _reading.Children.Add(_primary);
         _reading.Children.Add(_secondary);
 
-        // The READING takes the slack, not the graph. With the star on the graph row, a tall tile
-        // gave the sparkline a 350px band it had no way to fill — a young trace occupies the
-        // right-hand slots and the bottom half of the scale, so the tile read as mostly empty
-        // with a number stranded at the top. The graph is a band of bounded height at the foot,
-        // which is the proportion Windows gives a chart under a readout.
-        // Two rows, not three: the graph and the bar are alternatives - one is showing exactly
-        // when the other is not - so they share the last row. As separate rows, the grid's row
-        // spacing still sat between them, which put an 8px gap under a graph that is supposed to
-        // reach the bottom edge of the card. A collapsed row has no height; it still has a gap.
+        // The scale line: the span on the left, the top of the scale on the right — what Task
+        // Manager prints round its charts, so a large chart says what it is a chart of.
+        _scale.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        _scale.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        _top.HorizontalAlignment = HorizontalAlignment.Right;
+        _top.Text = _unit == MeterUnit.Percent ? "100%" : string.Empty;
+        Grid.SetColumn(_top, 1);
+        _scale.Children.Add(_span);
+        _scale.Children.Add(_top);
+
+        BuildTiles();
+
+        // One row per rung, top to bottom: the reading takes the star row and is centred in it; each
+        // rung below is Auto and carries the gap above itself as a margin. Not RowSpacing: a
+        // collapsed row has no height but still has its spacing, which put an 8px gap under a graph
+        // that is supposed to reach the bottom edge of the card. The graph and the bar are
+        // alternatives, so they share the last row.
         RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
+        RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
 
         _reading.VerticalAlignment = VerticalAlignment.Center;
         _reading.Margin = WidgetLayout.SideInset;
+        _stats.Margin = new Thickness(Fluent.Space4, Fluent.Space2, Fluent.Space4, 0);
+        _scale.Margin = new Thickness(Fluent.Space4, Fluent.Space2, Fluent.Space4, 0);
+        _tiles.Visibility = Visibility.Collapsed;
+        _sparkHost.Margin = new Thickness(0, Fluent.Space2, 0, 0);
+        _bar.Margin = new Thickness(0, Fluent.Space2, 0, 0);
+
         Grid.SetRow(_reading, 0);
-        Grid.SetRow(_sparkHost, 1);
-        Grid.SetRow(_bar, 1);
+        Grid.SetRow(_stats, 1);
+        Grid.SetRow(_scale, 2);
+        Grid.SetRow(_sparkHost, 3);
+        Grid.SetRow(_bar, 3);
 
         Children.Add(_reading);
+        Children.Add(_stats);
+        Children.Add(_scale);
+        Children.Add(_tiles);
         Children.Add(_sparkHost);
         Children.Add(_bar);
 
         if (_absentState is not null)
         {
-            // The star row, so the empty state is centred in what the graph leaves.
-            Grid.SetRow(_absentState, 0);
+            // Across every row, so the empty state is centred in the whole tile.
+            Grid.SetRowSpan(_absentState, 4);
             Children.Add(_absentState);
         }
-
-        SizeChanged += (_, _) => ApplyTypeScale();
     }
 
     /// <summary>
@@ -224,49 +271,204 @@ internal sealed partial class MeterView : Grid, IWidgetView
     }
 
     /// <summary>
-    /// Step the readout to the tile. The reading is the only thing that grows: the caption stays
-    /// where Fluent puts it, because a meter whose label is as big as its value reads as two
-    /// headlines.
+    /// Three stat tiles — a caption over a value, the shape Windows uses for a figure in a pane —
+    /// for a tile wide enough that one summary line would leave most of its width empty.
+    /// </summary>
+    private void BuildTiles()
+    {
+        string[] labels = ["Average", "Peak", "Low"];
+        _tiles.ColumnSpacing = Fluent.Space5;
+        _tiles.VerticalAlignment = VerticalAlignment.Center;
+
+        for (var i = 0; i < labels.Length; i++)
+        {
+            _tiles.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            _tiles.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+
+            var label = Fluent.Text(FluentType.Caption, "TextFillColorTertiaryBrush");
+            label.Text = labels[i];
+            _tileLabels[i] = label;
+
+            var value = Fluent.Text(_tileStep);
+            value.Text = "--";
+            _tileValues[i] = value;
+
+            var tile = new StackPanel { Children = { label, value } };
+            Grid.SetColumn(tile, i);
+            _tiles.Children.Add(tile);
+        }
+    }
+
+    /// <summary>
+    /// Lay the tiles out across (one row of three) or down (a column of three). The unused axis has
+    /// no spacing, or its empty rows or columns would still add their gaps.
+    /// </summary>
+    private void ArrangeTiles(bool stacked)
+    {
+        _tiles.ColumnSpacing = stacked ? 0 : Fluent.Space5;
+        _tiles.RowSpacing = stacked ? Fluent.Space2 : 0;
+
+        for (var i = 0; i < _tiles.Children.Count; i++)
+        {
+            Grid.SetColumn((FrameworkElement)_tiles.Children[i], stacked ? 0 : i);
+            Grid.SetRow((FrameworkElement)_tiles.Children[i], stacked ? i : 0);
+        }
+    }
+
+    /// <summary>How wide the three tiles are at a step, for deciding whether they fit beside the reading.</summary>
+    private double TilesWidth(TypeStep step)
+    {
+        var characters = _tilesShowFacts && _facts is { } facts
+            ? facts.Max(f => f.Value.Length)
+            : MeterHistory.ValueCharacters(_unit);
+
+        var tile = Math.Max(
+            FluentType.EstimateWidth(FluentType.Caption, 9),
+            FluentType.EstimateWidth(step, characters));
+
+        return (3 * tile) + (2 * Fluent.Space5);
+    }
+
+    /// <summary>[S-663] The card's word on how much room the meter has.</summary>
+    public void ApplySize(WidgetArea area)
+    {
+        _area = area;
+        Lay();
+        RedrawSparkline();
+    }
+
+    /// <summary>Whether this kind's value moves enough for a min / avg / max to say anything.</summary>
+    private bool Moves => _kind is WidgetKind.Cpu or WidgetKind.Memory or WidgetKind.Network or WidgetKind.Ping;
+
+    /// <summary>
+    /// Climb the ladder for the current area: decide which rungs are up, then size the reading and
+    /// the chart from what they leave.
     /// <para>
-    /// A step, not a fraction of the tile. The reading moves Subtitle → Title → TitleLarge → Display
-    /// as the tile grows and stops there: the ramp is where Windows stops having anything larger to
-    /// say, and a meter is not a clock.
+    /// The reading is the only thing that grows in type: the caption stays where Fluent puts it,
+    /// because a meter whose label is as big as its value reads as two headlines. It grows by ramp
+    /// step, Subtitle → Title → TitleLarge → Display, and with a chart below it stops there — a
+    /// meter is not a clock, and past that the room is worth more to the chart as a longer, taller
+    /// history. With no chart (a battery, or the graph turned off) the reading fills the tile.
     /// </para>
     /// </summary>
-    private void ApplyTypeScale()
+    private void Lay()
     {
-        // The text is inset even though the view is not, so the width it has is still the tile
-        // less both insets. The height is the whole tile: the graph runs to the bottom edge.
-        var width = ActualWidth - (Fluent.Space4 * 2);
-        var height = ActualHeight;
+        var absent = _absent;
+        _reading.Visibility = absent ? Visibility.Collapsed : Visibility.Visible;
 
-        // The graph is a proportion of the tile between a readable floor and a ceiling, rather
-        // than whatever is left over. Left over is how it ended up taller than the number it is
-        // annotating.
-        var band = Math.Clamp(height * SparklineShare, SparklineHeight, SparklineMaxHeight);
-        _sparkHost.Height = band;
+        if (_absentState is not null)
+        {
+            _absentState.Visibility = absent ? Visibility.Visible : Visibility.Collapsed;
+        }
 
-        // What is left for the reading once the gap below it and whichever of the graph and the bar
-        // is showing have had their fixed share. The header is the card's now and sits outside this
-        // box, so it no longer takes anything out of it.
-        var reserved = Fluent.Space2
-            + (_sparkHost.Visibility == Visibility.Visible ? band : BarHeight);
+        // The text is inset even though the view is not, so the width it has is the tile less both
+        // insets. The height is the whole slot: the graph runs to the bottom edge.
+        var width = Math.Max(0, _area.Width - (Fluent.Space4 * 2));
+        var room = new Disclosure(width, _area.Height, Fluent.Space2);
 
+        var hasCaption = _secondary.Visibility == Visibility.Visible;
+        var characters = ReadingCharacters(_kind);
+
+        // Rung 1, always: the reading at its smallest, with its caption under it if even then the
+        // line cannot hold both.
+        var captionUnder = hasCaption && !ReadoutLayout.CaptionFitsBeside(
+            width, FluentType.Subtitle, characters, FluentType.Caption, CaptionCharacters(), Fluent.Space2);
+        var readingFloor = FluentType.Subtitle.LineHeight + (captionUnder ? FluentType.Caption.LineHeight : 0);
+        room.Reserve(readingFloor);
+
+        // Rung 2: the chart at its minimum, or the bar when the graph is off.
+        var graph = !absent && _graph && room.Take(SparklineHeight);
+        var bar = !absent && !_graph && room.Take(BarHeight);
+
+        // Rung 3: min / avg / max. On a wide tile as stat tiles — beside the reading on a strip,
+        // where they cost no height, or under it on a panel — otherwise as one line, in the long
+        // form when the line holds it.
+        var summarise = graph && Moves;
+        _tilesShowFacts = !absent && !summarise && _facts is { Count: 3 };
+        var wideStats = (summarise || _tilesShowFacts) && _area.WidthClass >= SizeClass.Expanded;
+        _tileStep = _area.Least >= SizeClass.Huge ? FluentType.Subtitle : FluentType.BodyStrong;
+
+        var tilesWidth = TilesWidth(_tileStep);
+        var tilesBeside = wideStats && _area.Shape == AreaShape.Wide
+            && width >= tilesWidth + Fluent.Space6 + FluentType.EstimateWidth(FluentType.Subtitle, characters);
+        var tilesBelow = wideStats && !tilesBeside && _area.HeightClass >= SizeClass.Regular
+            && room.Take(FluentType.Caption.LineHeight + _tileStep.LineHeight, tilesWidth);
+
+        // A tall column has the height and not the width: the same three tiles, one under another.
+        var tileHeight = FluentType.Caption.LineHeight + _tileStep.LineHeight;
+        var tilesStacked = (summarise || _tilesShowFacts) && !wideStats
+            && _area.Shape == AreaShape.Tall && _area.HeightClass >= SizeClass.Expanded
+            && room.Take((3 * tileHeight) + (2 * Fluent.Space2), (tilesWidth - (2 * Fluent.Space5)) / 3);
+
+        _compactStats = width < FluentType.EstimateWidth(FluentType.Caption, MeterHistory.SummaryCharacters(_unit, compact: false));
+        var stats = summarise && !wideStats && !tilesStacked && _area.HeightClass >= SizeClass.Regular && room.Take(
+            FluentType.Caption.LineHeight,
+            FluentType.EstimateWidth(FluentType.Caption, MeterHistory.SummaryCharacters(_unit, compact: true)));
+
+        _tiles.Visibility = tilesBeside || tilesBelow || tilesStacked ? Visibility.Visible : Visibility.Collapsed;
+        ArrangeTiles(tilesStacked);
+        Grid.SetRow(_tiles, tilesBeside ? 0 : 1);
+        _tiles.HorizontalAlignment = tilesBeside ? HorizontalAlignment.Right : HorizontalAlignment.Left;
+        _tiles.Margin = tilesBeside
+            ? new Thickness(0, 0, Fluent.Space4, 0)
+            : new Thickness(Fluent.Space4, Fluent.Space2, Fluent.Space4, 0);
+
+        foreach (var value in _tileValues)
+        {
+            value.Apply(_tileStep);
+        }
+
+        // Beside, the tiles have their own column: the reading and its caption stop short of it.
+        var readingWidth = tilesBeside ? width - tilesWidth - Fluent.Space6 : width;
+        _reading.Margin = tilesBeside
+            ? new Thickness(Fluent.Space4, 0, Fluent.Space4 + tilesWidth + Fluent.Space6, 0)
+            : WidgetLayout.SideInset;
+
+        // Rung 4: the scale line, on a tile large both ways.
+        var scale = graph && _area.AtLeast(SizeClass.Expanded, SizeClass.Expanded) && room.Take(FluentType.Caption.LineHeight);
+
+        _sparkHost.Visibility = graph ? Visibility.Visible : Visibility.Collapsed;
+        _bar.Visibility = bar ? Visibility.Visible : Visibility.Collapsed;
+        _stats.Visibility = stats ? Visibility.Visible : Visibility.Collapsed;
+        _scale.Visibility = scale ? Visibility.Visible : Visibility.Collapsed;
+
+        // What the rungs left goes to the reading first, up to its ceiling, then to the chart.
+        var readingBox = readingFloor + room.Remaining;
+
+        if (graph)
+        {
+            readingBox = Math.Min(readingBox, FluentType.Display.LineHeight + (captionUnder ? FluentType.Body.LineHeight : 0));
+        }
+
+        var used = ApplyReading(readingWidth, readingBox, characters, hasCaption);
+
+        if (graph)
+        {
+            _sparkHost.Height = SparklineHeight + Math.Max(0, readingFloor + room.Remaining - used);
+        }
+
+        // The chart spans as many samples as its width has slots for.
+        _window = MeterHistory.Window(_area.Width);
+        _span.Text = MeterHistory.Span(_window, _subscribedInterval);
+        UpdateStats();
+    }
+
+    /// <summary>
+    /// Size the reading and place its caption for a box <paramref name="height"/> tall, and return
+    /// the height they actually take.
+    /// </summary>
+    private double ApplyReading(double width, double height, double characters, bool hasCaption)
+    {
         // The caption shares the line with the reading, so the reading gets at most half of it.
         // Letting the number take the whole line is how a tall narrow tile ended up with a 68px
         // reading and a caption trimmed to a single ellipsis.
-        var hasCaption = _secondary.Visibility == Visibility.Visible;
-        var readingWidth = hasCaption ? width / 2 : width;
-        var readingHeight = Math.Min(height - reserved, FluentType.Display.LineHeight);
-        var characters = ReadingCharacters(_kind);
-
-        var hero = Reading(readingWidth, readingHeight, characters);
+        var hero = Reading(hasCaption ? width / 2 : width, height, characters);
 
         // [S-646] And when even half the line leaves the caption too little, the caption moves
         // under the reading and the reading has the whole width — rather than "30 G…". It moves
         // there too when that simply draws the reading larger, which is what a tall, narrow tile
         // with height to spare wants.
-        var under = Reading(width, readingHeight - FluentType.Body.LineHeight, characters);
+        var under = Reading(width, height - FluentType.Body.LineHeight, characters);
         var stacked = hasCaption && (under.FontSize > hero.FontSize || !ReadoutLayout.CaptionFitsBeside(
             width,
             hero,
@@ -299,6 +501,8 @@ internal sealed partial class MeterView : Grid, IWidgetView
             _captionStep = caption;
             _secondary.Apply(caption);
         }
+
+        return hero.LineHeight + (stacked ? caption.LineHeight : 0);
     }
 
     /// <summary>
@@ -342,6 +546,44 @@ internal sealed partial class MeterView : Grid, IWidgetView
         ? Math.Max(11, _secondary.Text.Length)
         : _secondary.Text.Length;
 
+    /// <summary>The min / avg / max over the samples the chart is showing.</summary>
+    private void UpdateStats()
+    {
+        var line = _stats.Visibility == Visibility.Visible;
+        var tiles = _tiles.Visibility == Visibility.Visible;
+
+        if (!line && !tiles)
+        {
+            return;
+        }
+
+        var values = _values.ToArray();
+        var summary = MeterHistory.Summarise(values.AsSpan(Math.Max(0, values.Length - _window)));
+
+        if (line)
+        {
+            _stats.Text = MeterHistory.SummaryLine(_unit, summary, _compactStats);
+        }
+
+        if (tiles && _tilesShowFacts && _facts is { Count: 3 } facts)
+        {
+            for (var i = 0; i < facts.Count; i++)
+            {
+                _tileLabels[i].Text = facts[i].Label;
+                _tileValues[i].Text = facts[i].Value;
+            }
+        }
+        else if (tiles)
+        {
+            _tileLabels[0].Text = "Average";
+            _tileLabels[1].Text = "Peak";
+            _tileLabels[2].Text = "Low";
+            _tileValues[0].Text = summary is { } a ? MeterHistory.Format(_unit, a.Average) : "--";
+            _tileValues[1].Text = summary is { } b ? MeterHistory.Format(_unit, b.Max) : "--";
+            _tileValues[2].Text = summary is { } c ? MeterHistory.Format(_unit, c.Min) : "--";
+        }
+    }
+
     public void Attach(Ticker ticker, WidgetConfig config)
     {
         _ticker = ticker;
@@ -356,8 +598,6 @@ internal sealed partial class MeterView : Grid, IWidgetView
         // Battery has no meaningful history at a one-minute cadence, and a flat line reads as a
         // broken graph rather than as a stable charge.
         _graph = _config is GaugeConfig { ShowGraph: true } && _config is not BatteryConfig;
-
-        UpdateVisibility();
 
         var previousHost = _probeHost;
         _probeHost = (_config as PingConfig)?.EffectiveHost;
@@ -376,11 +616,15 @@ internal sealed partial class MeterView : Grid, IWidgetView
             if (previousHost is not null)
             {
                 _history.Clear();
+                _values.Clear();
                 RedrawSparkline();
             }
         }
 
         var resubscribed = Resubscribe();
+
+        // After Resubscribe, so the scale line names the span at the cadence now in force.
+        Lay();
 
         // Only a host change at an unchanged cadence still needs a push. Without it, editing the
         // host would show nothing until the old interval elapsed, which at five minutes reads as a
@@ -389,27 +633,6 @@ internal sealed partial class MeterView : Grid, IWidgetView
         {
             Sample();
         }
-    }
-
-    /// <summary>
-    /// Which of the reading, the graph, the fallback bar and the empty state are on screen. One
-    /// place, so the two things that move them — the config and an absent battery — cannot disagree.
-    /// </summary>
-    private void UpdateVisibility()
-    {
-        _reading.Visibility = _absent ? Visibility.Collapsed : Visibility.Visible;
-        _sparkHost.Visibility = _graph && !_absent ? Visibility.Visible : Visibility.Collapsed;
-
-        // The bar is the fallback readout: with no sparkline there would otherwise be nothing
-        // showing the value against its range.
-        _bar.Visibility = !_graph && !_absent ? Visibility.Visible : Visibility.Collapsed;
-
-        if (_absentState is not null)
-        {
-            _absentState.Visibility = _absent ? Visibility.Visible : Visibility.Collapsed;
-        }
-
-        ApplyTypeScale();
     }
 
     /// <summary>True when the subscription was rebuilt, which also fires an immediate tick.</summary>
@@ -581,11 +804,8 @@ internal sealed partial class MeterView : Grid, IWidgetView
         // would make a display decision depend on the exact wording of a string in another file.
         var absent = reading.Absent;
 
-        if (absent != _absent)
-        {
-            _absent = absent;
-            UpdateVisibility();
-        }
+        _absent = absent;
+        _facts = reading.Facts;
 
         _primary.Text = reading.Primary;
         _secondary.Text = reading.Secondary ?? string.Empty;
@@ -598,24 +818,26 @@ internal sealed partial class MeterView : Grid, IWidgetView
         _bar.Value = (reading.Fraction ?? 0) * 100;
         _bar.Foreground = reading.Available ? _barBrush : _barUnavailableBrush;
 
-        // The caption can appear and disappear between samples, which changes how much of the line
-        // the reading may take.
-        ApplyTypeScale();
-
         if (reading is { Available: true, Fraction: { } fraction })
         {
-            if (_history.Count >= HistoryLength)
+            if (_history.Count >= MeterHistory.Capacity)
             {
                 _history.Dequeue();
+                _values.Dequeue();
             }
 
             _history.Enqueue(fraction);
-            RedrawSparkline();
+            _values.Enqueue(reading.Value ?? fraction);
         }
+
+        // The caption can appear and disappear between samples, which changes how much of the line
+        // the reading may take — and the absent state swaps the whole ladder out.
+        Lay();
+        RedrawSparkline();
     }
 
     /// <summary>
-    /// Redraw the trace. Cheap by construction: two visuals, at most <see cref="HistoryLength"/>
+    /// Redraw the trace. Cheap by construction: two visuals, at most <see cref="MeterHistory.Capacity"/>
     /// points, rebuilt only on a new sample or a resize.
     /// </summary>
     private void RedrawSparkline()
@@ -635,7 +857,9 @@ internal sealed partial class MeterView : Grid, IWidgetView
             return;
         }
 
-        var samples = _history.ToArray();
+        // The newest samples, as many as this chart's window spans.
+        var all = _history.ToArray();
+        var samples = all.AsSpan(Math.Max(0, all.Length - _window));
 
         // Inset by the stroke width so a reading of 0% or 100% is not clipped in half at the edge.
         var inset = _sparkLine.StrokeThickness;
@@ -648,7 +872,7 @@ internal sealed partial class MeterView : Grid, IWidgetView
         var line = new PointCollection();
         for (var i = 0; i < samples.Length; i++)
         {
-            var x = Sparkline.SampleX(i, samples.Length, HistoryLength) * width;
+            var x = Sparkline.SampleX(i, samples.Length, _window) * width;
             var y = (inset / 2) + (Sparkline.SampleY(samples[i]) * usable);
             line.Add(new Point(x, y));
         }

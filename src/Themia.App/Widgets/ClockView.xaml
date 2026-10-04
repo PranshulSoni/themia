@@ -41,6 +41,21 @@
                 TextTrimming="CharacterEllipsis"
                 Foreground="{ThemeResource TextFillColorSecondaryBrush}"
                 Text="" />
+            <!-- [S-665] Rungs a larger clock adds under the date: the week, then the time zone. -->
+            <TextBlock
+                x:Name="WeekText"
+                HorizontalAlignment="Center"
+                TextTrimming="CharacterEllipsis"
+                Foreground="{ThemeResource TextFillColorTertiaryBrush}"
+                Visibility="Collapsed"
+                Text="" />
+            <TextBlock
+                x:Name="ZoneText"
+                HorizontalAlignment="Center"
+                TextTrimming="CharacterEllipsis"
+                Foreground="{ThemeResource TextFillColorTertiaryBrush}"
+                Visibility="Collapsed"
+                Text="" />
         </StackPanel>
 
         <!--

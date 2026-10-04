@@ -46,7 +46,8 @@ internal sealed class WidgetGallery : IDisposable
     /// <summary>
     /// The sizes every widget is drawn at, in DIPs of the painted card. Chosen to cover what people
     /// actually make: a tile barely bigger than an icon, the default-ish small and medium, a wide
-    /// strip, a tall column and a large panel.
+    /// strip, a tall column, a large panel and an extra-large one — the size at which a widget that
+    /// only scales, rather than shows more, is plainly mostly empty.
     /// </summary>
     public static readonly IReadOnlyList<(string Name, double Width, double Height)> Sizes =
     [
@@ -56,10 +57,17 @@ internal sealed class WidgetGallery : IDisposable
         ("Wide", 480, 160),
         ("Tall", 200, 400),
         ("L", 560, 420),
+        ("XL", 800, 560),
     ];
 
-    /// <summary>Which row each size sits on: four across the top, the two big ones underneath.</summary>
-    private static readonly int[] RowOf = [0, 0, 0, 0, 1, 1];
+    /// <summary>
+    /// Which row each size sits on: four across the top, the tall and large ones underneath, and the
+    /// extra-large one on a row of its own, so the page stays about as wide as it was.
+    /// </summary>
+    private static readonly int[] RowOf = [0, 0, 0, 0, 1, 1, 2];
+
+    /// <summary>How many rows <see cref="RowOf"/> lays the sizes out on.</summary>
+    private static readonly int RowCount = RowOf.Max() + 1;
 
     private readonly Window _window;
     private readonly Ticker _ticker;
@@ -162,7 +170,17 @@ internal sealed class WidgetGallery : IDisposable
 
         var (width, height) = PageSize();
         var scale = 1.5; // sized for the common 150% desk; the window is resizable anyway
-        _window.AppWindow.Resize(new SizeInt32((int)((width + 40) * scale), (int)((height + 110) * scale)));
+        var wanted = new SizeInt32((int)((width + 40) * scale), (int)((height + 110) * scale));
+
+        // With the XL row the page is taller than most screens. A person gets a window that fits
+        // their work area and scrolls; the off-screen PNG render keeps the whole page so nothing is
+        // cut off in the image.
+        if (interactive && DisplayArea.Primary is { } display)
+        {
+            wanted = new SizeInt32(Math.Min(wanted.Width, display.WorkArea.Width), Math.Min(wanted.Height, display.WorkArea.Height));
+        }
+
+        _window.AppWindow.Resize(wanted);
     }
 
     /// <summary>Open the gallery for a person to look at, starting on one widget.</summary>
@@ -310,8 +328,14 @@ internal sealed class WidgetGallery : IDisposable
         GalleryFixtures.Reset();
         _window.Title = $"Themia widget gallery - {WidgetCatalog.Definition(kind).Label}";
 
-        var x = new[] { Gap, Gap };
-        var rowTop = new[] { Gap, Gap + LabelHeight + RowHeight(0) + Gap };
+        var x = new double[RowCount];
+        var rowTop = new double[RowCount];
+
+        for (var row = 0; row < RowCount; row++)
+        {
+            x[row] = Gap;
+            rowTop[row] = row == 0 ? Gap : rowTop[row - 1] + LabelHeight + RowHeight(row - 1) + Gap;
+        }
 
         for (var i = 0; i < Sizes.Count; i++)
         {
@@ -368,15 +392,19 @@ internal sealed class WidgetGallery : IDisposable
 
     private static (double Width, double Height) PageSize()
     {
-        var widths = new double[2];
+        var widths = new double[RowCount];
         for (var i = 0; i < Sizes.Count; i++)
         {
             widths[RowOf[i]] += Sizes[i].Width + Gap;
         }
 
-        var width = Gap + Math.Max(widths[0], widths[1]);
-        var height = Gap + LabelHeight + RowHeight(0) + Gap + LabelHeight + RowHeight(1) + Gap;
-        return (width, height);
+        var height = Gap;
+        for (var row = 0; row < RowCount; row++)
+        {
+            height += LabelHeight + RowHeight(row) + Gap;
+        }
+
+        return (Gap + widths.Max(), height);
     }
 
     /// <summary>Render an element in a live window to a PNG. Shared with the settings render.</summary>

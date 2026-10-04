@@ -1537,3 +1537,27 @@ here, so a cold start never shows old data as current), demo mode (S-32, S-15; t
 replace it), anonymous access to public repositories (60 requests an hour per IP shared by every
 widget, and a repository costs six), and the single-click open (double-click, as every list on this
 desktop).
+
+## Responsive layout (shared foundation)
+
+- **[S-660]** A widget's content area (the card less its header) is classified per axis into
+  `SizeClass` Compact / Regular / Expanded / Huge (width breakpoints 180 / 400 / 720, height
+  128 / 280 / 480 DIPs) plus a shape (Wide ≥ 2:1, Tall ≥ 1:1.6). The seven gallery sizes land in
+  seven distinct (width, height) pairs. An unmeasured area is Compact. (`WidgetArea`)
+- **[S-661]** Optional parts are disclosed in priority order from one height budget: a part is shown
+  only when it fits whole; once a part misses, no later part is shown (growing a tile only ever adds
+  parts); a part too narrow is skipped without closing the ladder. (`Disclosure`)
+- **[S-662]** Lists and line budgets count whole rows only, one arithmetic for all of them
+  (`Disclosure.WholeRows` / `TakeRows`, 0.5 DIP rounding tolerance).
+- **[S-663]** The card tells a view that implements `IWidgetSizeAware` its slot, once per layout pass
+  that changed it, never unmeasured; views that do not implement it are unaffected.
+- **[S-664]** Meters: reading → caption → sparkline (or bar) → min / avg / max (a line at Regular
+  height; three stat tiles at Expanded width, beside the reading on a strip, under it on a panel, one
+  under another in a tall column; a non-moving meter's tiles carry its breakdown, e.g. a drive's
+  used / free / total) → a scale line naming the chart's span at Expanded × Expanded. A wider chart
+  spans more history (one sample per ~6 DIPs, 30..180 samples). With a chart, the reading stops at
+  Display and the chart takes the rest; without one, the reading fills the tile.
+- **[S-665]** Clock: time → date (short "Sun 4 Oct" when narrow; with the ISO week and day of the
+  year appended on a wide strip) → "Week 40 · Day 277" at Expanded height → time zone ("UTC+02:00 ·
+  name") at Expanded × Expanded. A tall column stacks hours over minutes when that draws them larger.
+  Analog face unchanged.

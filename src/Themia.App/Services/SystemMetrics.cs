@@ -4,6 +4,9 @@ using Themia.Core.Diagnostics;
 
 namespace Themia.App.Services;
 
+/// <summary>One labelled figure in a reading's breakdown: "Free" / "844 GB".</summary>
+public readonly record struct MeterFact(string Label, string Value);
+
 /// <summary>One reading from a meter. <see cref="Fraction"/> is 0..1, or null when unavailable.</summary>
 /// <param name="Fraction">The value the bar shows.</param>
 /// <param name="Primary">The big number.</param>
@@ -17,12 +20,23 @@ namespace Themia.App.Services;
 /// matching the reason string, which made a display decision depend on the exact wording of a
 /// caption in another file.
 /// </param>
+/// <param name="Facts">
+/// [S-664] The reading broken down — used, free, total — for a large tile to show as stat tiles.
+/// Exactly three, or null.
+/// </param>
+/// <param name="Value">
+/// [S-664] The reading in its own unit — bytes per second, milliseconds — for a meter whose
+/// <see cref="Fraction"/> is a position on a scale rather than the value itself. Null means the
+/// fraction is the value (a percentage meter). Its history is what a large tile summarises.
+/// </param>
 public readonly record struct MeterReading(
     double? Fraction,
     string Primary,
     string? Secondary,
     bool Available,
-    bool Absent = false)
+    bool Absent = false,
+    double? Value = null,
+    IReadOnlyList<MeterFact>? Facts = null)
 {
     public static MeterReading Unavailable(string reason) => new(null, "--", reason, false);
 
@@ -142,7 +156,13 @@ internal static class SystemMetrics
             fraction,
             Themia.Core.Widgets.Formatting.Percent(fraction),
             $"{Themia.Core.Widgets.Formatting.Bytes(totalFree)} free of {Themia.Core.Widgets.Formatting.Bytes(total)}",
-            true);
+            true,
+            Facts:
+            [
+                new MeterFact("Used", Themia.Core.Widgets.Formatting.Bytes(used)),
+                new MeterFact("Free", Themia.Core.Widgets.Formatting.Bytes(totalFree)),
+                new MeterFact("Total", Themia.Core.Widgets.Formatting.Bytes(total)),
+            ]);
     }
 
     /// <summary>

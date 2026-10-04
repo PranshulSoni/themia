@@ -11,6 +11,7 @@ using Themia.App.Widgets;
 using Themia.Core.Diagnostics;
 using Themia.Core.Geometry;
 using Themia.Core.Model;
+using Themia.Core.Widgets;
 using Windows.Foundation;
 
 namespace Themia.App.Shell;
@@ -216,6 +217,22 @@ internal sealed partial class WidgetCard : Grid, IWidgetSurface
 
         // The header sheds by height, so it has to be reconsidered when the height changes.
         SizeChanged += (_, _) => ApplyHeader();
+
+        // [S-663] A view that discloses by size is told its slot - the card less the header - once
+        // per layout pass that changed it. The view's own SizeChanged is that signal exactly: it is
+        // raised after arrange, only when the slot really changed (a resize, the header shedding or
+        // moving), and the slot is a star row of a fixed-size card, so nothing the view shows in
+        // response can feed back into it.
+        if (_view is IWidgetSizeAware sizeAware)
+        {
+            _view.SizeChanged += (_, e) =>
+            {
+                if (e.NewSize.Width > 0 && e.NewSize.Height > 0)
+                {
+                    sizeAware.ApplySize(new WidgetArea(e.NewSize.Width, e.NewSize.Height));
+                }
+            };
+        }
 
         PointerPressed += OnPointerPressed;
         PointerMoved += OnPointerMoved;

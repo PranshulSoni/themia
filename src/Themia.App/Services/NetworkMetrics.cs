@@ -195,7 +195,7 @@ internal static class NetworkMetrics
             var ms = reply.RoundtripTime;
 
             return new PingOutcome(
-                new MeterReading(Math.Clamp(ms / LatencyCeilingMs, 0, 1), Formatting.Latency(ms), target, true),
+                new MeterReading(Math.Clamp(ms / LatencyCeilingMs, 0, 1), Formatting.Latency(ms), target, true, Value: ms),
                 null);
         }
         catch (OperationCanceledException)
@@ -239,6 +239,7 @@ internal static class NetworkMetrics
             fraction,
             Themia.Core.Widgets.Formatting.Rate(down),
             $"up {Themia.Core.Widgets.Formatting.Rate(up)}",
-            true);
+            true,
+            Value: down);
     }
 }
