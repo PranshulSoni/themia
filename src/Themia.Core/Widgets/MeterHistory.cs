@@ -19,36 +19,12 @@ public enum MeterUnit
 public readonly record struct MeterSummary(double Min, double Average, double Max);
 
 /// <summary>
-/// [S-664] The parts of a meter that only a larger tile shows: how much history the chart spans, and
-/// the minimum / average / maximum over it.
-/// <para>
-/// A wider chart is a longer history rather than the same minute drawn with fatter slots — that is
-/// what "show more as it grows" means for a sparkline. The window is a whole number of samples
-/// chosen from the chart's width, so every slot keeps about the same few pixels whatever the tile.
-/// </para>
+/// [S-664] The parts of a meter that only a larger tile shows: the minimum / average / maximum over
+/// the samples the chart is showing, and the words for the span it covers. How many samples that
+/// is comes from the meter's span setting (<see cref="MeterTiming"/>).
 /// </summary>
 public static class MeterHistory
 {
-    /// <summary>The most samples a meter keeps: three minutes at the default one-second cadence.</summary>
-    public const int Capacity = 180;
-
-    /// <summary>The fewest a chart spans, however narrow: under it the trace is a stub.</summary>
-    public const int MinimumWindow = 30;
-
-    /// <summary>About how wide one sample's slot is, in DIPs.</summary>
-    public const double SlotWidth = 6;
-
-    /// <summary>How many samples a chart <paramref name="width"/> DIPs wide spans.</summary>
-    public static int Window(double width)
-    {
-        if (!double.IsFinite(width) || width <= 0)
-        {
-            return MinimumWindow;
-        }
-
-        return Math.Clamp((int)Math.Floor(width / SlotWidth), MinimumWindow, Capacity);
-    }
-
     /// <summary>The lowest, mean and highest of <paramref name="samples"/>, or null when there are none.</summary>
     public static MeterSummary? Summarise(ReadOnlySpan<double> samples)
     {

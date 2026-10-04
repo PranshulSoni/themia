@@ -71,6 +71,7 @@ public sealed record RepoRef(string Owner, string Name)
 }
 
 /// <summary>The repository's own numbers.</summary>
+/// <param name="Description">[S-745] The repository's one-line description, or null.</param>
 public sealed record RepoSummary(
     string FullName,
     string HtmlUrl,
@@ -79,18 +80,30 @@ public sealed record RepoSummary(
     long OpenIssues,
     string? Language,
     DateTimeOffset? PushedAt,
-    string DefaultBranch);
+    string DefaultBranch,
+    string? Description = null);
+
+/// <summary>[S-744] An issue's label: its name, and its colour as GitHub's six hex digits (empty when unusable).</summary>
+public sealed record IssueLabel(string Name, string Color);
 
 /// <param name="Message">The first line of the commit message.</param>
-public sealed record CommitItem(string Sha, string Message, string HtmlUrl, DateTimeOffset? At);
+/// <param name="Author">[S-744] Who wrote it: the commit's author name, else the GitHub login; empty when neither.</param>
+public sealed record CommitItem(string Sha, string Message, string HtmlUrl, DateTimeOffset? At, string Author = "");
 
-public sealed record PullItem(int Number, string Title, PullState State, bool Draft, string HtmlUrl, DateTimeOffset CreatedAt);
+/// <param name="Author">[S-744] The login that opened it.</param>
+public sealed record PullItem(int Number, string Title, PullState State, bool Draft, string HtmlUrl, DateTimeOffset CreatedAt, string Author = "");
 
-public sealed record IssueRow(int Number, string Title, string HtmlUrl, DateTimeOffset? CreatedAt);
+/// <param name="Author">[S-744] The login that opened it.</param>
+/// <param name="Comments">[S-744] How many comments it has.</param>
+/// <param name="Labels">[S-744] Its labels, at most <see cref="GitHubRules.MaxLabels"/>; null reads as none.</param>
+public sealed record IssueRow(int Number, string Title, string HtmlUrl, DateTimeOffset? CreatedAt, string Author = "", int Comments = 0, IReadOnlyList<IssueLabel>? Labels = null);
 
-public sealed record RunItem(long Id, string Name, RunState State, string Branch, DateTimeOffset? At, string HtmlUrl);
+/// <param name="Event">[S-744] What started it: <c>push</c>, <c>pull_request</c>, <c>schedule</c>…</param>
+/// <param name="Actor">[S-744] The login that started it.</param>
+public sealed record RunItem(long Id, string Name, RunState State, string Branch, DateTimeOffset? At, string HtmlUrl, string Event = "", string Actor = "");
 
-public sealed record ReleaseItem(string Tag, string HtmlUrl);
+/// <param name="Name">[S-745] The release's title, when it has one besides its tag.</param>
+public sealed record ReleaseItem(string Tag, string HtmlUrl, string Name = "", DateTimeOffset? PublishedAt = null);
 
 /// <summary>[S-610] Everything the GitHub widget draws for one repository.</summary>
 public sealed record RepoActivity(
@@ -107,6 +120,9 @@ public sealed record RepoActivity(
 /// </summary>
 /// <param name="AccountId">Which account found it, so a click or a refresh goes back through that account.</param>
 /// <param name="Repo"><c>owner/name</c>, read from the API's <c>repository_url</c>.</param>
+/// <param name="Author">The login that opened it.</param>
+/// <param name="Comments">[S-744] How many comments it has.</param>
+/// <param name="Labels">[S-744] Its labels, at most <see cref="GitHubRules.MaxLabels"/>; null reads as none.</param>
 public sealed record SearchItem(
     string AccountId,
     int Number,
@@ -115,7 +131,9 @@ public sealed record SearchItem(
     string Repo,
     DateTimeOffset UpdatedAt,
     bool Draft,
-    string Author);
+    string Author,
+    int Comments = 0,
+    IReadOnlyList<IssueLabel>? Labels = null);
 
 /// <summary>[S-617] One notification thread.</summary>
 /// <param name="AccountId">[S-621] Which account it belongs to: marking it read goes through that account's host and token.</param>

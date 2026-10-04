@@ -53,15 +53,30 @@ public sealed record DevScreen(DevScreenKind Kind, string Text, bool OfferAccoun
 /// </summary>
 public static class DevScreens
 {
+    /// <summary>[S-746] The id requests without an account go under: its own rate-limit gate and cache.</summary>
+    public const string AnonymousId = "github:anonymous";
+
+    /// <summary>
+    /// [S-746] The stand-in "account" a widget reads public data with when no account is signed in
+    /// and it was not set to a particular one. It carries no token: nothing is sent but the request.
+    /// </summary>
+    public static DevAccount Anonymous { get; } = new(AnonymousId, "Public access", null);
+
     /// <summary>
     /// [S-623] The accounts a widget reads: the chosen ones still signed in, or — when none were
     /// chosen — every account of the kind (only the first when the widget reads one). Order is the
     /// order they were added, so "the first" is stable.
     /// </summary>
-    public static IReadOnlyList<DevAccount> Targets(IReadOnlyList<DevAccount> accounts, IReadOnlyList<string> chosen, bool single)
+    /// <param name="anonymous">[S-746] With no account signed in and none chosen, read without one.</param>
+    public static IReadOnlyList<DevAccount> Targets(IReadOnlyList<DevAccount> accounts, IReadOnlyList<string> chosen, bool single, bool anonymous = false)
     {
         ArgumentNullException.ThrowIfNull(accounts);
         ArgumentNullException.ThrowIfNull(chosen);
+
+        if (anonymous && accounts.Count == 0 && chosen.Count == 0)
+        {
+            return [Anonymous];
+        }
 
         IReadOnlyList<DevAccount> picked;
         if (chosen.Count == 0)
@@ -85,6 +100,8 @@ public static class DevScreens
     /// <param name="outcomes">How each account's last attempt ended; an account with none is still loading.</param>
     /// <param name="hasContent">Whether there is anything to draw, from this attempt or an earlier one.</param>
     /// <param name="emptyText">What "nothing here" means for this widget: "No issues assigned to you".</param>
+    /// <param name="anonymous">[S-746] The widget can read public data with no account at all.</param>
+    /// <param name="savedAt">[S-747] When the content on screen was fetched, if it came from the saved copy and nothing newer has arrived yet.</param>
     public static DevScreen Decide(
         string service,
         IReadOnlyList<DevAccount> accounts,
@@ -93,11 +110,18 @@ public static class DevScreens
         IReadOnlyList<DevOutcome> outcomes,
         bool hasContent,
         string emptyText,
-        DateTimeOffset now)
+        DateTimeOffset now,
+        bool anonymous = false,
+        DateTimeOffset? savedAt = null)
     {
         ArgumentNullException.ThrowIfNull(accounts);
         ArgumentNullException.ThrowIfNull(chosen);
         ArgumentNullException.ThrowIfNull(outcomes);
+
+        if (anonymous && accounts.Count == 0 && chosen.Count == 0)
+        {
+            accounts = [Anonymous];
+        }
 
         if (accounts.Count == 0)
         {
@@ -143,7 +167,9 @@ public static class DevScreens
             ? $"{broken[0].Label} needs you to sign in to {service} again."
             : failed.Count > 0
                 ? $"Could not refresh: {Lower(Explain(service, failed[0], now), service)}."
-                : null;
+                : savedAt is { } saved
+                    ? Saved(saved, now)
+                    : null;
 
         if (hasContent)
         {
@@ -161,6 +187,17 @@ public static class DevScreens
         }
 
         return new DevScreen(DevScreenKind.Empty, emptyText, false, warning);
+    }
+
+    /// <summary>[S-747] The note on content shown from the saved copy until the first refresh lands.</summary>
+    public static string Saved(DateTimeOffset savedAt, DateTimeOffset now)
+    {
+        var age = now - savedAt;
+        var when = age < TimeSpan.FromMinutes(1) ? "just now"
+            : age < TimeSpan.FromHours(1) ? $"{(int)age.TotalMinutes} min ago"
+            : age < TimeSpan.FromDays(1) ? $"{(int)age.TotalHours} h ago"
+            : $"{(int)age.TotalDays} d ago";
+        return $"Showing what was saved {when}; refreshing.";
     }
 
     /// <summary>A failed attempt in the widget's words.</summary>

@@ -7,9 +7,9 @@ using Xunit;
 namespace Themia.Core.Tests;
 
 /// <summary>
-/// The three trackers keep their data <b>in their config</b>, which means the state file is the only
-/// copy of a habit's whole history and of every mood ever logged. So the round trip through the
-/// real store is pinned here rather than assumed.
+/// The trackers keep their data <b>in their config</b> (habits keep their settings there and their
+/// history in <c>habits.json</c>), which means the state file is the only copy of every mood ever
+/// logged. So the round trip through the real store is pinned here rather than assumed.
 /// <para>
 /// It matters more than for a widget whose config is a handful of switches: this is the test that
 /// catches a nested list the source-generated serializer never learned about, which under Native AOT
@@ -93,55 +93,40 @@ public sealed class TrackerPersistenceTests : IDisposable
     }
 
     // -----------------------------------------------------------------------------------------
-    // [S-314] habits
+    // [S-1420] habits: the config is a pointer and the widget's own settings; the habits live in
+    // habits.json (HabitListStoreTests)
     // -----------------------------------------------------------------------------------------
 
     [Fact]
-    public async Task S314_a_habits_whole_history_survives_a_restart()
+    public async Task S1420_a_habit_widgets_settings_survive_a_restart()
     {
         var config = await RoundTripAsync<HabitTrackerConfig>(WidgetKind.HabitTracker, habits =>
         {
-            habits.HistoryDays = 14;
+            habits.ListId = "list-morning";
+            habits.Period = HabitPeriod.Custom;
+            habits.CustomMinutes = 45;
+            habits.HistoryDots = 14;
             habits.ShowStreak = false;
-
-            habits.Habits.Add(new HabitRecord
-            {
-                Id = "walk",
-                Name = "Walk the dog",
-                Days = ["2026-06-13", "2026-06-14", "2026-06-15"],
-            });
-
-            habits.Habits.Add(new HabitRecord { Id = "read", Name = "Read" });
         });
 
-        Assert.Equal(14, config.HistoryDays);
+        Assert.Equal("list-morning", config.ListId);
+        Assert.Equal(HabitPeriod.Custom, config.Period);
+        Assert.Equal(45, config.CustomMinutes);
+        Assert.Equal(14, config.HistoryDots);
         Assert.False(config.ShowStreak);
-        Assert.Equal(2, config.Habits.Count);
-
-        Assert.Equal("walk", config.Habits[0].Id);
-        Assert.Equal("Walk the dog", config.Habits[0].Name);
-        Assert.Equal(new[] { "2026-06-13", "2026-06-14", "2026-06-15" }, config.Habits[0].Days);
-        Assert.Empty(config.Habits[1].Days);
-
-        // The streak has to survive too, which is the whole point of persisting the days.
-        var today = new LocalDay(new DateOnly(2026, 6, 15));
-        Assert.Equal(3, HabitRules.Streak(HabitRules.Days(config.Habits[0].Days, today), today));
     }
 
     [Fact]
-    public void S314_cloning_a_habit_list_does_not_share_its_days()
+    public void S1422_a_hand_edited_habit_config_is_repaired_to_its_ranges()
     {
-        var original = new HabitTrackerConfig();
-        original.Habits.Add(new HabitRecord { Id = "walk", Name = "Walk", Days = ["2026-06-15"] });
+        var config = new HabitTrackerConfig { Period = (HabitPeriod)99, CustomMinutes = 0, HistoryDots = 500 };
 
-        var copy = (HabitTrackerConfig)original.Clone();
-        copy.Habits[0].Days.Add("2026-06-14");
-        copy.Habits[0].Name = "Jog";
+        var repairs = config.Repair();
 
-        // Two widgets pasted from one must not tick each other's boxes.
-        Assert.Single(original.Habits[0].Days);
-        Assert.Equal("Walk", original.Habits[0].Name);
-        Assert.Equal(2, copy.Habits[0].Days.Count);
+        Assert.Equal(3, repairs.Count);
+        Assert.Equal(HabitPeriod.Daily, config.Period);
+        Assert.Equal(HabitCadence.MinCustomMinutes, config.CustomMinutes);
+        Assert.Equal(HabitRules.MaxHistory, config.HistoryDots);
     }
 
     // -----------------------------------------------------------------------------------------

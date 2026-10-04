@@ -1,125 +1,123 @@
 using System.Globalization;
 using Microsoft.UI;
-using Microsoft.UI.Dispatching;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Automation;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
 using Themia.App.Services;
+using Themia.App.Services.Habits;
 using Themia.App.Shell;
-using Themia.Core.Diagnostics;
+using Themia.Core.Habits;
 using Themia.Core.Model;
 using Themia.Core.Widgets;
 
 namespace Themia.App.Widgets;
 
 /// <summary>
-/// A short list of habits, a box to tick each day, and how long the run is. [S-310]
+/// [S-1420]..[S-1429] A list of habits, a box to tick each period, how long the run is, and what
+/// the last few periods looked like.
 /// <para>
-/// The data <b>is</b> the config, the way a note is. So this is one of the few views that writes its
-/// own settings: ticking a box mutates the config it was handed and asks the surface to persist it,
-/// on a debounce, flushed on detach. [S-313]
+/// The habits are not in this widget's config. They live in the device-wide pool
+/// (<see cref="HabitPool"/>), and the config names the list to show, so two widgets can track the
+/// same habits and a tick in one is a tick in the other. Every change — a tick, an add, a rename, a
+/// move, a delete — goes through the pool's one write path and comes back as its
+/// <see cref="HabitPool.Changed"/>, so this view draws only what the pool holds.
 /// </para>
 /// <para>
-/// It is a Windows 11 list. Rows are a fixed 40px — 32 on a small tile — and the type is the ramp's
-/// list-row steps, so a card that grows shows <i>more habits</i> rather than bigger ones, and the
-/// squares of history grow in number rather than in size. There is no rule between rows.
+/// It is a Windows 11 list with a size ladder (<see cref="HabitLayout"/>): a tile that grows shows
+/// more — the run, the history dots, an add row, a rate and best run per habit, a summary, a chart —
+/// rather than bigger rows.
 /// </para>
 /// </summary>
-internal sealed partial class HabitTrackerView : Grid, IWidgetView, IWidgetSurfaceAware, IWidgetHeaderContent
+internal sealed partial class HabitTrackerView : Grid, IWidgetView, IWidgetSurfaceAware, IWidgetHeaderContent, IWidgetSizeAware
 {
     private const string Scope = "habits";
-
-    /// <summary>
-    /// How long a run of taps is collected before the state file is written. The tick itself is
-    /// already in the config by then — this only decides when it reaches the disk, and
-    /// <see cref="Flush"/> on detach is what guarantees it does.
-    /// </summary>
-    private static readonly TimeSpan SaveDebounce = TimeSpan.FromMilliseconds(400);
-
-    /// <summary>Under this the row goes compact and the squares shed: 32px holds a box and a name.</summary>
-    private const double CompactWidth = 240;
-
-    private const double CompactHeight = 170;
-
-    /// <summary>Below this there is no room for the history strip beside a readable name.</summary>
-    private const double HistoryMinimumWidth = 280;
-
-    /// <summary>And below this the streak is a bare number rather than a number and its unit.</summary>
-    private const double StreakWordMinimumWidth = 360;
 
     private readonly TextBlock _done = Fluent.Text(FluentType.Caption, "TextFillColorTertiaryBrush");
     private readonly StackPanel _list = new() { Spacing = 0 };
     private readonly ScrollViewer _scroll;
     private readonly Border _emptyHost;
     private readonly TextBlock _emptyText;
-    private readonly FontIcon _emptyIcon;
-    private readonly List<HabitRow> _rows = [];
-    private readonly DispatcherQueueTimer? _saveTimer;
+
+    // The summary strip: what is done this period, the recent rate, and a bar.
+    private readonly Grid _summary;
+    private readonly TextBlock _summaryDone = Fluent.Text(FluentType.Caption, "TextFillColorSecondaryBrush");
+    private readonly TextBlock _summaryRate = Fluent.Text(FluentType.Caption, "TextFillColorTertiaryBrush");
+    private readonly ColumnDefinition _barDone = new() { Width = new GridLength(0, GridUnitType.Star) };
+    private readonly ColumnDefinition _barLeft = new() { Width = new GridLength(1, GridUnitType.Star) };
+
+    // The completion chart under the list, in whatever height the rows leave.
+    private readonly Grid _chart;
+    private readonly TextBlock _chartCaption = Fluent.Text(FluentType.Caption, "TextFillColorTertiaryBrush");
+    private readonly Grid _bars = new();
+
+    private readonly Brush _accent = FluentLayout.Themed("AccentFillColorDefaultBrush", Colors.DodgerBlue);
+    private readonly Brush _track = FluentLayout.Themed("ControlAltFillColorSecondaryBrush", Colors.Gray);
 
     private IWidgetSurface? _surface;
     private Ticker? _ticker;
+    private HabitPool? _pool;
     private HabitTrackerConfig _config = new();
     private IDisposable? _subscription;
     private TimeSpan _subscribedInterval = TimeSpan.Zero;
 
-    private LocalDay _today;
-    private bool _compact;
-    private bool _dirty;
+    private HabitList? _habitList;
+    private WidgetArea _area;
+    private HabitLayoutPlan? _plan;
+
+    /// <summary>The period every row is drawn against, read from the clock once per render.</summary>
+    private HabitBucket _current;
+
+    // This period's ticks and the recent window's, counted once per render for the summary.
+    private int _doneNow;
+    private int _doneWindow;
+
+    private bool _resolving;
     private bool _detached;
 
     public HabitTrackerView()
     {
-        RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
+        RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });                            // summary
+        RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });                            // rows / empty hint
+        RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });                            // add row
+        RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });       // chart
 
         Microsoft.UI.Xaml.Documents.Typography.SetNumeralAlignment(_done, FontNumeralAlignment.Tabular);
 
         _scroll = new ScrollViewer
         {
             Content = _list,
-            Padding = Fluent.ListPadding,
             HorizontalScrollMode = ScrollMode.Disabled,
             HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
             VerticalScrollBarVisibility = ScrollBarVisibility.Hidden,
         };
 
-        // Says what to do about it, not merely that there is nothing: the habits are added in the
-        // settings window, which is not otherwise discoverable from an empty card.
         _emptyText = Fluent.Text(FluentType.Body);
-        _emptyText.Text = "No habits yet.\nAdd one in this widget's settings.";
-
         _emptyHost = new Border
         {
-            Child = Fluent.EmptyState(Glyphs.Habit, _emptyText, out _emptyIcon),
+            Child = Fluent.EmptyState(Glyphs.Habit, _emptyText, out _),
             VerticalAlignment = VerticalAlignment.Center,
             Visibility = Visibility.Collapsed,
         };
 
+        _summary = BuildSummary();
+        _chart = BuildChart();
+        _addRow = BuildAddRow();
+
+        SetRow(_summary, 0);
+        SetRow(_scroll, 1);
+        SetRow(_emptyHost, 1);
+        SetRow(_addRow, 2);
+        SetRow(_chart, 3);
+
+        Children.Add(_summary);
         Children.Add(_scroll);
         Children.Add(_emptyHost);
-
-        _saveTimer = DispatcherQueue.GetForCurrentThread()?.CreateTimer();
-
-        if (_saveTimer is null)
-        {
-            // Where there is no dispatcher queue the ticks are still written on detach; it is only
-            // the save-as-you-go that is lost, which is why this is a warning and not a failure.
-            Log.Warn(Scope, "no dispatcher queue on this thread; habits save on close only");
-        }
-        else
-        {
-            _saveTimer.Interval = SaveDebounce;
-            _saveTimer.IsRepeating = false;
-            _saveTimer.Tick += OnSaveTick;
-        }
-
-        SizeChanged += OnSizeChanged;
+        Children.Add(_addRow);
+        Children.Add(_chart);
     }
 
-    /// <summary>
-    /// The "3/5 done" count, in the card's header. Built in the constructor because the card reads
-    /// this once, when it builds that header.
-    /// </summary>
+    /// <summary>The "3/5" count, in the card's header.</summary>
     public FrameworkElement? HeaderTrailing => _done;
 
     /// <inheritdoc />
@@ -128,30 +126,20 @@ internal sealed partial class HabitTrackerView : Grid, IWidgetView, IWidgetSurfa
     public void Attach(Ticker ticker, WidgetConfig config)
     {
         _ticker = ticker;
+        _pool = AppServices.Habits;
+
+        if (_pool is not null)
+        {
+            _pool.Changed += OnPoolChanged;
+        }
+
         ApplyConfig(config);
     }
 
-    /// <summary>
-    /// Re-read the config.
-    /// <para>
-    /// There is no unflushed edit to protect here, and that is by construction rather than by luck:
-    /// a tick is written <i>into the config</i> the moment the box is tapped, and only the save is
-    /// deferred. So an incoming config — the settings window renaming a habit, say — cannot arrive
-    /// carrying an older idea of today's boxes, because it is the same bag this view already ticked.
-    /// A genuinely different bag (a paste, an undo) is adopted after flushing, so nothing pending is
-    /// left owing to a config nobody holds any more.
-    /// </para>
-    /// </summary>
     public void ApplyConfig(WidgetConfig config)
     {
-        var next = config as HabitTrackerConfig ?? new HabitTrackerConfig();
-
-        if (!ReferenceEquals(next, _config))
-        {
-            Flush();
-        }
-
-        _config = next;
+        _config = config as HabitTrackerConfig ?? new HabitTrackerConfig();
+        ResolveList();
 
         if (Resubscribe())
         {
@@ -161,11 +149,48 @@ internal sealed partial class HabitTrackerView : Grid, IWidgetView, IWidgetSurfa
         Render();
     }
 
+    public void ApplySize(WidgetArea area)
+    {
+        _area = area;
+        Lay();
+    }
+
     /// <summary>
-    /// Only when the cadence changed, and says whether it did: a new subscription ticks
-    /// immediately, so the caller has nothing left to do. Rebuilding it on every config touch makes
-    /// dragging a settings slider stutter for every widget on the desktop.
+    /// [S-1420] Find the list this widget shows. With none chosen it takes the device's first list,
+    /// creating one only when there is none, and remembers it; a list that was deleted is not
+    /// replaced — the widget says so instead of showing somebody else's habits.
     /// </summary>
+    private void ResolveList()
+    {
+        if (_pool is null || _resolving)
+        {
+            _habitList = null;
+            return;
+        }
+
+        if (string.IsNullOrEmpty(_config.ListId))
+        {
+            _resolving = true;
+
+            try
+            {
+                if (_pool.FirstOrCreate() is { } id)
+                {
+                    _config.ListId = id;
+                    _surface?.RequestSave();
+                }
+            }
+            finally
+            {
+                _resolving = false;
+            }
+        }
+
+        _habitList = _pool.Find(_config.ListId);
+        _surface?.SetHeaderTitle(_habitList is { Name.Length: > 0 } list ? list.Name : null);
+    }
+
+    /// <summary>Only when the cadence changed; a new subscription ticks at once, so the caller is done.</summary>
     private bool Resubscribe()
     {
         var interval = _config.TickInterval;
@@ -182,9 +207,8 @@ internal sealed partial class HabitTrackerView : Grid, IWidgetView, IWidgetSurfa
     }
 
     /// <summary>
-    /// The only reason this widget wakes: a box ticked yesterday has to clear itself when the day
-    /// does. Nothing is redrawn unless the calendar day actually changed, so the cost of the
-    /// subscription is one comparison a minute.
+    /// [S-1422] The only reason this widget wakes: a box ticked in a past period clears when the
+    /// period does. Nothing is redrawn unless the period actually changed.
     /// </summary>
     private void OnTick()
     {
@@ -193,9 +217,7 @@ internal sealed partial class HabitTrackerView : Grid, IWidgetView, IWidgetSurfa
             return;
         }
 
-        var today = LocalDay.From(DateTimeOffset.Now);
-
-        if (today == _today)
+        if (_habitList is not null && Bucket(DateTimeOffset.Now).Key == _current.Key)
         {
             return;
         }
@@ -203,33 +225,26 @@ internal sealed partial class HabitTrackerView : Grid, IWidgetView, IWidgetSurfa
         Render();
     }
 
-    private void OnSizeChanged(object sender, SizeChangedEventArgs args)
+    private void OnPoolChanged()
     {
-        var width = args.NewSize.Width;
-        var height = args.NewSize.Height;
-
-        _emptyIcon.Visibility = height >= Fluent.HeaderHidesBelow ? Visibility.Visible : Visibility.Collapsed;
-
-        _compact = width < CompactWidth || height < CompactHeight;
-
-        // Re-lays what is already drawn rather than rebuilding it: a rebuild would drop the row
-        // under the pointer and re-run every streak count for a drag that changed only a width.
-        var layout = Layout(width);
-
-        foreach (var row in _rows)
+        if (_detached || _resolving)
         {
-            row.SetLayout(_compact, layout);
+            return;
         }
+
+        _habitList = _pool?.Find(_config.ListId);
+        _surface?.SetHeaderTitle(_habitList is { Name.Length: > 0 } list ? list.Name : null);
+        Render();
     }
 
-    private HabitRowLayout Layout(double width) => new(
-        width >= HistoryMinimumWidth,
-        width >= StreakWordMinimumWidth);
+    private HabitBucket Bucket(DateTimeOffset moment) => HabitPeriods.At(moment, _config.Cadence, TimeZoneInfo.Local);
+
+    private IReadOnlyList<Habit> Habits => _habitList?.Habits ?? [];
 
     /// <summary>
-    /// Draw the habits. The clock is read <b>once</b> here and passed down: a list drawn across
-    /// midnight that read it per row would tick one habit's box against today and the next one's
-    /// against yesterday, in the same frame.
+    /// Draw the habits. The clock is read <b>once</b> here and passed down: a list drawn across a
+    /// period boundary that read it per row would tick one habit against today and the next against
+    /// yesterday, in the same frame.
     /// </summary>
     private void Render()
     {
@@ -238,125 +253,266 @@ internal sealed partial class HabitTrackerView : Grid, IWidgetView, IWidgetSurfa
             return;
         }
 
-        _today = LocalDay.From(DateTimeOffset.Now);
+        _current = Bucket(DateTimeOffset.Now);
 
-        var habits = _config.Habits;
-        var empty = habits.Count == 0;
+        var habits = Habits;
+        SyncRows(habits);
 
-        _emptyHost.Visibility = empty ? Visibility.Visible : Visibility.Collapsed;
-        _scroll.Visibility = empty ? Visibility.Collapsed : Visibility.Visible;
-
-        // Rebuild only when the list itself changed. A tick, a rename or a midnight rollover
-        // re-letters what is already there, which keeps the row under the pointer and its hover.
-        if (!SameHabits(habits))
-        {
-            BuildRows(habits);
-        }
-
-        var layout = Layout(ActualWidth);
-        var doneToday = 0;
+        var cadence = _config.Cadence;
+        var zone = TimeZoneInfo.Local;
+        var doneNow = 0;
+        var doneWindow = 0;
 
         for (var i = 0; i < _rows.Count; i++)
         {
-            var habit = habits[i];
-            var days = HabitRules.Days(habit.Days, _today);
+            var log = HabitRules.Log(habits[i].Log);
 
-            if (days.Contains(_today))
+            if (HabitRules.IsDone(log, _current))
             {
-                doneToday++;
+                doneNow++;
             }
 
-            _rows[i].Update(habit, days, _today, _config.EffectiveHistoryDays, _config.ShowStreak);
-            _rows[i].SetLayout(_compact, layout);
+            doneWindow += HabitRules.DoneIn(log, _current, cadence, zone, HabitRules.RateWindow);
+            _rows[i].Update(habits[i], log, _current, cadence, _config.EffectiveHistoryDots, _config.ShowStreak);
         }
 
-        _done.Text = empty
+        _done.Text = habits.Count == 0 ? string.Empty : string.Create(CultureInfo.InvariantCulture, $"{doneNow}/{habits.Count}");
+        AutomationProperties.SetName(_done, habits.Count == 0
             ? string.Empty
-            : string.Create(CultureInfo.InvariantCulture, $"{doneToday}/{habits.Count}");
+            : $"{doneNow} of {habits.Count} done {HabitPeriods.CurrentNoun(cadence.Period)}");
 
-        AutomationProperties.SetName(_done, empty
-            ? string.Empty
-            : string.Create(CultureInfo.InvariantCulture, $"{doneToday} of {habits.Count} done today"));
+        _doneNow = doneNow;
+        _doneWindow = doneWindow;
+        _emptyText.Text = EmptyMessage();
+        Lay();
     }
 
-    private bool SameHabits(IReadOnlyList<HabitRecord> habits)
+    private string EmptyMessage()
     {
-        if (habits.Count != _rows.Count)
+        if (_pool is null)
         {
-            return false;
+            return "Habits are not available.";
         }
 
-        for (var i = 0; i < habits.Count; i++)
+        if (_habitList is null)
         {
-            // By identity, not by name: a rename must not cost a rebuild, and two habits swapping
-            // places must.
-            if (!ReferenceEquals(habits[i], _rows[i].Habit))
-            {
-                return false;
-            }
+            return string.IsNullOrEmpty(_config.ListId) || !_pool.Writable
+                ? "The habit lists could not be read."
+                : "This habit list was deleted.\nPick a list in this widget's settings.";
         }
 
-        return true;
+        return Writable ? "No habits yet.\nAdd one below." : "No habits yet.";
     }
 
-    private void BuildRows(IReadOnlyList<HabitRecord> habits)
-    {
-        foreach (var existing in _rows)
-        {
-            existing.Detach();
-        }
-
-        _rows.Clear();
-        _list.Children.Clear();
-
-        foreach (var habit in habits)
-        {
-            var row = new HabitRow(habit, OnToggled);
-            _rows.Add(row);
-            _list.Children.Add(row.Host);
-        }
-    }
-
-    /// <summary>
-    /// A box was tapped. The day is read once here, for the same reason it is read once per render:
-    /// a tap at 23:59:59.9 must go on one day, not on whichever one each of three reads lands in.
-    /// </summary>
-    private void OnToggled(HabitRecord habit)
+    /// <summary>[S-1427] Apply the ladder to what is drawn. Cheap: nothing is rebuilt here.</summary>
+    private void Lay()
     {
         if (_detached)
         {
             return;
         }
 
-        var today = LocalDay.From(DateTimeOffset.Now);
+        var count = Habits.Count;
+        var plan = HabitLayout.Plan(
+            _area,
+            new HabitLayoutInput(count, Writable, _config.ShowStreak, _config.EffectiveHistoryDots),
+            Fluent.RowHeight,
+            Fluent.RowHeightCompact);
 
-        HabitRules.Toggle(habit.Days, today);
+        _plan = plan;
 
-        _dirty = true;
-        _saveTimer?.Start(); // restarts the countdown, so a run of taps is one write
+        _emptyHost.Visibility = count == 0 ? Visibility.Visible : Visibility.Collapsed;
+        _scroll.Visibility = count == 0 ? Visibility.Collapsed : Visibility.Visible;
 
-        // A full redraw rather than just this row: the header's count and, on a rollover that
-        // happened between the last render and this tap, every other row's idea of today.
-        Render();
-    }
+        // An empty list's hint takes the room the rows would have, so it can shed its glyph on a
+        // small tile instead of being measured at its full height; otherwise the chart takes it.
+        RowDefinitions[1].Height = count == 0 ? new GridLength(1, GridUnitType.Star) : GridLength.Auto;
+        RowDefinitions[3].Height = count == 0 ? GridLength.Auto : new GridLength(1, GridUnitType.Star);
 
-    private void OnSaveTick(DispatcherQueueTimer sender, object args) => Flush();
+        // Whole rows in the viewport: the rest scroll, and the last visible row is never cut in half.
+        _scroll.Height = plan.Rows < count ? plan.Rows * plan.RowHeight : double.NaN;
+        _scroll.Padding = plan.AddRow || plan.ChartHeight > 0 ? new Thickness(0) : Fluent.ListPadding;
 
-    /// <summary>
-    /// Ask for the config to be persisted. Idempotent: with nothing pending it does nothing, so
-    /// calling it from three places costs nothing.
-    /// </summary>
-    private void Flush()
-    {
-        _saveTimer?.Stop();
-
-        if (!_dirty)
+        foreach (var row in _rows)
         {
-            return;
+            row.SetLayout(plan);
         }
 
-        _dirty = false;
-        _surface?.RequestSave();
+        FitAddRow(plan);
+
+        _summary.Visibility = plan.Summary ? Visibility.Visible : Visibility.Collapsed;
+        if (plan.Summary)
+        {
+            DrawSummary();
+        }
+        _summary.Padding = new Thickness(plan.Inset, 0, plan.Inset, Fluent.Space3);
+
+        _chart.Visibility = plan.ChartHeight > 0 ? Visibility.Visible : Visibility.Collapsed;
+        if (plan.ChartHeight > 0)
+        {
+            DrawChart(plan);
+        }
+    }
+
+    // ---- the summary ([S-1427]) ------------------------------------------------------------------------
+
+    private Grid BuildSummary()
+    {
+        var line = new Grid
+        {
+            ColumnDefinitions =
+            {
+                new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) },
+                new ColumnDefinition { Width = GridLength.Auto },
+            },
+        };
+
+        _summaryDone.TextTrimming = TextTrimming.CharacterEllipsis;
+        _summaryRate.Margin = new Thickness(Fluent.Space2, 0, 0, 0);
+        Microsoft.UI.Xaml.Documents.Typography.SetNumeralAlignment(_summaryRate, FontNumeralAlignment.Tabular);
+        SetColumn(_summaryRate, 1);
+        line.Children.Add(_summaryDone);
+        line.Children.Add(_summaryRate);
+
+        var filled = new Border { Background = _accent, CornerRadius = new CornerRadius(2) };
+        var bar = new Grid
+        {
+            Height = 4,
+            Margin = new Thickness(0, Fluent.Space1, 0, 0),
+            CornerRadius = new CornerRadius(2),
+            Background = _track,
+            ColumnDefinitions = { _barDone, _barLeft },
+        };
+        bar.Children.Add(filled);
+
+        var summary = new Grid
+        {
+            RowDefinitions =
+            {
+                new RowDefinition { Height = GridLength.Auto },
+                new RowDefinition { Height = GridLength.Auto },
+            },
+            Visibility = Visibility.Collapsed,
+        };
+
+        SetRow(bar, 1);
+        summary.Children.Add(line);
+        summary.Children.Add(bar);
+        return summary;
+    }
+
+    private void DrawSummary()
+    {
+        var doneNow = _doneNow;
+        var doneWindow = _doneWindow;
+        var count = Habits.Count;
+        var period = _config.Cadence.Period;
+        _summaryDone.Text = count == 0 ? string.Empty : $"{doneNow} of {count} done {HabitPeriods.CurrentNoun(period)}";
+
+        var rate = count == 0 ? 0 : (int)Math.Round(100.0 * doneWindow / (count * HabitRules.RateWindow));
+        var window = $"last {HabitPeriods.Units(period, HabitRules.RateWindow)}";
+
+        // On a narrow tile the rate stands alone, so the count beside it is not cut; it says the rest
+        // on hover and to a screen reader.
+        _summaryRate.Text = _area.WidthClass >= SizeClass.Expanded
+            ? string.Create(CultureInfo.InvariantCulture, $"{rate}% · {window}")
+            : string.Create(CultureInfo.InvariantCulture, $"{rate}%");
+        ToolTipService.SetToolTip(_summaryRate, $"{rate}% done over the {window}");
+        AutomationProperties.SetName(_summaryRate, $"{rate}% done over the {window}");
+
+        _barDone.Width = new GridLength(doneNow, GridUnitType.Star);
+        _barLeft.Width = new GridLength(Math.Max(0, count - doneNow), GridUnitType.Star);
+    }
+
+    // ---- the chart ([S-1427]) --------------------------------------------------------------------------
+
+    private Grid BuildChart()
+    {
+        _bars.Margin = new Thickness(0, Fluent.Space1, 0, 0);
+
+        var chart = new Grid
+        {
+            RowDefinitions =
+            {
+                new RowDefinition { Height = GridLength.Auto },
+                new RowDefinition { Height = new GridLength(1, GridUnitType.Star) },
+            },
+            VerticalAlignment = VerticalAlignment.Bottom,
+            Visibility = Visibility.Collapsed,
+        };
+
+        SetRow(_bars, 1);
+        chart.Children.Add(_chartCaption);
+        chart.Children.Add(_bars);
+        return chart;
+    }
+
+    /// <summary>
+    /// One bar per past period: how many of the habits were done in it. Walks the same ladder as the
+    /// rows' dots, so a bar and the dots above it always mean the same period.
+    /// </summary>
+    private void DrawChart(HabitLayoutPlan plan)
+    {
+        var habits = Habits;
+        var cadence = _config.Cadence;
+        var zone = TimeZoneInfo.Local;
+        var bars = plan.ChartBars;
+
+        _chart.Height = plan.ChartHeight;
+        _chart.Padding = new Thickness(plan.Inset, Fluent.Space2, plan.Inset, Fluent.Space2);
+        _chartCaption.Text = $"Last {HabitPeriods.Units(cadence.Period, bars)}";
+
+        var counts = new int[bars];
+        HabitDot[] periods = [];
+
+        foreach (var habit in habits)
+        {
+            var dots = HabitRules.Recent(HabitRules.Log(habit.Log), _current, cadence, zone, bars);
+            periods = [.. dots];
+
+            for (var i = 0; i < dots.Count; i++)
+            {
+                counts[i] += dots[i].Done ? 1 : 0;
+            }
+        }
+
+        var barHeight = Math.Max(0, plan.ChartHeight - (2 * Fluent.Space2) - FluentType.Caption.LineHeight - Fluent.Space1);
+
+        _bars.Children.Clear();
+        _bars.ColumnDefinitions.Clear();
+
+        for (var i = 0; i < bars; i++)
+        {
+            _bars.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+
+            var share = habits.Count == 0 ? 0 : (double)counts[i] / habits.Count;
+            var fill = new Border
+            {
+                Background = _accent,
+                CornerRadius = new CornerRadius(2),
+                VerticalAlignment = VerticalAlignment.Bottom,
+                Height = Math.Round(barHeight * share),
+            };
+
+            var column = new Grid
+            {
+                Background = _track,
+                CornerRadius = new CornerRadius(2),
+                Margin = new Thickness(2, 0, 2, 0),
+                MaxWidth = 24,
+                Children = { fill },
+            };
+
+            if (i < periods.Length)
+            {
+                var label = $"{HabitPeriods.Describe(periods[i].Bucket, cadence)}: {counts[i]} of {habits.Count}";
+                ToolTipService.SetToolTip(column, label);
+                AutomationProperties.SetName(column, label);
+            }
+
+            SetColumn(column, i);
+            _bars.Children.Add(column);
+        }
     }
 
     public void Detach()
@@ -366,17 +522,15 @@ internal sealed partial class HabitTrackerView : Grid, IWidgetView, IWidgetSurfa
             return;
         }
 
-        // Before anything is unhooked: this is the last chance today's ticks have.
-        Flush();
+        // What was being typed is kept: the pool outlives this view.
+        CommitEdit(keepAdding: false);
+        ReleaseRowFocus();
         _detached = true;
 
-        if (_saveTimer is not null)
+        if (_pool is not null)
         {
-            _saveTimer.Stop();
-            _saveTimer.Tick -= OnSaveTick;
+            _pool.Changed -= OnPoolChanged;
         }
-
-        SizeChanged -= OnSizeChanged;
 
         _subscription?.Dispose();
         _subscription = null;
@@ -389,241 +543,8 @@ internal sealed partial class HabitTrackerView : Grid, IWidgetView, IWidgetSurfa
 
         _rows.Clear();
         _list.Children.Clear();
+        DetachAddRow();
         _ticker = null;
-    }
-
-    /// <summary>Which of the row's optional parts this card is wide enough for.</summary>
-    /// <param name="History">Show the strip of recent days.</param>
-    /// <param name="StreakWord">Spell the streak's unit out rather than showing a bare number.</param>
-    private readonly record struct HabitRowLayout(bool History, bool StreakWord);
-
-    /// <summary>
-    /// One habit's row: a box, the name, the run, and the last few days as squares.
-    /// <para>
-    /// The box is the <b>only</b> thing that completes a habit. The row carries no tap handler of
-    /// its own, so a click meant for the name or the streak can never tick something off — a widget
-    /// sits under the pointer's path across the whole desktop, and a surface with no undo should not
-    /// record anything on a stray click.
-    /// </para>
-    /// </summary>
-    private sealed class HabitRow
-    {
-        private readonly Action<HabitRecord> _onToggled;
-        private readonly CheckBox _box = new();
-        private readonly TextBlock _name = Fluent.Text(FluentType.Body);
-        private readonly TextBlock _streak = Fluent.Text(FluentType.Caption, "TextFillColorSecondaryBrush");
-        private readonly StackPanel _history = new() { Orientation = Orientation.Horizontal, Spacing = Fluent.Space1 };
-        private readonly List<Border> _squares = [];
-        private readonly IDisposable _hover;
-
-        // Looked up once per row rather than per square per render: a thirty-one square strip on a
-        // dozen habits is four hundred resource lookups a minute otherwise.
-        private readonly Brush _filled = FluentLayout.Themed("AccentFillColorDefaultBrush", Colors.DodgerBlue);
-        private readonly Brush _blank = FluentLayout.Themed("ControlAltFillColorSecondaryBrush", Colors.Gray);
-
-        private bool _applying;
-        private bool _showStreak = true;
-        private bool _showHistory = true;
-
-        // The run as a number, kept rather than re-read out of the text block: the label is built
-        // from this and the width, and a control that parses its own caption back is a control with
-        // two copies of the truth in it.
-        private int _streakDays;
-
-        private bool _streakSpelled;
-
-        public HabitRow(HabitRecord habit, Action<HabitRecord> onToggled)
-        {
-            Habit = habit;
-            _onToggled = onToggled;
-
-            // The stock CheckBox reserves about 110px for content it has none of, which would push
-            // the name most of the way across a small card.
-            _box.MinWidth = 0;
-            _box.MinHeight = 0;
-            _box.Padding = new Thickness(0);
-            _box.Margin = new Thickness(0, 0, Fluent.Space3, 0);
-            _box.VerticalAlignment = VerticalAlignment.Center;
-            _box.Checked += OnChanged;
-            _box.Unchecked += OnChanged;
-
-            _name.VerticalAlignment = VerticalAlignment.Center;
-
-            _streak.VerticalAlignment = VerticalAlignment.Center;
-            _streak.Margin = new Thickness(Fluent.Space3, 0, 0, 0);
-            _streak.TextAlignment = TextAlignment.Right;
-            Microsoft.UI.Xaml.Documents.Typography.SetNumeralAlignment(_streak, FontNumeralAlignment.Tabular);
-
-            _history.VerticalAlignment = VerticalAlignment.Center;
-            _history.Margin = new Thickness(Fluent.Space3, 0, 0, 0);
-
-            var grid = new Grid
-            {
-                ColumnDefinitions =
-                {
-                    new ColumnDefinition { Width = GridLength.Auto },
-                    new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) },
-                    new ColumnDefinition { Width = GridLength.Auto },
-                    new ColumnDefinition { Width = GridLength.Auto },
-                },
-            };
-
-            Grid.SetColumn(_box, 0);
-            Grid.SetColumn(_name, 1);
-            Grid.SetColumn(_streak, 2);
-            Grid.SetColumn(_history, 3);
-
-            grid.Children.Add(_box);
-            grid.Children.Add(_name);
-            grid.Children.Add(_streak);
-            grid.Children.Add(_history);
-
-            Host = Fluent.Row(grid);
-            _hover = Fluent.Hover(Host);
-        }
-
-        public HabitRecord Habit { get; }
-
-        public Border Host { get; }
-
-        public void Update(HabitRecord habit, IReadOnlySet<LocalDay> days, LocalDay today, int historyDays, bool showStreak)
-        {
-            _name.Text = string.IsNullOrWhiteSpace(habit.Name) ? "Untitled habit" : habit.Name;
-
-            var done = HabitRules.IsDone(days, today);
-
-            // Guarded: assigning IsChecked raises Checked/Unchecked, and without this a redraw
-            // would toggle every habit it drew.
-            _applying = true;
-
-            try
-            {
-                _box.IsChecked = done;
-            }
-            finally
-            {
-                _applying = false;
-            }
-
-            AutomationProperties.SetName(_box, $"{_name.Text}, {(done ? "done today" : "not done today")}");
-
-            _streakDays = HabitRules.Streak(days, today);
-            _showStreak = showStreak;
-            ApplyStreak();
-
-            DrawHistory(days, today, historyDays);
-            ApplyVisibility();
-        }
-
-        /// <summary>
-        /// The last few days as squares, oldest on the left and today on the right.
-        /// <para>
-        /// Derived from the same set the streak counts, so the squares and the number beside them
-        /// can never disagree about which day is which. Each square carries its date and its state
-        /// in words, because a filled square and an empty one are otherwise the same shape.
-        /// </para>
-        /// </summary>
-        private void DrawHistory(IReadOnlySet<LocalDay> days, LocalDay today, int historyDays)
-        {
-            var recent = HabitRules.Recent(days, today, historyDays);
-
-            // Only when the count changed. Rebuilding a strip that is already the right length
-            // would throw away its tooltips for nothing.
-            if (_squares.Count != recent.Count)
-            {
-                _squares.Clear();
-                _history.Children.Clear();
-
-                for (var i = 0; i < recent.Count; i++)
-                {
-                    var square = new Border
-                    {
-                        Width = Fluent.Space2,
-                        Height = Fluent.Space2,
-                        CornerRadius = new CornerRadius(2),
-                        VerticalAlignment = VerticalAlignment.Center,
-                    };
-
-                    _squares.Add(square);
-                    _history.Children.Add(square);
-                }
-            }
-
-            for (var i = 0; i < recent.Count; i++)
-            {
-                var day = today.AddDays(i - (recent.Count - 1));
-                var done = recent[i];
-
-                _squares[i].Background = done ? _filled : _blank;
-
-                var label = $"{CalendarText.FullDate(day)}: {(done ? "done" : "not done")}";
-                ToolTipService.SetToolTip(_squares[i], label);
-                AutomationProperties.SetName(_squares[i], label);
-            }
-        }
-
-        /// <summary>
-        /// Standard or compact, the two heights a Windows list comes in, plus which optional parts
-        /// this card has room for. The squares shed before the name does: the name is what a habit
-        /// list is for, and a name trimmed to three characters to make room for a strip of dots is a
-        /// list that has stopped being readable.
-        /// </summary>
-        public void SetLayout(bool compact, HabitRowLayout layout)
-        {
-            Fluent.SetDensity(Host, compact);
-            _showHistory = layout.History && !compact;
-            _streakSpelled = layout.StreakWord;
-            ApplyStreak();
-            ApplyVisibility();
-        }
-
-        /// <summary>
-        /// The run, as a bare number on a narrow card and as a number with its unit on a wide one.
-        /// The spoken and hovered forms are the full sentence at every width, because "12" on its
-        /// own is not an answer to anything.
-        /// </summary>
-        private void ApplyStreak()
-        {
-            var count = _streakDays.ToString(CultureInfo.InvariantCulture);
-
-            _streak.Text = _streakDays == 0
-                ? string.Empty
-                : _streakSpelled ? (_streakDays == 1 ? "1 day" : $"{count} days") : count;
-
-            var words = _streakDays switch
-            {
-                0 => "no run yet",
-                1 => "1 day in a row",
-                _ => $"{count} days in a row",
-            };
-
-            AutomationProperties.SetName(_streak, words);
-            ToolTipService.SetToolTip(_streak, words);
-        }
-
-        private void ApplyVisibility()
-        {
-            _streak.Visibility = _showStreak && _streak.Text.Length > 0 ? Visibility.Visible : Visibility.Collapsed;
-            _history.Visibility = _showHistory && _squares.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
-        }
-
-        private void OnChanged(object sender, RoutedEventArgs args)
-        {
-            if (_applying)
-            {
-                return;
-            }
-
-            _onToggled(Habit);
-        }
-
-        /// <summary>Safe to call twice: the hover handle is idempotent and the handlers come off once.</summary>
-        public void Detach()
-        {
-            _hover.Dispose();
-            _box.Checked -= OnChanged;
-            _box.Unchecked -= OnChanged;
-            Host.Child = null;
-        }
+        _surface?.RequestTextInput(false);
     }
 }

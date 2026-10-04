@@ -1,6 +1,8 @@
+using Microsoft.UI;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
+using Microsoft.UI.Xaml.Media;
 using Themia.App.Services;
 using Themia.App.Shell;
 using Themia.Core.Diagnostics;
@@ -17,22 +19,25 @@ namespace Themia.App.Widgets;
 /// bounded history <b>in memory for the session</b> and writes nothing to disk, so closing the app
 /// is the end of it; there is no persistence setting, because a clipboard history that survives a
 /// restart is a credentials file nobody meant to create. Entries are <b>displayed, never
-/// executed</b>: no row here is a launch target, whatever it contains.
+/// executed</b>: no row here is a launch target, whatever it contains — a link is labelled as a
+/// link, never opened.
 /// </para>
 /// <para>
 /// The history is fed by <see cref="ClipboardWatcher"/>, which is a message-only window with
 /// <c>AddClipboardFormatListener</c> rather than a poll — so the clipboard is read exactly when
 /// Windows says it changed and at no other time.
 /// </para>
+/// <para>
+/// [S-1443] The tile uses its room through <see cref="ClipboardLayout.Plan"/>: one line per row on
+/// a small tile, wrapped two- and three-line previews as it grows, a detail line (when · how much)
+/// on tall tiles, a time column where the width allows, and a count footer on large ones.
+/// </para>
 /// </summary>
-internal sealed partial class ClipboardView : Grid, IWidgetView, IWidgetHeaderContent
+internal sealed partial class ClipboardView : Grid, IWidgetView, IWidgetHeaderContent, IWidgetSizeAware
 {
     private const string Scope = "clipboard-widget";
 
-    /// <summary>Below this width the "when" column is dropped; the text is what the row is for.</summary>
-    private const double TimestampMinimumWidth = 260;
-
-    /// <summary>How many characters of an entry a standard row shows before the ellipsis.</summary>
+    /// <summary>How many characters of each line a row shows before the ellipsis.</summary>
     private const int PreviewLength = 120;
 
     /// <summary>What the "when" column reserves, so the times line up down the list.</summary>
@@ -42,25 +47,28 @@ internal sealed partial class ClipboardView : Grid, IWidgetView, IWidgetHeaderCo
     private readonly StackPanel _list = new() { Spacing = 0 };
     private readonly ScrollViewer _scroll;
     private readonly StackPanel _empty;
-    private readonly FontIcon _emptyIcon;
     private readonly TextBlock _emptyText = new();
+    private readonly TextBlock _footer = Fluent.Text(FluentType.Caption, "TextFillColorTertiaryBrush");
 
-    /// <summary>One per row, so the hover handlers come off with the rows they light.</summary>
-    private readonly List<IDisposable> _hovers = [];
+    /// <summary>One per row, so the hover and menu handlers come off with the rows they serve.</summary>
+    private readonly List<IDisposable> _rowHandles = [];
+
+    private readonly List<Border> _rows = [];
 
     private readonly ClipboardHistory _history = new();
 
     private ClipboardConfig _config = new();
+    private ClipboardPlan _plan = ClipboardLayout.Plan(default);
     private IDisposable? _watch;
     private IDisposable? _subscription;
     private Ticker? _ticker;
+    private int? _cursor;
     private bool _detached;
-    private bool _compact;
-    private bool _timestampVisible = true;
 
     public ClipboardView()
     {
         RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
+        RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
 
         _clear = new Button
         {
@@ -81,12 +89,17 @@ internal sealed partial class ClipboardView : Grid, IWidgetView, IWidgetHeaderCo
             VerticalScrollBarVisibility = ScrollBarVisibility.Hidden,
         };
 
-        _empty = Fluent.EmptyState(Glyphs.Clipboard, _emptyText, out _emptyIcon);
+        _empty = Fluent.EmptyState(Glyphs.Clipboard, _emptyText, out _);
+        SetRowSpan(_empty, 2);
+
+        _footer.Margin = WidgetLayout.FooterInset;
+        _footer.TextAlignment = TextAlignment.Right;
+        Microsoft.UI.Xaml.Documents.Typography.SetNumeralAlignment(_footer, FontNumeralAlignment.Tabular);
+        SetRow(_footer, 1);
 
         Children.Add(_scroll);
+        Children.Add(_footer);
         Children.Add(_empty);
-
-        SizeChanged += OnSizeChanged;
     }
 
     /// <summary>
@@ -102,6 +115,17 @@ internal sealed partial class ClipboardView : Grid, IWidgetView, IWidgetHeaderCo
         // The listener is shared by every Clipboard widget on every display: subscribers are
         // counted and the message window is created with the first and destroyed with the last.
         _watch ??= ClipboardWatcher.Subscribe(OnClipboardText);
+
+#if DEBUG
+        // [S-1443] The gallery's +fixture page: a made-up history, never the real clipboard's.
+        if (Shell.Gallery.ClipboardFixture.Entries is { } seeded)
+        {
+            foreach (var (text, ago) in seeded)
+            {
+                _history.Add(text, DateTimeOffset.Now - ago);
+            }
+        }
+#endif
 
         // The tick does not fetch anything. It only keeps the relative times ("4m", "2h") honest,
         // which is the one thing in this widget that goes stale on its own.
@@ -119,7 +143,20 @@ internal sealed partial class ClipboardView : Grid, IWidgetView, IWidgetHeaderCo
         // take effect when it is asked for.
         _history.Capacity = _config.EffectiveCapacity;
 
-        ApplyLayout();
+        Render();
+    }
+
+    /// <inheritdoc />
+    public void ApplySize(WidgetArea area)
+    {
+        var plan = ClipboardLayout.Plan(area);
+
+        if (plan == _plan)
+        {
+            return;
+        }
+
+        _plan = plan;
         Render();
     }
 
@@ -149,31 +186,6 @@ internal sealed partial class ClipboardView : Grid, IWidgetView, IWidgetHeaderCo
     // Drawing
     // -----------------------------------------------------------------------------------------
 
-    private void OnSizeChanged(object sender, SizeChangedEventArgs args)
-    {
-        var compact = args.NewSize.Height < Fluent.CompactBelow;
-        var timestamp = args.NewSize.Width >= TimestampMinimumWidth;
-
-        ApplyLayout();
-
-        if (compact == _compact && timestamp == _timestampVisible)
-        {
-            return;
-        }
-
-        _compact = compact;
-        _timestampVisible = timestamp;
-        Render();
-    }
-
-    private void ApplyLayout()
-    {
-        var height = ActualHeight;
-        var measured = height > 0;
-
-        _emptyIcon.Visibility = measured && height < 180 ? Visibility.Collapsed : Visibility.Visible;
-    }
-
     private void Render()
     {
         ClearRows();
@@ -190,6 +202,8 @@ internal sealed partial class ClipboardView : Grid, IWidgetView, IWidgetHeaderCo
 
             _empty.Visibility = Visibility.Visible;
             _scroll.Visibility = Visibility.Collapsed;
+            _footer.Visibility = Visibility.Collapsed;
+            _cursor = null;
             return;
         }
 
@@ -199,27 +213,47 @@ internal sealed partial class ClipboardView : Grid, IWidgetView, IWidgetHeaderCo
         // One clock reading for the whole list, so a list drawn across a minute boundary cannot
         // show two different ideas of "now".
         var now = DateTimeOffset.Now;
-        var timestamp = _config.ShowTimestamp && _timestampVisible;
 
         for (var i = 0; i < _history.Count; i++)
         {
-            _list.Children.Add(BuildRow(_history.Entries[i], i == 0, now, timestamp));
+            var row = BuildRow(_history.Entries[i], i == 0, now);
+            _rows.Add(row);
+            _list.Children.Add(row);
         }
+
+        _cursor = _cursor is { } cursor && cursor < _history.Count ? cursor : null;
+        ShowCursor();
+
+        _footer.Visibility = _plan.Footer ? Visibility.Visible : Visibility.Collapsed;
+        _footer.Text = ClipboardLayout.CountLine(_history.Count, _history.Capacity);
     }
 
-    private FrameworkElement BuildRow(ClipboardEntry entry, bool current, DateTimeOffset now, bool timestamp)
+    private Border BuildRow(ClipboardEntry entry, bool current, DateTimeOffset now)
     {
-        // The top entry is what is on the clipboard right now. Saying so with the stock tick in the
-        // accent colour is the widget's only feedback that a click landed — and it is event-driven,
-        // arriving with the clipboard change itself rather than on a timer.
-        var icon = current
-            ? Fluent.Icon(Glyphs.Done, "AccentTextFillColorPrimaryBrush")
-            : Fluent.Icon(Glyphs.Copy);
-
+        var icon = Marker(entry.Text, current);
         icon.Margin = new Thickness(0, 0, Fluent.Space3, 0);
+        icon.VerticalAlignment = _plan.PreviewLines > 1 || _plan.Detail ? VerticalAlignment.Top : VerticalAlignment.Center;
 
+        // [S-1441] Wrapped, up to the plan's lines, with the entry's own line breaks kept.
         var text = Fluent.Text(FluentType.Body);
-        text.Text = ClipboardFormatting.Preview(entry.Text, PreviewLength);
+        text.Text = ClipboardLayout.PreviewLines(entry.Text, _plan.PreviewLines, PreviewLength);
+        text.TextWrapping = _plan.PreviewLines > 1 ? TextWrapping.Wrap : TextWrapping.NoWrap;
+        text.MaxLines = _plan.PreviewLines;
+        text.TextTrimming = TextTrimming.CharacterEllipsis;
+
+        var body = new StackPanel { Spacing = 0, VerticalAlignment = VerticalAlignment.Center };
+        body.Children.Add(text);
+
+        if (_plan.Detail)
+        {
+            // When · how much, under the preview: the tall tiles' replacement for the time column.
+            var detail = Fluent.Text(FluentType.Caption, "TextFillColorSecondaryBrush");
+            var size = ClipboardFormatting.Describe(entry.Text);
+            detail.Text = _config.ShowTimestamp ? $"{Formatting.Ago(entry.CapturedAt, now)} · {size}" : size;
+            detail.MaxLines = 1;
+            Microsoft.UI.Xaml.Documents.Typography.SetNumeralAlignment(detail, FontNumeralAlignment.Tabular);
+            body.Children.Add(detail);
+        }
 
         var grid = new Grid
         {
@@ -232,17 +266,18 @@ internal sealed partial class ClipboardView : Grid, IWidgetView, IWidgetHeaderCo
         };
 
         SetColumn(icon, 0);
-        SetColumn(text, 1);
+        SetColumn(body, 1);
         grid.Children.Add(icon);
-        grid.Children.Add(text);
+        grid.Children.Add(body);
 
-        if (timestamp)
+        if (_plan.TimeColumn && _config.ShowTimestamp)
         {
             var when = Fluent.Text(FluentType.Caption, "TextFillColorSecondaryBrush");
             when.Text = Formatting.Ago(entry.CapturedAt, now);
             when.TextAlignment = TextAlignment.Right;
             when.MinWidth = TimestampWidth;
             when.Margin = new Thickness(Fluent.Space2, 0, 0, 0);
+            when.VerticalAlignment = _plan.PreviewLines > 1 ? VerticalAlignment.Top : VerticalAlignment.Center;
 
             Microsoft.UI.Xaml.Documents.Typography.SetNumeralAlignment(when, FontNumeralAlignment.Tabular);
 
@@ -250,23 +285,96 @@ internal sealed partial class ClipboardView : Grid, IWidgetView, IWidgetHeaderCo
             grid.Children.Add(when);
         }
 
-        var row = Fluent.Row(grid, _compact);
-        row.Tag = entry.Text;
-        _hovers.Add(Fluent.Hover(row));
+        var row = Fluent.Row(grid, _plan.Compact);
 
-        // A single click, and deliberately so: unlike every other widget in this batch, this one
-        // opens nothing. The worst a mis-click can do is put something back on the clipboard.
+        if (_plan.PreviewLines > 1 || _plan.Detail)
+        {
+            // Rows that hold more than one line pad themselves like a two-line Windows list item.
+            row.Padding = new Thickness(Fluent.Space4, Fluent.Space2, Fluent.Space4, Fluent.Space2);
+        }
+
+        row.Tag = entry.Text;
+        _rowHandles.Add(Fluent.Hover(row));
+
+        // [S-1444] The row menu, read fresh on each right-tap.
+        var captured = entry.Text;
+        _rowHandles.Add(ItemMenu.Attach(row, () => RowMenu(captured)));
+
+        // A single click, and deliberately so: this widget opens nothing. The worst a mis-click can
+        // do is put something back on the clipboard.
         row.Tapped += OnRowTapped;
 
         ToolTipService.SetToolTip(row, ClipboardFormatting.Describe(entry.Text));
         return row;
     }
 
+    /// <summary>
+    /// [S-1442] The row's leading mark. The top entry is what is on the clipboard right now, said with
+    /// the stock tick in the accent colour (the widget's only, event-driven, feedback that a click
+    /// landed). Otherwise what the entry looks like: a swatch for a colour, a glyph for a link, an
+    /// address, a number or several lines.
+    /// </summary>
+    private static FrameworkElement Marker(string text, bool current)
+    {
+        if (current)
+        {
+            return Fluent.Icon(Glyphs.Done, "AccentTextFillColorPrimaryBrush");
+        }
+
+        if (ClipboardLayout.TryColour(text, out var colour))
+        {
+            return new Border
+            {
+                Width = Fluent.IconSize,
+                Height = Fluent.IconSize,
+                CornerRadius = new CornerRadius(Fluent.ControlRadius),
+                BorderThickness = new Thickness(Fluent.Hairline),
+                BorderBrush = FluentLayout.Themed("ControlStrokeColorDefaultBrush", Colors.Gray),
+
+                // The user's own colour, which is the content here, not a design choice.
+                Background = new SolidColorBrush(Windows.UI.Color.FromArgb(255, colour.R, colour.G, colour.B)),
+            };
+        }
+
+        return Fluent.Icon(ClipboardLayout.Classify(text) switch
+        {
+            ClipboardContent.Link => Glyphs.Link,
+            ClipboardContent.Email => Glyphs.Mail,
+            ClipboardContent.Number => Glyphs.Calculator,
+            ClipboardContent.Lines => Glyphs.Note,
+            _ => Glyphs.Copy,
+        });
+    }
+
+    private IEnumerable<ItemMenuEntry> RowMenu(string text)
+    {
+        if (_detached)
+        {
+            return [];
+        }
+
+        return
+        [
+            new(Glyphs.Copy, "Copy", () => CopyBack(text)),
+            new(Glyphs.Delete, "Remove from history", () => Remove(text), Danger: true),
+            ItemMenuEntry.Separator,
+            new(Glyphs.Clear, "Clear history…", () => _ = ConfirmClearAsync(), Danger: true),
+        ];
+    }
+
     private void OnRowTapped(object sender, TappedRoutedEventArgs args)
     {
         args.Handled = true;
 
-        if (_detached || sender is not Border { Tag: string text })
+        if (!_detached && sender is Border { Tag: string text })
+        {
+            CopyBack(text);
+        }
+    }
+
+    private void CopyBack(string text)
+    {
+        if (_detached)
         {
             return;
         }
@@ -283,28 +391,89 @@ internal sealed partial class ClipboardView : Grid, IWidgetView, IWidgetHeaderCo
         // widget hoped it wrote.
     }
 
+    /// <summary>[S-1444] Forget one entry. Leaves the clipboard itself alone.</summary>
+    private void Remove(string text)
+    {
+        if (!_detached && _history.Remove(text))
+        {
+            Render();
+        }
+    }
+
     private void ClearRows()
     {
-        foreach (var hover in _hovers)
+        foreach (var handle in _rowHandles)
         {
-            hover.Dispose();
+            handle.Dispose();
         }
 
-        _hovers.Clear();
+        _rowHandles.Clear();
 
-        foreach (var child in _list.Children)
+        foreach (var row in _rows)
         {
-            if (child is Border row)
-            {
-                row.Tapped -= OnRowTapped;
+            row.Tapped -= OnRowTapped;
 
-                // Drop the reference to the copied text with the row. A detached Border holding a
-                // password in its Tag is exactly the thing this widget should not be doing.
-                row.Tag = null;
+            // Drop the reference to the copied text with the row. A detached Border holding a
+            // password in its Tag is exactly the thing this widget should not be doing.
+            row.Tag = null;
+        }
+
+        _rows.Clear();
+        _list.Children.Clear();
+    }
+
+    // -----------------------------------------------------------------------------------------
+    // Keyboard ([S-1444])
+    // -----------------------------------------------------------------------------------------
+
+    /// <summary>
+    /// [S-1444] A key from the shell's keyboard lease (not built yet: nothing calls this until the
+    /// lease routes keys to the widget last clicked — this is the whole of what it will call).
+    /// Up/Down/Home/End move a cursor through the entries, Enter copies the one under it back to
+    /// the clipboard, Escape drops the cursor. Returns whether the key was used.
+    /// </summary>
+    public bool HandleKey(WidgetKey key)
+    {
+        if (_detached || _history.Count == 0)
+        {
+            return false;
+        }
+
+        if (key == WidgetKey.Enter)
+        {
+            if (_cursor is { } at && at < _history.Count)
+            {
+                CopyBack(_history.Entries[at].Text);
+                return true;
+            }
+
+            return false;
+        }
+
+        var next = ItemCursor.Move(_history.Count, _cursor, key);
+        var used = next != _cursor || key == WidgetKey.Escape;
+        _cursor = next;
+        ShowCursor();
+        return used;
+    }
+
+    /// <summary>The cursor row carries the focus outline; the others none.</summary>
+    private void ShowCursor()
+    {
+        var focus = FluentLayout.Themed("FocusStrokeColorOuterBrush", Colors.White);
+
+        for (var i = 0; i < _rows.Count; i++)
+        {
+            var on = _cursor == i;
+            _rows[i].BorderBrush = on ? focus : null;
+            _rows[i].BorderThickness = new Thickness(on ? Fluent.Hairline * 2 : 0);
+            _rows[i].CornerRadius = new CornerRadius(on ? Fluent.ControlRadius : 0);
+
+            if (on)
+            {
+                _rows[i].StartBringIntoView();
             }
         }
-
-        _list.Children.Clear();
     }
 
     // -----------------------------------------------------------------------------------------
@@ -324,43 +493,13 @@ internal sealed partial class ClipboardView : Grid, IWidgetView, IWidgetHeaderCo
             return;
         }
 
-        var root = XamlRoot;
+        var confirmed = await FluentLayout.ConfirmAsync(
+            this,
+            "Clear clipboard history?",
+            "Everything in this list is forgotten. This cannot be undone, and it does not change what is on the clipboard now.",
+            "Clear");
 
-        if (root is null)
-        {
-            // No window to put a dialog in. Refusing beats clearing unasked.
-            Log.Warn(Scope, "no XamlRoot for the clear-history confirmation; the history was left alone");
-            return;
-        }
-
-        var dialog = new ContentDialog
-        {
-            XamlRoot = root,
-            RequestedTheme = ActualTheme,
-            Title = "Clear clipboard history?",
-            Content = "Everything in this list is forgotten. This cannot be undone, and it does not "
-                + "change what is on the clipboard now.",
-            PrimaryButtonText = "Clear",
-            CloseButtonText = "Cancel",
-            DefaultButton = ContentDialogButton.Close,
-        };
-
-        try
-        {
-            if (await dialog.ShowAsync() != ContentDialogResult.Primary)
-            {
-                return;
-            }
-        }
-        catch (Exception ex)
-        {
-            // ShowAsync throws when another dialog already owns this window. Say so and change
-            // nothing.
-            Log.Error(Scope, "could not show the clear-history confirmation", ex);
-            return;
-        }
-
-        if (_detached)
+        if (!confirmed || _detached)
         {
             return;
         }
@@ -378,7 +517,6 @@ internal sealed partial class ClipboardView : Grid, IWidgetView, IWidgetHeaderCo
 
         _detached = true;
 
-        SizeChanged -= OnSizeChanged;
         _clear.Click -= OnClearClicked;
 
         _subscription?.Dispose();

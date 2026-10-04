@@ -1,9 +1,6 @@
 using System.Text.Json;
-using System.Text.Json.Nodes;
-using Themia.Core.Geometry;
 using Themia.Core.Accounts;
 using Themia.Core.Model;
-using Themia.Core.Storage;
 using Themia.Core.Tasks;
 using Xunit;
 
@@ -11,8 +8,7 @@ namespace Themia.Core.Tests;
 
 /// <summary>
 /// The account side of the Tasks widget: optimistic edits racing refreshes, the provider wire, the
-/// Today fan-out (ported from the classic app's <c>todo_today_*</c> Rust tests), and the upgrade of
-/// a config the hearth-backed widget wrote.
+/// Today fan-out (ported from the classic app's <c>todo_today_*</c> Rust tests), and config repair.
 /// </summary>
 public sealed class TaskSyncTests
 {
@@ -241,51 +237,10 @@ public sealed class TaskSyncTests
         Assert.Equal(TaskRules.TodayMaxLists, asked);
     }
 
-    // ---- [S-605] the hearth upgrade -------------------------------------------------------------------
-
-    /// <summary>A real state document with a Tasks widget in the shape the hearth-backed widget wrote.</summary>
-    private static string HearthState()
-    {
-        var state = AppState.CreateDefault();
-        state.Views[0].Widgets.Add(WidgetInstance.Create(WidgetKind.Tasks, new FracRect(0.1, 0.1, 0.2, 0.3)));
-
-        var document = JsonNode.Parse(SettingsTransfer.Serialize(state))!;
-        var tasks = document["views"]![0]!["widgets"]!.AsArray().First(w => w!["kind"]!.ToString() is nameof(WidgetKind.Tasks) or "11")!;
-        tasks["config"] = JsonNode.Parse("""{"kind":"tasks","collectionId":"hearth:ms:abc","maxCount":12,"showCompleted":true,"showDueDate":false}""");
-        return document.ToJsonString();
-    }
+    // ---- config repair -------------------------------------------------------------------------------
 
     [Fact]
-    public void S605_a_hearth_tasks_widget_still_loads_with_a_sensible_default_and_says_so()
-    {
-        var parsed = AppStateStore.Parse(HearthState());
-
-        Assert.Equal(ParseRefusal.None, parsed.Refusal);
-        var widget = Assert.Single(parsed.State!.Views[0].Widgets, w => w.Kind == WidgetKind.Tasks);
-        var config = Assert.IsType<TasksConfig>(widget.Config);
-
-        Assert.Equal(TaskSource.Account, config.Source);
-        Assert.Equal(string.Empty, config.AccountId);
-        Assert.Equal(string.Empty, config.ListId);
-        Assert.True(config.ShowCompleted);
-        Assert.False(config.ShowDueDate);
-        Assert.Null(config.LegacyCollectionId);
-        Assert.Contains(parsed.Repairs, r => r.Contains("hearth", StringComparison.Ordinal));
-    }
-
-    [Fact]
-    public void S605_the_upgrade_runs_once_and_the_hearth_fields_are_never_written_back()
-    {
-        var parsed = AppStateStore.Parse(HearthState());
-        var json = SettingsTransfer.Serialize(parsed.State!);
-
-        Assert.DoesNotContain("collectionId", json, StringComparison.Ordinal);
-        Assert.DoesNotContain("maxCount", json, StringComparison.Ordinal);
-        Assert.DoesNotContain(AppStateStore.Parse(json).Repairs, r => r.Contains("hearth", StringComparison.Ordinal));
-    }
-
-    [Fact]
-    public void S605_a_current_config_is_left_alone()
+    public void A_valid_config_needs_no_repair()
     {
         var config = new TasksConfig { AccountId = "acc", ListId = TaskRules.TodayListId, TaskOrder = ["a", "b"] };
         Assert.Empty(config.Repair());

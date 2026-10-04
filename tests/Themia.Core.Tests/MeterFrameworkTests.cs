@@ -1,0 +1,228 @@
+using Themia.Core.Model;
+using Themia.Core.Widgets;
+using Xunit;
+
+namespace Themia.Core.Tests;
+
+/// <summary>The shared meter framework: timing, pressure colours, chart scale, the gauge config and memory figures.</summary>
+public sealed class MeterFrameworkTests
+{
+    private const ulong GiB = 1024UL * 1024 * 1024;
+
+    // ---- S-1120 / S-1121: refresh and span ------------------------------------------------------
+
+    [Theory]
+    [InlineData(60, 1, 60)]
+    [InlineData(60, 2, 30)]
+    [InlineData(300, 15, 20)]
+    [InlineData(1200, 10, 120)]
+    [InlineData(3600, 1, MeterTiming.MaxCapacity)]
+    [InlineData(30, 60, 2)]
+    [InlineData(0, 1, 60)]
+    [InlineData(-5, 0, 60)]
+    public void S1121_capacity_is_the_span_over_the_interval_bounded(int span, int interval, int expected)
+        => Assert.Equal(expected, MeterTiming.Capacity(span, interval));
+
+    [Theory]
+    [InlineData(60, 0, 60)]
+    [InlineData(60, double.NaN, 60)]
+    [InlineData(60, 500, 60)]
+    [InlineData(600, 500, 250)]
+    [InlineData(600, 3, 2)]
+    public void S1121_a_narrow_chart_draws_only_the_newest_samples_it_has_slots_for(int capacity, double width, int expected)
+        => Assert.Equal(expected, MeterTiming.Window(capacity, width));
+
+    [Theory]
+    [InlineData(0, 30)]
+    [InlineData(45, 30)]
+    [InlineData(100, 120)]
+    [InlineData(1500, 1200)]
+    [InlineData(99999, 3600)]
+    public void S1121_a_stored_span_lands_on_the_nearest_offered_one(int stored, int expected)
+        => Assert.Equal(expected, MeterTiming.NearestSpan(stored));
+
+    [Theory]
+    [InlineData(30, "30 seconds")]
+    [InlineData(60, "1 minute")]
+    [InlineData(180, "3 minutes")]
+    [InlineData(1200, "20 minutes")]
+    [InlineData(3600, "1 hour")]
+    public void S1122_spans_read_as_words(int seconds, string expected)
+        => Assert.Equal(expected, MeterTiming.SpanLabel(seconds));
+
+    [Fact]
+    public void S1120_each_meter_has_the_originals_defaults()
+    {
+        Assert.Equal((1, 60), Timing(new CpuConfig()));
+        Assert.Equal((1, 60), Timing(new MemoryConfig()));
+        Assert.Equal((1, 60), Timing(new NetworkConfig()));
+        Assert.Equal((5, 180), Timing(new DiskConfig()));
+        Assert.Equal((15, 300), Timing(new BatteryConfig()));
+        Assert.Equal((10, 1200), Timing(new PingConfig()));
+        Assert.Equal((2, 60), Timing(new GpuConfig()));
+
+        static (int, int) Timing(GaugeConfig config) => (config.IntervalSeconds, config.GraphSpanSeconds);
+    }
+
+    [Fact]
+    public void S1120_repair_clamps_the_refresh_and_snaps_the_span()
+    {
+        var cpu = new CpuConfig { IntervalSeconds = 0, GraphSpanSeconds = 7 };
+        var notes = cpu.Repair();
+
+        Assert.Equal(2, notes.Count);
+        Assert.Equal(1, cpu.IntervalSeconds);
+        Assert.Equal(30, cpu.GraphSpanSeconds);
+        Assert.Empty(cpu.Repair());
+    }
+
+    [Fact]
+    public void S1120_ping_may_refresh_slower_than_a_local_meter()
+    {
+        Assert.Equal(300, new PingConfig { IntervalSeconds = 300 }.EffectiveIntervalSeconds);
+        Assert.Equal(60, new CpuConfig { IntervalSeconds = 300 }.EffectiveIntervalSeconds);
+    }
+
+    [Fact]
+    public void S1120_clone_carries_the_shared_settings()
+    {
+        var memory = new MemoryConfig { IntervalSeconds = 5, GraphSpanSeconds = 600, ShowGraph = false, ShowSwap = false, TopProcessCount = 4 };
+        var copy = (MemoryConfig)memory.Clone();
+
+        Assert.Equal((5, 600, false, false, 4), (copy.IntervalSeconds, copy.GraphSpanSeconds, copy.ShowGraph, copy.ShowSwap, copy.TopProcessCount));
+        Assert.Equal(120, copy.GraphCapacity);
+    }
+
+    [Fact]
+    public void S1133_repair_clamps_the_top_process_ceiling()
+    {
+        var memory = new MemoryConfig { TopProcessCount = 50 };
+        Assert.Single(memory.Repair());
+        Assert.Equal(MemoryConfig.MaxTopProcesses, memory.TopProcessCount);
+    }
+
+    // ---- S-1123: pressure ------------------------------------------------------------------------
+
+    [Theory]
+    [InlineData(0.69, MeterPressure.Normal)]
+    [InlineData(0.696, MeterPressure.Elevated)]
+    [InlineData(0.70, MeterPressure.Elevated)]
+    [InlineData(0.89, MeterPressure.Elevated)]
+    [InlineData(0.90, MeterPressure.Critical)]
+    [InlineData(1.0, MeterPressure.Critical)]
+    public void S1123_usage_turns_amber_at_70_and_red_at_90(double fraction, MeterPressure expected)
+        => Assert.Equal(expected, MeterPressures.For(PressureScale.Usage, fraction));
+
+    [Theory]
+    [InlineData(0.79, MeterPressure.Normal)]
+    [InlineData(0.80, MeterPressure.Elevated)]
+    [InlineData(0.90, MeterPressure.Critical)]
+    public void S1123_a_drive_turns_amber_at_80_and_red_at_90(double fraction, MeterPressure expected)
+        => Assert.Equal(expected, MeterPressures.For(PressureScale.Storage, fraction));
+
+    [Theory]
+    [InlineData(0.51, false, MeterPressure.Healthy)]
+    [InlineData(0.50, false, MeterPressure.Elevated)]
+    [InlineData(0.21, false, MeterPressure.Elevated)]
+    [InlineData(0.20, false, MeterPressure.Critical)]
+    [InlineData(0.05, true, MeterPressure.Normal)]
+    public void S1123_a_battery_is_inverted_and_charging_is_the_accent(double fraction, bool charging, MeterPressure expected)
+        => Assert.Equal(expected, MeterPressures.For(PressureScale.Charge, fraction, charging));
+
+    [Fact]
+    public void S1123_an_unknown_reading_is_never_a_warning()
+    {
+        Assert.Equal(MeterPressure.Normal, MeterPressures.For(PressureScale.Usage, null));
+        Assert.Equal(MeterPressure.Normal, MeterPressures.For(PressureScale.Charge, double.NaN));
+        Assert.Equal(MeterPressure.Normal, MeterPressures.For(PressureScale.None, 1));
+    }
+
+    // ---- S-1124: chart scale ---------------------------------------------------------------------
+
+    [Fact]
+    public void S1124_a_share_chart_tops_out_at_100_percent()
+        => Assert.Equal(1, ChartScale.Share.Ceiling([0.2, 0.4]));
+
+    [Fact]
+    public void S1124_a_rate_chart_tops_out_at_the_windows_peak_not_the_sessions()
+    {
+        var scale = ChartScale.Peak(1024);
+
+        // Only what is visible counts: a burst that has scrolled off no longer flattens the trace.
+        Assert.Equal(5000, scale.Ceiling([100, 5000, 300]));
+        Assert.Equal(1024, scale.Ceiling([10, 20]));
+        Assert.Equal(9000, scale.Ceiling([100, 200], [9000, double.NaN]));
+    }
+
+    [Fact]
+    public void S1124_fractions_are_clamped_and_gaps_stay_gaps()
+    {
+        Assert.Equal(0.5, ChartScale.Fraction(512, 1024));
+        Assert.Equal(1, ChartScale.Fraction(4096, 1024));
+        Assert.True(double.IsNaN(ChartScale.Fraction(double.NaN, 1024)));
+        Assert.Equal(0, ChartScale.Fraction(5, 0));
+    }
+
+    // ---- S-1130..S-1132: memory figures ----------------------------------------------------------
+
+    private static MemorySnapshot Snapshot(ulong? standby = 4 * GiB, ulong? modified = 1 * GiB, double? pagefile = 0.25)
+        => new(Total: 16 * GiB, Available: 6 * GiB, CommitTotal: 18 * GiB, CommitLimit: 24 * GiB, standby, modified, pagefile);
+
+    [Fact]
+    public void S1130_used_is_the_total_less_what_is_available()
+    {
+        var s = Snapshot();
+        Assert.Equal(10 * GiB, MemoryFigures.Used(s));
+        Assert.Equal(0.625, MemoryFigures.UsedFraction(s));
+        Assert.Null(MemoryFigures.UsedFraction(s with { Total = 0 }));
+    }
+
+    [Fact]
+    public void S1132_the_page_file_is_the_commit_limit_less_physical_memory()
+    {
+        var pagefile = MemoryFigures.Pagefile(Snapshot());
+
+        Assert.NotNull(pagefile);
+        Assert.Equal(8 * GiB, pagefile.Value.Total);
+        Assert.Equal(2 * GiB, pagefile.Value.Used);
+        Assert.Equal("2.0 GB of 8.0 GB · 25%", MemoryFigures.PagefileLine(pagefile.Value));
+    }
+
+    [Fact]
+    public void S1132_no_page_file_or_no_counter_hides_the_swap_line()
+    {
+        Assert.Null(MemoryFigures.Pagefile(Snapshot() with { CommitLimit = 16 * GiB }));
+        Assert.Null(MemoryFigures.Pagefile(Snapshot(pagefile: null)));
+    }
+
+    [Fact]
+    public void S1131_the_composition_adds_up_to_the_total()
+    {
+        var c = MemoryFigures.Composition(Snapshot());
+
+        Assert.NotNull(c);
+        Assert.Equal(2 * GiB, c.Value.Free);
+        Assert.Equal(5 * GiB, c.Value.Cached);
+        Assert.Equal(9 * GiB, c.Value.InUse);
+        Assert.Equal(16 * GiB, c.Value.InUse + c.Value.Cached + c.Value.Free);
+    }
+
+    [Fact]
+    public void S1131_counters_read_a_moment_apart_never_overflow_the_total()
+    {
+        // Standby larger than what is available: the two were read at different instants.
+        var c = MemoryFigures.Composition(Snapshot(standby: 20 * GiB));
+
+        Assert.NotNull(c);
+        Assert.Equal(0UL, c.Value.Free);
+        Assert.Equal(16 * GiB, c.Value.InUse + c.Value.Cached + c.Value.Free);
+    }
+
+    [Fact]
+    public void S1131_without_the_cache_counters_there_is_no_composition()
+        => Assert.Null(MemoryFigures.Composition(Snapshot(standby: null)));
+
+    [Fact]
+    public void S1132_the_commit_line_reads_committed_of_limit()
+        => Assert.Equal("18 GB of 24 GB", MemoryFigures.CommittedLine(Snapshot()));
+}

@@ -86,6 +86,17 @@ internal sealed class ImageLoader
             return cached;
         }
 
+        // [S-762] The photo of the day is an https address the scan has already pinned to Bing's
+        // host. It is handed to the bitmap as a URI rather than downloaded here: the platform
+        // fetches it off-thread, decodes it at the asked width, and keeps it in the system's HTTP
+        // cache, so a restart while offline still has today's picture. Nothing else is a URI.
+        if (Uri.TryCreate(path, UriKind.Absolute, out var remote) && remote.Scheme == Uri.UriSchemeHttps)
+        {
+            var image = Remote(remote, width, key);
+            Remember(key, image);
+            return image;
+        }
+
         await _gate.WaitAsync(token).ConfigureAwait(true);
 
         try
@@ -155,6 +166,25 @@ internal sealed class ImageLoader
             Log.Warn(Scope, $"could not decode '{path}'", ex);
             return null;
         }
+    }
+
+    private BitmapImage Remote(Uri uri, int width, string key)
+    {
+        var bitmap = new BitmapImage
+        {
+            DecodePixelType = DecodePixelType.Physical,
+            DecodePixelWidth = width,
+        };
+
+        // Logged, not thrown, and forgotten: the frame stays empty and the next refresh asks again
+        // rather than finding the failed bitmap in the cache.
+        bitmap.ImageFailed += (_, args) =>
+        {
+            Log.Warn(Scope, $"could not load the photo of the day: {args.ErrorMessage}");
+            _cache.Remove(key);
+        };
+        bitmap.UriSource = uri;
+        return bitmap;
     }
 
     private void Remember(string key, BitmapImage bitmap)

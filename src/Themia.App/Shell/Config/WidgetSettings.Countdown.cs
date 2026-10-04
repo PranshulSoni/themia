@@ -1,4 +1,4 @@
-using Microsoft.UI.Xaml;
+﻿using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Themia.App.Widgets;
 using Themia.Core.Model;
@@ -8,9 +8,9 @@ using Windows.System;
 namespace Themia.App.Shell.Config;
 
 /// <summary>
-/// The settings rows for the two timer widgets.
+/// The Countdown settings rows: the timer list and each timer's editor.
 /// <para>
-/// Both write straight to the live config and save as they go, like every other section: the widget
+/// Rows write straight to the live config and save as they go, like every other section: the widget
 /// is on the desktop behind this window, and a setting you cannot see take effect is a setting you
 /// cannot judge. Nothing here keeps a copy of a config value — the controls are seeded from the
 /// config once and every handler writes back to it, so there is no second copy to fall out of step.
@@ -48,7 +48,11 @@ internal static partial class WidgetSettings
 
             // [C-51] This time tomorrow, on the minute: far enough out to be visible in every
             // format, near enough to be obviously a placeholder.
-            Create = () => CountdownTimer.Create(string.Empty, CountdownFormatter.DefaultTarget(DateTimeOffset.Now)),
+            Create = () =>
+            {
+                var now = DateTimeOffset.Now;
+                return CountdownTimer.Create(string.Empty, CountdownFormatter.DefaultTarget(now), now);
+            },
             Body = timer => TimerBody(timer, save),
         });
     }
@@ -151,28 +155,5 @@ internal static partial class WidgetSettings
         bottom.Children.Add(format);
 
         return new StackPanel { Children = { label, bottom } };
-    }
-
-    public static void Pomodoro(List<FrameworkElement> rows, PomodoroConfig config, Action save)
-    {
-        ArgumentNullException.ThrowIfNull(rows);
-        ArgumentNullException.ThrowIfNull(config);
-        ArgumentNullException.ThrowIfNull(save);
-
-        rows.Add(FluentLayout.Header("Pomodoro"));
-
-        // [S-01] Seeded from the clamped accessors, so a value that got onto disk out of range shows
-        // as the value actually in use rather than snapping when the slider is first touched.
-        rows.Add(FluentLayout.Row(Glyphs.Pomodoro, "Focus", "How long a work phase runs",
-            FluentLayout.Slider(config.EffectiveWorkMinutes, 1, 180, 1, " min",
-                value => { config.WorkMinutes = (int)Math.Round(value); save(); })));
-
-        rows.Add(FluentLayout.Row(Glyphs.Timer, "Break", "How long a break runs",
-            FluentLayout.Slider(config.EffectiveBreakMinutes, 1, 180, 1, " min",
-                value => { config.BreakMinutes = (int)Math.Round(value); save(); })));
-
-        // [S-06] The cue sounds on the phase change only — not on start, pause or reset.
-        rows.Add(FluentLayout.Row(Glyphs.Sound, "Sound", "A short cue when the phase changes",
-            FluentLayout.Toggle(config.Alarm, value => { config.Alarm = value; save(); })));
     }
 }

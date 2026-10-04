@@ -191,13 +191,110 @@ public static class WeatherReport
     /// </para>
     /// </summary>
     public static string DayLabel(DateOnly day, DateOnly today)
+        => DayLabel(day, today, CultureInfo.CurrentCulture);
+
+    /// <summary>
+    /// [S-721] The same label with the weekday in <paramref name="culture"/>'s own abbreviation
+    /// ("Do." on a German machine). "Today" stays a word of this app's, like every other string it
+    /// prints, until there is a localisation layer to translate it.
+    /// </summary>
+    public static string DayLabel(DateOnly day, DateOnly today, CultureInfo culture)
     {
+        ArgumentNullException.ThrowIfNull(culture);
+
         if (day == today)
         {
             return "Today";
         }
 
-        return DayNames[(int)day.DayOfWeek];
+        var names = culture.DateTimeFormat.AbbreviatedDayNames;
+        var index = (int)day.DayOfWeek;
+
+        // A culture is a trust boundary of sorts: a custom one can carry an odd array. The English
+        // name is a better answer than an exception on the render path.
+        return index < names.Length && !string.IsNullOrWhiteSpace(names[index])
+            ? names[index]
+            : DayNames[index];
+    }
+
+    /// <summary>
+    /// A precipitation amount as the bare number, for a column whose droplet says what it is
+    /// ("0.3"). Empty when dry, for the same reason <see cref="Precipitation"/> is. [S-727]
+    /// </summary>
+    public static string PrecipitationAmount(double? millimetres)
+    {
+        var text = Precipitation(millimetres);
+        return text.Length == 0 ? text : text[..^3];
+    }
+
+    /// <summary>A chance of precipitation, "40%", or empty when the service did not say.</summary>
+    public static string Chance(double? percent)
+        => percent is { } value && double.IsFinite(value) ? Humidity(value) : string.Empty;
+
+    /// <summary>A share of the sky, "75%".</summary>
+    public static string Cover(double? percent) => Humidity(percent);
+
+    /// <summary>Sea-level pressure in hectopascals, "1013 hPa". Outside 850..1100 is not weather.</summary>
+    public static string Pressure(double? hectopascals)
+    {
+        if (hectopascals is not { } value || !double.IsFinite(value) || value < 850 || value > 1100)
+        {
+            return "--";
+        }
+
+        return $"{Math.Round(value, MidpointRounding.AwayFromZero).ToString("F0", CultureInfo.InvariantCulture)} hPa";
+    }
+
+    /// <summary>A UV index as a whole number; the scale has no use for a tenth.</summary>
+    public static string Uv(double? index)
+    {
+        if (index is not { } value || !double.IsFinite(value) || value < 0)
+        {
+            return "--";
+        }
+
+        return Math.Round(value, MidpointRounding.AwayFromZero).ToString("F0", CultureInfo.InvariantCulture);
+    }
+
+    /// <summary>
+    /// Where the wind comes from, on the eight-point rose: "NW". Empty for a missing or impossible
+    /// bearing rather than a guess.
+    /// </summary>
+    public static string Compass(double? degrees)
+    {
+        if (degrees is not { } value || !double.IsFinite(value) || value < 0 || value > 360)
+        {
+            return string.Empty;
+        }
+
+        var sector = (int)Math.Round(value / 45, MidpointRounding.AwayFromZero) % 8;
+        return Points[sector];
+    }
+
+    /// <summary>Wind speed and, when known, its direction: "6 km/h NW".</summary>
+    public static string WindFrom(double? kilometresPerHour, double? degrees)
+    {
+        var speed = Wind(kilometresPerHour);
+        var from = Compass(degrees);
+        return speed == "--" || from.Length == 0 ? speed : $"{speed} {from}";
+    }
+
+    /// <summary>A sunrise or sunset in the culture's short time pattern, or "--" for a polar day.</summary>
+    public static string Clock(TimeOnly? time, CultureInfo culture)
+    {
+        ArgumentNullException.ThrowIfNull(culture);
+        return time is { } value ? value.ToString(culture.DateTimeFormat.ShortTimePattern, culture) : "--";
+    }
+
+    /// <summary>"H 24°  L 14°" for today's line beside the condition, or empty when neither is known.</summary>
+    public static string HighLow(double? high, double? low)
+    {
+        if (high is null && low is null)
+        {
+            return string.Empty;
+        }
+
+        return $"H {Degrees(high)}  L {Degrees(low)}";
     }
 
     /// <summary>
@@ -232,4 +329,6 @@ public static class WeatherReport
     }
 
     private static readonly string[] DayNames = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+
+    private static readonly string[] Points = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"];
 }

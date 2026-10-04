@@ -5,7 +5,7 @@ namespace Themia.Core.Model;
 
 /// <summary>
 /// [S-540] Recent mail from Themia's own accounts: which accounts, which folder, how many, and how
-/// each message is drawn — the classic Mail widget's settings, under their classic wire names.
+/// each message is drawn.
 /// <para>
 /// Every closed set is read leniently (<see cref="LenientWireConverter{T}"/>): an unknown or
 /// mistyped value becomes the default and is logged, because a throw inside one widget's config
@@ -33,7 +33,10 @@ public sealed class EmailConfig : WidgetConfig
 
     public MailFolder Folder { get; set; } = MailFolder.Inbox;
 
-    /// <summary>How many messages to list, 1 to 50.</summary>
+    /// <summary>
+    /// [S-1286] How many messages to list at least, 1 to 50. A tile with room for more whole rows
+    /// lists that many instead (up to 50), so a big widget is never half empty.
+    /// </summary>
     public int MaxCount { get; set; } = 10;
 
     public MailViewMode ViewMode { get; set; } = MailViewMode.List;
@@ -51,20 +54,11 @@ public sealed class EmailConfig : WidgetConfig
 
     public MailSortOrder SortOrder { get; set; } = MailSortOrder.NewestFirst;
 
-    // The hearth-era shape. Read so a saved widget migrates (see Repair); null afterwards, and null
-    // is never written, so they leave the file on the next save.
-
-    [JsonPropertyName("collectionId")]
-    public string? LegacyCollectionId { get; set; }
-
-    [JsonPropertyName("unreadOnly")]
-    public bool? LegacyUnreadOnly { get; set; }
-
-    [JsonPropertyName("showPreview")]
-    public bool? LegacyShowPreview { get; set; }
-
     [JsonIgnore]
     public int EffectiveMaxCount => Math.Clamp(MaxCount, 1, 50);
+
+    /// <summary>[S-1286] What to fetch for a tile that holds <paramref name="rowsThatFit"/> whole rows.</summary>
+    public int FetchCount(int rowsThatFit) => Math.Clamp(Math.Max(MaxCount, rowsThatFit), 1, 50);
 
     [JsonIgnore]
     public int EffectivePreviewLines => Math.Clamp(PreviewLines, 1, 5);
@@ -85,28 +79,10 @@ public sealed class EmailConfig : WidgetConfig
     public bool Shows(MailListField field)
         => EffectiveListFields.Contains(field) && (field != MailListField.Preview || ViewMode == MailViewMode.List);
 
-    /// <summary>[S-540] Fold the hearth shape in and bring every value back inside its range.</summary>
+    /// <summary>[S-540] Bring every value back inside its range.</summary>
     public override IReadOnlyList<string> Repair()
     {
         var repairs = new List<string>();
-
-        if (LegacyCollectionId is not null || LegacyUnreadOnly is not null || LegacyShowPreview is not null)
-        {
-            // A hearth collection id names nothing in Themia's own accounts; every mail account is
-            // the reading closest to "whatever the hub granted".
-            if (LegacyShowPreview == false)
-            {
-                ListFields = [MailListField.Subject, MailListField.Account];
-            }
-
-            repairs.Add(LegacyUnreadOnly == true
-                ? "mail widget moved from the hearth hub to Themia's accounts; 'unread only' is gone, so all messages show"
-                : "mail widget moved from the hearth hub to Themia's accounts; it now reads every mail account");
-
-            LegacyCollectionId = null;
-            LegacyUnreadOnly = null;
-            LegacyShowPreview = null;
-        }
 
         var ids = (AccountIds ?? []).Where(id => !string.IsNullOrWhiteSpace(id)).Distinct(StringComparer.Ordinal).ToList();
         if (AccountIds is null || ids.Count != AccountIds.Count)
@@ -180,8 +156,5 @@ public sealed class EmailConfig : WidgetConfig
         ListFields = ListFields is null ? null : [.. ListFields],
         RowColumns = RowColumns is null ? null : [.. RowColumns],
         SortOrder = SortOrder,
-        LegacyCollectionId = LegacyCollectionId,
-        LegacyUnreadOnly = LegacyUnreadOnly,
-        LegacyShowPreview = LegacyShowPreview,
     };
 }

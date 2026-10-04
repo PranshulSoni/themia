@@ -46,8 +46,8 @@ public sealed class ScreenTimeStoreTests : IDisposable
 
     /// <summary>
     /// Characterization: pins the exact bytes. Every other test reads back through the same writer,
-    /// so a change to the shape would pass them all while orphaning existing histories. Change the
-    /// literal only together with a schema version bump and a migration.
+    /// so a change to the shape would pass them all unnoticed. Change the literal only together
+    /// with a schema version bump.
     /// </summary>
     [Fact]
     public void S459_the_on_disk_format_is_stable()
@@ -124,7 +124,7 @@ public sealed class ScreenTimeStoreTests : IDisposable
     }
 
     [Fact]
-    public void S459_an_older_file_without_the_additive_maps_still_loads()
+    public void S459_absent_optional_maps_read_as_empty()
     {
         var t = ScreenTimeStore.Parse("{\"schemaVersion\":1,\"days\":{\"2026-07-01\":{\"chrome\":30}},\"names\":{\"chrome\":\"Google Chrome\"}}");
         Assert.NotNull(t);
@@ -133,7 +133,7 @@ public sealed class ScreenTimeStoreTests : IDisposable
     }
 
     [Fact]
-    public void S458_names_written_before_the_naming_fixes_heal_on_load()
+    public void S458_corrupt_names_are_cleaned_on_load()
     {
         var t = ScreenTimeStore.Parse(
             "{\"schemaVersion\":1,\"days\":{},\"names\":{\"spotify\":\"Spotify\\u00008\\u0016\\u0001FileV\","

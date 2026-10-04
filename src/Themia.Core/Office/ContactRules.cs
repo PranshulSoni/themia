@@ -1,4 +1,5 @@
 using Themia.Core.Model;
+using Themia.Core.Widgets;
 
 namespace Themia.Core.Office;
 
@@ -140,6 +141,221 @@ public static class ContactRules
 
     private static string FirstOf(params string?[] values)
         => values.FirstOrDefault(v => !string.IsNullOrWhiteSpace(v))?.Trim() ?? string.Empty;
+
+    // ---- the disclosure ladder ([S-1270]..[S-1275]) -----------------------------------------------
+
+    /// <summary>[S-1270] One list column's width: an avatar, a name and an address without trimming.</summary>
+    public const double ListColumnWidth = 240;
+
+    /// <summary>[S-1270] Below this column width a row gives the avatar's room to the name.</summary>
+    public const double AvatarFrom = 180;
+
+    /// <summary>[S-1274] The selected person's detail pane beside the list.</summary>
+    public const double DetailPaneWidth = 300;
+
+    /// <summary>[S-1275] From this height the search box is always there.</summary>
+    public const double SearchFrom = 220;
+
+    /// <summary>[S-1275] Below this height there is no search at all: two names are the whole tile.</summary>
+    public const double SearchOnDemandFrom = 128;
+
+    /// <summary>[S-1270] How many columns the list and compact layouts flow their rows into: one per 240 px, up to four.</summary>
+    public static int ListColumns(double width)
+        => width > 0 ? Math.Clamp((int)Math.Floor(width / ListColumnWidth), 1, 4) : 1;
+
+    /// <summary>
+    /// [S-1270] How much of a person a list row says, by the size class of the list's own area (the
+    /// tile less its search box): the name alone on a narrow tile; the role (else the address) under
+    /// it while the list is short; one way to reach them too once that still leaves three whole rows;
+    /// and from a tall list up, both the address and the number.
+    /// </summary>
+    public static ContactDetail ListDetail(WidgetArea area)
+    {
+        if (!area.IsMeasured)
+        {
+            return ContactDetail.RoleAndReach;
+        }
+
+        if (area.WidthClass == SizeClass.Compact)
+        {
+            return ContactDetail.Name;
+        }
+
+        return area.HeightClass switch
+        {
+            SizeClass.Compact => ContactDetail.Role,
+            SizeClass.Regular => Disclosure.WholeRows(area.Height, RowHeight(2)) >= 3 ? ContactDetail.RoleAndReach : ContactDetail.Role,
+            _ => ContactDetail.Everything,
+        };
+    }
+
+    /// <summary>[S-1270] The lines a row carries under the name at a detail level, only those the person has.</summary>
+    public static IReadOnlyList<(ContactLine Kind, string Text)> Lines(Contact contact, ContactDetail detail)
+    {
+        var lines = new List<(ContactLine, string)>();
+        var role = Role(contact);
+        var email = contact.Email?.Trim() is { Length: > 0 } e ? e : null;
+        var phone = contact.Phone?.Trim() is { Length: > 0 } p ? p : null;
+
+        switch (detail)
+        {
+            case ContactDetail.Role:
+                if (role.Length > 0)
+                {
+                    lines.Add((ContactLine.Role, role));
+                }
+                else if ((email ?? phone) is { } reach)
+                {
+                    lines.Add((email is null ? ContactLine.Phone : ContactLine.Email, reach));
+                }
+
+                break;
+
+            case ContactDetail.RoleAndReach:
+                if (role.Length > 0)
+                {
+                    lines.Add((ContactLine.Role, role));
+                }
+
+                if (email is not null)
+                {
+                    lines.Add((ContactLine.Email, email));
+                }
+                else if (phone is not null)
+                {
+                    lines.Add((ContactLine.Phone, phone));
+                }
+
+                break;
+
+            case ContactDetail.Everything:
+                if (role.Length > 0)
+                {
+                    lines.Add((ContactLine.Role, role));
+                }
+
+                if (email is not null)
+                {
+                    lines.Add((ContactLine.Email, email));
+                }
+
+                if (phone is not null)
+                {
+                    lines.Add((ContactLine.Phone, phone));
+                }
+
+                break;
+        }
+
+        return lines;
+    }
+
+    /// <summary>[S-1270] A list row's height with this many lines under the name: a Body Strong name, Caption lines, 4 px above and below.</summary>
+    public static double RowHeight(int lines)
+        => Math.Max(40, FluentType.BodyStrong.LineHeight + (Math.Max(0, lines) * FluentType.Caption.LineHeight) + 8);
+
+    /// <summary>[S-1270] How many lines under the name a level can hold at most, so every row of a render is one height.</summary>
+    public static int MaxLines(ContactDetail detail) => detail switch
+    {
+        ContactDetail.Name => 0,
+        ContactDetail.Role => 1,
+        ContactDetail.RoleAndReach => 2,
+        _ => 3,
+    };
+
+    /// <summary>[S-1271] A compact row keeps its right-aligned field only in a column this wide; else the name has the row.</summary>
+    public static bool CompactAside(double columnWidth) => !(columnWidth > 0) || columnWidth >= ListColumnWidth;
+
+    /// <summary>[S-1270] Whether a row of this column width carries the avatar.</summary>
+    public static bool ShowsAvatar(double columnWidth) => !(columnWidth > 0) || columnWidth >= AvatarFrom;
+
+    /// <summary>[S-1275] Where the search box is at a height: always, behind a header button, or not at all.</summary>
+    public static ContactSearch Search(double height)
+        => !(height > 0) || height >= SearchFrom ? ContactSearch.Shown
+            : height >= SearchOnDemandFrom ? ContactSearch.OnDemand
+            : ContactSearch.Hidden;
+
+    /// <summary>[S-1274] Whether the selected person gets a detail pane beside the list (an XL tile, someone selected).</summary>
+    public static bool ShowsDetailPane(WidgetArea area, bool selected)
+        => selected && area.IsMeasured && area.WidthClass >= SizeClass.Huge && area.HeightClass >= SizeClass.Expanded;
+
+    /// <summary>[S-1273] Large grid cards (a 56 px avatar and a second line) on a tile tall and wide enough for two rows of them.</summary>
+    public static bool LargeCards(WidgetArea area)
+        => area.IsMeasured && area.WidthClass >= SizeClass.Expanded && area.HeightClass >= SizeClass.Expanded;
+
+    /// <summary>[S-581] Cards per grid row: 96 px cards (140 px large), never fewer than two.</summary>
+    public static int CardsPerRow(double width, bool large)
+        => Math.Max(2, (int)Math.Floor(Math.Max(0, width - 8) / (large ? 140 : 96)));
+
+    // ---- keys ([S-1277]) -------------------------------------------------------------------------
+
+    /// <summary>
+    /// [S-1277] The selection after a key, over the people on screen in order (the classic S-31):
+    /// Up / Down move by one (from nothing, Down picks the first and Up the last), Home / End jump,
+    /// Escape clears. Other keys leave it; a selection no longer on screen starts over.
+    /// </summary>
+    public static string? MoveSelection(IReadOnlyList<string> ids, string? current, WidgetKey key)
+    {
+        if (key == WidgetKey.Escape)
+        {
+            return null;
+        }
+
+        if (ids.Count == 0)
+        {
+            return current;
+        }
+
+        var index = current is null ? -1 : ids.ToList().IndexOf(current);
+
+        return key switch
+        {
+            WidgetKey.Down => ids[index < 0 ? 0 : Math.Min(ids.Count - 1, index + 1)],
+            WidgetKey.Up => ids[index < 0 ? ids.Count - 1 : Math.Max(0, index - 1)],
+            WidgetKey.Home => ids[0],
+            WidgetKey.End => ids[^1],
+            _ => current,
+        };
+    }
+
+    /// <summary>
+    /// [S-1277] What Enter does to a selected person (the classic S-32): write to them when they have
+    /// a plain address, else call them, else nothing.
+    /// </summary>
+    public static (ContactLinkKind Kind, string Value)? EnterLink(Contact contact)
+    {
+        if (ContactLinks.Build(ContactLinkKind.Email, contact.Email) is not null)
+        {
+            return (ContactLinkKind.Email, contact.Email!);
+        }
+
+        return ContactLinks.Build(ContactLinkKind.Call, contact.Phone) is not null ? (ContactLinkKind.Call, contact.Phone!) : null;
+    }
+}
+
+/// <summary>[S-1270] How much of a person a list row says.</summary>
+public enum ContactDetail
+{
+    Name,
+    Role,
+    RoleAndReach,
+    Everything,
+}
+
+/// <summary>[S-1270] What a line under a name is, so the row can put the right glyph before it.</summary>
+public enum ContactLine
+{
+    Role,
+    Email,
+    Phone,
+}
+
+/// <summary>[S-1275] Where the contacts search box is.</summary>
+public enum ContactSearch
+{
+    Hidden,
+    OnDemand,
+    Shown,
 }
 
 /// <summary>What a contact link opens.</summary>

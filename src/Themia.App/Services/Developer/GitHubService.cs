@@ -86,6 +86,9 @@ internal interface IGitHubSource
 
     /// <summary>[S-621] Mark every thread in the item's repository read. As <see cref="MarkReadAsync"/>.</summary>
     Task<string?> MarkRepositoryReadAsync(NotificationItem item);
+
+    /// <summary>[S-748] Mark every notification of each account read. As <see cref="MarkReadAsync"/>; the first problem wins.</summary>
+    Task<string?> MarkAllReadAsync(IReadOnlyList<string> accountIds);
 }
 
 /// <summary>
@@ -122,9 +125,20 @@ internal sealed class GitHubService : IGitHubSource, IDisposable
     public GitHubService(AccountService accounts, Ticker ticker)
     {
         _accounts = accounts;
-        _hub = new DevFeedHub(Scope, ticker, () => Accounts);
+        _hub = new DevFeedHub(Scope, ticker, () => Accounts, SavedDirectory);
         _accounts.AccountsChanged += OnAccountsChanged;
     }
+
+    /// <summary>
+    /// [S-747] Where the widgets' last answers are kept between runs: local, not roaming (a list of
+    /// notification titles has no business following the user to another machine), and outside
+    /// the state file's folder.
+    /// </summary>
+    private static string SavedDirectory { get; } = Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+        Themia.Core.Storage.AppStateStore.FolderName,
+        "Cache",
+        "GitHub");
 
     public event Action? AccountsChanged;
 
@@ -137,7 +151,9 @@ internal sealed class GitHubService : IGitHubSource, IDisposable
         return _hub.Open(new DevFeedSpec<RepoActivity, RepoActivity>(
             query.Key, query.AccountIds, Single: true, query.Refresh,
             (id, ct) => FetchRepoAsync(id, query, ct),
-            parts => parts[0]));
+            parts => parts[0],
+            Anonymous: true,
+            Saved: DevSavedJsonContext.Default.RepoActivity));
     }
 
     public IDevFeed<IReadOnlyList<SearchItem>> OpenSearch(SearchQuery query)
@@ -157,7 +173,8 @@ internal sealed class GitHubService : IGitHubSource, IDisposable
                 var reply = await GetAsync(id, GitHubRules.SearchUrl(Api(id), text, perPage), ct).ConfigureAwait(true);
                 return new DevPart<IReadOnlyList<SearchItem>>(GitHubRules.ToSearchItems(id, Parse(reply.Body, GitHubWireContext.Default.GhSearch)));
             },
-            parts => GitHubRules.MergeSearch(parts, query.Count, drafts)));
+            parts => GitHubRules.MergeSearch(parts, query.Count, drafts),
+            Saved: DevSavedJsonContext.Default.IReadOnlyListSearchItem));
     }
 
     public IDevFeed<IReadOnlyList<NotificationItem>> OpenNotifications(NotificationQuery query)
@@ -174,13 +191,14 @@ internal sealed class GitHubService : IGitHubSource, IDisposable
                 var poll = reply.Headers.TryGetValue("X-Poll-Interval", out var header) ? GitHubPolling.PollInterval(header) : null;
                 return new DevPart<IReadOnlyList<NotificationItem>>(items, poll);
             },
-            parts => GitHubRules.MergeNotifications(parts, query.Count)));
+            parts => GitHubRules.MergeNotifications(parts, query.Count),
+            Saved: DevSavedJsonContext.Default.IReadOnlyListNotificationItem));
     }
 
     public Task<string?> MarkReadAsync(NotificationItem item)
     {
         ArgumentNullException.ThrowIfNull(item);
-        return ChangeAsync(item, HttpMethod.Patch, GitHubRules.ThreadUrl(Api(item.AccountId), item.Id), null, "mark a thread read");
+        return ChangeAsync(item.AccountId, HttpMethod.Patch, GitHubRules.ThreadUrl(Api(item.AccountId), item.Id), null, "mark a thread read");
     }
 
     public Task<string?> MarkRepositoryReadAsync(NotificationItem item)
@@ -192,36 +210,51 @@ internal sealed class GitHubService : IGitHubSource, IDisposable
             return Task.FromResult<string?>("That repository's name is not one Themia can use.");
         }
 
-        return ChangeAsync(item, HttpMethod.Put, GitHubRules.RepoNotificationsUrl(Api(item.AccountId), repo), "{}", $"mark {repo} read");
+        return ChangeAsync(item.AccountId, HttpMethod.Put, GitHubRules.RepoNotificationsUrl(Api(item.AccountId), repo), "{}", $"mark {repo} read");
     }
 
-    private async Task<string?> ChangeAsync(NotificationItem item, HttpMethod method, Uri url, string? json, string what)
+    public async Task<string?> MarkAllReadAsync(IReadOnlyList<string> accountIds)
     {
-        if (_hub.BlockedUntil(item.AccountId, DateTimeOffset.UtcNow) is { } until)
+        ArgumentNullException.ThrowIfNull(accountIds);
+
+        string? first = null;
+        foreach (var id in accountIds.Distinct(StringComparer.Ordinal))
+        {
+            // GitHub answers 205, or 202 when it marks a large backlog in the background.
+            var problem = await ChangeAsync(id, HttpMethod.Put, GitHubRules.AllNotificationsUrl(Api(id)), "{}", "mark every notification read").ConfigureAwait(true);
+            first ??= problem;
+        }
+
+        return first;
+    }
+
+    private async Task<string?> ChangeAsync(string accountId, HttpMethod method, Uri url, string? json, string what)
+    {
+        if (_hub.BlockedUntil(accountId, DateTimeOffset.UtcNow) is { } until)
         {
             return $"GitHub asked Themia to slow down; try again after {until.ToLocalTime():HH:mm}.";
         }
 
         try
         {
-            await _accounts.SendJsonAsync(item.AccountId, method, url, json).ConfigureAwait(true);
+            await _accounts.SendJsonAsync(accountId, method, url, json).ConfigureAwait(true);
         }
         catch (AccountException ex)
         {
-            Log.Warn(Scope, $"could not {what} for {item.AccountId}: {ex.Message}");
+            Log.Warn(Scope, $"could not {what} for {accountId}: {ex.Message}");
             return ex.ProviderMessage ?? ex.Message;
         }
 
-        Log.Info(Scope, $"{what} done for {item.AccountId}");
+        Log.Info(Scope, $"{what} done for {accountId}");
 
         // The held list is now wrong in a way a conditional request may not notice in time: drop
         // its validators so the refresh reads the truth.
-        foreach (var key in _cache.Keys.Where(k => k.StartsWith(item.AccountId + " ", StringComparison.Ordinal) && k.Contains("/notifications", StringComparison.Ordinal)).ToList())
+        foreach (var key in _cache.Keys.Where(k => k.StartsWith(accountId + " ", StringComparison.Ordinal) && k.Contains("/notifications", StringComparison.Ordinal)).ToList())
         {
             _cache.Remove(key);
         }
 
-        _hub.RefreshAccount(item.AccountId);
+        _hub.RefreshAccount(accountId);
         return null;
     }
 
@@ -230,7 +263,8 @@ internal sealed class GitHubService : IGitHubSource, IDisposable
     // -----------------------------------------------------------------------------------------
 
     /// <summary>The account's REST root (Enterprise included); github.com when the account names none.</summary>
-    private Uri Api(string accountId) => GitHubRules.ApiRoot(_accounts.Find(accountId)?.ApiBaseUrl);
+    private Uri Api(string accountId)
+        => GitHubRules.ApiRoot(accountId == DevScreens.AnonymousId ? null : _accounts.Find(accountId)?.ApiBaseUrl);
 
     private async Task<DevPart<RepoActivity>> FetchRepoAsync(string accountId, RepoQuery query, CancellationToken cancellation)
     {
@@ -248,7 +282,9 @@ internal sealed class GitHubService : IGitHubSource, IDisposable
             // that does not exist; the sentence has to cover both.
             throw new AccountException(AccountError.NotFound, ex.Message, ex.HttpStatus, ex)
             {
-                ProviderMessage = $"{repo.FullName} was not found, or this account cannot see it",
+                ProviderMessage = accountId == DevScreens.AnonymousId
+                    ? $"{repo.FullName} was not found. A private repository needs a GitHub account in Accounts"
+                    : $"{repo.FullName} was not found, or this account cannot see it",
             };
         }
 
@@ -333,7 +369,9 @@ internal sealed class GitHubService : IGitHubSource, IDisposable
             request.Headers.AddRange(GitHubPolling.Conditional(held.ETag, held.LastModified));
         }
 
-        var reply = await _accounts.SendAsync(accountId, request, cancellation).ConfigureAwait(true);
+        var reply = accountId == DevScreens.AnonymousId
+            ? await SendAnonymousAsync(request, cancellation).ConfigureAwait(true)
+            : await _accounts.SendAsync(accountId, request, cancellation).ConfigureAwait(true);
 
         now = DateTimeOffset.UtcNow;
         if (RateLimitRules.WaitUntil(reply.Status, RateLimitRules.Read(reply.Headers, now), now) is { } until)
@@ -366,6 +404,35 @@ internal sealed class GitHubService : IGitHubSource, IDisposable
         }
 
         return reply;
+    }
+
+    /// <summary>
+    /// [S-746] A request without an account: the same client, redirects and throttle retries as an
+    /// account request, and no proof at all — nothing to attach, nothing to renew. A failure is the
+    /// same typed exception an account request throws, except that a 401 (GitHub wants a sign-in
+    /// for this) is a refusal, not a broken sign-in: there is none to mend.
+    /// </summary>
+    private static async Task<AccountReply> SendAnonymousAsync(RequestTemplate request, CancellationToken cancellation)
+    {
+        var reply = await AccountHttp.SendAsync(request, CredentialKind.None, null, cancellation).ConfigureAwait(true);
+
+        if (reply.IsSuccess || reply.IsNotModified)
+        {
+            return reply;
+        }
+
+        var now = DateTimeOffset.UtcNow;
+        var budget = RateLimitRules.Read(reply.Headers, now);
+        var error = RateLimitRules.IsThrottle(reply.Status, budget)
+            ? AccountError.RateLimited
+            : reply.Status == 401 ? AccountError.Forbidden : AccountException.FromStatus(reply.Status);
+        var said = ErrorBody.Message(reply.Body);
+
+        throw new AccountException(error, $"{reply.FinalUrl.Host} answered HTTP {reply.Status} without an account.", reply.Status)
+        {
+            ProviderMessage = said,
+            RetryAt = error == AccountError.RateLimited ? RateLimitRules.WaitUntil(reply.Status, budget, now) : null,
+        };
     }
 
     private void Trim()

@@ -40,7 +40,7 @@ internal static class WebViewHost
     /// </summary>
     public static string UserDataFolder { get; set; } = Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-        "Themia.WinUI",
+        Themia.Core.Storage.AppStateStore.FolderName,
         "WebView2");
 
     /// <summary>

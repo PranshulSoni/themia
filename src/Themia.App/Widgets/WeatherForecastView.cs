@@ -11,35 +11,27 @@ using Themia.Core.Widgets;
 namespace Themia.App.Widgets;
 
 /// <summary>
-/// The next few days, from open-meteo's daily block.
+/// The next few days, from open-meteo's daily block, in one of three layouts ([S-724]): a Windows 11
+/// list of rows, the days side by side as columns, or a grid of cards. <c>Auto</c> picks columns on
+/// a strip and rows elsewhere; the user's own choice always wins.
 /// <para>
-/// A Windows 11 list: one fixed-height row per day, no rule between them, and each row spanning the
-/// full width of the card with the inset carried as its own padding. The original is a grid of
-/// cards that grow to fill the tile — a web layout, and the reason a taller widget there showed the
-/// same seven days in seven taller boxes rather than showing more of them.
+/// Each layout has its own ladder (<see cref="WeatherForecastLayout"/>): rows stretch to fill the
+/// tile when the days fit ([S-31] of the original) and gain the sky, a range bar, the precipitation
+/// and its chance as the width allows; at the largest size a Today panel stands beside them. The
+/// user's day count is the cap — days are never invented to fill space.
 /// </para>
 /// <para>
-/// The bar on each row is scaled against the whole week rather than against that day's own range,
-/// which is the entire point of having it: a week that runs 12° to 14° every day should draw seven
-/// short marks in the same place, not seven full-width ones.
+/// The bar on each day is scaled against the whole forecast rather than that day's own range: a
+/// week that runs 12° to 14° every day should draw seven short marks in the same place.
 /// </para>
 /// </summary>
-internal sealed partial class WeatherForecastView : Grid, IWidgetView, IWidgetHeaderContent, IWidgetSurfaceAware
+internal sealed partial class WeatherForecastView : Grid, IWidgetView, IWidgetHeaderContent, IWidgetSurfaceAware,
+    IWidgetSizeAware, IWidgetContextActions
 {
     private const string Scope = "forecast";
 
-    /// <summary>Under this width the range bar is dropped: it needs room to mean anything.</summary>
-    private const double BarNeedsWidth = 300;
-
-    /// <summary>And under this, the precipitation column goes too, leaving the day and its two numbers.</summary>
-    private const double PrecipitationNeedsWidth = 380;
-
-    /// <summary>The bar's own thickness. Fluent's hairline would read as a scratch at this length.</summary>
-    private const double BarHeight = Fluent.Space1;
-
     private readonly TextBlock _freshness = Fluent.Text(FluentType.Caption, "TextFillColorTertiaryBrush");
-    private readonly StackPanel _list = new() { Spacing = 0 };
-    private readonly ScrollViewer _scroll;
+    private readonly Grid _body = new();
     private readonly StackPanel _emptyState;
     private readonly TextBlock _emptyMessage = new();
 
@@ -49,6 +41,8 @@ internal sealed partial class WeatherForecastView : Grid, IWidgetView, IWidgetHe
     private readonly Brush _staleBrush = FluentLayout.Themed("SystemFillColorCautionBrush", Colors.Goldenrod);
     private readonly Brush _trackBrush = FluentLayout.Themed("ControlStrongFillColorDisabledBrush", Colors.Gray);
     private readonly Brush _barBrush = FluentLayout.Themed("AccentFillColorDefaultBrush", Colors.DodgerBlue);
+    private readonly Brush _todayFill = FluentLayout.Themed("SubtleFillColorTertiaryBrush", Colors.Transparent);
+    private readonly Brush _cardFill = FluentLayout.Themed("SubtleFillColorSecondaryBrush", Colors.Transparent);
 
     private readonly RefreshSchedule _schedule = new(Scope, "open-meteo");
 
@@ -57,9 +51,7 @@ internal sealed partial class WeatherForecastView : Grid, IWidgetView, IWidgetHe
 
     /// <summary>
     /// [S-13a] A copy of the settings this view last acted on, which is what a change is measured
-    /// against. Not <c>_config</c>: the settings page edits the live config object in place, so by
-    /// the time a change arrives the "previous" config already holds the new values, and comparing
-    /// the two found no difference — a new address or place stayed unfetched until the next tick.
+    /// against. Not <c>_config</c>: the settings page edits the live config object in place.
     /// </summary>
     private WeatherForecastConfig _applied = new();
 
@@ -71,36 +63,19 @@ internal sealed partial class WeatherForecastView : Grid, IWidgetView, IWidgetHe
     private int _generation;
 
     private Fetched<Forecast>? _forecast;
-    private bool _showBar = true;
+    private WidgetArea _area;
 
-    /// <summary>Narrower than this, a row is the day and its high only. [S-658]</summary>
-    private const double DetailNeedsWidth = 160;
-
-    private bool _narrow;
-    private bool _showPrecipitation = true;
-    private bool _compact;
+    /// <summary>What is on screen: the layout, its plan and the day the labels were computed for.</summary>
+    private (ForecastLayout Layout, object Plan, DateOnly Today, bool Precipitation)? _built;
     private bool _detached;
 
     public WeatherForecastView()
     {
-        RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
-
-        _scroll = new ScrollViewer
-        {
-            Content = _list,
-            Padding = WidgetLayout.ListInset,
-            HorizontalScrollMode = ScrollMode.Disabled,
-            HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
-            VerticalScrollBarVisibility = ScrollBarVisibility.Hidden,
-        };
-
         _emptyState = Fluent.EmptyState(Glyphs.Forecast, _emptyMessage, out _);
         _emptyState.Visibility = Visibility.Collapsed;
 
-        Children.Add(_scroll);
+        Children.Add(_body);
         Children.Add(_emptyState);
-
-        SizeChanged += OnSizeChanged;
     }
 
     /// <summary>
@@ -108,6 +83,55 @@ internal sealed partial class WeatherForecastView : Grid, IWidgetView, IWidgetHe
     /// reads this once, when it builds that header.
     /// </summary>
     public FrameworkElement? HeaderTrailing => _freshness;
+
+    /// <summary>
+    /// [S-730] Refresh, and [S-724] the layouts other than the one on screen — a flat list, as the
+    /// menu has no submenus: picking one pins it, and "Automatic layout" hands it back to the tile.
+    /// </summary>
+    public IReadOnlyList<WidgetAction> ContextActions
+    {
+        get
+        {
+            var actions = new List<WidgetAction>();
+
+            if (_config.HasLocation)
+            {
+                actions.Add(new WidgetAction(Glyphs.Refresh, "Refresh", () => { _schedule.Reset(); Reload(force: true); }));
+            }
+
+            var shown = WeatherForecastLayout.Resolve(_config.Layout, _area);
+
+            if (shown != ForecastLayout.Rows)
+            {
+                actions.Add(new WidgetAction(Glyphs.ListLayout, "Rows layout", () => SetLayout(ForecastLayout.Rows)));
+            }
+
+            if (shown != ForecastLayout.Columns)
+            {
+                actions.Add(new WidgetAction(Glyphs.ColumnsLayout, "Columns layout", () => SetLayout(ForecastLayout.Columns)));
+            }
+
+            if (shown != ForecastLayout.Grid)
+            {
+                actions.Add(new WidgetAction(Glyphs.GridLayout, "Grid layout", () => SetLayout(ForecastLayout.Grid)));
+            }
+
+            if (_config.Layout != ForecastLayout.Auto)
+            {
+                actions.Add(new WidgetAction(Glyphs.Grid, "Automatic layout", () => SetLayout(ForecastLayout.Auto)));
+            }
+
+            return actions;
+        }
+    }
+
+    private void SetLayout(ForecastLayout layout)
+    {
+        _config.Layout = layout;
+        _applied.Layout = layout;
+        _surface?.RequestSave();
+        Lay();
+    }
 
     public void Attach(Ticker ticker, WidgetConfig config)
     {
@@ -132,7 +156,7 @@ internal sealed partial class WeatherForecastView : Grid, IWidgetView, IWidgetHe
         PublishTitle();
 
         // Only the fields that change what comes back are worth a re-read. Toggling the
-        // precipitation column redraws the days already in hand; it must not fire a request.
+        // precipitation column or the layout redraws the days already in hand.
         var needsFetch = previous.Latitude != next.Latitude
             || previous.Longitude != next.Longitude
             || previous.Unit != next.Unit
@@ -157,6 +181,13 @@ internal sealed partial class WeatherForecastView : Grid, IWidgetView, IWidgetHe
         {
             Render();
         }
+    }
+
+    /// <summary>[S-663] The card's word on how much room the widget has.</summary>
+    public void ApplySize(WidgetArea area)
+    {
+        _area = area;
+        Lay();
     }
 
     private bool Resubscribe()
@@ -192,7 +223,7 @@ internal sealed partial class WeatherForecastView : Grid, IWidgetView, IWidgetHe
         Render();
     }
 
-    private void Reload()
+    private void Reload(bool force = false)
     {
         if (_detached)
         {
@@ -219,7 +250,7 @@ internal sealed partial class WeatherForecastView : Grid, IWidgetView, IWidgetHe
         var generation = ++_generation;
 
         Render();
-        _ = LoadAsync(latitude, longitude, unit, days, generation, cts);
+        _ = LoadAsync(latitude, longitude, unit, days, generation, force, cts);
     }
 
     private async Task LoadAsync(
@@ -228,12 +259,13 @@ internal sealed partial class WeatherForecastView : Grid, IWidgetView, IWidgetHe
         TemperatureUnit unit,
         int days,
         int generation,
+        bool force,
         CancellationTokenSource cts)
     {
         try
         {
             var result = await WeatherService
-                .ForecastAsync(latitude, longitude, unit, days, _config.TickInterval, cts.Token)
+                .ForecastAsync(latitude, longitude, unit, days, _config.TickInterval, cts.Token, force)
                 .ConfigureAwait(true);
 
             if (_detached || generation != _generation)
@@ -269,33 +301,12 @@ internal sealed partial class WeatherForecastView : Grid, IWidgetView, IWidgetHe
         }
     }
 
-    private void OnSizeChanged(object sender, SizeChangedEventArgs e)
-    {
-        var bar = e.NewSize.Width >= BarNeedsWidth;
-        var precipitation = e.NewSize.Width >= PrecipitationNeedsWidth;
-        var compact = e.NewSize.Height < Fluent.CompactBelow;
-        var narrow = e.NewSize.Width > 0 && e.NewSize.Width < DetailNeedsWidth;
-
-        if (bar == _showBar && precipitation == _showPrecipitation && compact == _compact && narrow == _narrow)
-        {
-            return;
-        }
-
-        _showBar = bar;
-        _showPrecipitation = precipitation;
-        _compact = compact;
-        _narrow = narrow;
-        Render();
-    }
-
     private void Render()
     {
         if (_detached)
         {
             return;
         }
-
-        ClearRows();
 
         var now = DateTimeOffset.Now;
         var held = _forecast;
@@ -310,43 +321,82 @@ internal sealed partial class WeatherForecastView : Grid, IWidgetView, IWidgetHe
                 : FetchState.Message(status);
 
             _emptyState.Visibility = Visibility.Visible;
-            _scroll.Visibility = Visibility.Collapsed;
+            _body.Visibility = Visibility.Collapsed;
             _freshness.Text = string.Empty;
+            ClearBody();
             return;
         }
 
         _emptyState.Visibility = Visibility.Collapsed;
-        _scroll.Visibility = Visibility.Visible;
-
-        // One clock reading for the whole list, so a forecast drawn across midnight cannot label
-        // two different rows "Today".
-        var today = DateOnly.FromDateTime(now.LocalDateTime);
-        var (coldest, warmest) = Extremes(days);
-
-        foreach (var day in days)
-        {
-            _list.Children.Add(BuildRow(day, today, coldest, warmest));
-        }
-
+        _body.Visibility = Visibility.Visible;
         UpdateFreshness(held!, now);
+
+        // New data always rebuilds; a tick with the same data rebuilds only when the day changed.
+        _built = null;
+        Lay();
     }
 
     private void UpdateFreshness(Fetched<Forecast> held, DateTimeOffset now)
     {
         var failed = FetchState.IsFailure(held.Status);
-        var stale = failed || FetchState.IsStale(held.At, now, _config.TickInterval);
+        var stale = failed || held.Restored || FetchState.IsStale(held.At, now, _config.TickInterval);
+        var age = FetchState.Freshness(held.At, now);
 
-        _freshness.Text = FetchState.Freshness(held.At, now);
+        _freshness.Text = age;
         _freshness.Foreground = stale ? _staleBrush : _freshBrush;
 
         ToolTipService.SetToolTip(
             _freshness,
-            failed
-                ? $"{FetchState.Message(held.Status)}. Showing the forecast from {FetchState.Freshness(held.At, now).ToLowerInvariant()}."
-                : $"Updated {FetchState.Freshness(held.At, now).ToLowerInvariant()}");
+            failed ? $"{FetchState.Message(held.Status)}. Showing the forecast from {age.ToLowerInvariant()}."
+            : held.Restored ? $"Saved forecast from {age.ToLowerInvariant()}; refreshing."
+            : $"Updated {age.ToLowerInvariant()}");
     }
 
-    /// <summary>The coldest low and warmest high across the whole forecast, which the bars scale against.</summary>
+    /// <summary>Pick the layout and its plan for the current area, and rebuild only if either changed.</summary>
+    private void Lay()
+    {
+        if (_detached || _forecast?.Value?.Days is not { Count: > 0 } days || !_area.IsMeasured)
+        {
+            return;
+        }
+
+        var layout = WeatherForecastLayout.Resolve(_config.Layout, _area);
+        object plan = layout switch
+        {
+            ForecastLayout.Columns => WeatherForecastLayout.Columns(_area, days.Count),
+            ForecastLayout.Grid => WeatherForecastLayout.Grid(_area, days.Count),
+            _ => WeatherForecastLayout.Rows(_area, days.Count),
+        };
+
+        // One clock reading for the whole build, so a forecast drawn across midnight cannot label
+        // two different days "Today".
+        var today = DateOnly.FromDateTime(DateTime.Now);
+        var key = (layout, plan, today, _config.ShowPrecipitation);
+
+        if (_built is { } built && built.Layout == key.layout && Equals(built.Plan, key.plan)
+            && built.Today == key.today && built.Precipitation == key.ShowPrecipitation)
+        {
+            return;
+        }
+
+        ClearBody();
+        _built = key;
+
+        var (coldest, warmest) = Extremes(days);
+        var range = new Range(coldest, warmest);
+
+        _body.Children.Add(plan switch
+        {
+            ForecastColumnsPlan columns => BuildColumns(days, today, range, columns),
+            ForecastGridPlan grid => BuildGrid(days, today, range, grid),
+            ForecastRowsPlan rows => BuildRows(days, today, range, rows),
+            _ => new Grid(),
+        });
+    }
+
+    /// <summary>The coldest low and warmest high across the forecast, which every bar scales against.</summary>
+    private readonly record struct Range(double Coldest, double Warmest);
+
     private static (double Coldest, double Warmest) Extremes(IReadOnlyList<ForecastDay> days)
     {
         var coldest = double.MaxValue;
@@ -354,168 +404,28 @@ internal sealed partial class WeatherForecastView : Grid, IWidgetView, IWidgetHe
 
         foreach (var day in days)
         {
-            if (day.Low is { } low && double.IsFinite(low))
+            foreach (var value in new[] { day.Low, day.High })
             {
-                coldest = Math.Min(coldest, low);
-                warmest = Math.Max(warmest, low);
-            }
-
-            if (day.High is { } high && double.IsFinite(high))
-            {
-                coldest = Math.Min(coldest, high);
-                warmest = Math.Max(warmest, high);
+                if (value is { } v && double.IsFinite(v))
+                {
+                    coldest = Math.Min(coldest, v);
+                    warmest = Math.Max(warmest, v);
+                }
             }
         }
 
-        // A forecast where every day is missing both numbers. The bar then spans the row, which is
-        // what RangeBar returns for a zero span anyway.
+        // Every day missing both numbers: the bar spans the row, which RangeBar does for no span.
         return coldest <= warmest ? (coldest, warmest) : (0, 1);
-    }
-
-    private FrameworkElement BuildRow(ForecastDay day, DateOnly today, double coldest, double warmest)
-    {
-        var label = Fluent.Text(FluentType.Body);
-        label.Text = WeatherReport.DayLabel(day.Day, today);
-        label.MinWidth = 44;
-
-        // Today is the row the reader is most likely to be after, so it carries the one piece of
-        // emphasis in the list: the semibold step. Not a colour, and not a filled background —
-        // either of those would make it read as selected rather than as current.
-        if (day.Day == today)
-        {
-            label.Apply(FluentType.BodyStrong);
-        }
-
-        var icon = Fluent.Icon(LookGlyph(WeatherReport.Look(day.Code)), "TextFillColorSecondaryBrush");
-        icon.Margin = new Thickness(Fluent.Space3, 0, Fluent.Space3, 0);
-
-        var low = Number(WeatherReport.Degrees(day.Low), "TextFillColorSecondaryBrush");
-        var high = Number(WeatherReport.Degrees(day.High), "TextFillColorPrimaryBrush");
-
-        var grid = new Grid
-        {
-            ColumnDefinitions =
-            {
-                new ColumnDefinition { Width = GridLength.Auto },
-                new ColumnDefinition { Width = GridLength.Auto },
-                new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) },
-                new ColumnDefinition { Width = GridLength.Auto },
-                new ColumnDefinition { Width = GridLength.Auto },
-                new ColumnDefinition { Width = GridLength.Auto },
-            },
-        };
-
-        SetColumn(label, 0);
-        SetColumn(icon, 1);
-        SetColumn(low, 3);
-        SetColumn(high, 4);
-        grid.Children.Add(label);
-        grid.Children.Add(high);
-
-        // [S-658] A narrow tile keeps the day and its high, which is the forecast; the icon and the
-        // low go first. With all four in 88px the numbers were pushed off the card entirely and
-        // the row was a day name and a cloud.
-        if (!_narrow)
-        {
-            grid.Children.Add(icon);
-            grid.Children.Add(low);
-        }
-
-        if (_showBar && day.Low is { } lowValue && day.High is { } highValue)
-        {
-            var bar = BuildBar(lowValue, highValue, coldest, warmest);
-            SetColumn(bar, 2);
-            grid.Children.Add(bar);
-        }
-
-        if (_showPrecipitation && _config.ShowPrecipitation)
-        {
-            var rain = Fluent.Text(FluentType.Caption, "AccentTextFillColorPrimaryBrush");
-            rain.Text = WeatherReport.Precipitation(day.Precipitation);
-            rain.TextAlignment = TextAlignment.Right;
-            rain.MinWidth = 52;
-            rain.Margin = new Thickness(Fluent.Space2, 0, 0, 0);
-
-            SetColumn(rain, 5);
-            grid.Children.Add(rain);
-        }
-
-        var row = Fluent.Row(grid, _compact);
-        _hovers.Add(Fluent.Hover(row));
-
-        ToolTipService.SetToolTip(row, $"{Formatting.ShortDate(day.Day)} · {WeatherReport.Describe(day.Code)}");
-        return row;
-    }
-
-    /// <summary>
-    /// The day's range against the week's.
-    /// <para>
-    /// Three star columns whose weights <i>are</i> the three fractions, so the bar positions itself
-    /// at layout time and needs no measurement, no <c>ActualWidth</c> read and no second pass. A
-    /// version that computed pixel margins had to be redone on every resize and was a frame behind
-    /// after each one.
-    /// </para>
-    /// </summary>
-    private FrameworkElement BuildBar(double low, double high, double coldest, double warmest)
-    {
-        var (start, end) = WeatherReport.RangeBar(low, high, coldest, warmest);
-
-        var track = new Border
-        {
-            Height = BarHeight,
-            Background = _trackBrush,
-            CornerRadius = new CornerRadius(BarHeight / 2),
-            VerticalAlignment = VerticalAlignment.Center,
-        };
-
-        var fill = new Border
-        {
-            Height = BarHeight,
-            Background = _barBrush,
-            CornerRadius = new CornerRadius(BarHeight / 2),
-            VerticalAlignment = VerticalAlignment.Center,
-        };
-
-        var host = new Grid
-        {
-            Margin = new Thickness(0, 0, Fluent.Space3, 0),
-            ColumnDefinitions =
-            {
-                new ColumnDefinition { Width = new GridLength(start, GridUnitType.Star) },
-                new ColumnDefinition { Width = new GridLength(Math.Max(end - start, 0.02), GridUnitType.Star) },
-                new ColumnDefinition { Width = new GridLength(Math.Max(1 - end, 0), GridUnitType.Star) },
-            },
-        };
-
-        SetColumnSpan(track, 3);
-        SetColumn(fill, 1);
-        host.Children.Add(track);
-        host.Children.Add(fill);
-        return host;
-    }
-
-    private static TextBlock Number(string text, string colorKey)
-    {
-        var block = Fluent.Text(FluentType.Body, colorKey);
-        block.Text = text;
-        block.TextAlignment = TextAlignment.Right;
-        block.MinWidth = 34;
-        block.Margin = new Thickness(Fluent.Space2, 0, 0, 0);
-
-        // Tabular figures, so the column of temperatures lines up down the list instead of
-        // jittering by a pixel per row.
-        Microsoft.UI.Xaml.Documents.Typography.SetNumeralAlignment(block, FontNumeralAlignment.Tabular);
-        return block;
     }
 
     /// <summary>The same glyph the current-conditions widget draws for a condition. [S-652]</summary>
     private static string LookGlyph(WeatherLook look) => WeatherNowView.LookGlyph(look);
 
     /// <summary>
-    /// Drop the rows and, with them, their hover handlers: a handler left hooked keeps the row it
+    /// Drop the layout and, with it, its hover handlers: a handler left hooked keeps the row it
     /// lights alive and re-lights it after the list has been redrawn.
     /// </summary>
-    private void ClearRows()
+    private void ClearBody()
     {
         foreach (var hover in _hovers)
         {
@@ -523,15 +433,15 @@ internal sealed partial class WeatherForecastView : Grid, IWidgetView, IWidgetHe
         }
 
         _hovers.Clear();
-        _list.Children.Clear();
+        _body.Children.Clear();
+        _built = null;
     }
 
     public void Detach()
     {
         _detached = true;
 
-        SizeChanged -= OnSizeChanged;
-        ClearRows();
+        ClearBody();
 
         _subscription?.Dispose();
         _subscription = null;
@@ -542,15 +452,7 @@ internal sealed partial class WeatherForecastView : Grid, IWidgetView, IWidgetHe
 
         _ticker = null;
     }
-    /// <summary>
-    /// Tell the card what this widget is about. The catalogue can only say "Weather" or
-    /// "Folder"; the widget knows which place, which folder, which ticker — and on a desktop
-    /// holding three of them, that is the only thing telling them apart.
-    /// </summary>
-    private void PublishTitle()
-    {
-        var title = string.IsNullOrWhiteSpace(_config.Place) ? _config.LocationName : _config.Place;
-        _surface?.SetHeaderTitle(string.IsNullOrWhiteSpace(title) ? null : title);
-    }
 
+    /// <summary>[S-728] The city as the header title, or the widget's label when the user hid it.</summary>
+    private void PublishTitle() => _surface?.SetHeaderTitle(_config.Title);
 }

@@ -194,9 +194,8 @@ public static class AccountRules
 }
 
 /// <summary>
-/// [S-505] Account ids, built exactly as the classic app built them. Signing in to the same account
-/// again yields the same id, so it replaces the old entry (keeping its nickname) instead of adding a
-/// second one; and an imported account keeps the id its widget configs already name.
+/// [S-505] Account ids. Signing in to the same account again yields the same id, so it replaces the
+/// old entry (keeping its nickname) instead of adding a second one, and widget configs keep naming it.
 /// </summary>
 public static class AccountIds
 {

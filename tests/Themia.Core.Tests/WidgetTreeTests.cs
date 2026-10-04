@@ -263,7 +263,8 @@ public sealed class WidgetTreeTests
     [Fact]
     public void S226_ANewWidgetStartsOnTheDesktopWithATopHeader()
     {
-        var widget = WidgetInstance.Create(WidgetKind.Clock, new FracRect(0, 0, 0.2, 0.2));
+        // Not the Clock: it starts headerless since [S-700].
+        var widget = WidgetInstance.Create(WidgetKind.Cpu, new FracRect(0, 0, 0.2, 0.2));
 
         Assert.Null(widget.ParentId);
         Assert.Equal(HeaderPlacement.Top, widget.Header);

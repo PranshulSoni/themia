@@ -26,10 +26,10 @@ internal sealed class ScreenTimeFile
 
     public SortedDictionary<string, string>? Names { get; set; }
 
-    /// <summary>Additive: absent in an older file, omitted from the bytes when empty.</summary>
+    /// <summary>Omitted from the bytes when empty, so absent reads as none.</summary>
     public SortedDictionary<string, string>? Paths { get; set; }
 
-    /// <summary>Additive on the same terms as <see cref="Paths"/>.</summary>
+    /// <summary>Omitted when empty, on the same terms as <see cref="Paths"/>.</summary>
     public SortedDictionary<string, long>? Switches { get; set; }
 }
 
@@ -98,7 +98,7 @@ public static class ScreenTimeStore
     /// schema version, or a required map missing. Junk inside a good envelope is dropped rather than
     /// failing the file: day keys that are not dates (they would sort outside retention and become
     /// immortal), empty app keys, empty paths and zero switch counts. Names are cleaned on the way in
-    /// ([S-458]), so a history written before a naming fix heals itself.
+    /// ([S-458]), so a corrupt name is repaired rather than shown.
     /// </summary>
     public static ScreenTimeTracker? Parse(string json)
     {

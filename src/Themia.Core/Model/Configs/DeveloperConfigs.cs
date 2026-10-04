@@ -67,10 +67,18 @@ public abstract class GitHubAccountsConfig : DeveloperConfig
     /// </summary>
     public List<string> AccountIds { get; set; } = [];
 
+    /// <summary>
+    /// [S-740] Show as many as the tile has room for: the widget asks for the most a list may hold
+    /// and draws the whole rows that fit, so a bigger tile shows more. Off, the counts are exact.
+    /// On by default.
+    /// </summary>
+    public bool FillTile { get; set; } = true;
+
     protected void CopyAccountsTo(GitHubAccountsConfig other)
     {
         CopyTo(other);
         other.AccountIds = [.. AccountIds];
+        other.FillTile = FillTile;
     }
 
     public override IReadOnlyList<string> Repair()
@@ -123,6 +131,9 @@ public sealed class GitHubConfig : GitHubAccountsConfig
     [JsonIgnore]
     public int EffectiveRunCount => Math.Clamp(RunCount, 0, MaxListCount);
 
+    /// <summary>[S-740] What to ask GitHub for: 0 still hides a list; any other count is the most a list holds when filling.</summary>
+    public int FetchCount(int effective) => effective <= 0 ? 0 : FillTile ? MaxListCount : effective;
+
     public override WidgetConfig Clone()
     {
         var copy = new GitHubConfig
@@ -164,6 +175,10 @@ public sealed class GitHubIssuesConfig : GitHubAccountsConfig
         CopyAccountsTo(copy);
         return copy;
     }
+
+    /// <summary>[S-740] What to ask for: the most a list may hold when filling the tile, else the count.</summary>
+    [JsonIgnore]
+    public int FetchCount => FillTile ? MaxCount : EffectiveCount;
 }
 
 /// <summary>[S-616] Open pull requests waiting for your review.</summary>
@@ -190,6 +205,10 @@ public sealed class GitHubReviewsConfig : GitHubAccountsConfig
         CopyAccountsTo(copy);
         return copy;
     }
+
+    /// <summary>[S-740] What to ask for: the most a list may hold when filling the tile, else the count.</summary>
+    [JsonIgnore]
+    public int FetchCount => FillTile ? MaxCount : EffectiveCount;
 }
 
 /// <summary>[S-617] Your GitHub notifications.</summary>
@@ -228,6 +247,10 @@ public sealed class GitHubNotificationsConfig : GitHubAccountsConfig
         CopyAccountsTo(copy);
         return copy;
     }
+
+    /// <summary>[S-740] What to ask for: the most a list may hold when filling the tile, else the count.</summary>
+    [JsonIgnore]
+    public int FetchCount => FillTile ? MaxCount : EffectiveCount;
 }
 
 /// <summary>[S-630] How much of a Claude subscription's limits is used.</summary>

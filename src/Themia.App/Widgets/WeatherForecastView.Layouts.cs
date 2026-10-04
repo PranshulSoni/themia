@@ -1,0 +1,711 @@
+using System.Globalization;
+using Microsoft.UI.Xaml;
+using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Media;
+using Themia.App.Shell;
+using Themia.Core.Widgets;
+
+namespace Themia.App.Widgets;
+
+/// <summary>The forecast's three layouts and the Today panel. [S-725]..[S-727]</summary>
+internal sealed partial class WeatherForecastView
+{
+    /// <summary>The bar's own thickness. Fluent's hairline would read as a scratch at this length.</summary>
+    private const double BarThickness = Fluent.Space1;
+
+    // ---- Rows [S-725] ------------------------------------------------------------------------
+
+    private FrameworkElement BuildRows(IReadOnlyList<ForecastDay> days, DateOnly today, Range range, ForecastRowsPlan plan)
+    {
+        FrameworkElement list = plan.Stretch ? StretchedRows(days, today, range, plan) : ScrollingRows(days, today, range, plan);
+
+        if (plan.HeroWidth <= 0 && plan.TopHeroHeight <= 0 || days[0].Day != today)
+        {
+            return list;
+        }
+
+        // A Today panel beside the rows (Huge both ways) or above them (a tall column with height
+        // to spare), so extra room holds information rather than taller rows.
+        var hero = TodayPanel(days[0], plan.HeroWidth > 0);
+        var host = new Grid();
+
+        if (plan.HeroWidth > 0)
+        {
+            host.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(plan.HeroWidth) });
+            host.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            SetColumn(list, 1);
+        }
+        else
+        {
+            host.RowDefinitions.Add(new RowDefinition { Height = new GridLength(plan.TopHeroHeight) });
+            host.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
+            SetRow(list, 1);
+        }
+
+        host.Children.Add(hero);
+        host.Children.Add(list);
+        return host;
+    }
+
+    /// <summary>[S-31] The days fit: one star row each, so the list fills the tile edge to edge.</summary>
+    private Grid StretchedRows(IReadOnlyList<ForecastDay> days, DateOnly today, Range range, ForecastRowsPlan plan)
+    {
+        var grid = new Grid
+        {
+            Padding = WidgetLayout.ListInset,
+            VerticalAlignment = VerticalAlignment.Top,
+            Height = (plan.RowHeight * days.Count) + WeatherForecastLayout.ListPadding,
+        };
+
+        for (var i = 0; i < days.Count; i++)
+        {
+            grid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
+            var row = BuildRow(days[i], today, range, plan);
+            SetRow(row, i);
+            grid.Children.Add(row);
+        }
+
+        return grid;
+    }
+
+    /// <summary>More days than fit: fixed rows in a scroller with its bar hidden.</summary>
+    private ScrollViewer ScrollingRows(IReadOnlyList<ForecastDay> days, DateOnly today, Range range, ForecastRowsPlan plan)
+    {
+        var list = new StackPanel();
+
+        foreach (var day in days)
+        {
+            list.Children.Add(BuildRow(day, today, range, plan));
+        }
+
+        return new ScrollViewer
+        {
+            Content = list,
+            Padding = WidgetLayout.ListInset,
+            HorizontalScrollMode = ScrollMode.Disabled,
+            HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
+            VerticalScrollBarVisibility = ScrollBarVisibility.Hidden,
+        };
+    }
+
+    private FrameworkElement BuildRow(ForecastDay day, DateOnly today, Range range, ForecastRowsPlan plan)
+    {
+        var grid = plan.TwoLine ? TwoLineRow(day, today, plan) : OneLineRow(day, today, range, plan);
+
+        var row = Fluent.Row(grid, plan.Compact);
+        row.MinHeight = Math.Min(row.MinHeight, plan.RowHeight);
+        _hovers.Add(Fluent.Hover(row));
+        ToolTipService.SetToolTip(row, Describe(day));
+
+        // [S-727] Today carries a quiet fill under its row, as well as its accent label; the hover
+        // fill sits on top of it.
+        return day.Day == today ? new Border { Background = _todayFill, Child = row } : row;
+    }
+
+    private Grid OneLineRow(ForecastDay day, DateOnly today, Range range, ForecastRowsPlan plan)
+    {
+        var showRain = plan.Precipitation && _config.ShowPrecipitation;
+
+        var label = DayText(day, today, FluentType.Body);
+        label.MinWidth = 44;
+
+        var grid = new Grid { VerticalAlignment = VerticalAlignment.Center };
+        var column = 0;
+
+        void Add(FrameworkElement element, GridLength width)
+        {
+            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = width });
+            SetColumn(element, column++);
+            element.VerticalAlignment = VerticalAlignment.Center;
+            grid.Children.Add(element);
+        }
+
+        Add(label, GridLength.Auto);
+
+        if (plan.IconAndLow)
+        {
+            Add(DayIcon(day), GridLength.Auto);
+        }
+
+        if (plan.Description)
+        {
+            var sky = Fluent.Text(FluentType.Body, "TextFillColorSecondaryBrush");
+            sky.Text = WeatherReport.Describe(day.Code);
+            sky.TextTrimming = TextTrimming.CharacterEllipsis;
+            sky.Margin = new Thickness(0, 0, Fluent.Space3, 0);
+            Add(sky, new GridLength(1.4, GridUnitType.Star));
+        }
+
+        if (plan.Bar && day.Low is { } low && day.High is { } high)
+        {
+            Add(HorizontalBar(low, high, range), new GridLength(1, GridUnitType.Star));
+        }
+        else
+        {
+            // Keeps the numbers at the right edge when there is no bar to take the slack.
+            Add(new Border(), new GridLength(plan.Description ? 0.01 : 1, GridUnitType.Star));
+        }
+
+        if (plan.Chance)
+        {
+            var chance = Fluent.Text(FluentType.Caption, "TextFillColorTertiaryBrush");
+            chance.Text = WeatherReport.Chance(day.PrecipitationChance);
+            chance.TextAlignment = TextAlignment.Right;
+            chance.MinWidth = 36;
+            Add(chance, GridLength.Auto);
+        }
+
+        if (plan.Wind)
+        {
+            var wind = Fluent.Text(FluentType.Caption, "TextFillColorTertiaryBrush");
+            wind.Text = day.WindMax is null ? string.Empty : WeatherReport.Wind(day.WindMax);
+            wind.TextAlignment = TextAlignment.Right;
+            wind.MinWidth = 56;
+            Add(wind, GridLength.Auto);
+        }
+
+        if (showRain)
+        {
+            var rain = Rain(day.Precipitation, withUnit: false);
+            rain.MinWidth = 44;
+            rain.Margin = new Thickness(Fluent.Space2, 0, 0, 0);
+            Add(rain, GridLength.Auto);
+        }
+
+        if (plan.IconAndLow)
+        {
+            Add(Number(WeatherReport.Degrees(day.Low), "TextFillColorSecondaryBrush"), GridLength.Auto);
+        }
+
+        Add(Number(WeatherReport.Degrees(day.High), "TextFillColorPrimaryBrush"), GridLength.Auto);
+        return grid;
+    }
+
+    /// <summary>
+    /// A tall row on a narrow tile: the day, glyph, low and high on the first line; the sky across
+    /// the second line under them, and the precipitation under the high.
+    /// </summary>
+    private Grid TwoLineRow(ForecastDay day, DateOnly today, ForecastRowsPlan plan)
+    {
+        var grid = new Grid
+        {
+            VerticalAlignment = VerticalAlignment.Center,
+            ColumnDefinitions =
+            {
+                new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) },
+                new ColumnDefinition { Width = GridLength.Auto },
+                new ColumnDefinition { Width = GridLength.Auto },
+                new ColumnDefinition { Width = GridLength.Auto },
+            },
+            RowDefinitions =
+            {
+                new RowDefinition { Height = GridLength.Auto },
+                new RowDefinition { Height = GridLength.Auto },
+            },
+        };
+
+        void Put(FrameworkElement element, int row, int column, int span = 1)
+        {
+            SetRow(element, row);
+            SetColumn(element, column);
+            SetColumnSpan(element, span);
+            element.VerticalAlignment = VerticalAlignment.Center;
+            grid.Children.Add(element);
+        }
+
+        Put(DayText(day, today, FluentType.Body), 0, 0);
+
+        if (plan.IconAndLow)
+        {
+            Put(DayIcon(day), 0, 1);
+            Put(Number(WeatherReport.Degrees(day.Low), "TextFillColorSecondaryBrush"), 0, 2);
+        }
+
+        Put(Number(WeatherReport.Degrees(day.High), "TextFillColorPrimaryBrush"), 0, 3);
+
+        var sky = Fluent.Text(FluentType.Caption, "TextFillColorTertiaryBrush");
+        sky.Text = WeatherReport.Describe(day.Code);
+        sky.TextTrimming = TextTrimming.CharacterEllipsis;
+        Put(sky, 1, 0, 3);
+
+        if (_config.ShowPrecipitation)
+        {
+            Put(Rain(day.Precipitation, withUnit: false), 1, 3);
+        }
+
+        return grid;
+    }
+
+    private static FontIcon DayIcon(ForecastDay day)
+    {
+        var icon = Fluent.Icon(LookGlyph(WeatherReport.Look(day.Code)), "TextFillColorSecondaryBrush");
+        icon.Margin = new Thickness(Fluent.Space3, 0, Fluent.Space3, 0);
+        return icon;
+    }
+
+    // ---- Columns [S-726] ---------------------------------------------------------------------
+
+    private FrameworkElement BuildColumns(IReadOnlyList<ForecastDay> days, DateOnly today, Range range, ForecastColumnsPlan plan)
+    {
+        var grid = new Grid { Padding = new Thickness(Fluent.Space2) };
+
+        for (var i = 0; i < days.Count; i++)
+        {
+            grid.ColumnDefinitions.Add(new ColumnDefinition
+            {
+                Width = plan.Scroll ? new GridLength(plan.ColumnWidth) : new GridLength(1, GridUnitType.Star),
+            });
+
+            var column = BuildColumn(days[i], today, range, plan);
+            SetColumn(column, i);
+            grid.Children.Add(column);
+        }
+
+        if (!plan.Scroll)
+        {
+            return grid;
+        }
+
+        return new ScrollViewer
+        {
+            Content = grid,
+            HorizontalScrollMode = ScrollMode.Enabled,
+            HorizontalScrollBarVisibility = ScrollBarVisibility.Hidden,
+            VerticalScrollMode = ScrollMode.Disabled,
+            VerticalScrollBarVisibility = ScrollBarVisibility.Disabled,
+        };
+    }
+
+    private Border BuildColumn(ForecastDay day, DateOnly today, Range range, ForecastColumnsPlan plan)
+    {
+        var parts = new Grid { RowSpacing = Fluent.Space1 };
+
+        void Add(FrameworkElement element, GridLength height)
+        {
+            parts.RowDefinitions.Add(new RowDefinition { Height = height });
+            SetRow(element, parts.RowDefinitions.Count - 1);
+            element.HorizontalAlignment = HorizontalAlignment.Center;
+            parts.Children.Add(element);
+        }
+
+        Add(DayText(day, today, FluentType.Caption), GridLength.Auto);
+
+        if (plan.Icon)
+        {
+            Add(Fluent.Icon(LookGlyph(WeatherReport.Look(day.Code)), "TextFillColorSecondaryBrush", 20), GridLength.Auto);
+        }
+
+        if (plan.Description)
+        {
+            var sky = Fluent.Text(FluentType.Caption, "TextFillColorTertiaryBrush");
+            sky.Text = WeatherReport.Describe(day.Code);
+            sky.TextTrimming = TextTrimming.CharacterEllipsis;
+            sky.MaxWidth = plan.ColumnWidth - Fluent.Space1;
+            Add(sky, GridLength.Auto);
+        }
+
+        var high = Fluent.Text(FluentType.BodyStrong);
+        high.Text = WeatherReport.Degrees(day.High);
+        Add(high, GridLength.Auto);
+
+        if (plan.Bar && day.Low is { } low && day.High is { } highValue)
+        {
+            Add(VerticalBar(low, highValue, range), new GridLength(1, GridUnitType.Star));
+        }
+        else
+        {
+            parts.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
+        }
+
+        if (plan.Low)
+        {
+            var lowText = Fluent.Text(FluentType.Caption, "TextFillColorSecondaryBrush");
+            lowText.Text = WeatherReport.Degrees(day.Low);
+            Add(lowText, GridLength.Auto);
+        }
+
+        // A fixed line, rain or not, so the lows line up across a dry day and a wet one.
+        if (plan.Precipitation && _config.ShowPrecipitation)
+        {
+            Add(Rain(day.Precipitation, withUnit: false), new GridLength(FluentType.Caption.LineHeight));
+        }
+
+        if (plan.Chance)
+        {
+            var chance = Fluent.Text(FluentType.Caption, "TextFillColorTertiaryBrush");
+            chance.Text = WeatherReport.Chance(day.PrecipitationChance);
+            Add(chance, new GridLength(FluentType.Caption.LineHeight));
+        }
+
+        if (plan.Wind)
+        {
+            var wind = Fluent.Text(FluentType.Caption, "TextFillColorTertiaryBrush");
+            wind.Text = day.WindMax is null ? string.Empty : WeatherReport.Wind(day.WindMax);
+            Add(wind, new GridLength(FluentType.Caption.LineHeight));
+        }
+
+        var host = new Border
+        {
+            Child = parts,
+            Padding = new Thickness(Fluent.Space1, Fluent.Space1, Fluent.Space1, Fluent.Space1),
+            CornerRadius = new CornerRadius(Fluent.ControlRadius),
+            Background = day.Day == today ? _todayFill : null,
+        };
+
+        ToolTipService.SetToolTip(host, Describe(day));
+        return host;
+    }
+
+    // ---- Grid [S-726] ------------------------------------------------------------------------
+
+    private FrameworkElement BuildGrid(IReadOnlyList<ForecastDay> days, DateOnly today, Range range, ForecastGridPlan plan)
+    {
+        var grid = new Grid
+        {
+            Padding = new Thickness(Fluent.Space2),
+            ColumnSpacing = Fluent.Space2,
+            RowSpacing = Fluent.Space2,
+        };
+
+        for (var c = 0; c < plan.Columns; c++)
+        {
+            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        }
+
+        for (var r = 0; r < plan.Rows; r++)
+        {
+            grid.RowDefinitions.Add(new RowDefinition
+            {
+                Height = plan.Scroll ? new GridLength(plan.CardHeight) : new GridLength(1, GridUnitType.Star),
+            });
+        }
+
+        for (var i = 0; i < days.Count; i++)
+        {
+            var card = BuildCard(days[i], today, range, plan);
+            SetColumn(card, i % plan.Columns);
+            SetRow(card, i / plan.Columns);
+            grid.Children.Add(card);
+        }
+
+        if (!plan.Scroll)
+        {
+            return grid;
+        }
+
+        return new ScrollViewer
+        {
+            Content = grid,
+            HorizontalScrollMode = ScrollMode.Disabled,
+            HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
+            VerticalScrollBarVisibility = ScrollBarVisibility.Hidden,
+        };
+    }
+
+    private Border BuildCard(ForecastDay day, DateOnly today, Range range, ForecastGridPlan plan)
+    {
+        var top = new Grid
+        {
+            ColumnDefinitions =
+            {
+                new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) },
+                new ColumnDefinition { Width = GridLength.Auto },
+            },
+        };
+
+        var label = DayText(day, today, FluentType.BodyStrong);
+        var icon = Fluent.Icon(LookGlyph(WeatherReport.Look(day.Code)), "TextFillColorSecondaryBrush", 20);
+        SetColumn(icon, 1);
+        top.Children.Add(label);
+        top.Children.Add(icon);
+
+        var stack = new StackPanel { Spacing = Fluent.Space1, VerticalAlignment = VerticalAlignment.Center, Children = { top } };
+
+        if (plan.Description)
+        {
+            var sky = Fluent.Text(FluentType.Caption, "TextFillColorSecondaryBrush");
+            sky.Text = WeatherReport.Describe(day.Code);
+            sky.TextTrimming = TextTrimming.CharacterEllipsis;
+            stack.Children.Add(sky);
+        }
+
+        if (plan.Bar && day.Low is { } low && day.High is { } high)
+        {
+            stack.Children.Add(HorizontalBar(low, high, range));
+        }
+
+        var temps = Fluent.Text(FluentType.Body);
+        temps.Inlines.Add(new Microsoft.UI.Xaml.Documents.Run { Text = WeatherReport.Degrees(day.High) });
+        temps.Inlines.Add(new Microsoft.UI.Xaml.Documents.Run
+        {
+            Text = "  " + WeatherReport.Degrees(day.Low),
+            Foreground = FluentLayout.Themed("TextFillColorSecondaryBrush", Microsoft.UI.Colors.Gray),
+        });
+        stack.Children.Add(temps);
+
+        if (plan.Precipitation && _config.ShowPrecipitation && WeatherReport.Precipitation(day.Precipitation).Length > 0)
+        {
+            var rain = Rain(day.Precipitation, withUnit: true);
+            rain.HorizontalAlignment = HorizontalAlignment.Left;
+            stack.Children.Add(rain);
+        }
+
+        // A tall card: the chance and the wind, then the sun's times.
+        if (plan.Extras && JoinNonEmpty(WeatherReport.Chance(day.PrecipitationChance), day.WindMax is null ? string.Empty : WeatherReport.Wind(day.WindMax)) is { Length: > 0 } extras)
+        {
+            var line = Fluent.Text(FluentType.Caption, "TextFillColorTertiaryBrush");
+            line.Text = extras;
+            line.TextTrimming = TextTrimming.CharacterEllipsis;
+            stack.Children.Add(line);
+        }
+
+        if (plan.Sun && day.Sunrise is not null && day.Sunset is not null)
+        {
+            var sun = Fluent.Text(FluentType.Caption, "TextFillColorTertiaryBrush");
+            sun.Text = $"{WeatherReport.Clock(day.Sunrise, CultureInfo.CurrentCulture)} – {WeatherReport.Clock(day.Sunset, CultureInfo.CurrentCulture)}";
+            stack.Children.Add(sun);
+        }
+
+        var card = new Border
+        {
+            Child = stack,
+            Padding = new Thickness(Fluent.Space3, Fluent.Space2, Fluent.Space3, Fluent.Space2),
+            CornerRadius = new CornerRadius(Fluent.ControlRadius),
+            Background = day.Day == today ? _todayFill : _cardFill,
+        };
+
+        ToolTipService.SetToolTip(card, Describe(day));
+        return card;
+    }
+
+    // ---- Today panel -------------------------------------------------------------------------
+
+    /// <summary>
+    /// Today at length: the sky, the high and low large, then the day's precipitation, wind, UV and
+    /// the sun's times — what a big tile has room to say about the one day a reader acts on.
+    /// </summary>
+    private FrameworkElement TodayPanel(ForecastDay day, bool beside)
+    {
+        var culture = CultureInfo.CurrentCulture;
+
+        var icon = Fluent.Icon(LookGlyph(WeatherReport.Look(day.Code)), "TextFillColorSecondaryBrush", beside ? 56 : 28);
+        icon.HorizontalAlignment = HorizontalAlignment.Left;
+
+        var title = Fluent.Text(FluentType.Caption, "AccentTextFillColorPrimaryBrush");
+        title.Text = "Today";
+
+        var sky = Fluent.Text(FluentType.Body, "TextFillColorSecondaryBrush");
+        sky.Text = WeatherReport.Describe(day.Code);
+        sky.TextTrimming = TextTrimming.CharacterEllipsis;
+
+        var temps = Fluent.Text(beside ? FluentType.TitleLarge : FluentType.Subtitle);
+        temps.Text = $"{WeatherReport.Degrees(day.High)} / {WeatherReport.Degrees(day.Low)}";
+
+        var panel = new StackPanel
+        {
+            Spacing = beside ? Fluent.Space2 : Fluent.Space1,
+            Padding = new Thickness(Fluent.Space4, Fluent.Space2, Fluent.Space4, Fluent.Space2),
+            VerticalAlignment = beside ? VerticalAlignment.Center : VerticalAlignment.Top,
+        };
+
+        if (beside)
+        {
+            panel.Children.Add(title);
+            panel.Children.Add(icon);
+            panel.Children.Add(temps);
+            panel.Children.Add(sky);
+
+            var facts = new StackPanel { Spacing = Fluent.Space2, Margin = new Thickness(0, Fluent.Space4, 0, 0) };
+            AddFact(facts, Glyphs.Droplet, "Precipitation", JoinNonEmpty(WeatherReport.Precipitation(day.Precipitation), WeatherReport.Chance(day.PrecipitationChance)));
+            AddFact(facts, Glyphs.Wind, "Wind", day.WindMax is null ? string.Empty : WeatherReport.Wind(day.WindMax));
+            AddFact(facts, Glyphs.Sun, "UV index", day.UvMax is null ? string.Empty : WeatherReport.Uv(day.UvMax));
+            AddFact(facts, Glyphs.Sun, "Sunrise", day.Sunrise is null ? string.Empty : WeatherReport.Clock(day.Sunrise, culture));
+            AddFact(facts, Glyphs.Moon, "Sunset", day.Sunset is null ? string.Empty : WeatherReport.Clock(day.Sunset, culture));
+            panel.Children.Add(facts);
+        }
+        else
+        {
+            // Above a tall column's rows: two lines beside the glyph.
+            var line = new Grid
+            {
+                ColumnSpacing = Fluent.Space3,
+                ColumnDefinitions =
+                {
+                    new ColumnDefinition { Width = GridLength.Auto },
+                    new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) },
+                },
+            };
+
+            var words = new StackPanel { Children = { title, temps, sky } };
+            icon.VerticalAlignment = VerticalAlignment.Center;
+            SetColumn(words, 1);
+            line.Children.Add(icon);
+            line.Children.Add(words);
+            panel.Children.Add(line);
+        }
+
+        return panel;
+    }
+
+    private static string JoinNonEmpty(params string[] parts)
+        => string.Join(" · ", parts.Where(part => part.Length > 0 && part != "--"));
+
+    private static void AddFact(Panel host, string glyph, string label, string value)
+    {
+        if (value.Length == 0 || value == "--")
+        {
+            return;
+        }
+
+        var icon = Fluent.Icon(glyph, "TextFillColorTertiaryBrush", 14);
+        icon.Margin = new Thickness(0, 0, Fluent.Space2, 0);
+
+        var name = Fluent.Text(FluentType.Body, "TextFillColorSecondaryBrush");
+        name.Text = label;
+
+        var text = Fluent.Text(FluentType.Body);
+        text.Text = value;
+
+        var line = new Grid
+        {
+            ColumnDefinitions =
+            {
+                new ColumnDefinition { Width = GridLength.Auto },
+                new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) },
+                new ColumnDefinition { Width = GridLength.Auto },
+            },
+        };
+
+        SetColumn(name, 1);
+        SetColumn(text, 2);
+        line.Children.Add(icon);
+        line.Children.Add(name);
+        line.Children.Add(text);
+        host.Children.Add(line);
+    }
+
+    // ---- parts -------------------------------------------------------------------------------
+
+    /// <summary>"Today" or the weekday; today in the accent colour and semibold. [S-727]</summary>
+    private static TextBlock DayText(ForecastDay day, DateOnly today, TypeStep step)
+    {
+        var isToday = day.Day == today;
+        var label = Fluent.Text(isToday ? FluentType.Strong(step) : step, isToday ? "AccentTextFillColorPrimaryBrush" : "TextFillColorPrimaryBrush");
+        label.Text = WeatherReport.DayLabel(day.Day, today);
+        label.TextTrimming = TextTrimming.CharacterEllipsis;
+        return label;
+    }
+
+    /// <summary>A droplet and the amount ("0.3", or "0.3 mm" where there is room); blank on a dry day. [S-727]</summary>
+    private static StackPanel Rain(double? millimetres, bool withUnit)
+    {
+        var amount = withUnit ? WeatherReport.Precipitation(millimetres) : WeatherReport.PrecipitationAmount(millimetres);
+        var panel = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 2, HorizontalAlignment = HorizontalAlignment.Right };
+
+        if (amount.Length == 0)
+        {
+            return panel;
+        }
+
+        var drop = Fluent.Icon(Glyphs.Droplet, "AccentTextFillColorPrimaryBrush", 10);
+        drop.VerticalAlignment = VerticalAlignment.Center;
+
+        var text = Fluent.Text(FluentType.Caption, "AccentTextFillColorPrimaryBrush");
+        text.Text = amount;
+
+        panel.Children.Add(drop);
+        panel.Children.Add(text);
+        return panel;
+    }
+
+    private static string Describe(ForecastDay day)
+    {
+        var parts = new List<string> { Formatting.ShortDate(day.Day), WeatherReport.Describe(day.Code) };
+        var rain = WeatherReport.Precipitation(day.Precipitation);
+
+        if (rain.Length > 0)
+        {
+            parts.Add(rain);
+        }
+
+        return string.Join(" · ", parts);
+    }
+
+    /// <summary>
+    /// The day's range against the forecast's, left to right. Three star columns whose weights
+    /// <i>are</i> the fractions, so the bar positions itself at layout time with no measurement.
+    /// </summary>
+    private FrameworkElement HorizontalBar(double low, double high, Range range)
+    {
+        var (start, end) = WeatherReport.RangeBar(low, high, range.Coldest, range.Warmest);
+
+        var track = Pill(_trackBrush);
+        track.Height = BarThickness;
+        var fill = Pill(_barBrush);
+        fill.Height = BarThickness;
+
+        var host = new Grid
+        {
+            Margin = new Thickness(0, 0, Fluent.Space3, 0),
+            VerticalAlignment = VerticalAlignment.Center,
+            ColumnDefinitions =
+            {
+                new ColumnDefinition { Width = new GridLength(start, GridUnitType.Star) },
+                new ColumnDefinition { Width = new GridLength(Math.Max(end - start, 0.02), GridUnitType.Star) },
+                new ColumnDefinition { Width = new GridLength(Math.Max(1 - end, 0), GridUnitType.Star) },
+            },
+        };
+
+        SetColumnSpan(track, 3);
+        SetColumn(fill, 1);
+        host.Children.Add(track);
+        host.Children.Add(fill);
+        return host;
+    }
+
+    /// <summary>The same range, bottom (cold) to top (warm), for a column.</summary>
+    private FrameworkElement VerticalBar(double low, double high, Range range)
+    {
+        var (start, end) = WeatherReport.RangeBar(low, high, range.Coldest, range.Warmest);
+
+        var track = Pill(_trackBrush);
+        track.Width = BarThickness;
+        var fill = Pill(_barBrush);
+        fill.Width = BarThickness;
+
+        var host = new Grid
+        {
+            RowDefinitions =
+            {
+                new RowDefinition { Height = new GridLength(Math.Max(1 - end, 0), GridUnitType.Star) },
+                new RowDefinition { Height = new GridLength(Math.Max(end - start, 0.02), GridUnitType.Star) },
+                new RowDefinition { Height = new GridLength(start, GridUnitType.Star) },
+            },
+        };
+
+        SetRowSpan(track, 3);
+        SetRow(fill, 1);
+        host.Children.Add(track);
+        host.Children.Add(fill);
+        return host;
+    }
+
+    private static Border Pill(Brush brush) => new()
+    {
+        Background = brush,
+        CornerRadius = new CornerRadius(BarThickness / 2),
+    };
+
+    private static TextBlock Number(string text, string colorKey)
+    {
+        var block = Fluent.Text(FluentType.Body, colorKey);
+        block.Text = text;
+        block.TextAlignment = TextAlignment.Right;
+        block.MinWidth = 34;
+        block.Margin = new Thickness(Fluent.Space2, 0, 0, 0);
+
+        // Tabular figures, so the column of temperatures lines up down the list.
+        Microsoft.UI.Xaml.Documents.Typography.SetNumeralAlignment(block, FontNumeralAlignment.Tabular);
+        return block;
+    }
+}

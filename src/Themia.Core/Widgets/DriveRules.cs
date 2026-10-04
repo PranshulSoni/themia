@@ -32,6 +32,49 @@ public sealed class GraphDriveItem
     /// <summary>On <c>/me/drive/recent</c>, an item shared from someone else's drive; its web address may only be here.</summary>
     [JsonPropertyName("remoteItem")]
     public GraphRemoteItem? RemoteItem { get; set; }
+
+    /// <summary>[S-1293] Who changed it last.</summary>
+    [JsonPropertyName("lastModifiedBy")]
+    public GraphIdentitySet? LastModifiedBy { get; set; }
+
+    /// <summary>[S-1293] The folder it sits in.</summary>
+    [JsonPropertyName("parentReference")]
+    public GraphItemReference? ParentReference { get; set; }
+}
+
+public sealed class GraphIdentitySet
+{
+    [JsonPropertyName("user")]
+    public GraphIdentity? User { get; set; }
+}
+
+public sealed class GraphIdentity
+{
+    [JsonPropertyName("displayName")]
+    public string? DisplayName { get; set; }
+}
+
+public sealed class GraphItemReference
+{
+    /// <summary>Like <c>/drive/root:/Documents/Reports</c>; absent for an item at the top of another drive.</summary>
+    [JsonPropertyName("path")]
+    public string? Path { get; set; }
+}
+
+/// <summary>[S-1294] Graph <c>drive</c>, just its quota.</summary>
+public sealed class GraphDrive
+{
+    [JsonPropertyName("quota")]
+    public GraphQuota? Quota { get; set; }
+}
+
+public sealed class GraphQuota
+{
+    [JsonPropertyName("used")]
+    public long? Used { get; set; }
+
+    [JsonPropertyName("total")]
+    public long? Total { get; set; }
 }
 
 public sealed class GraphDriveFolder
@@ -56,11 +99,18 @@ public sealed class GraphRemoteItem
 
     [JsonPropertyName("folder")]
     public GraphDriveFolder? Folder { get; set; }
+
+    [JsonPropertyName("lastModifiedBy")]
+    public GraphIdentitySet? LastModifiedBy { get; set; }
+
+    [JsonPropertyName("parentReference")]
+    public GraphItemReference? ParentReference { get; set; }
 }
 
 /// <summary>Source-generated contract for the drive endpoints. Native AOT has no reflection serializer.</summary>
 [JsonSourceGenerationOptions(NumberHandling = JsonNumberHandling.AllowReadingFromString)]
 [JsonSerializable(typeof(GraphDriveItem))]
+[JsonSerializable(typeof(GraphDrive))]
 public sealed partial class DriveWireContext : JsonSerializerContext;
 
 /// <summary>[S-606] Which icon a drive item gets.</summary>
@@ -78,6 +128,9 @@ public enum DriveItemKind
 
 /// <summary>One file or folder, reduced from Graph.</summary>
 /// <param name="WebUrl">The OneDrive page for it. Opened only through the launcher's allow list.</param>
+/// <param name="ModifiedBy">[S-1293] Who changed it last, when Graph says.</param>
+/// <param name="Location">[S-1293] The folder it sits in, as <see cref="DriveRules.Location"/> words it.</param>
+/// <param name="ChildCount">[S-1293] How many items a folder holds, when Graph says.</param>
 public sealed record DriveItem(
     string Id,
     string Name,
@@ -85,7 +138,13 @@ public sealed record DriveItem(
     DateTimeOffset? Modified,
     string WebUrl,
     bool IsFolder,
-    string? MimeType);
+    string? MimeType,
+    string? ModifiedBy = null,
+    string? Location = null,
+    long? ChildCount = null);
+
+/// <summary>[S-1294] How full a drive is.</summary>
+public readonly record struct DriveQuota(long Used, long Total);
 
 /// <summary>A folder the widget has walked into, for the way back.</summary>
 public sealed record DriveFolder(string Id, string Name);
@@ -98,7 +157,10 @@ public static class DriveRules
 {
     public static readonly Uri GraphRoot = new("https://graph.microsoft.com/v1.0/");
 
-    private const string Select = "$select=id,name,size,lastModifiedDateTime,webUrl,file,folder,remoteItem";
+    private const string Select = "$select=id,name,size,lastModifiedDateTime,webUrl,file,folder,remoteItem,lastModifiedBy,parentReference";
+
+    /// <summary>The words for the top of the drive, as OneDrive itself names it.</summary>
+    public const string RootName = "My files";
 
     private static readonly string[] MonthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
@@ -125,6 +187,9 @@ public static class DriveRules
         return new Uri(GraphRoot, $"{where}/children?$top={Clamp(count)}&$orderby=lastModifiedDateTime%20desc&{Select}");
     }
 
+    /// <summary>[S-1294] The drive's quota, for the footer of a big tile.</summary>
+    public static Uri QuotaAddress { get; } = new(GraphRoot, "me/drive?$select=quota");
+
     // ---- reading -------------------------------------------------------------------------------
 
     /// <summary>A Graph item, or null when it has no id or name.</summary>
@@ -148,8 +213,59 @@ public static class DriveRules
             // (a recent item's remoteItem) lives at another drive's address, so it opens on the web
             // like a file rather than failing as a listing.
             item.Folder is not null,
-            item.File?.MimeType);
+            item.File?.MimeType,
+            Blank(item.LastModifiedBy?.User?.DisplayName ?? item.RemoteItem?.LastModifiedBy?.User?.DisplayName),
+            Location(item.ParentReference?.Path ?? item.RemoteItem?.ParentReference?.Path),
+            item.Folder?.ChildCount ?? item.RemoteItem?.Folder?.ChildCount);
     }
+
+    /// <summary>
+    /// [S-1293] A parent path in words: <c>/drive/root:/Documents/Reports</c> is
+    /// <c>Documents › Reports</c>, the top of the drive is <see cref="RootName"/>, and a path that is
+    /// not a drive path (another drive's item, a missing reference) is null rather than a guess.
+    /// </summary>
+    public static string? Location(string? parentPath)
+    {
+        if (string.IsNullOrWhiteSpace(parentPath))
+        {
+            return null;
+        }
+
+        var colon = parentPath.IndexOf(':', StringComparison.Ordinal);
+        if (colon < 0 || !parentPath.StartsWith("/drive", StringComparison.OrdinalIgnoreCase))
+        {
+            return null;
+        }
+
+        var segments = parentPath[(colon + 1)..]
+            .Split('/', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Select(Uri.UnescapeDataString)
+            .ToList();
+
+        return segments.Count == 0 ? RootName : string.Join(" › ", segments);
+    }
+
+    /// <summary>[S-1294] A Graph quota, or null when it says too little to show (no total, nonsense numbers).</summary>
+    public static DriveQuota? FromGraph(GraphDrive drive)
+    {
+        ArgumentNullException.ThrowIfNull(drive);
+        return drive.Quota is { Used: { } used, Total: { } total } && total > 0 && used >= 0
+            ? new DriveQuota(Math.Min(used, total), total)
+            : null;
+    }
+
+    /// <summary>[S-1294] "12.4 GB of 1 TB used".</summary>
+    public static string QuotaText(DriveQuota quota) => $"{Formatting.Bytes(quota.Used)} of {Formatting.Bytes(quota.Total)} used";
+
+    /// <summary>[S-1293] A folder's size column: how many items it holds ("1 item", "12 items"), or nothing.</summary>
+    public static string ChildCountText(long? count) => count switch
+    {
+        null or < 0 => string.Empty,
+        1 => "1 item",
+        _ => $"{count.Value.ToString(CultureInfo.InvariantCulture)} items",
+    };
+
+    private static string? Blank(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
 
     /// <summary>[S-606] The icon: folder, then the MIME type, then the extension, then a plain file.</summary>
     public static DriveItemKind Kind(DriveItem item)

@@ -60,6 +60,26 @@ internal sealed class OfficeFixture : IOfficeSource
         ("Uma Patel", "uma.patel@contoso.com", "+41 44 555 01 91", "Recruiter", "Contoso"),
         ("Victor Lindqvist", "victor@litware.example", "+46 8 555 012 34", "CTO", "Litware"),
         ("Yara Haddad", "yara.haddad@example.com", null, "Doctor", "City Hospital"),
+
+        // [S-1279] Enough people for an XL tile's three columns to scroll.
+        ("Aiko Watanabe", "aiko.watanabe@contoso.com", "+41 44 555 02 11", "Translator", "Contoso"),
+        ("Bruno Keller", "bruno.keller@example.com", "+41 79 555 12 34", "Plumber", null),
+        ("Chloé Martin", "chloe.martin@fabrikam.example", "+33 1 55 50 12 34", "Sales Lead", "Fabrikam"),
+        ("David Okoro", "david.okoro@contoso.com", "+41 44 555 02 27", "QA Engineer", "Contoso"),
+        ("Emma Lindgren", "emma@litware.example", null, "Product Owner", "Litware"),
+        ("Farah Aziz", "farah.aziz@example.com", "+44 7700 900123", null, null),
+        ("Gabriel Silva", "gabriel.silva@contoso.com", "+41 44 555 02 39", "Support Engineer", "Contoso"),
+        ("Hugo Laurent", null, "+33 6 55 50 98 76", "Chef", "Le Petit Bistro"),
+        ("Isabel García", "isabel.garcia@adatum.example", "+34 91 555 0123", "Analyst", "Adatum"),
+        ("Jakob Novak", "jakob.novak@example.com", "+420 2 5550 1234", null, null),
+        ("Kira Ivanova", "kira.ivanova@contoso.com", "+41 44 555 02 52", "Office Manager", "Contoso"),
+        ("Leo Schwarz", "leo.schwarz@example.com", null, "Student", null),
+        ("Maya Rosen", "maya.rosen@northwind.example", "+972 3 555 0199", "Controller", "Northwind Traders"),
+        ("Nils Andersen", "nils.andersen@contoso.com", "+41 44 555 02 64", "DevOps Engineer", "Contoso"),
+        ("Oskar Wolf", null, "+49 40 555 0161", "Landlord", null),
+        ("Paula Moreno", "paula.moreno@example.com", "+41 76 555 71 02", "Yoga Teacher", "Studio Kreis 4"),
+        ("Quentin Blake", "quentin@wingtip.example", "+44 20 7946 0888", "Illustrator", "Wingtip"),
+        ("Rosa Ferrari", "rosa.ferrari@contoso.com", "+41 44 555 02 75", "Finance", "Contoso"),
     ];
 
     private readonly bool _populated;

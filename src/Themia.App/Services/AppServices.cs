@@ -50,6 +50,12 @@ internal static class AppServices
     public static Files.DriveService? Drive { get; internal set; }
 
     /// <summary>
+    /// [S-1420] The habit lists kept on this PC, shared by every Habits widget and its settings: the
+    /// host's one pool, or the debug gallery's in-memory fixture.
+    /// </summary>
+    public static Habits.HabitPool? Habits { get; internal set; }
+
+    /// <summary>
     /// [S-624] Where the GitHub widgets read from: the host's one <see cref="Developer.GitHubService"/>,
     /// or the debug gallery's fixture. Null before the host has started.
     /// </summary>

@@ -184,14 +184,14 @@ internal static partial class GpuSampler
     private sealed class Session : IDisposable
     {
         private readonly IReadOnlyList<GpuAdapter> _adapters;
-        private readonly PdhQuery? _counters;
+        private readonly GpuCounters? _counters;
         private readonly Nvml? _nvml;
         private bool _baselined;
 
         public Session()
         {
             _adapters = Dxgi.Enumerate();
-            _counters = PdhQuery.Open();
+            _counters = GpuCounters.Open();
             _nvml = Nvml.TryOpen();
         }
 
@@ -370,26 +370,17 @@ internal static partial class GpuSampler
     // ---------------------------------------------------------------------------------------------
 
     /// <summary>
-    /// The three GPU counter sets in one query. Owns the query handle and closes it exactly once;
-    /// the counter handles belong to the query and go with it.
+    /// The three GPU counter sets in one shared <see cref="PdhQuery"/>, which owns the query handle
+    /// and closes it exactly once; the counters belong to the query and go with it.
     /// </summary>
-    private sealed unsafe partial class PdhQuery : IDisposable
+    private sealed class GpuCounters : IDisposable
     {
-        private const uint FormatDouble = 0x00000200;
-        private const uint FormatLarge = 0x00000400;
-        private const uint MoreData = 0x800007D2;
+        private readonly PdhQuery _query;
+        private readonly PdhCounter _engines;
+        private readonly PdhCounter? _dedicated;
+        private readonly PdhCounter? _shared;
 
-        /// <summary>PDH_CSTATUS_VALID_DATA and PDH_CSTATUS_NEW_DATA; anything above is a bad reading.</summary>
-        private const uint LastGoodStatus = 1;
-
-        private readonly nint _query;
-        private readonly nint _engines;
-        private readonly nint _dedicated;
-        private readonly nint _shared;
-        private bool _collected;
-        private bool _disposed;
-
-        private PdhQuery(nint query, nint engines, nint dedicated, nint shared)
+        private GpuCounters(PdhQuery query, PdhCounter engines, PdhCounter? dedicated, PdhCounter? shared)
         {
             _query = query;
             _engines = engines;
@@ -397,38 +388,30 @@ internal static partial class GpuSampler
             _shared = shared;
         }
 
-        /// <summary>The query, collected once so the next collection has something to rate against. Null when PDH refuses.</summary>
-        public static PdhQuery? Open()
+        /// <summary>The counters, collected once so the next collection has something to rate against. Null when PDH refuses.</summary>
+        public static GpuCounters? Open()
         {
-            var opened = PdhOpenQuery(0, 0, out var query);
-            if (opened != 0)
+            if (PdhQuery.Open(Scope) is not { } query)
             {
-                Log.Warn(Scope, $"could not open the GPU counters: 0x{opened:X8}");
                 return null;
             }
 
-            // English paths, so a German or Japanese Windows finds the same counters.
-            if (PdhAddEnglishCounter(query, @"\GPU Engine(*)\Utilization Percentage", 0, out var engines) != 0)
+            if (query.Add(@"\GPU Engine(*)\Utilization Percentage") is not { } engines)
             {
                 // No engine counters means no GPU counters at all — an old driver model or a VM.
                 Log.Warn(Scope, "this machine has no GPU engine counters");
-                PdhCloseQuery(query);
+                query.Dispose();
                 return null;
             }
 
             // Memory is optional: a load meter is still worth drawing without it.
-            if (PdhAddEnglishCounter(query, @"\GPU Adapter Memory(*)\Dedicated Usage", 0, out var dedicated) != 0)
-            {
-                dedicated = 0;
-            }
+            var counters = new GpuCounters(
+                query,
+                engines,
+                query.Add(@"\GPU Adapter Memory(*)\Dedicated Usage"),
+                query.Add(@"\GPU Adapter Memory(*)\Shared Usage"));
 
-            if (PdhAddEnglishCounter(query, @"\GPU Adapter Memory(*)\Shared Usage", 0, out var shared) != 0)
-            {
-                shared = 0;
-            }
-
-            var counters = new PdhQuery(query, engines, dedicated, shared);
-            counters.Collect();
+            query.Collect();
             return counters;
         }
 
@@ -436,142 +419,15 @@ internal static partial class GpuSampler
         public List<(string Instance, double Percent)> Engines()
         {
             // One collection per sample, and the engine read is always the first of the three.
-            Collect();
-
-            var result = new List<(string, double)>();
-            Read(_engines, FormatDouble, (name, value) => result.Add((name, value.Double)));
-            return result;
+            _query.Collect();
+            return _query.Doubles(_engines);
         }
 
-        public List<(string Instance, long Bytes)> Dedicated() => Memory(_dedicated);
+        public List<(string Instance, long Bytes)> Dedicated() => _dedicated is { } counter ? _query.Larges(counter) : [];
 
-        public List<(string Instance, long Bytes)> Shared() => Memory(_shared);
+        public List<(string Instance, long Bytes)> Shared() => _shared is { } counter ? _query.Larges(counter) : [];
 
-        private List<(string Instance, long Bytes)> Memory(nint counter)
-        {
-            var result = new List<(string, long)>();
-            if (counter != 0)
-            {
-                Read(counter, FormatLarge, (name, value) => result.Add((name, value.Large)));
-            }
-
-            return result;
-        }
-
-        private void Collect()
-        {
-            if (_disposed)
-            {
-                return;
-            }
-
-            var status = PdhCollectQueryData(_query);
-
-            // The very first collection of a rate counter reports "no data yet"; anything else is
-            // worth a line, once.
-            if (status != 0 && _collected)
-            {
-                Log.Debug(Scope, $"collecting the GPU counters returned 0x{status:X8}");
-            }
-
-            _collected = true;
-        }
-
-        [StructLayout(LayoutKind.Explicit)]
-        private struct Value
-        {
-            [FieldOffset(0)]
-            public double Double;
-
-            [FieldOffset(0)]
-            public long Large;
-        }
-
-        [StructLayout(LayoutKind.Sequential)]
-        private struct Item
-        {
-            public char* Name;
-            public uint Status;
-            public Value Value;
-        }
-
-        private void Read(nint counter, uint format, Action<string, Value> each)
-        {
-            if (_disposed)
-            {
-                return;
-            }
-
-            // The instance list can grow between asking for the size and reading — a process
-            // starts a GPU context — so the size is asked again a few times rather than once.
-            for (var attempt = 0; attempt < 3; attempt++)
-            {
-                uint size = 0;
-                var sized = PdhGetFormattedCounterArray(counter, format, ref size, out var count, 0);
-
-                if (sized != MoreData || size == 0 || count == 0)
-                {
-                    return;
-                }
-
-                var buffer = NativeMemory.Alloc(size);
-                try
-                {
-                    var read = PdhGetFormattedCounterArray(counter, format, ref size, out count, (nint)buffer);
-
-                    if (read == MoreData)
-                    {
-                        continue;
-                    }
-
-                    if (read != 0)
-                    {
-                        return;
-                    }
-
-                    var items = (Item*)buffer;
-                    for (var i = 0; i < count; i++)
-                    {
-                        if (items[i].Status <= LastGoodStatus && items[i].Name is not null)
-                        {
-                            each(new string(items[i].Name), items[i].Value);
-                        }
-                    }
-
-                    return;
-                }
-                finally
-                {
-                    NativeMemory.Free(buffer);
-                }
-            }
-        }
-
-        public void Dispose()
-        {
-            if (_disposed)
-            {
-                return;
-            }
-
-            _disposed = true;
-            PdhCloseQuery(_query);
-        }
-
-        [LibraryImport("pdh.dll", EntryPoint = "PdhOpenQueryW")]
-        private static partial uint PdhOpenQuery(nint dataSource, nint userData, out nint query);
-
-        [LibraryImport("pdh.dll", EntryPoint = "PdhAddEnglishCounterW", StringMarshalling = StringMarshalling.Utf16)]
-        private static partial uint PdhAddEnglishCounter(nint query, string path, nint userData, out nint counter);
-
-        [LibraryImport("pdh.dll")]
-        private static partial uint PdhCollectQueryData(nint query);
-
-        [LibraryImport("pdh.dll", EntryPoint = "PdhGetFormattedCounterArrayW")]
-        private static partial uint PdhGetFormattedCounterArray(nint counter, uint format, ref uint bufferSize, out uint itemCount, nint buffer);
-
-        [LibraryImport("pdh.dll")]
-        private static partial uint PdhCloseQuery(nint query);
+        public void Dispose() => _query.Dispose();
     }
 
     // ---------------------------------------------------------------------------------------------

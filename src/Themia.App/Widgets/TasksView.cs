@@ -27,7 +27,7 @@ namespace Themia.App.Widgets;
 /// A list on this PC needs no account at all.
 /// </para>
 /// </summary>
-internal sealed partial class TasksView : Grid, IWidgetView, IWidgetHeaderContent, IWidgetSurfaceAware, IWidgetContextActions
+internal sealed partial class TasksView : Grid, IWidgetView, IWidgetHeaderContent, IWidgetSurfaceAware, IWidgetContextActions, IWidgetSizeAware
 {
     private const string Scope = "tasks-widget";
 
@@ -37,16 +37,17 @@ internal sealed partial class TasksView : Grid, IWidgetView, IWidgetHeaderConten
     /// <summary>Below this the second link is dropped too.</summary>
     private const double SecondLinkNeedsHeight = 200;
 
-    /// <summary>Below this the add row is dropped: on a tile this small every row is a task.</summary>
-    private const double AddRowNeedsHeight = 170;
-
     private readonly TextBlock _badge = new();
     private readonly Border _badgeHost;
     private readonly ProgressRing _busy = new();
     private readonly FontIcon _warning;
     private readonly StackPanel _trailing;
-    private readonly StackPanel _list = new() { Spacing = 0 };
+    private readonly TaskRowsPanel _rowsPanel = new();
     private readonly ScrollViewer _scroll;
+    private readonly TaskListHost _listHost;
+
+    /// <summary>[S-783] "7 open · 2 overdue · 1 due today" over the list on a panel.</summary>
+    private readonly TextBlock _summary;
     private readonly Grid _emptyHost = new();
     private readonly StackPanel _empty;
     private readonly TextBlock _emptyText = new();
@@ -83,10 +84,21 @@ internal sealed partial class TasksView : Grid, IWidgetView, IWidgetHeaderConten
     private int _bindGeneration;
     private bool _detached;
 
+    /// <summary>The slot the card last gave this view ([S-663]); unmeasured until the first layout pass.</summary>
+    private WidgetArea _area;
+
+    /// <summary>[S-789] List names by id, for the Today view's rows on a panel. Read from the service's cache.</summary>
+    private IReadOnlyDictionary<string, string> _listNames = new Dictionary<string, string>();
+
     public TasksView()
     {
+        RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
         RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+
+        _summary = Fluent.Text(FluentType.Caption, "TextFillColorSecondaryBrush");
+        _summary.Margin = new Thickness(Fluent.Space4, 0, Fluent.Space4, TaskLayout.SummaryHeight - FluentType.Caption.LineHeight);
+        _summary.Visibility = Visibility.Collapsed;
 
         // The open count is Fluent's InfoBadge shape, which the design system owns.
         _badgeHost = Fluent.Badge(_badge);
@@ -114,7 +126,7 @@ internal sealed partial class TasksView : Grid, IWidgetView, IWidgetHeaderConten
         {
             // Nothing either side, so a row and its hover reach both card edges.
             Padding = Fluent.ListPadding,
-            Content = _list,
+            Content = _rowsPanel,
             HorizontalScrollMode = ScrollMode.Disabled,
             HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
             VerticalScrollBarVisibility = ScrollBarVisibility.Hidden,
@@ -155,13 +167,15 @@ internal sealed partial class TasksView : Grid, IWidgetView, IWidgetHeaderConten
         _emptyHost.Visibility = Visibility.Collapsed;
 
         _addRow = BuildAddRow();
-        Grid.SetRow(_addRow, 1);
+        _listHost = new TaskListHost(_scroll, _rowsPanel);
+        Grid.SetRow(_listHost, 1);
+        Grid.SetRow(_emptyHost, 1);
+        Grid.SetRow(_addRow, 2);
 
-        Children.Add(_scroll);
+        Children.Add(_summary);
+        Children.Add(_listHost);
         Children.Add(_emptyHost);
         Children.Add(_addRow);
-
-        SizeChanged += OnSizeChanged;
     }
 
     /// <summary>What the widget is showing instead of, or as well as, a list.</summary>
@@ -181,9 +195,6 @@ internal sealed partial class TasksView : Grid, IWidgetView, IWidgetHeaderConten
 
     /// <inheritdoc />
     public FrameworkElement? HeaderTrailing => _trailing;
-
-    /// <summary>Fluent's two row heights: a tile shorter than five standard rows takes the compact one.</summary>
-    private bool Compact => ActualHeight > 0 && ActualHeight < Fluent.CompactBelow;
 
     private bool IsLocal => _config.Source == TaskSource.Local;
 
@@ -284,6 +295,7 @@ internal sealed partial class TasksView : Grid, IWidgetView, IWidgetHeaderConten
         _localListId = null;
         _account = null;
         _resolvedListName = null;
+        _listNames = new Dictionary<string, string>();
         _listsFailure = null;
 
         if (_service is null)
@@ -330,11 +342,9 @@ internal sealed partial class TasksView : Grid, IWidgetView, IWidgetHeaderConten
 
         Hold(_account.Id, _config.ListId);
 
-        if (!TaskRules.IsToday(_config.ListId))
-        {
-            // The name may have changed at the provider since it was picked; the lists are cached.
-            _ = RefreshListNameAsync(_account.Id, _config.ListId, generation);
-        }
+        // The name may have changed at the provider since it was picked; Today wants every list's
+        // name for its rows. Either way the lists are cached.
+        _ = RefreshListNameAsync(_account.Id, _config.ListId, generation);
     }
 
     private async Task ResolveDefaultListAsync(TaskAccount account, int generation)
@@ -376,7 +386,23 @@ internal sealed partial class TasksView : Grid, IWidgetView, IWidgetHeaderConten
         {
             var lists = await _service!.ListsAsync(accountId).ConfigureAwait(true);
 
-            if (!_detached && generation == _bindGeneration && lists.FirstOrDefault(l => l.Id == listId) is { } list)
+            if (_detached || generation != _bindGeneration)
+            {
+                return;
+            }
+
+            if (TaskRules.IsToday(listId))
+            {
+                var names = new Dictionary<string, string>(StringComparer.Ordinal);
+                foreach (var each in lists)
+                {
+                    names.TryAdd(each.Id, each.Name);
+                }
+
+                _listNames = names;
+                Render();
+            }
+            else if (lists.FirstOrDefault(l => l.Id == listId) is { } list)
             {
                 _resolvedListName = list.Name;
                 PublishTitle();
@@ -533,7 +559,7 @@ internal sealed partial class TasksView : Grid, IWidgetView, IWidgetHeaderConten
 
             // A list on this PC is its own order.
             var items = list.Tasks.Select(t => LocalTaskLists.ToItem(t, list.Id)).ToList();
-            return TaskRules.Visible(items, _config.ShowCompleted);
+            return TaskRules.Sectioned(TaskRules.Visible(items, _config.ShowCompleted));
         }
 
         if (_feed is not { Loaded: true } feed)
@@ -549,7 +575,7 @@ internal sealed partial class TasksView : Grid, IWidgetView, IWidgetHeaderConten
         }
 
         tasks = TaskRules.Visible(tasks, _config.ShowCompleted);
-        return TaskRules.ApplyOrder(tasks, TaskRules.CleanOrder(_config.TaskOrder), t => t.Id);
+        return TaskRules.Sectioned(TaskRules.ApplyOrder(tasks, TaskRules.CleanOrder(_config.TaskOrder), t => t.Id));
     }
 
     private void Render()
@@ -577,7 +603,11 @@ internal sealed partial class TasksView : Grid, IWidgetView, IWidgetHeaderConten
 
         _screen = Screen.Ready;
         _displayed = rows;
-        BuildRows(rows, today);
+        var plan = Plan(rows.Count);
+        BuildRows(rows, today, plan);
+
+        _summary.Text = TaskRules.Summary(rows, today, TimeZoneInfo.Local);
+        _summary.Visibility = plan.Summary && rows.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
 
         _badge.Text = TaskRules.OpenCount(rows).ToString(CultureInfo.InvariantCulture);
         _badgeHost.Visibility = TaskRules.OpenCount(rows) > 0 ? Visibility.Visible : Visibility.Collapsed;
@@ -592,7 +622,33 @@ internal sealed partial class TasksView : Grid, IWidgetView, IWidgetHeaderConten
             _scroll.Visibility = Visibility.Visible;
         }
 
-        FitAddRow();
+        FitAddRow(plan);
+    }
+
+    /// <summary>[S-780] The ladder for the slot the card gave this view, and the rows there are to show.</summary>
+    private TaskLayoutPlan Plan(int count) => TaskLayout.Plan(
+        _area,
+        new TaskLayoutInput(count, Writable, _feed?.IsToday == true, _config.ShowDueDate, _config.ViewMode, _config.EffectiveTitleLines),
+        Fluent.RowHeight,
+        Fluent.RowHeightCompact);
+
+    /// <summary>[S-663] A new slot: re-lay the rows only when the ladder lands somewhere else.</summary>
+    public void ApplySize(WidgetArea area)
+    {
+        _area = area;
+        FitEmptyState();
+
+        if (_screen == Screen.Ready)
+        {
+            if (Plan(_displayed.Count) != _drawnPlan)
+            {
+                Render();
+            }
+        }
+        else
+        {
+            FitAddRow(Plan(0));
+        }
     }
 
     /// <summary>The busy ring and the warning, which ride on the card's header.</summary>
@@ -632,6 +688,7 @@ internal sealed partial class TasksView : Grid, IWidgetView, IWidgetHeaderConten
         ClearRows();
         _displayed = [];
         _badgeHost.Visibility = Visibility.Collapsed;
+        _summary.Visibility = Visibility.Collapsed;
         UpdateHeader();
 
         var who = _account?.Label;
@@ -677,7 +734,7 @@ internal sealed partial class TasksView : Grid, IWidgetView, IWidgetHeaderConten
                 break;
         }
 
-        FitAddRow();
+        FitAddRow(Plan(0));
     }
 
     /// <summary>A failure in the user's words: the network state, else what the provider said.</summary>
@@ -744,24 +801,10 @@ internal sealed partial class TasksView : Grid, IWidgetView, IWidgetHeaderConten
         }
     }
 
-    private void OnSizeChanged(object sender, SizeChangedEventArgs args)
-    {
-        FitEmptyState();
-        FitAddRow();
-
-        // The density switch is between two fixed row heights; crossing it redraws, nothing more.
-        // Compared with what was drawn, not with the previous size: the first rows can be drawn
-        // before the tile has any size at all.
-        if (_screen == Screen.Ready && _drawnDensity != Density())
-        {
-            Render();
-        }
-    }
-
     /// <summary>The links show when there are any and room for them; the sentence gets the rest.</summary>
     private void FitEmptyState()
     {
-        var height = ActualHeight;
+        var height = _area.IsMeasured ? _area.Height : 0;
         var link = _emptyAction.Tag is EmptyAction && (height <= 0 || height >= LinkNeedsHeight);
         var local = link && _offerLocal && (height <= 0 || height >= SecondLinkNeedsHeight);
         _emptyAction.Visibility = link ? Visibility.Visible : Visibility.Collapsed;
@@ -776,11 +819,12 @@ internal sealed partial class TasksView : Grid, IWidgetView, IWidgetHeaderConten
             return;
         }
 
+        CancelDrag();
         CancelEdit();
+        _rowFocused = false;
         _detached = true;
         _bindGeneration++;
 
-        SizeChanged -= OnSizeChanged;
         _emptyAction.Click -= OnEmptyActionClicked;
         _emptyLocal.Click -= OnEmptyActionClicked;
 

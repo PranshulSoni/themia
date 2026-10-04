@@ -20,6 +20,10 @@ internal interface IDriveRemote
     event Action? AccountsChanged;
 
     Task<IReadOnlyList<DriveItem>> ListAsync(string accountId, Uri address, int max, CancellationToken cancellation);
+
+    /// <summary>[S-1294] How full the account's drive is, or null when Graph says too little.</summary>
+    /// <exception cref="AccountException">How the request failed.</exception>
+    Task<DriveQuota?> QuotaAsync(string accountId, CancellationToken cancellation);
 }
 
 /// <summary>[S-607] OneDrive through <see cref="AccountService"/>: Graph pages, typed failures.</summary>
@@ -46,6 +50,13 @@ internal sealed class AccountDriveRemote(AccountService accounts) : IDriveRemote
             .ConfigureAwait(false);
         return [.. items.Select(DriveRules.FromGraph).OfType<DriveItem>()];
     }
+
+    public async Task<DriveQuota?> QuotaAsync(string accountId, CancellationToken cancellation)
+    {
+        var drive = await accounts.GetJsonAsync(accountId, DriveRules.QuotaAddress, DriveWireContext.Default.GraphDrive, cancellation)
+            .ConfigureAwait(false);
+        return DriveRules.FromGraph(drive);
+    }
 }
 
 /// <summary>
@@ -61,6 +72,8 @@ internal sealed class DriveService : IDisposable
     private readonly IDriveRemote _remote;
     private readonly Dictionary<string, (DateTimeOffset At, IReadOnlyList<DriveItem> Items)> _cache = new(StringComparer.Ordinal);
     private readonly Dictionary<string, Task<IReadOnlyList<DriveItem>>> _inFlight = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, (DateTimeOffset At, DriveQuota? Quota)> _quotas = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, Task<DriveQuota?>> _quotaInFlight = new(StringComparer.Ordinal);
     private bool _disposed;
 
     public DriveService(IDriveRemote remote)
@@ -108,6 +121,32 @@ internal sealed class DriveService : IDisposable
         return load;
     }
 
+    /// <summary>
+    /// [S-1294] The drive's quota for a big tile's footer: an extra, so it is asked at most every
+    /// half hour per account, joins a request already out, and a failure is logged and reads as
+    /// "no footer" rather than an error on the widget.
+    /// </summary>
+    public Task<DriveQuota?> QuotaAsync(string accountId)
+    {
+        if (_quotas.TryGetValue(accountId, out var held) && DateTimeOffset.Now - held.At < QuotaMaxAge)
+        {
+            return Task.FromResult(held.Quota);
+        }
+
+        if (_quotaInFlight.TryGetValue(accountId, out var running))
+        {
+            return running;
+        }
+
+        var load = LoadQuotaAsync(accountId);
+        if (!load.IsCompleted)
+        {
+            _quotaInFlight[accountId] = load;
+        }
+
+        return load;
+    }
+
     public void Dispose()
     {
         if (_disposed)
@@ -119,6 +158,30 @@ internal sealed class DriveService : IDisposable
         _remote.AccountsChanged -= OnAccountsChanged;
         AccountsChanged = null;
         _cache.Clear();
+        _quotas.Clear();
+    }
+
+    private static readonly TimeSpan QuotaMaxAge = TimeSpan.FromMinutes(30);
+
+    private async Task<DriveQuota?> LoadQuotaAsync(string accountId)
+    {
+        try
+        {
+            var quota = await _remote.QuotaAsync(accountId, CancellationToken.None).ConfigureAwait(true);
+            _quotas[accountId] = (DateTimeOffset.Now, quota);
+            return quota;
+        }
+        catch (AccountException ex)
+        {
+            // An extra: the list still shows; the footer waits for the next half hour.
+            Log.Info(Scope, $"no quota for the footer: {ex.Error}");
+            _quotas[accountId] = (DateTimeOffset.Now, null);
+            return null;
+        }
+        finally
+        {
+            _quotaInFlight.Remove(accountId);
+        }
     }
 
     private async Task<IReadOnlyList<DriveItem>> LoadAsync(string key, string accountId, Uri address, int max)
@@ -139,6 +202,7 @@ internal sealed class DriveService : IDisposable
     {
         // A signed-out account's files must not linger in memory.
         _cache.Clear();
+        _quotas.Clear();
 
         if (AccountsChanged is not { } changed)
         {

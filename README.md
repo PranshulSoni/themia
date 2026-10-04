@@ -1,6 +1,6 @@
 # Themia for WinUI
 
-A minimal native rebuild of [Themia](https://github.com/crazy-rabbit-software/themia) — the desktop
+A minimal native rebuild of [Themia](https://themia.app) — the desktop
 widget app — on **WinUI 3 / .NET 10, compiled ahead of time**. The point of the exercise is the
 runtime cost: no web view, no JavaScript engine, no JIT.
 
@@ -66,7 +66,7 @@ Add widget, view switching, settings and exit all live on the edit toolbar (exit
   cursor, on whichever display it is over — so copy on one screen and paste on another.
 - Dragging a widget onto another display moves it there, when that display shows a different view.
 
-State lives in `%APPDATA%\Themia.WinUI\state.json`; warnings and errors go to `themia.log` beside it.
+State lives in `%APPDATA%\Themia\state.json`; warnings and errors go to `themia.log` beside it.
 
 ## How it is put together
 
@@ -107,8 +107,7 @@ contain the actual CPU hogs; it shows them at `--` and ranks the rest. It now ta
 Accounts (Microsoft, Google, IMAP, CalDAV/CardDAV, GitHub, Claude) are signed in from Settings ›
 Accounts and stored beside the state file with every secret protected by DPAPI for the current user.
 Each kind of data has one shared sync service, so ten widgets on one account still mean one fetch,
-one cache and one rate-limit budget. Accounts from the classic Tauri app can be imported in one
-click (`[S-500]`..`[S-539]`).
+one cache and one rate-limit budget (`[S-500]`..`[S-539]`).
 
 ### The three ideas worth knowing
 

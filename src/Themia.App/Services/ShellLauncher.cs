@@ -134,6 +134,43 @@ internal static class ShellLauncher
     }
 
     /// <summary>
+    /// [S-1268] Open a calendar event: a provider's https page or an <c>ms-outlook://events/…</c>
+    /// deep link, both made by <see cref="Themia.Core.Office.CalendarLinks"/>, which is also the gate
+    /// re-applied to the literal string here. Its own allow list, like mail links.
+    /// </summary>
+    public static LaunchOutcome OpenCalendarLink(string? link)
+    {
+        if (!Themia.Core.Office.CalendarLinks.IsLaunchable(link))
+        {
+            Log.Warn(Scope, $"refused to open calendar link '{Excerpt(link)}'");
+            return LaunchOutcome.Refused;
+        }
+
+        return Launch(link!);
+    }
+
+    /// <summary>
+    /// [S-547] / [S-1268] Whether Outlook for Windows' <c>ms-outlook:</c> protocol is registered, so
+    /// mail and calendar items can hand off to it. Read once per run: installing Outlook mid-session
+    /// is rare, and the registry is not worth asking on every click.
+    /// </summary>
+    public static bool OutlookInstalled => OutlookProtocol.Value;
+
+    private static readonly Lazy<bool> OutlookProtocol = new(() =>
+    {
+        try
+        {
+            using var key = Microsoft.Win32.Registry.ClassesRoot.OpenSubKey(Themia.Core.Mail.MailLinks.OutlookScheme);
+            return key is not null;
+        }
+        catch (Exception ex) when (ex is System.Security.SecurityException or UnauthorizedAccessException or IOException)
+        {
+            Log.Warn(Scope, "could not tell whether Outlook is installed; opening items on the web", ex);
+            return false;
+        }
+    });
+
+    /// <summary>
     /// [S-587] Write to, call or message a contact: a <c>mailto:</c>, <c>tel:</c> or <c>sms:</c> built
     /// by <see cref="Themia.Core.Office.ContactLinks"/> from the contact's own address or number, which
     /// refuses anything but a plain one. Like mail links, a separate allow list rather than a widening

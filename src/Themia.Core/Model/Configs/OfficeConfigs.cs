@@ -60,14 +60,6 @@ public enum ContactColumn
 /// [S-561] The calendar widget's settings: which accounts and calendars, how time is laid out, and
 /// whether birthdays are shown. Data comes from Themia's own accounts ([S-529]). Every value is
 /// read leniently ([S-563]): a wrong one becomes its default rather than refusing the state file.
-/// <para>
-/// <b>Legacy shape.</b> Before this the widget read the hearth hub, and a saved state may still
-/// hold that config (<c>collectionId</c>, <c>maxCount</c>, <c>daysAhead</c>, <c>showAllDay</c>,
-/// <c>showLocation</c>). Those names are read here and nowhere else ([S-563]): a hearth collection
-/// id means nothing to an account, so <see cref="Repair"/> starts the widget on every calendar
-/// account in the agenda layout that widget was, keeps the user's row count, reports the repair
-/// (the store logs it), and the old fields are never written back.
-/// </para>
 /// </summary>
 public sealed class CalendarConfig : WidgetConfig
 {
@@ -109,46 +101,10 @@ public sealed class CalendarConfig : WidgetConfig
     [JsonIgnore]
     public WeekStartDay EffectiveWeekStart => Enum.IsDefined(WeekStart) ? WeekStart : WeekStartDay.Monday;
 
-    // ---- the hearth shape, read once and never written ([S-563]) ----------------------------
-
-    [JsonPropertyName("collectionId")]
-    public string? LegacyCollectionId { get; set; }
-
-    [JsonPropertyName("maxCount")]
-    public int? LegacyMaxCount { get; set; }
-
-    [JsonPropertyName("daysAhead")]
-    public int? LegacyDaysAhead { get; set; }
-
-    [JsonPropertyName("showAllDay")]
-    public bool? LegacyShowAllDay { get; set; }
-
-    [JsonPropertyName("showLocation")]
-    public bool? LegacyShowLocation { get; set; }
-
-    /// <summary>[S-563] Fold the hearth shape in and bring every value back inside its range.</summary>
+    /// <summary>[S-563] Bring every value back inside its range.</summary>
     public override IReadOnlyList<string> Repair()
     {
         var repairs = new List<string>();
-
-        if (LegacyCollectionId is not null || LegacyMaxCount is not null || LegacyDaysAhead is not null
-            || LegacyShowAllDay is not null || LegacyShowLocation is not null)
-        {
-            // The hearth widget was an agenda list with a row count; keep both, drop the rest.
-            View = CalendarViewMode.Agenda;
-            if (LegacyMaxCount is { } count)
-            {
-                AgendaCount = Math.Clamp(count, 1, 100);
-            }
-
-            repairs.Add("calendar widget moved from the hearth hub to Themia's accounts; it now shows every calendar account in the agenda layout");
-
-            LegacyCollectionId = null;
-            LegacyMaxCount = null;
-            LegacyDaysAhead = null;
-            LegacyShowAllDay = null;
-            LegacyShowLocation = null;
-        }
 
         var ids = (AccountIds ?? []).Where(id => !string.IsNullOrWhiteSpace(id)).Distinct(StringComparer.Ordinal).ToList();
         if (AccountIds is null || ids.Count != AccountIds.Count)
@@ -191,12 +147,6 @@ public sealed class CalendarConfig : WidgetConfig
 /// <summary>
 /// [S-580] The contacts widget's settings: which accounts, the layout, the columns of the details
 /// table, how many to list and a search to start with. Data comes from Themia's own accounts.
-/// <para>
-/// <b>Legacy shape.</b> A saved hearth contacts config (<c>collectionId</c>, <c>maxCount</c>,
-/// <c>showDetail</c>, <c>showAvatar</c>) is folded in by <see cref="Repair"/> ([S-563]): the widget
-/// starts on every contacts account, keeps the row count (at least five), takes the compact layout
-/// when the avatar was off, and never writes the old fields back.
-/// </para>
 /// </summary>
 public sealed class ContactsConfig : WidgetConfig
 {
@@ -240,40 +190,10 @@ public sealed class ContactsConfig : WidgetConfig
         }
     }
 
-    // ---- the hearth shape, read once and never written ([S-563]) ----------------------------
-
-    [JsonPropertyName("collectionId")]
-    public string? LegacyCollectionId { get; set; }
-
-    [JsonPropertyName("maxCount")]
-    public int? LegacyMaxCount { get; set; }
-
-    [JsonPropertyName("showDetail")]
-    public bool? LegacyShowDetail { get; set; }
-
-    [JsonPropertyName("showAvatar")]
-    public bool? LegacyShowAvatar { get; set; }
-
-    /// <summary>[S-563] Fold the hearth shape in and bring every value back inside its range.</summary>
+    /// <summary>[S-563] Bring every value back inside its range.</summary>
     public override IReadOnlyList<string> Repair()
     {
         var repairs = new List<string>();
-
-        if (LegacyCollectionId is not null || LegacyMaxCount is not null || LegacyShowDetail is not null || LegacyShowAvatar is not null)
-        {
-            if (LegacyMaxCount is { } count)
-            {
-                Count = Math.Max(5, count);
-            }
-
-            Layout = LegacyShowAvatar == false ? ContactsLayout.Compact : ContactsLayout.List;
-            repairs.Add("contacts widget moved from the hearth hub to Themia's accounts; it now lists every contacts account");
-
-            LegacyCollectionId = null;
-            LegacyMaxCount = null;
-            LegacyShowDetail = null;
-            LegacyShowAvatar = null;
-        }
 
         var ids = (AccountIds ?? []).Where(id => !string.IsNullOrWhiteSpace(id)).Distinct(StringComparer.Ordinal).ToList();
         if (AccountIds is null || ids.Count != AccountIds.Count)

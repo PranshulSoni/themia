@@ -27,6 +27,12 @@ internal sealed record Fetched<T>(FetchStatus Status, T? Value, string? Detail, 
     /// </para>
     /// </summary>
     public Fetched<T> Stale(FetchStatus status, string? detail) => this with { Status = status, Detail = detail };
+
+    /// <summary>
+    /// [S-729] Read back from disk at launch rather than fetched by this run. Shown as stale until a
+    /// fetch replaces it, however young it is: the app was not running to watch it age.
+    /// </summary>
+    public bool Restored { get; init; }
 }
 
 /// <summary>
@@ -46,9 +52,11 @@ internal sealed record Fetched<T>(FetchStatus Status, T? Value, string? Detail, 
 /// </item>
 /// </list>
 /// <para>
-/// In memory only, deliberately. Persisting it would mean a cold launch showing last week's
-/// temperature as though it were current, and the state file is not the place for somebody else's
-/// data.
+/// In memory. A service that wants its answers to survive a restart (weather, [S-729]) seeds the
+/// cache with <see cref="Restore"/> at launch and saves <see cref="Snapshot"/> itself, to its own
+/// file — never the state file, which is not the place for somebody else's data. A restored
+/// answer is marked <see cref="Fetched{T}.Restored"/>: drawn at once, with its real age, and
+/// never treated as fresh.
 /// </para>
 /// </summary>
 internal sealed class WebCache<T>(string scope)
@@ -81,21 +89,29 @@ internal sealed class WebCache<T>(string scope)
     /// <param name="key">Everything that changes the answer — the URL, the unit, the range.</param>
     /// <param name="freshFor">How long an answer stays good; the widget's own refresh interval.</param>
     /// <param name="load">Performs the request. Called at most once per key per flight.</param>
+    /// <param name="force">
+    /// [S-730] Skip the freshness check: the user asked for "Refresh", which means the network, not
+    /// the answer from two minutes ago. A request already in flight is still joined.
+    /// </param>
     public async Task<Fetched<T>> GetAsync(
         string key,
         TimeSpan freshFor,
         Func<CancellationToken, Task<Fetched<T>>> load,
-        CancellationToken token)
+        CancellationToken token,
+        bool force = false)
     {
         var now = DateTimeOffset.Now;
 
         lock (_gate)
         {
             // A fresh answer, and no request in flight to join: nothing to do. An entry is only
-            // ever stored on success, so this can never hand back a cached failure.
-            if (!_inFlight.ContainsKey(key)
+            // ever stored on success, so this can never hand back a cached failure. A restored
+            // answer is never fresh.
+            if (!force
+                && !_inFlight.ContainsKey(key)
                 && _entries.TryGetValue(key, out var hit)
                 && hit.Status == FetchStatus.Ok
+                && !hit.Restored
                 && now - hit.At < freshFor)
             {
                 return hit;
@@ -177,6 +193,43 @@ internal sealed class WebCache<T>(string scope)
             // response rather than taking the widget down from inside a tick.
             Log.Error(scope, "a fetch threw instead of returning a status", ex);
             return Fetched<T>.Failed(FetchStatus.BadResponse, ex.Message, DateTimeOffset.Now);
+        }
+    }
+
+    /// <summary>
+    /// [S-729] Seed an answer read back from disk. Never replaces one this run has fetched: the
+    /// file is older than anything in memory by construction.
+    /// </summary>
+    public void Restore(string key, T value, DateTimeOffset at)
+    {
+        ArgumentNullException.ThrowIfNull(value);
+
+        lock (_gate)
+        {
+            if (!_entries.ContainsKey(key))
+            {
+                Remember(key, new Fetched<T>(FetchStatus.Ok, value, null, at) { Restored = true });
+            }
+        }
+    }
+
+#if DEBUG
+    /// <summary>Put a fixed answer in place, for the debug gallery's offline fixtures.</summary>
+    internal void Seed(string key, Fetched<T> value)
+    {
+        lock (_gate)
+        {
+            Remember(key, value);
+        }
+    }
+#endif
+
+    /// <summary>Every good answer held, for a service that saves them. A copy; safe to enumerate.</summary>
+    public List<(string Key, Fetched<T> Entry)> Snapshot()
+    {
+        lock (_gate)
+        {
+            return [.. _entries.Where(pair => pair.Value.Value is not null).Select(pair => (pair.Key, pair.Value))];
         }
     }
 

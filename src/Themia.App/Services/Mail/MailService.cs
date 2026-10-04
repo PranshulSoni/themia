@@ -33,7 +33,6 @@ internal sealed class MailService : IMailSource, IDisposable
     private readonly Ticker _ticker;
     private readonly Dictionary<string, Feed> _feeds = new(StringComparer.Ordinal);
     private IDisposable? _tick;
-    private bool? _outlookInstalled;
     private bool _disposed;
 
     public MailService(AccountService accounts, Ticker ticker)
@@ -219,30 +218,8 @@ internal sealed class MailService : IMailSource, IDisposable
         return ShellLauncher.OpenMailLink(link) == LaunchOutcome.Opened;
     }
 
-    /// <summary>Whether Outlook's <c>ms-outlook:</c> protocol is registered. Read once; installing Outlook mid-session is rare.</summary>
-    private bool OutlookInstalled
-    {
-        get
-        {
-            if (_outlookInstalled is { } known)
-            {
-                return known;
-            }
-
-            try
-            {
-                using var key = Microsoft.Win32.Registry.ClassesRoot.OpenSubKey(MailLinks.OutlookScheme);
-                _outlookInstalled = key is not null;
-            }
-            catch (Exception ex) when (ex is System.Security.SecurityException or UnauthorizedAccessException or IOException)
-            {
-                Log.Warn(Scope, "could not tell whether Outlook is installed; opening messages on the web", ex);
-                _outlookInstalled = false;
-            }
-
-            return _outlookInstalled.Value;
-        }
-    }
+    /// <summary>Whether Outlook's <c>ms-outlook:</c> protocol is registered; one check shared with the calendar ([S-1268]).</summary>
+    private static bool OutlookInstalled => ShellLauncher.OutlookInstalled;
 
     public void Dispose()
     {
@@ -479,7 +456,7 @@ internal sealed class MailService : IMailSource, IDisposable
         {
             Snapshot = new MailFeedSnapshot(
                 MailList.Merge(_slots.Values.Select(s => s.Messages), Query.Count, MailSortOrder.NewestFirst),
-                [.. _slots.Values.Select(s => new MailAccountOutcome(s.AccountId, s.State, s.Status, s.Detail))],
+                [.. _slots.Values.Select(s => new MailAccountOutcome(s.AccountId, s.State, s.Status, s.Detail, s.Known))],
                 _slots.Values.Any(s => s.Busy));
 
             foreach (var handle in Handles.ToArray())

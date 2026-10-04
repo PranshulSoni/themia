@@ -112,8 +112,8 @@ public readonly record struct ImapMessageId(MailFolder Folder, uint Uid, uint? U
         : string.Create(CultureInfo.InvariantCulture, $"{Folder.Wire()}|{Uid}");
 
     /// <summary>
-    /// Read a handle. The older shapes stay readable — <c>folder|uid</c> (validity unknown, guard
-    /// skipped) and a bare <c>uid</c> (the inbox) — and anything malformed is refused, never coerced.
+    /// Read a handle: <c>folder|uid|uidvalidity</c>, or <c>folder|uid</c> when the server reported no
+    /// validity (the guard is then skipped). Anything else is refused, never coerced.
     /// </summary>
     public static ImapMessageId? Parse(string? raw)
     {
@@ -123,15 +123,12 @@ public readonly record struct ImapMessageId(MailFolder Folder, uint Uid, uint? U
         }
 
         var parts = raw.Split('|');
-        if (parts.Length > 3)
+        if (parts.Length is < 2 or > 3)
         {
             return null;
         }
 
-        var folder = parts.Length == 1 ? MailFolder.Inbox : MailNames.ParseFolder(parts[0]);
-        var uidText = parts.Length == 1 ? parts[0] : parts[1];
-
-        if (folder is not { } f || !uint.TryParse(uidText, NumberStyles.None, CultureInfo.InvariantCulture, out var uid))
+        if (MailNames.ParseFolder(parts[0]) is not { } f || !uint.TryParse(parts[1], NumberStyles.None, CultureInfo.InvariantCulture, out var uid))
         {
             return null;
         }

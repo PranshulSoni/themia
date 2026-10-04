@@ -7,9 +7,8 @@ using Xunit;
 namespace Themia.Core.Tests;
 
 /// <summary>
-/// [S-563] The calendar and contacts configs through the real state boundary: the hearth-era shape a
-/// user's saved state may still hold loads to a sensible default with a logged repair, a garbled
-/// value never refuses the file, and the current shape round-trips.
+/// [S-563] The calendar and contacts configs through the real state boundary: a garbled value never
+/// refuses the file, and the current shape round-trips.
 /// </summary>
 public sealed class OfficeConfigTests
 {
@@ -28,44 +27,6 @@ public sealed class OfficeConfigTests
     private static T ConfigOf<T>(ParseResult parsed, WidgetKind kind)
         where T : WidgetConfig
         => Assert.IsType<T>(parsed.State!.Views[0].Widgets.First(w => w.Kind == kind).Config);
-
-    [Fact]
-    public void S563_HearthCalendarLoadsAsAnAgendaOnEveryAccountKeepingItsCount()
-    {
-        var parsed = AppStateStore.Parse(StateWith(WidgetKind.Calendar,
-            """{"kind":"calendar","collectionId":"hearth:cal:42","maxCount":12,"daysAhead":14,"showAllDay":false,"showLocation":true}""").ToJsonString());
-
-        Assert.Equal(ParseRefusal.None, parsed.Refusal);
-        var config = ConfigOf<CalendarConfig>(parsed, WidgetKind.Calendar);
-        Assert.Equal(CalendarViewMode.Agenda, config.View);
-        Assert.Equal(12, config.AgendaCount);
-        Assert.Empty(config.AccountIds);
-        Assert.True(config.ShowBirthdays);
-        Assert.Contains(parsed.Repairs, r => r.Contains("hearth", StringComparison.Ordinal));
-
-        // The old fields are gone from the next save.
-        var saved = SettingsTransfer.Serialize(parsed.State!);
-        Assert.DoesNotContain("collectionId", saved, StringComparison.Ordinal);
-        Assert.DoesNotContain("daysAhead", saved, StringComparison.Ordinal);
-        Assert.DoesNotContain("maxCount", saved, StringComparison.Ordinal);
-
-        // And a second load has nothing left to repair.
-        Assert.DoesNotContain(AppStateStore.Parse(saved).Repairs, r => r.Contains("calendar", StringComparison.Ordinal));
-    }
-
-    [Fact]
-    public void S563_HearthContactsLoadOnEveryAccountKeepingItsCount()
-    {
-        var parsed = AppStateStore.Parse(StateWith(WidgetKind.Contacts,
-            """{"kind":"contacts","collectionId":"","maxCount":3,"showDetail":true,"showAvatar":false}""").ToJsonString());
-
-        var config = ConfigOf<ContactsConfig>(parsed, WidgetKind.Contacts);
-        Assert.Equal(5, config.Count);
-        Assert.Equal(ContactsLayout.Compact, config.Layout);
-        Assert.Empty(config.AccountIds);
-        Assert.Contains(parsed.Repairs, r => r.Contains("hearth", StringComparison.Ordinal));
-        Assert.DoesNotContain("showAvatar", SettingsTransfer.Serialize(parsed.State!), StringComparison.Ordinal);
-    }
 
     [Fact]
     public void S563_GarbledValuesFallBackInsteadOfRefusingTheFile()

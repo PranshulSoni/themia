@@ -6,5 +6,9 @@
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
     <EnforceCodeStyleInBuild>false</EnforceCodeStyleInBuild>
     <InvariantGlobalization>true</InvariantGlobalization>
+    <Company>Lometics GmbH</Company>
+    <Authors>Lometics GmbH</Authors>
+    <Product>Themia</Product>
+    <Copyright>Copyright © Lometics GmbH</Copyright>
   </PropertyGroup>
 </Project>

@@ -1,11 +1,11 @@
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
-using Microsoft.UI.Xaml.Input;
 using Themia.App.Services;
 using Themia.App.Services.Developer;
 using Themia.App.Shell;
 using Themia.Core.Developer;
 using Themia.Core.Model;
+using Themia.Core.Widgets;
 
 namespace Themia.App.Widgets;
 
@@ -13,18 +13,21 @@ namespace Themia.App.Widgets;
 /// [S-617]..[S-621] Your GitHub notifications across your accounts, grouped under each repository.
 /// <para>
 /// A row leads with why it is there — "review", "mention", "security" — in the reason's colour;
-/// a read thread is drawn in the secondary colour. Right-click a row to open it, mark it read, or
-/// mark its whole repository read; the change shows at once and the feed then reads the truth.
+/// an unread one has the accent dot before its title and a read one is drawn in the secondary
+/// colour ([S-748]). As the tile widens a row adds what the thread is about, a pull request or an
+/// issue ([S-743]); filling the tile ([S-740]) it lists the most GitHub will send and shows the
+/// whole rows that fit. Right-click a row to open it, copy its link, open its repository, mark it
+/// read, or mark its whole repository read; the widget's own menu marks everything read. A change
+/// shows at once and the feed then reads the truth.
 /// </para>
 /// </summary>
-internal sealed partial class GitHubNotificationsView : Grid, IWidgetView, IWidgetHeaderContent, IWidgetSurfaceAware, IWidgetContextActions
+internal sealed partial class GitHubNotificationsView : Grid, IWidgetView, IWidgetHeaderContent, IWidgetSurfaceAware, IWidgetContextActions, IWidgetSizeAware
 {
     /// <summary>Below this body height the list is not grouped: a heading would cost one of few rows.</summary>
     private const double GroupingNeedsHeight = 160;
 
     private readonly DevChrome _chrome = new(Glyphs.Bell);
-    private readonly StackPanel _list = new() { Spacing = 0 };
-    private readonly ScrollViewer _scroll;
+    private readonly DevColumns _lists = new();
     private readonly List<IDisposable> _hovers = [];
 
     /// <summary>Threads marked read here and not yet confirmed by a fetch, so the change shows at once.</summary>
@@ -38,24 +41,14 @@ internal sealed partial class GitHubNotificationsView : Grid, IWidgetView, IWidg
     private string? _actionProblem;
     private int _changesInFlight;
     private bool _grouping = true;
+    private WidgetArea _area;
     private DevRowLayout _layout = DevRows.LayoutFor(0, 0);
     private bool _detached;
 
     public GitHubNotificationsView()
     {
-        _scroll = new ScrollViewer
-        {
-            Padding = Fluent.ListPadding,
-            Content = _list,
-            HorizontalScrollMode = ScrollMode.Disabled,
-            HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
-            VerticalScrollBarVisibility = ScrollBarVisibility.Hidden,
-        };
-
-        Children.Add(new WholeRows(_scroll, _list));
+        Children.Add(_lists);
         Children.Add(_chrome.StatePanel);
-
-        SizeChanged += OnSizeChanged;
     }
 
     /// <inheritdoc />
@@ -87,6 +80,16 @@ internal sealed partial class GitHubNotificationsView : Grid, IWidgetView, IWidg
         Render();
     }
 
+    /// <inheritdoc />
+    public void ApplySize(WidgetArea area)
+    {
+        _area = area;
+        _chrome.Fit(area.Height);
+
+        // Called only when the area changed; the columns, the grouping and the row shape all follow it.
+        Render();
+    }
+
     private void Reopen()
     {
         if (_source is null)
@@ -94,7 +97,7 @@ internal sealed partial class GitHubNotificationsView : Grid, IWidgetView, IWidg
             return;
         }
 
-        var query = new NotificationQuery([.. _config.AccountIds], _config.IncludeRead, _config.ParticipatingOnly, _config.EffectiveCount, _config.RefreshInterval);
+        var query = new NotificationQuery([.. _config.AccountIds], _config.IncludeRead, _config.ParticipatingOnly, _config.FetchCount, _config.RefreshInterval);
         if (_feed is not null && query.Key == _feedKey)
         {
             return;
@@ -131,17 +134,6 @@ internal sealed partial class GitHubNotificationsView : Grid, IWidgetView, IWidg
     }
 
     private void OnAccountsChanged() => Render();
-
-    private void OnSizeChanged(object sender, SizeChangedEventArgs args)
-    {
-        _chrome.Fit(args.NewSize.Height);
-
-        if (DevRows.LayoutFor(args.NewSize.Width, args.NewSize.Height) != _layout || Grouping(args.NewSize.Height) != _grouping)
-        {
-            Render();
-        }
-    }
-
 
     /// <summary>
     /// [S-620] Headings cost a row each, so a short tile lists without them; the repository is in
@@ -189,47 +181,78 @@ internal sealed partial class GitHubNotificationsView : Grid, IWidgetView, IWidg
             snapshot.Outcomes,
             items.Count > 0,
             _config.IncludeRead ? "No notifications." : "No unread notifications.",
-            now);
+            now,
+            savedAt: snapshot.SavedAt);
 
-        if (!_chrome.Show(screen, ActualHeight, _actionProblem))
+        if (!_chrome.Show(screen, _area.Height, _actionProblem))
         {
-            _scroll.Visibility = Visibility.Collapsed;
+            _lists.Visibility = Visibility.Collapsed;
             return;
         }
 
-        _scroll.Visibility = Visibility.Visible;
+        _lists.Visibility = Visibility.Visible;
         _chrome.SetCount(items.Count(i => i.Unread));
 
-        _layout = DevRows.LayoutFor(ActualWidth, ActualHeight);
-        _grouping = Grouping(ActualHeight);
+        _layout = DevRows.LayoutFor(_area.Width, _area.Height);
+        _grouping = Grouping(_area.Height);
 
         // [S-620] Under each repository, once there is more than one; a single repository's name
         // goes on each row instead, where a lone heading would only cost a row.
         var groups = GitHubRules.GroupByRepository(items);
         var grouped = _grouping && groups.Count > 1;
 
-        if (grouped)
-        {
-            foreach (var group in groups)
-            {
-                _list.Children.Add(DevRows.Section(group.Repo, group.Unread > 0 ? $"{group.Unread} unread" : null));
+        // [S-748] The dot's slot only where read and unread are both on the list.
+        var marks = items.Any(i => !i.Unread) && items.Any(i => i.Unread);
 
-                foreach (var item in group.Items)
-                {
-                    AddRow(item, GitHubRules.SubjectLabel(item.SubjectType), now);
-                }
-            }
-        }
-        else
+        if (!grouped)
         {
+            _lists.Reset(1);
             foreach (var item in items)
             {
-                AddRow(item, item.Repo, now);
+                AddRow(_lists[0], item, item.Repo, GitHubRules.SubjectLabel(item.SubjectType), marks, now);
+            }
+
+            return;
+        }
+
+        // [S-742] A wide tile puts the repositories in two columns, filling the first before the second.
+        var columns = _area.IsMeasured ? DevLayout.Columns(_area.Width) : 1;
+        _lists.Reset(columns);
+
+        if (columns == 2)
+        {
+            _layout = DevRows.LayoutFor(_area.Width / 2, _area.Height);
+        }
+
+        var rowHeight = _layout.TwoLine ? DevRows.TwoLineHeight : DevRows.OneLineHeight;
+        var room = _area.Height - Fluent.Space2;
+        var used = 0.0;
+        var column = 0;
+
+        foreach (var group in groups)
+        {
+            // A repository that would not fit whole under the ones before it starts the second
+            // column, so a group is never cut off at the first column's foot while the second has room.
+            var cost = DevRows.SectionHeight + (group.Items.Count * rowHeight);
+            if (column == 0 && columns == 2 && used > 0 && used + cost > room + Disclosure.Tolerance)
+            {
+                column = 1;
+            }
+
+            used += cost;
+
+            var list = _lists[column];
+            list.Children.Add(DevRows.Section(group.Repo, group.Unread > 0 ? $"{group.Unread} unread" : null));
+
+            foreach (var item in group.Items)
+            {
+                // [S-743] Grouped, the subject type is the meta; nothing more to say beside it.
+                AddRow(list, item, GitHubRules.SubjectLabel(item.SubjectType), string.Empty, marks, now);
             }
         }
     }
 
-    private void AddRow(NotificationItem item, string meta, DateTimeOffset now)
+    private void AddRow(StackPanel list, NotificationItem item, string meta, string detail, bool marks, DateTimeOffset now)
     {
         var reason = GitHubRules.ReasonLabel(item.Reason);
 
@@ -239,7 +262,12 @@ internal sealed partial class GitHubNotificationsView : Grid, IWidgetView, IWidg
             meta = string.Empty;
         }
 
-        var row = DevRows.Build(
+        if (string.Equals(detail, reason, StringComparison.OrdinalIgnoreCase))
+        {
+            detail = string.Empty;
+        }
+
+        list.Children.Add(DevRows.Build(
             new DevRowText(
                 item.Title,
                 reason,
@@ -247,36 +275,27 @@ internal sealed partial class GitHubNotificationsView : Grid, IWidgetView, IWidg
                 meta,
                 GitHubRules.Ago(item.UpdatedAt, now),
                 !item.Unread,
-                item.HtmlUrl),
+                item.HtmlUrl,
+                detail,
+                Unread: marks ? item.Unread : null),
             _layout,
-            _hovers);
-
-        row.RightTapped += (_, args) => ShowMenu(row, item, args);
-        _list.Children.Add(row);
+            _hovers,
+            () => Menu(item)));
     }
 
-    /// <summary>[S-621] A thread's own menu: open it, mark it read, or mark its repository read.</summary>
-    private void ShowMenu(FrameworkElement row, NotificationItem item, RightTappedRoutedEventArgs args)
+    /// <summary>[S-621][S-749] A thread's own menu: open it, copy its link, open its repository, mark it or its repository read.</summary>
+    private MenuFlyout Menu(NotificationItem item)
     {
-        var menu = new MenuFlyout();
-
-        var open = new MenuFlyoutItem { Text = "Open in browser", Icon = new FontIcon { Glyph = Glyphs.OpenExternal } };
-        open.Click += (_, _) => DevRows.Open(item.HtmlUrl);
-        menu.Items.Add(open);
+        var menu = DevRows.LinkMenu(item.HtmlUrl, item.RepoHtmlUrl);
         menu.Items.Add(new MenuFlyoutSeparator());
 
-        var read = new MenuFlyoutItem { Text = "Mark as read", Icon = new FontIcon { Glyph = Glyphs.MailRead }, IsEnabled = item.Unread };
-        read.Click += (_, _) => _ = ChangeAsync([item], s => s.MarkReadAsync(item));
-        menu.Items.Add(read);
+        menu.Items.Add(DevRows.Item(Glyphs.MailRead, "Mark as read", () => _ = ChangeAsync([item], s => s.MarkReadAsync(item)), item.Unread));
 
-        var repo = new MenuFlyoutItem { Text = $"Mark all in {item.Repo} as read", Icon = new FontIcon { Glyph = Glyphs.Done } };
-        repo.Click += (_, _) => _ = ChangeAsync(
+        menu.Items.Add(DevRows.Item(Glyphs.Done, $"Mark all in {item.Repo} as read", () => _ = ChangeAsync(
             [.. Items().Where(i => i.AccountId == item.AccountId && string.Equals(i.RepoHtmlUrl, item.RepoHtmlUrl, StringComparison.OrdinalIgnoreCase))],
-            s => s.MarkRepositoryReadAsync(item));
-        menu.Items.Add(repo);
+            s => s.MarkRepositoryReadAsync(item))));
 
-        menu.ShowAt(row, args.GetPosition(row));
-        args.Handled = true;
+        return menu;
     }
 
     /// <summary>Show the change now, make it, and put it back with the reason if it did not take.</summary>
@@ -319,8 +338,36 @@ internal sealed partial class GitHubNotificationsView : Grid, IWidgetView, IWidg
         Render();
     }
 
+    /// <summary>
+    /// [S-748] Every notification of every account this widget reads, read — through each
+    /// account's own <c>PUT notifications</c>, not one thread at a time.
+    /// </summary>
+    private void MarkAllRead()
+    {
+        if (_source is not { } source)
+        {
+            return;
+        }
+
+        var accounts = DevScreens.Targets(source.Accounts, _config.AccountIds, single: false)
+            .Where(a => a.Problem is null)
+            .Select(a => a.Id)
+            .ToList();
+
+        if (accounts.Count == 0)
+        {
+            return;
+        }
+
+        _ = ChangeAsync([.. Items().Where(i => i.Unread)], s => s.MarkAllReadAsync(accounts));
+    }
+
     /// <inheritdoc />
-    public IReadOnlyList<WidgetAction> ContextActions => [new(Glyphs.Refresh, "Refresh", Refresh)];
+    public IReadOnlyList<WidgetAction> ContextActions =>
+    [
+        new(Glyphs.Refresh, "Refresh", Refresh),
+        new(Glyphs.Done, "Mark all as read", MarkAllRead),
+    ];
 
     private void Refresh()
     {
@@ -337,7 +384,7 @@ internal sealed partial class GitHubNotificationsView : Grid, IWidgetView, IWidg
         }
 
         _hovers.Clear();
-        _list.Children.Clear();
+        _lists.Reset(_lists.Count);
     }
 
     public void Detach()
@@ -348,7 +395,6 @@ internal sealed partial class GitHubNotificationsView : Grid, IWidgetView, IWidg
         }
 
         _detached = true;
-        SizeChanged -= OnSizeChanged;
         _chrome.Detach();
         ClearRows();
 

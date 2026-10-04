@@ -1,9 +1,21 @@
+using System.Globalization;
 using Themia.Core.Model;
 
 namespace Themia.Core.Mail;
 
 /// <summary>Which lines a list or compact row draws at the widget's current size.</summary>
-public readonly record struct MailRowLayout(bool Subject, bool Preview, int PreviewLines, bool Account, bool Time);
+/// <param name="Inline">[S-1283] One line per message — sender, subject and preview, account, time side by side.</param>
+/// <param name="Envelope">[S-1282] The closed or open envelope in front of the sender.</param>
+/// <param name="Provider">[S-1284] The account tag names its provider too: "Work (Microsoft)".</param>
+public readonly record struct MailRowLayout(
+    bool Subject,
+    bool Preview,
+    int PreviewLines,
+    bool Account,
+    bool Time,
+    bool Inline = false,
+    bool Envelope = false,
+    bool Provider = false);
 
 /// <summary>One row-view column at the width it gets: a fixed width, or a share of what is left.</summary>
 public readonly record struct MailColumnFit(MailColumn Column, double Width, double Star);
@@ -24,19 +36,90 @@ public static class MailLayout
     /// <summary>Below this content height one more line per message costs a whole message.</summary>
     public const double PreviewNeedsHeight = 120;
 
+    /// <summary>[S-1283] From this width a list row is one line whatever the height: the line is long enough to say it all.</summary>
+    public const double InlineFromWidth = 640;
+
+    /// <summary>[S-1283] A strip at least this wide and shorter than <see cref="InlineStripBelowHeight"/> goes one line per message.</summary>
+    public const double InlineStripWidth = 420;
+
+    /// <summary>[S-1283] Under this height a wide tile is a strip: two-line rows would show two messages.</summary>
+    public const double InlineStripBelowHeight = 220;
+
+    /// <summary>[S-1283] On one line the preview needs this much width beside the subject to say anything.</summary>
+    public const double InlinePreviewNeedsWidth = 520;
+
+    /// <summary>[S-1283] On one line the account column needs this much width.</summary>
+    public const double InlineAccountNeedsWidth = 560;
+
+    /// <summary>[S-1282] From this width the envelope glyph costs the sender nothing it needs.</summary>
+    public const double EnvelopeNeedsWidth = 300;
+
+    /// <summary>[S-1284] From this width the account tag has room for its provider.</summary>
+    public const double ProviderNeedsWidth = 720;
+
+    /// <summary>[S-1287] From this width the row view adds the preview column when the subject would hog the line.</summary>
+    public const double RoomyPreviewFromWidth = 700;
+
+    /// <summary>[S-1287] The share of the line a lone subject column may take before the preview joins it.</summary>
+    public const double RoomySubjectShare = 0.4;
+
     public static MailRowLayout Rows(EmailConfig config, double width, double height)
     {
         ArgumentNullException.ThrowIfNull(config);
 
+        var envelope = width >= EnvelopeNeedsWidth;
+
+        if (config.ViewMode != MailViewMode.Row
+            && (width >= InlineFromWidth || (width >= InlineStripWidth && height < InlineStripBelowHeight)))
+        {
+            var account = config.Shows(MailListField.Account) && width >= InlineAccountNeedsWidth;
+            return new MailRowLayout(
+                config.Shows(MailListField.Subject),
+                config.Shows(MailListField.Preview) && width >= InlinePreviewNeedsWidth,
+                1,
+                account,
+                Time: true,
+                Inline: true,
+                Envelope: envelope,
+                Provider: account && width >= ProviderNeedsWidth);
+        }
+
         var preview = config.Shows(MailListField.Preview) && height >= PreviewNeedsHeight && width >= 180;
         var lines = preview ? (height < 2 * PreviewNeedsHeight ? 1 : config.EffectivePreviewLines) : 0;
 
+        var tag = config.Shows(MailListField.Account) && width >= AccountNeedsWidth;
         return new MailRowLayout(
             config.Shows(MailListField.Subject),
             preview,
             lines,
-            config.Shows(MailListField.Account) && width >= AccountNeedsWidth,
-            width >= TimeNeedsWidth);
+            tag,
+            width >= TimeNeedsWidth,
+            Envelope: envelope,
+            Provider: tag && width >= ProviderNeedsWidth);
+    }
+
+    /// <summary>
+    /// [S-1285] The footer of a big tile: "4 unread of 128 in Inbox", summed over the accounts. Null
+    /// when any account that answered has not said its folder's counts — a total missing one
+    /// account's mail would be a wrong number, not a smaller one.
+    /// </summary>
+    public static string? Footer(IReadOnlyList<MailAccountOutcome> outcomes, MailFolder folder)
+    {
+        ArgumentNullException.ThrowIfNull(outcomes);
+
+        var answered = outcomes.Where(o => o.State == MailAccountState.Ok).ToList();
+        if (answered.Count == 0 || answered.Any(o => o.Folder is null))
+        {
+            return null;
+        }
+
+        var total = answered.Sum(o => o.Folder!.Value.Total);
+        var unread = answered.Sum(o => o.Folder!.Value.Unread);
+        var culture = CultureInfo.CurrentCulture;
+
+        return unread > 0
+            ? $"{unread.ToString("N0", culture)} unread of {total.ToString("N0", culture)} in {folder.Label()}"
+            : $"{total.ToString("N0", culture)} in {folder.Label()}, all read";
     }
 
     /// <summary>The narrowest each column can be and still say anything.</summary>
@@ -83,6 +166,19 @@ public static class MailLayout
         }
 
         var kept = distinct.Where(keep.Contains).ToList();
+
+        // [S-1287] A wide row with the subject as its only flexible column leaves most of the line
+        // to a subject that is rarely that long; the preview fills it instead, after the subject.
+        if (width >= RoomyPreviewFromWidth && !kept.Contains(MailColumn.Preview) && kept.Contains(MailColumn.Subject))
+        {
+            var fixedWidth = kept.Where(c => c != MailColumn.Subject).Sum(c => c == MailColumn.From ? Math.Clamp(width * 0.28, MinWidth(c), 200) : MinWidth(c));
+            var share = (width - fixedWidth - ((kept.Count - 1) * gap)) / width;
+
+            if (share > RoomySubjectShare && share * width >= MinWidth(MailColumn.Subject) + MinWidth(MailColumn.Preview) + gap)
+            {
+                kept.Insert(kept.IndexOf(MailColumn.Subject) + 1, MailColumn.Preview);
+            }
+        }
 
         var hasStar = kept.Any(c => c is MailColumn.Subject or MailColumn.Preview);
 

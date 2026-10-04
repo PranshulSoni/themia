@@ -277,7 +277,7 @@ public class MailFeedTests
         => Assert.IsType<EmailConfig>(state.Views[0].Widgets.First(w => w.Kind == WidgetKind.Email).Config);
 
     [Fact]
-    public void S540_config_round_trips_under_the_classic_wire_names()
+    public void S540_config_round_trips_under_its_wire_names()
     {
         var state = AppState.CreateDefault();
         var widget = WidgetInstance.Create(WidgetKind.Email, new FracRect(0.1, 0.1, 0.2, 0.2));
@@ -333,36 +333,6 @@ public class MailFeedTests
         Assert.Equal(1, config.PreviewLines);
         Assert.Contains(parsed.Repairs, r => r.Contains("mail", StringComparison.Ordinal));
     }
-
-    /// <summary>
-    /// The user's saved state holds a Mail widget in the hearth-era shape. It must load — the whole
-    /// desktop with it — with the count kept, the hearth fields folded in, and the change logged.
-    /// </summary>
-    [Fact]
-    public void S540_hearth_era_mail_widget_migrates_on_load()
-    {
-        var document = StateWithMail("""{"kind":"email","collectionId":"hearth:mail:42","unreadOnly":false,"maxCount":17,"showPreview":false}""");
-
-        var parsed = AppStateStore.Parse(document.ToJsonString());
-
-        Assert.NotNull(parsed.State);
-        Assert.Equal(AppState.CreateDefault().Views[0].Widgets.Count + 2, parsed.State!.Views[0].Widgets.Count);
-        var config = MailOf(parsed.State);
-        Assert.Equal(17, config.MaxCount);
-        Assert.Empty(config.EffectiveAccountIds);
-        Assert.False(config.Shows(MailListField.Preview));
-        Assert.Null(config.LegacyCollectionId);
-        Assert.Null(config.LegacyShowPreview);
-        Assert.Contains(parsed.Repairs, r => r.Contains("hearth", StringComparison.Ordinal));
-
-        // Saved again, the hearth fields are gone.
-        var saved = SettingsTransfer.Serialize(parsed.State);
-        Assert.DoesNotContain("collectionId", saved, StringComparison.Ordinal);
-        Assert.DoesNotContain("unreadOnly", saved, StringComparison.Ordinal);
-
-        // A second load has nothing left to repair in that widget.
-        Assert.DoesNotContain(AppStateStore.Parse(saved).Repairs, r => r.Contains("mail", StringComparison.Ordinal));
-    }
 }
 
 /// <summary>[S-556] Shedding detail to fit the tile.</summary>
@@ -374,7 +344,7 @@ public class MailLayoutTests
         var config = new EmailConfig { PreviewLines = 3 };
 
         var large = MailLayout.Rows(config, 560, 380);
-        Assert.Equal(new MailRowLayout(true, true, 3, true, true), large);
+        Assert.Equal(new MailRowLayout(true, true, 3, true, true, Envelope: true), large);
 
         // Narrow: the account tag goes, the rest stays.
         Assert.False(MailLayout.Rows(config, 200, 380).Account);

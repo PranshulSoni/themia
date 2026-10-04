@@ -5,6 +5,7 @@ using Themia.App.Services.Developer;
 using Themia.App.Shell;
 using Themia.Core.Developer;
 using Themia.Core.Model;
+using Themia.Core.Widgets;
 
 namespace Themia.App.Widgets;
 
@@ -12,14 +13,19 @@ namespace Themia.App.Widgets;
 /// [S-615][S-616] Issues assigned to you, or pull requests waiting on your review — one search
 /// across your GitHub accounts, as a Windows 11 list.
 /// <para>
-/// Two lines a row where the tile has the height (title and age over the coloured number and the
-/// repository), one line where it does not; the age goes before the title does on a narrow tile.
-/// Double-click opens the page, as every list on the desktop does: a single stray click must not
-/// send a browser anywhere.
+/// The ladder ([S-743]): the title alone on the smallest tile; then the coloured number and the
+/// age; two lines a row (title and age over the number and the repository) once the tile is tall
+/// enough to say more about each item than to list more of them; then, as it widens, who opened
+/// it and how many comments it has, then its label chips. Filling the tile ([S-740]) the list asks
+/// for the most it may hold and shows the whole rows that fit. Double-click opens the page, as
+/// every list on the desktop does; right-click has the page, its link and its repository ([S-749]).
 /// </para>
 /// </summary>
-internal sealed partial class GitHubSearchView : Grid, IWidgetView, IWidgetHeaderContent, IWidgetSurfaceAware, IWidgetContextActions
+internal sealed partial class GitHubSearchView : Grid, IWidgetView, IWidgetHeaderContent, IWidgetSurfaceAware, IWidgetContextActions, IWidgetSizeAware
 {
+    /// <summary>[S-743] Two-line rows from this body height: a little lower than other lists, because the repository is what makes an item findable.</summary>
+    private const double TwoLineFrom = 168;
+
     private readonly WidgetKind _kind;
     private readonly DevChrome _chrome;
     private readonly StackPanel _list = new() { Spacing = 0 };
@@ -31,6 +37,7 @@ internal sealed partial class GitHubSearchView : Grid, IWidgetView, IWidgetHeade
     private string? _feedKey;
     private IDisposable? _clock;
     private GitHubAccountsConfig _config;
+    private WidgetArea _area;
     private DevRowLayout _layout = DevRows.LayoutFor(0, 0);
     private bool _detached;
 
@@ -51,8 +58,6 @@ internal sealed partial class GitHubSearchView : Grid, IWidgetView, IWidgetHeade
 
         Children.Add(new WholeRows(_scroll, _list));
         Children.Add(_chrome.StatePanel);
-
-        SizeChanged += OnSizeChanged;
     }
 
     private bool Reviews => _kind == WidgetKind.GitHubReviews;
@@ -90,13 +95,25 @@ internal sealed partial class GitHubSearchView : Grid, IWidgetView, IWidgetHeade
         Render();
     }
 
+    /// <inheritdoc />
+    public void ApplySize(WidgetArea area)
+    {
+        _area = area;
+        _chrome.Fit(area.Height);
+
+        if (DevRows.LayoutFor(area.Width, area.Height, twoLineFrom: TwoLineFrom) != _layout)
+        {
+            Render();
+        }
+    }
+
     private GitHubAccountsConfig Default() => Reviews ? new GitHubReviewsConfig() : new GitHubIssuesConfig();
 
     private SearchQuery Query() => _config switch
     {
-        GitHubReviewsConfig reviews => new SearchQuery([.. reviews.AccountIds], SearchKind.Reviews, false, reviews.IncludeDrafts, reviews.EffectiveCount, reviews.RefreshInterval),
-        GitHubIssuesConfig issues => new SearchQuery([.. issues.AccountIds], SearchKind.Assigned, issues.IncludeMentioned, true, issues.EffectiveCount, issues.RefreshInterval),
-        _ => new SearchQuery([], SearchKind.Assigned, false, true, 8, TimeSpan.FromMinutes(5)),
+        GitHubReviewsConfig reviews => new SearchQuery([.. reviews.AccountIds], SearchKind.Reviews, false, reviews.IncludeDrafts, reviews.FetchCount, reviews.RefreshInterval),
+        GitHubIssuesConfig issues => new SearchQuery([.. issues.AccountIds], SearchKind.Assigned, issues.IncludeMentioned, true, issues.FetchCount, issues.RefreshInterval),
+        _ => new SearchQuery([], SearchKind.Assigned, false, true, GitHubIssuesConfig.MaxCount, TimeSpan.FromMinutes(5)),
     };
 
     /// <summary>Open the feed this config asks for, letting go of the old one only if it changed.</summary>
@@ -134,17 +151,6 @@ internal sealed partial class GitHubSearchView : Grid, IWidgetView, IWidgetHeade
 
     private void OnAccountsChanged() => Render();
 
-    private void OnSizeChanged(object sender, SizeChangedEventArgs args)
-    {
-        _chrome.Fit(args.NewSize.Height);
-
-        if (DevRows.LayoutFor(args.NewSize.Width, args.NewSize.Height) != _layout)
-        {
-            Render();
-        }
-    }
-
-
     private void Render()
     {
         if (_detached)
@@ -165,9 +171,10 @@ internal sealed partial class GitHubSearchView : Grid, IWidgetView, IWidgetHeade
             snapshot.Outcomes,
             items.Count > 0,
             Reviews ? "No pull requests are waiting for your review." : "No open issues are assigned to you.",
-            now);
+            now,
+            savedAt: snapshot.SavedAt);
 
-        if (!_chrome.Show(screen, ActualHeight))
+        if (!_chrome.Show(screen, _area.Height))
         {
             _scroll.Visibility = Visibility.Collapsed;
             return;
@@ -176,11 +183,11 @@ internal sealed partial class GitHubSearchView : Grid, IWidgetView, IWidgetHeade
         _scroll.Visibility = Visibility.Visible;
         _chrome.SetCount(items.Count);
 
-        _layout = DevRows.LayoutFor(ActualWidth, ActualHeight);
+        _layout = DevRows.LayoutFor(_area.Width, _area.Height, twoLineFrom: TwoLineFrom);
 
         foreach (var item in items)
         {
-            var meta = Reviews && item.Author.Length > 0 ? $"{item.Repo} · {item.Author}" : item.Repo;
+            var meta = Reviews && item.Author.Length > 0 && !_layout.Detail ? $"{item.Repo} · {item.Author}" : item.Repo;
             var lead = Reviews && item.Draft ? $"#{item.Number} draft" : $"#{item.Number}";
 
             _list.Children.Add(DevRows.Build(
@@ -191,10 +198,26 @@ internal sealed partial class GitHubSearchView : Grid, IWidgetView, IWidgetHeade
                     meta,
                     GitHubRules.Ago(item.UpdatedAt, now),
                     item.Draft,
-                    item.HtmlUrl),
+                    item.HtmlUrl,
+                    GitHubRules.ItemDetail(item.Author, item.Comments),
+                    item.Labels),
                 _layout,
-                _hovers));
+                _hovers,
+                () => Menu(item)));
         }
+    }
+
+    /// <summary>[S-749] The item's page, its link, its repository, and for a pull request the changed files.</summary>
+    private MenuFlyout Menu(SearchItem item)
+    {
+        var menu = DevRows.LinkMenu(item.HtmlUrl, GitHubRules.RepoPageOf(item.HtmlUrl));
+
+        if (Reviews)
+        {
+            menu.Items.Add(DevRows.Item(Glyphs.PullRequest, "Open changed files", () => DevRows.Open(item.HtmlUrl.TrimEnd('/') + "/files")));
+        }
+
+        return menu;
     }
 
     /// <inheritdoc />
@@ -219,7 +242,6 @@ internal sealed partial class GitHubSearchView : Grid, IWidgetView, IWidgetHeade
         }
 
         _detached = true;
-        SizeChanged -= OnSizeChanged;
         _chrome.Detach();
         ClearRows();
 

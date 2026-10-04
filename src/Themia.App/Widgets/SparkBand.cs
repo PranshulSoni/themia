@@ -1,5 +1,4 @@
 using Microsoft.UI;
-using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Shapes;
@@ -10,26 +9,36 @@ using Windows.Foundation;
 namespace Themia.App.Widgets;
 
 /// <summary>
-/// A meter's sparkline as a reusable band: a translucent area under a 2px line, newest sample at
-/// the right edge, on a fixed-slot x-axis so the trace grows in from the right instead of
-/// rescaling while the buffer fills.
+/// The one sparkline every meter draws: a translucent area under a 2px line, newest sample at the
+/// right edge, on a fixed-slot x-axis so the trace grows in from the right instead of rescaling
+/// while the buffer fills.
 /// <para>
-/// The same drawing the CPU and memory tiles make, so a GPU tile beside them reads as one family.
-/// It is a separate element because the GPU widget can show several adapters, each with its own
-/// history, which the single-reading meter view has no place for.
+/// [S-1126] Up to two series — download and upload, reads and writes — the first filled, the second
+/// a line over it. It holds <see cref="Capacity"/> samples (the span setting over the refresh) and
+/// draws as many of the newest as its width has slots for (<see cref="MeterTiming.Window"/>), against
+/// a <see cref="ChartScale"/>: 100% for a share, the visible window's peak for a rate.
+/// </para>
+/// <para>
+/// One element for every chart in the app (the meters and the GPU tile) so they read as one family
+/// and there is one drawing path to get right.
 /// </para>
 /// </summary>
 internal sealed partial class SparkBand : Grid
 {
     private readonly Polygon _fill = new();
     private readonly Polyline _line = new();
-    private readonly Queue<double> _history;
-    private readonly int _capacity;
+    private readonly Polyline _secondLine = new();
+    private readonly Queue<double> _first;
+    private readonly Queue<double> _second;
+    private int _capacity;
+    private ChartScale _scale;
 
-    public SparkBand(int capacity)
+    public SparkBand(int capacity, ChartScale? scale = null)
     {
-        _capacity = Math.Max(2, capacity);
-        _history = new Queue<double>(_capacity);
+        _capacity = Math.Clamp(capacity, 2, MeterTiming.MaxCapacity);
+        _first = new Queue<double>(_capacity);
+        _second = new Queue<double>(_capacity);
+        _scale = scale ?? ChartScale.Share;
 
         var accent = FluentLayout.Themed("AccentFillColorDefaultBrush", Colors.DodgerBlue);
 
@@ -44,13 +53,59 @@ internal sealed partial class SparkBand : Grid
         _line.StrokeLineJoin = PenLineJoin.Round;
         _line.Stretch = Stretch.None;
 
+        // The second series is a line only: two washes over each other turn into one muddy area.
+        _secondLine.Stroke = FluentLayout.Themed("AccentTextFillColorTertiaryBrush", Colors.SkyBlue);
+        _secondLine.StrokeThickness = Fluent.ChartStroke / 2;
+        _secondLine.StrokeLineJoin = PenLineJoin.Round;
+        _secondLine.Stretch = Stretch.None;
+
         IsHitTestVisible = false;
         Children.Add(_fill);
         Children.Add(_line);
+        Children.Add(_secondLine);
         SizeChanged += (_, _) => Redraw();
     }
 
-    /// <summary>Paint the trace in another colour — a pressure colour, for instance.</summary>
+    /// <summary>How many samples the band holds. Shrinking it drops the oldest; growing keeps them all.</summary>
+    public int Capacity
+    {
+        get => _capacity;
+        set
+        {
+            var capacity = Math.Clamp(value, 2, MeterTiming.MaxCapacity);
+
+            if (capacity == _capacity)
+            {
+                return;
+            }
+
+            _capacity = capacity;
+            Trim(_first);
+            Trim(_second);
+            Redraw();
+        }
+    }
+
+    /// <summary>What the top of the chart stands for.</summary>
+    public ChartScale ValueScale
+    {
+        get => _scale;
+        set
+        {
+            if (value == _scale)
+            {
+                return;
+            }
+
+            _scale = value;
+            Redraw();
+        }
+    }
+
+    /// <summary>How many of the newest samples the band draws at its current width.</summary>
+    public int Window => MeterTiming.Window(_capacity, ActualWidth);
+
+    /// <summary>Paint the first series in another colour — a pressure colour, for instance.</summary>
     public void SetBrush(Brush brush)
     {
         if (ReferenceEquals(_line.Stroke, brush))
@@ -62,28 +117,46 @@ internal sealed partial class SparkBand : Grid
         _fill.Fill = brush;
     }
 
-    /// <summary>Add a reading, 0..1. Non-finite readings are not samples and are dropped.</summary>
-    public void Push(double fraction)
+    /// <summary>Paint the second series in another colour.</summary>
+    public void SetSecondBrush(Brush brush) => _secondLine.Stroke = brush;
+
+    /// <summary>
+    /// Add a sample: the first series in the chart's terms (0..1 on a share chart, a value on a
+    /// window-scaled one), and the second when there is one. A non-finite first sample is not a
+    /// sample and is dropped; a missing second is a gap in that line only.
+    /// </summary>
+    public void Push(double first, double? second = null)
     {
-        if (!double.IsFinite(fraction))
+        if (!double.IsFinite(first))
         {
             return;
         }
 
-        if (_history.Count >= _capacity)
+        if (_first.Count >= _capacity)
         {
-            _history.Dequeue();
+            _first.Dequeue();
+            _second.Dequeue();
         }
 
-        _history.Enqueue(Math.Clamp(fraction, 0, 1));
+        _first.Enqueue(first);
+        _second.Enqueue(second is { } s && double.IsFinite(s) ? s : double.NaN);
         Redraw();
     }
 
     /// <summary>Forget the history: the next reading is of something else.</summary>
     public void Clear()
     {
-        _history.Clear();
+        _first.Clear();
+        _second.Clear();
         Redraw();
+    }
+
+    private void Trim(Queue<double> series)
+    {
+        while (series.Count > _capacity)
+        {
+            series.Dequeue();
+        }
     }
 
     private void Redraw()
@@ -91,27 +164,28 @@ internal sealed partial class SparkBand : Grid
         var width = ActualWidth;
         var height = ActualHeight;
 
-        if (width <= 0 || height <= 0 || _history.Count < 2)
+        if (width <= 0 || height <= 0 || _first.Count < 2)
         {
             _line.Points.Clear();
             _fill.Points.Clear();
+            _secondLine.Points.Clear();
             return;
         }
 
-        var samples = _history.ToArray();
+        // The newest samples, as many as this chart's width has slots for.
+        var window = MeterTiming.Window(_capacity, width);
+        var first = _first.ToArray().AsSpan();
+        var second = _second.ToArray().AsSpan();
+        first = first[Math.Max(0, first.Length - window)..];
+        second = second[Math.Max(0, second.Length - window)..];
+
+        var ceiling = _scale.Ceiling(first, second);
 
         // Inset by the stroke so 0% and 100% are not clipped in half at the edge.
         var inset = _line.StrokeThickness;
         var usable = Math.Max(1, height - inset);
 
-        var line = new PointCollection();
-        for (var i = 0; i < samples.Length; i++)
-        {
-            var x = Sparkline.SampleX(i, samples.Length, _capacity) * width;
-            var y = (inset / 2) + (Sparkline.SampleY(samples[i]) * usable);
-            line.Add(new Point(x, y));
-        }
-
+        var line = Trace(first, window, ceiling, width, inset, usable);
         var fill = new PointCollection { new(line[0].X, height) };
         foreach (var point in line)
         {
@@ -122,5 +196,27 @@ internal sealed partial class SparkBand : Grid
 
         _line.Points = line;
         _fill.Points = fill;
+        _secondLine.Points = Trace(second, window, ceiling, width, inset, usable);
+    }
+
+    /// <summary>A series as points. X from <see cref="Sparkline.SampleX"/>, which pins the newest to the right edge; gaps are skipped.</summary>
+    private static PointCollection Trace(ReadOnlySpan<double> samples, int window, double ceiling, double width, double inset, double usable)
+    {
+        var points = new PointCollection();
+
+        for (var i = 0; i < samples.Length; i++)
+        {
+            var fraction = ChartScale.Fraction(samples[i], ceiling);
+            if (double.IsNaN(fraction))
+            {
+                continue;
+            }
+
+            var x = Sparkline.SampleX(i, samples.Length, window) * width;
+            var y = (inset / 2) + (Sparkline.SampleY(fraction) * usable);
+            points.Add(new Point(x, y));
+        }
+
+        return points;
     }
 }

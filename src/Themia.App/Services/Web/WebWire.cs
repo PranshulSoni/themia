@@ -32,6 +32,17 @@ internal sealed class OpenMeteoReply
     [JsonPropertyName("daily")]
     public OpenMeteoDaily? Daily { get; init; }
 
+    /// <summary>[S-720] The next hours, for the current-conditions chart.</summary>
+    [JsonPropertyName("hourly")]
+    public OpenMeteoHourly? Hourly { get; init; }
+
+    /// <summary>
+    /// The place's offset from UTC, which <c>timezone=auto</c> puts the times in. The hourly times
+    /// come without one, so this is what makes "14:00" an instant rather than a wall-clock guess.
+    /// </summary>
+    [JsonPropertyName("utc_offset_seconds")]
+    public int? UtcOffsetSeconds { get; init; }
+
     /// <summary>open-meteo answers an invalid request with <c>{"error":true,"reason":"..."}</c>.</summary>
     [JsonPropertyName("reason")]
     public string? Reason { get; init; }
@@ -53,6 +64,38 @@ internal sealed class OpenMeteoCurrent
 
     [JsonPropertyName("weather_code")]
     public int? WeatherCode { get; init; }
+
+    [JsonPropertyName("precipitation")]
+    public double? Precipitation { get; init; }
+
+    [JsonPropertyName("pressure_msl")]
+    public double? Pressure { get; init; }
+
+    [JsonPropertyName("wind_direction_10m")]
+    public double? WindDirection { get; init; }
+
+    [JsonPropertyName("wind_gusts_10m")]
+    public double? WindGusts { get; init; }
+
+    [JsonPropertyName("cloud_cover")]
+    public double? CloudCover { get; init; }
+
+    [JsonPropertyName("uv_index")]
+    public double? UvIndex { get; init; }
+}
+
+/// <summary>The hourly block, as parallel arrays like the daily one.</summary>
+internal sealed class OpenMeteoHourly
+{
+    /// <summary>Local wall-clock hours at the place, "2026-10-04T14:00".</summary>
+    [JsonPropertyName("time")]
+    public List<string?>? Time { get; init; }
+
+    [JsonPropertyName("temperature_2m")]
+    public List<double?>? Temperature { get; init; }
+
+    [JsonPropertyName("precipitation_probability")]
+    public List<double?>? PrecipitationChance { get; init; }
 }
 
 /// <summary>
@@ -75,6 +118,22 @@ internal sealed class OpenMeteoDaily
 
     [JsonPropertyName("precipitation_sum")]
     public List<double?>? Precipitation { get; init; }
+
+    [JsonPropertyName("precipitation_probability_max")]
+    public List<double?>? PrecipitationChance { get; init; }
+
+    [JsonPropertyName("wind_speed_10m_max")]
+    public List<double?>? WindMax { get; init; }
+
+    [JsonPropertyName("uv_index_max")]
+    public List<double?>? UvMax { get; init; }
+
+    /// <summary>Local wall-clock times, "2026-10-04T07:31".</summary>
+    [JsonPropertyName("sunrise")]
+    public List<string?>? Sunrise { get; init; }
+
+    [JsonPropertyName("sunset")]
+    public List<string?>? Sunset { get; init; }
 }
 
 /// <summary>A reply from <c>geocoding-api.open-meteo.com/v1/search</c>.</summary>

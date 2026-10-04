@@ -2,6 +2,23 @@ using System.Text.Json.Serialization;
 
 namespace Themia.Core.Model;
 
+/// <summary>[S-724] How the forecast lays out its days.</summary>
+[JsonConverter(typeof(JsonStringEnumConverter<ForecastLayout>))]
+public enum ForecastLayout
+{
+    /// <summary>Columns on a strip, rows everywhere else: the layout follows the tile.</summary>
+    Auto = 0,
+
+    /// <summary>One day per row, the original's default.</summary>
+    Rows = 1,
+
+    /// <summary>The days side by side.</summary>
+    Columns = 2,
+
+    /// <summary>A card per day, two or more across.</summary>
+    Grid = 3,
+}
+
 /// <summary>
 /// The next few days, from open-meteo's <c>daily</c> block.
 /// <para>
@@ -21,6 +38,9 @@ public sealed class WeatherForecastConfig : WeatherConfig
     /// <summary>Show each day's precipitation total beside its temperatures.</summary>
     public bool ShowPrecipitation { get; set; } = true;
 
+    /// <summary>[S-724] Rows, columns or a grid; Auto picks by the tile's shape.</summary>
+    public ForecastLayout Layout { get; set; } = ForecastLayout.Auto;
+
     /// <summary>The day count actually sent, clamped, so a hand-edited 0 or 99 cannot reach the URL.</summary>
     [JsonIgnore]
     public int EffectiveDays => Math.Clamp(Days, 1, 14);
@@ -38,6 +58,7 @@ public sealed class WeatherForecastConfig : WeatherConfig
         {
             Days = Days,
             ShowPrecipitation = ShowPrecipitation,
+            Layout = Layout,
         };
 
         CopyTo(copy);

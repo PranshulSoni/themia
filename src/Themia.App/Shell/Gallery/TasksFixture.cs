@@ -54,7 +54,7 @@ internal static class TasksFixture
     {
         "local" => new TasksConfig { Source = TaskSource.Local, LocalListId = "local-groceries" },
         "today" => new TasksConfig { ListId = TaskRules.TodayListId, ShowCompleted = true },
-        _ => new TasksConfig(),
+        _ => new TasksConfig { ShowCompleted = true },
     };
 
     /// <summary>Put a drive where the OneDrive widget looks for one.</summary>
@@ -152,6 +152,13 @@ internal static class TasksFixture
                 new("t6", "tasks", "Water the plants", false),
                 new("t7", "tasks", "Back up the photo library", false),
                 new("t8", "tasks", "Pay the electricity bill", true, false, Day(-1)),
+                new("t9", "tasks", "Draft the agenda for Monday's planning", false, true, Day(2)),
+                new("t10", "tasks", "Order new toner", false),
+                new("t11", "tasks", "Call the landlord about the heating", false, false, Day(0)),
+                new("t12", "tasks", "Update the onboarding checklist", false, false, Day(9)),
+                new("t13", "tasks", "Return the library books", false),
+                new("t14", "tasks", "Cancel the old phone contract", true),
+                new("e2", "errands", "Collect the dry cleaning", false, false, Day(-1)),
                 new("e1", "errands", "Pick up the parcel", false, false, Day(0)),
             ];
         }
@@ -173,6 +180,9 @@ internal static class TasksFixture
             remove { }
         }
 
+        public Task<DriveQuota?> QuotaAsync(string accountId, CancellationToken cancellation)
+            => Task.FromResult<DriveQuota?>(state is "offline" or "loading" ? null : new DriveQuota(13_314_398_618, 1_099_511_627_776));
+
         public Task<IReadOnlyList<DriveItem>> ListAsync(string accountId, Uri address, int max, CancellationToken cancellation)
         {
             switch (state)
@@ -191,21 +201,30 @@ internal static class TasksFixture
             IReadOnlyList<DriveItem> items = address.AbsolutePath.Contains("/items/", StringComparison.Ordinal)
                 ?
                 [
-                    new("p1", "Budget 2027.xlsx", 48_213, now.AddDays(-1), Web, false, null),
-                    new("p2", "Kickoff.pptx", 2_604_118, now.AddDays(-3), Web, false, null),
-                    new("p3", "Site photos", 0, now.AddDays(-9), Web, true, null),
+                    new("p1", "Budget 2027.xlsx", 48_213, now.AddDays(-1), Web, false, null, "Dana Ruiz", "Projects"),
+                    new("p2", "Kickoff.pptx", 2_604_118, now.AddDays(-3), Web, false, null, "Ann Lee", "Projects"),
+                    new("p3", "Site photos", 0, now.AddDays(-9), Web, true, null, "Marcus Webb", "Projects", 48),
                 ]
                 :
                 [
-                    new("f1", "Projects", 0, now.AddHours(-2), Web, true, null),
-                    new("d1", "Quarterly report.docx", 184_320, now.AddMinutes(-12), Web, false, null),
-                    new("d2", "Team photo.jpg", 3_481_002, now.AddHours(-5), Web, false, "image/jpeg"),
-                    new("d3", "Expenses.xlsx", 22_917, now.AddDays(-1), Web, false, null),
-                    new("d4", "Launch deck.pptx", 7_201_558, now.AddDays(-2), Web, false, null),
-                    new("d5", "Interview notes.md", 3_112, now.AddDays(-3), Web, false, null),
-                    new("d6", "Demo recording.mp4", 182_449_311, now.AddDays(-6), Web, false, "video/mp4"),
-                    new("d7", "Contract signed.pdf", 412_600, now.AddDays(-12), Web, false, null),
-                    new("d8", "Podcast intro.mp3", 5_660_120, now.AddDays(-20), Web, false, "audio/mpeg"),
+                    new("f1", "Projects", 0, now.AddHours(-2), Web, true, null, "Ann Lee", "My files", 3),
+                    new("d1", "Quarterly report.docx", 184_320, now.AddMinutes(-12), Web, false, null, "Dana Ruiz", "Work › Reports"),
+                    new("d2", "Team photo.jpg", 3_481_002, now.AddHours(-5), Web, false, "image/jpeg", "Ann Lee", "Pictures"),
+                    new("d3", "Expenses.xlsx", 22_917, now.AddDays(-1), Web, false, null, "Ann Lee", "Work › Finance"),
+                    new("d4", "Launch deck.pptx", 7_201_558, now.AddDays(-2), Web, false, null, "Marcus Webb", "Work › Launch"),
+                    new("d5", "Interview notes.md", 3_112, now.AddDays(-3), Web, false, null, "Ann Lee", "Documents"),
+                    new("d6", "Demo recording.mp4", 182_449_311, now.AddDays(-6), Web, false, "video/mp4", "Tom Okafor", "Videos"),
+                    new("d7", "Contract signed.pdf", 412_600, now.AddDays(-12), Web, false, null, "Lena Fischer", "Work › Legal"),
+                    new("d8", "Podcast intro.mp3", 5_660_120, now.AddDays(-20), Web, false, "audio/mpeg", "Ann Lee", "Music"),
+                    new("d9", "Roadmap 2027.docx", 96_512, now.AddDays(-23), Web, false, null, "Dana Ruiz", "Work › Planning"),
+                    new("d10", "Floor plan.png", 1_204_880, now.AddDays(-27), Web, false, "image/png", "Facilities", "Work › Office"),
+                    new("d11", "Invoices", 0, now.AddDays(-30), Web, true, null, "Ann Lee", "Work › Finance", 112),
+                    new("d12", "Release notes.md", 8_440, now.AddDays(-34), Web, false, null, "Tom Okafor", "Work › Launch"),
+                    new("d13", "Survey results.xlsx", 310_211, now.AddDays(-41), Web, false, null, "Priya Nair", "Documents"),
+                    new("d14", "Holiday.jpg", 2_880_114, now.AddDays(-45), Web, false, "image/jpeg", "Ann Lee", "Pictures › 2026"),
+                    new("d15", "Brand guide.pdf", 5_402_331, now.AddDays(-52), Web, false, null, "Marcus Webb", "Work › Brand"),
+                    new("d16", "Budget draft.xlsx", 41_207, now.AddDays(-60), Web, false, null, "Dana Ruiz", "Work › Finance"),
+                    new("d17", "Workshop.pptx", 3_100_902, now.AddDays(-66), Web, false, null, "Lena Fischer", "Work › Training"),
                 ];
 
             return Task.FromResult<IReadOnlyList<DriveItem>>([.. items.Take(max)]);

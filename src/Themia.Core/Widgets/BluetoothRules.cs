@@ -44,12 +44,18 @@ public enum BluetoothStatus
 /// <param name="Connected">Whether it is connected right now.</param>
 /// <param name="Kind">Which glyph it gets.</param>
 /// <param name="BatteryPercent">0..100 where the device reports it over GATT, else null.</param>
+/// <param name="SignalDbm">
+/// [S-1256] Received signal strength in dBm where the radio reported one (an LE device seen
+/// advertising, or the association endpoint's own reading), else null. Most paired Classic devices
+/// never have one.
+/// </param>
 public readonly record struct BluetoothDeviceEntry(
     string Name,
     string Id,
     bool Connected,
     BluetoothDeviceKind Kind,
-    int? BatteryPercent);
+    int? BatteryPercent,
+    int? SignalDbm = null);
 
 /// <summary>
 /// The rules the Bluetooth widget draws by: what a device is called, what it is, and in what order.
@@ -169,6 +175,116 @@ public static class BluetoothRules
     public static string? BatteryLabel(int? percent)
         => percent is >= 0 and <= 100 ? $"{percent}%" : null;
 
+    /// <summary>
+    /// [S-1256] The signal column, or null. Real RSSI sits between about -100 and -20 dBm; zero is
+    /// what a stack reports for "no reading", and anything outside the plausible range is a device or
+    /// driver answering out of spec. Both become no column rather than a number nobody should read.
+    /// </summary>
+    public static string? SignalLabel(int? dbm)
+        => dbm is >= -127 and <= -1 ? $"{dbm} dBm" : null;
+
+    /// <summary>
+    /// [S-1256] Signal strength as 0..4 bars, the way Windows draws Wi-Fi: -60 dBm and better is
+    /// full, every 10 dB below drops a bar. Null when there is no plausible reading.
+    /// </summary>
+    public static int? SignalBars(int? dbm)
+    {
+        if (SignalLabel(dbm) is null || dbm is not { } value)
+        {
+            return null;
+        }
+
+        return value switch
+        {
+            >= -60 => 4,
+            >= -70 => 3,
+            >= -80 => 2,
+            >= -90 => 1,
+            _ => 0,
+        };
+    }
+
+    /// <summary>
+    /// [S-1256] A Bluetooth address as the 48-bit number an advertisement carries, from the
+    /// association endpoint's "aa:bb:cc:dd:ee:ff" (or bare hex), or null for anything else.
+    /// </summary>
+    public static ulong? ParseAddress(string? text)
+    {
+        if (string.IsNullOrWhiteSpace(text))
+        {
+            return null;
+        }
+
+        var hex = text.Trim().Replace(":", string.Empty, StringComparison.Ordinal).Replace("-", string.Empty, StringComparison.Ordinal);
+
+        if (hex.Length != 12)
+        {
+            return null;
+        }
+
+        return ulong.TryParse(hex, System.Globalization.NumberStyles.AllowHexSpecifier, System.Globalization.CultureInfo.InvariantCulture, out var value)
+            ? value
+            : null;
+    }
+
+    /// <summary>
+    /// [S-1256] The device's own address from an association-endpoint id
+    /// (<c>BluetoothLE#BluetoothLE&lt;radio&gt;-&lt;device&gt;</c>): the part after the last dash.
+    /// The fallback for when the address property was not returned.
+    /// </summary>
+    public static ulong? AddressFromId(string? id)
+    {
+        if (string.IsNullOrEmpty(id))
+        {
+            return null;
+        }
+
+        var dash = id.LastIndexOf('-');
+        return dash < 0 || dash == id.Length - 1 ? null : ParseAddress(id[(dash + 1)..]);
+    }
+
+    /// <summary>[S-1255] What a device is, in words, for a two-line row's second line.</summary>
+    public static string KindLabel(BluetoothDeviceKind kind) => kind switch
+    {
+        BluetoothDeviceKind.Audio => "Audio",
+        BluetoothDeviceKind.Mouse => "Mouse",
+        BluetoothDeviceKind.Keyboard => "Keyboard",
+        BluetoothDeviceKind.Phone => "Phone",
+        BluetoothDeviceKind.Gamepad => "Controller",
+        BluetoothDeviceKind.Pen => "Pen",
+        BluetoothDeviceKind.Watch => "Watch",
+        _ => "Device",
+    };
+
+    /// <summary>
+    /// [S-1255] A two-line row's second line: what the device is, then each enabled fact the device
+    /// actually reported ("Audio · Connected · 80%"). Nothing reported is left out, never "--".
+    /// </summary>
+    public static string DetailLine(BluetoothDeviceEntry device, bool showConnection, bool showBattery, bool showSignal)
+    {
+        var parts = new List<string>(4) { KindLabel(device.Kind) };
+
+        if (showConnection)
+        {
+            parts.Add(ConnectionLabel(device.Connected));
+        }
+
+        if (showBattery && BatteryLabel(device.BatteryPercent) is { } battery)
+        {
+            parts.Add(battery);
+        }
+
+        if (showSignal && SignalLabel(device.SignalDbm) is { } signal)
+        {
+            parts.Add(signal);
+        }
+
+        return string.Join(" · ", parts);
+    }
+
+    /// <summary>[S-1255] The header's summary at large sizes: "2 connected", or null when none is.</summary>
+    public static string? ConnectedSummary(int connected) => connected > 0 ? $"{connected} connected" : null;
+
     /// <summary>The connection state, in words. Carried by text as well as by the dot beside it.</summary>
     public static string ConnectionLabel(bool connected) => connected ? "Connected" : "Paired";
 
@@ -228,6 +344,7 @@ public static class BluetoothRules
             {
                 Connected = current.Connected || normalised.Connected,
                 BatteryPercent = normalised.BatteryPercent ?? current.BatteryPercent,
+                SignalDbm = normalised.SignalDbm ?? current.SignalDbm,
             };
         }
 

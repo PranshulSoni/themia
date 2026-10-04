@@ -301,4 +301,20 @@ public enum IntroAnimation
     Fade = 1,
     Scale = 2,
     Slide = 3,
+
+    /// <summary>Widgets fly in from the nearer side edge.</summary>
+    Sides = 4,
+
+    /// <summary>Widgets fly in from the nearer top or bottom edge.</summary>
+    TopBottom = 5,
+
+    Flip = 6,
+
+    Blur = 7,
+
+    /// <summary>A star-field overlay the widgets drop out of.</summary>
+    Hyperspace = 8,
+
+    /// <summary>Each widget types itself in, terminal style.</summary>
+    Hacker = 9,
 }

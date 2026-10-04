@@ -1,3 +1,4 @@
+using System.Globalization;
 using Themia.Core.Model;
 using Themia.Core.Widgets;
 using Xunit;
@@ -124,8 +125,8 @@ public class WeatherReportTests
         var fetchedOn = new DateOnly(2026, 9, 24);
         var todayNow = new DateOnly(2026, 9, 25);
 
-        Assert.Equal("Thu", WeatherReport.DayLabel(fetchedOn, todayNow));
-        Assert.Equal("Today", WeatherReport.DayLabel(todayNow, todayNow));
+        Assert.Equal("Thu", WeatherReport.DayLabel(fetchedOn, todayNow, CultureInfo.InvariantCulture));
+        Assert.Equal("Today", WeatherReport.DayLabel(todayNow, todayNow, CultureInfo.InvariantCulture));
     }
 
     [Theory]
@@ -133,7 +134,68 @@ public class WeatherReportTests
     [InlineData(2026, 9, 28, "Mon")]
     [InlineData(2026, 10, 2, "Fri")]
     public void Other_days_get_their_short_weekday_name(int year, int month, int day, string expected)
-        => Assert.Equal(expected, WeatherReport.DayLabel(new DateOnly(year, month, day), new DateOnly(2026, 9, 24)));
+        => Assert.Equal(expected, WeatherReport.DayLabel(new DateOnly(year, month, day), new DateOnly(2026, 9, 24), CultureInfo.InvariantCulture));
+
+    [Fact]
+    public void S721_the_weekday_is_in_the_culture_s_own_abbreviation()
+    {
+        // Built by hand: the app runs globalization-invariant, so a named culture is not available
+        // here; the label still reads whatever culture it is handed.
+        var thursday = new DateOnly(2026, 9, 24);
+        var german = (CultureInfo)CultureInfo.InvariantCulture.Clone();
+        german.DateTimeFormat.AbbreviatedDayNames = ["So.", "Mo.", "Di.", "Mi.", "Do.", "Fr.", "Sa."];
+
+        Assert.Equal("Do.", WeatherReport.DayLabel(thursday, thursday.AddDays(-1), german));
+        Assert.Equal("Today", WeatherReport.DayLabel(thursday, thursday, german));
+    }
+
+    // ---- [S-722] the extra readings ------------------------------------------------------
+
+    [Theory]
+    [InlineData(0.0, "N")]
+    [InlineData(22.4, "N")]
+    [InlineData(22.5, "NE")]
+    [InlineData(315.0, "NW")]
+    [InlineData(359.0, "N")]
+    [InlineData(360.0, "N")]
+    public void S722_a_bearing_reads_on_the_eight_point_rose(double degrees, string expected)
+        => Assert.Equal(expected, WeatherReport.Compass(degrees));
+
+    [Theory]
+    [InlineData(-1.0)]
+    [InlineData(361.0)]
+    [InlineData(double.NaN)]
+    public void S722_an_impossible_bearing_is_left_out_rather_than_guessed(double degrees)
+    {
+        Assert.Equal(string.Empty, WeatherReport.Compass(degrees));
+        Assert.Equal("6 km/h", WeatherReport.WindFrom(6, degrees));
+    }
+
+    [Fact]
+    public void S722_wind_carries_its_direction_when_known()
+        => Assert.Equal("11 km/h NW", WeatherReport.WindFrom(11, 315));
+
+    [Theory]
+    [InlineData(1016.4, "1016 hPa")]
+    [InlineData(500.0, "--")]
+    [InlineData(1200.0, "--")]
+    public void S722_pressure_is_whole_hectopascals_inside_what_weather_can_be(double value, string expected)
+        => Assert.Equal(expected, WeatherReport.Pressure(value));
+
+    [Fact]
+    public void S727_a_bare_precipitation_amount_drops_the_unit_and_stays_blank_when_dry()
+    {
+        Assert.Equal("0.3", WeatherReport.PrecipitationAmount(0.3));
+        Assert.Equal("12", WeatherReport.PrecipitationAmount(12));
+        Assert.Equal(string.Empty, WeatherReport.PrecipitationAmount(0));
+    }
+
+    [Fact]
+    public void S722_today_s_range_reads_high_then_low()
+    {
+        Assert.Equal("H 24°  L 14°", WeatherReport.HighLow(24.2, 13.8));
+        Assert.Equal(string.Empty, WeatherReport.HighLow(null, null));
+    }
 
     // ---- the range bar ---------------------------------------------------------------------
 

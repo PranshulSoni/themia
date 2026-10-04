@@ -20,11 +20,26 @@ public sealed class BluetoothConfig : WidgetConfig
     /// </summary>
     public bool ShowBattery { get; set; } = true;
 
+    /// <summary>[S-1257] Draw each device's kind icon (the original's "type" metric). The name is always shown.</summary>
+    public bool ShowIcon { get; set; } = true;
+
+    /// <summary>[S-1257] Draw the connection dot and word (the original's "connection" metric).</summary>
+    public bool ShowConnection { get; set; } = true;
+
+    /// <summary>
+    /// [S-1256] Show signal strength (RSSI) where the radio reports it. Off by default: it needs a
+    /// short Bluetooth LE scan on every refresh, and most paired Classic devices never report one.
+    /// </summary>
+    public bool ShowSignal { get; set; }
+
     /// <summary>List only what is connected, rather than everything ever paired.</summary>
     public bool ConnectedOnly { get; set; }
 
-    /// <summary>How many rows to show, 1 to 20.</summary>
-    public int MaxCount { get; set; } = 6;
+    /// <summary>
+    /// [S-1254] The most devices the list holds, 1 to 30. A ceiling, not a target: the tile shows as
+    /// many whole rows as it has room for, and scrolls to the rest.
+    /// </summary>
+    public int MaxCount { get; set; } = 20;
 
     /// <summary>
     /// Seconds between enumerations, 5 to 300. Slow by default: enumerating the radios and reading
@@ -35,7 +50,7 @@ public sealed class BluetoothConfig : WidgetConfig
 
     /// <summary>Clamped on read: a persisted zero would draw an empty list.</summary>
     [JsonIgnore]
-    public int EffectiveMaxCount => Math.Clamp(MaxCount, 1, 20);
+    public int EffectiveMaxCount => Math.Clamp(MaxCount, 1, 30);
 
     /// <summary>Clamped on read, so a persisted zero cannot turn the shared ticker into a spin.</summary>
     [JsonIgnore]
@@ -44,6 +59,9 @@ public sealed class BluetoothConfig : WidgetConfig
     public override WidgetConfig Clone() => new BluetoothConfig
     {
         ShowBattery = ShowBattery,
+        ShowIcon = ShowIcon,
+        ShowConnection = ShowConnection,
+        ShowSignal = ShowSignal,
         ConnectedOnly = ConnectedOnly,
         MaxCount = MaxCount,
         IntervalSeconds = IntervalSeconds,

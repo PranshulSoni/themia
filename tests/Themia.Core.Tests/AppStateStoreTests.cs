@@ -62,6 +62,17 @@ public sealed class AppStateStoreTests : IDisposable
     }
 
     [Fact]
+    public void An_older_schema_is_refused_not_upgraded()
+    {
+        File.WriteAllText(_path, $$"""{"schemaVersion": {{AppState.CurrentSchemaVersion - 1}}, "views": []}""");
+
+        var result = NewStore().Load();
+
+        Assert.Equal(LoadOutcome.Recovered, result.Outcome);
+        Assert.Contains("not supported", result.Detail);
+    }
+
+    [Fact]
     public void A_schema_from_the_future_is_refused_rather_than_half_read()
     {
         File.WriteAllText(_path, $$"""{"schemaVersion": {{AppState.CurrentSchemaVersion + 1}}, "views": []}""");

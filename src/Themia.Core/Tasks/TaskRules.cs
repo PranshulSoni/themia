@@ -171,6 +171,84 @@ public static class TaskRules
     public static int OpenCount(IEnumerable<TaskItem> tasks) => tasks.Count(t => !t.Completed);
 
     /// <summary>
+    /// [S-784] Completed tasks after the open ones, each part in its own order — the way To Do and
+    /// Google Tasks both show a list with completed tasks in it. Returns the input itself when there
+    /// is nothing to move.
+    /// </summary>
+    public static IReadOnlyList<TaskItem> Sectioned(IReadOnlyList<TaskItem> rows)
+    {
+        ArgumentNullException.ThrowIfNull(rows);
+
+        var firstDone = -1;
+        for (var i = 0; i < rows.Count; i++)
+        {
+            if (rows[i].Completed)
+            {
+                firstDone = i;
+                break;
+            }
+        }
+
+        if (firstDone < 0 || rows.Skip(firstDone).All(t => t.Completed))
+        {
+            return rows;
+        }
+
+        return [.. rows.Where(t => !t.Completed), .. rows.Where(t => t.Completed)];
+    }
+
+    /// <summary>
+    /// [S-783] The summary strip on a panel: "7 open · 2 overdue · 1 due today · 3 done". The open
+    /// count is always said; the others only when there are any.
+    /// </summary>
+    public static string Summary(IReadOnlyList<TaskItem> rows, DateOnly today, TimeZoneInfo viewer)
+    {
+        ArgumentNullException.ThrowIfNull(rows);
+
+        int open = 0, overdue = 0, dueToday = 0, done = 0;
+
+        foreach (var task in rows)
+        {
+            if (task.Completed)
+            {
+                done++;
+                continue;
+            }
+
+            open++;
+
+            switch (TaskDue.Resolve(task.DueRaw, today, viewer)?.Label)
+            {
+                case DueLabel.Overdue:
+                    overdue++;
+                    break;
+                case DueLabel.Today:
+                    dueToday++;
+                    break;
+            }
+        }
+
+        var parts = new List<string>(4) { open == 0 ? "Nothing open" : $"{open} open" };
+
+        if (overdue > 0)
+        {
+            parts.Add($"{overdue} overdue");
+        }
+
+        if (dueToday > 0)
+        {
+            parts.Add($"{dueToday} due today");
+        }
+
+        if (done > 0)
+        {
+            parts.Add($"{done} done");
+        }
+
+        return string.Join(" · ", parts);
+    }
+
+    /// <summary>
     /// [S-596] The list a task typed into Today is created in: Today has no list of its own, so the
     /// account's default one, else its first. Null when the account has no lists at all.
     /// </summary>

@@ -1,3 +1,4 @@
+using Themia.App.Services.Web;
 using Themia.Core.Diagnostics;
 using Themia.Core.Widgets;
 
@@ -102,6 +103,67 @@ internal static class ImageGallery
             Log.Error(Scope, $"'{request.Path}' was refused as a path", ex);
             return GalleryScan.Of(GalleryStatus.InvalidPath);
         }
+    }
+
+    /// <summary>
+    /// [S-761] Check the one picture the file source shows. Background work for the same reason a
+    /// scan is: an existence check on a dead share blocks. Never throws.
+    /// </summary>
+    public static GalleryScan ReadFile(string path)
+    {
+        try
+        {
+            if (File.Exists(path))
+            {
+                return ImageFiles.IsImage(path)
+                    ? new GalleryScan(GalleryStatus.Ok, [path])
+                    : GalleryScan.Of(GalleryStatus.NotAPicture);
+            }
+
+            // A folder typed into the picture box is "not a picture", which is truer than "gone".
+            return GalleryScan.Of(Directory.Exists(path) ? GalleryStatus.NotAPicture : GalleryStatus.NotFound);
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            Log.Warn(Scope, $"access denied checking '{path}'", ex);
+            return GalleryScan.Of(GalleryStatus.AccessDenied);
+        }
+        catch (IOException ex)
+        {
+            Log.Error(Scope, $"could not check '{path}'", ex);
+            return GalleryScan.Of(GalleryStatus.Failed);
+        }
+    }
+
+    /// <summary>
+    /// [S-762] Ask Bing for today's photo. The reply is parsed through the source-generated contract
+    /// and its one path checked to be on Bing's own host before anything decodes it. Never throws for
+    /// a network reason; cancellation propagates.
+    /// </summary>
+    public static async Task<GalleryScan> ReadBingAsync(CancellationToken token)
+    {
+        var (status, wire, detail) = await WebFetch
+            .GetJsonAsync(BingPhoto.Endpoint, BingWireContext.Default.BingArchiveWire, token)
+            .ConfigureAwait(false);
+
+        if (status == FetchStatus.Offline)
+        {
+            return GalleryScan.Of(GalleryStatus.Offline);
+        }
+
+        if (status != FetchStatus.Ok)
+        {
+            Log.Warn(Scope, $"photo of the day: {status} {detail}");
+            return GalleryScan.Of(GalleryStatus.Unavailable);
+        }
+
+        if (BingPhoto.From(wire) is not { } photo)
+        {
+            Log.Warn(Scope, "photo of the day: the reply held no usable photo");
+            return GalleryScan.Of(GalleryStatus.Unavailable);
+        }
+
+        return new GalleryScan(GalleryStatus.Ok, [photo.Image.AbsoluteUri]) { Caption = photo.Caption };
     }
 
     private static List<string> Scan(GalleryRequest request, CancellationToken token)

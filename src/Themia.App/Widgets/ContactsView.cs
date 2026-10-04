@@ -24,20 +24,28 @@ namespace Themia.App.Widgets;
 /// The view asks the shared <see cref="IOfficeSource"/> ([S-588]) and keeps the merged list it was
 /// given; searching, capping and switching layouts redraw from that list without asking again.
 /// </para>
+/// <para>
+/// It discloses by size ([S-1270]): names alone on an XS tile, then avatars and roles, a way to
+/// reach each person, both address and number on a tall tile, rows flowed into columns on a wide
+/// one, and on an XL tile the selected person's detail pane beside the list ([S-1274]).
+/// </para>
 /// </summary>
-internal sealed partial class ContactsView : Grid, IWidgetView, IWidgetHeaderContent, IWidgetSurfaceAware, IWidgetContextActions
+internal sealed partial class ContactsView : Grid, IWidgetView, IWidgetHeaderContent, IWidgetSurfaceAware, IWidgetContextActions, IWidgetSizeAware
 {
     private const string Scope = "contacts-widget";
 
     private static readonly TimeSpan Poll = TimeSpan.FromMinutes(15);
 
-    /// <summary>Below this height the search box goes: the list is what the widget is for.</summary>
-    private const double SearchHidesBelow = 150;
+    /// <summary>The search box and its margin, which the list gives up while it shows.</summary>
+    private const double SearchHeight = 40;
 
-    /// <summary>A grid card's width on the 4px grid: a 40px avatar and a name under it.</summary>
-    private const double CardWidth = 96;
+    /// <summary>A grid card: 6 + 40 avatar + 2 + name 16 + 2 + detail 16 + 6.</summary>
+    private const double CardHeight = 88;
 
-    /// <summary>Below this width the avatar and the count give their room to the names.</summary>
+    /// <summary>A large card ([S-1273]): 12 + 56 avatar + 4 + 2 + name 20 + 2 + two lines of 16 + 2 + 12.</summary>
+    private const double LargeCardHeight = 142;
+
+    /// <summary>Below this width the count gives its room to the title.</summary>
     private const double NarrowBelow = 160;
 
     private static readonly string ListGlyph = char.ConvertFromUtf32(0xE779);
@@ -50,23 +58,31 @@ internal sealed partial class ContactsView : Grid, IWidgetView, IWidgetHeaderCon
     private readonly TextBox _search = new();
     private readonly Grid _columnHeader = new();
     private readonly ScrollViewer _scroll;
+    private readonly Border _detailPane = new();
     private readonly OfficeStatePanel _state = new(Glyphs.Contact);
     private readonly ProgressRing _busy = new();
     private readonly FontIcon _warning;
+    private readonly Button _searchButton;
     private readonly TextBlock _badge = new();
     private readonly Border _badgeHost;
     private readonly StackPanel _trailing;
     private readonly List<IDisposable> _hovers = [];
     private readonly Dictionary<string, Border> _indicators = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, Border> _rows = new(StringComparer.Ordinal);
+    private readonly PointerEventHandler _outsidePressed;
 
     private IWidgetSurface? _surface;
     private IOfficeSource? _source;
     private IDisposable? _poll;
     private ContactsConfig _config = new();
+    private WidgetArea _area;
     private string _query = string.Empty;
     private string? _appliedDefaultSearch;
     private string? _selectedId;
+    private bool _searchOpen;
+    private UIElement? _root;
     private IReadOnlyList<Contact> _contacts = [];
+    private IReadOnlyList<Contact> _visible = [];
     private Screen _screen = Screen.Loading;
     private string _problemText = string.Empty;
     private bool _problemOffersAccounts;
@@ -83,6 +99,8 @@ internal sealed partial class ContactsView : Grid, IWidgetView, IWidgetHeaderCon
         RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
+        ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
 
         _busy.Width = Fluent.IconSize;
         _busy.Height = Fluent.IconSize;
@@ -93,6 +111,23 @@ internal sealed partial class ContactsView : Grid, IWidgetView, IWidgetHeaderCon
         _warning.Visibility = Visibility.Collapsed;
         _warning.Tapped += OnWarningTapped;
 
+        // [S-1275] Where the box would cost too much of a mid-size tile, the header offers it instead.
+        // A header-sized button, like the calendar's paging ones, so the header keeps its height.
+        _searchButton = new Button
+        {
+            Content = new FontIcon { Glyph = Glyphs.Search, FontSize = FluentType.Caption.FontSize },
+            Padding = new Thickness(Fluent.Space1 + 2, Fluent.Space1, Fluent.Space1 + 2, Fluent.Space1),
+            MinWidth = 0,
+            MinHeight = 0,
+            Background = FluentLayout.Themed("SubtleFillColorTransparentBrush", Colors.Transparent),
+            BorderThickness = new Thickness(0),
+            CornerRadius = new CornerRadius(Fluent.ControlRadius),
+            VerticalAlignment = VerticalAlignment.Center,
+            Visibility = Visibility.Collapsed,
+        };
+        ToolTipService.SetToolTip(_searchButton, "Search contacts");
+        _searchButton.Click += OnSearchButton;
+
         _badgeHost = Fluent.Badge(_badge);
         _badgeHost.Visibility = Visibility.Collapsed;
 
@@ -101,7 +136,7 @@ internal sealed partial class ContactsView : Grid, IWidgetView, IWidgetHeaderCon
             Orientation = Orientation.Horizontal,
             Spacing = Fluent.Space2,
             VerticalAlignment = VerticalAlignment.Center,
-            Children = { _warning, _busy, _badgeHost },
+            Children = { _warning, _busy, _searchButton, _badgeHost },
         };
 
         // [S-584] The stock Windows search box, so it has the system's caret, clear button and menu.
@@ -126,20 +161,34 @@ internal sealed partial class ContactsView : Grid, IWidgetView, IWidgetHeaderCon
             HorizontalScrollMode = ScrollMode.Disabled,
             HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
             VerticalScrollBarVisibility = ScrollBarVisibility.Hidden,
+            VerticalAlignment = VerticalAlignment.Top,
         };
         SetRow(_scroll, 2);
 
+        // [S-1274] The selected person, beside the list on an XL tile.
+        _detailPane.Width = ContactRules.DetailPaneWidth;
+        _detailPane.Visibility = Visibility.Collapsed;
+        _detailPane.BorderThickness = new Thickness(Fluent.Hairline, 0, 0, 0);
+        _detailPane.BorderBrush = FluentLayout.Themed("DividerStrokeColorDefaultBrush", Colors.Gray);
+        SetColumn(_detailPane, 1);
+        SetRowSpan(_detailPane, 3);
+
         SetRow(_state, 0);
         SetRowSpan(_state, 3);
+        SetColumnSpan(_state, 2);
 
         Children.Add(_search);
         Children.Add(_columnHeader);
         Children.Add(_scroll);
+        Children.Add(_detailPane);
         Children.Add(_state);
 
-        // [S-580] Clicking the background clears the selection, as the classic widget did.
+        // [S-580] Clicking the background clears the selection, as the classic widget did; a press
+        // anywhere else on the desktop surface clears it too ([S-1277]).
+        _outsidePressed = OnSurfacePressed;
         Tapped += OnBackgroundTapped;
-        SizeChanged += OnSizeChanged;
+        Loaded += OnLoaded;
+        Unloaded += OnUnloaded;
     }
 
     private enum Screen
@@ -179,6 +228,13 @@ internal sealed partial class ContactsView : Grid, IWidgetView, IWidgetHeaderCon
             _ = RefreshAsync(force: false);
         }
 
+        Render();
+    }
+
+    /// <inheritdoc />
+    public void ApplySize(WidgetArea area)
+    {
+        _area = area;
         Render();
     }
 
@@ -243,9 +299,12 @@ internal sealed partial class ContactsView : Grid, IWidgetView, IWidgetHeaderCon
         _search.GotFocus -= OnSearchFocus;
         _search.LostFocus -= OnSearchBlur;
         _search.KeyDown -= OnSearchKeyDown;
+        _searchButton.Click -= OnSearchButton;
         _warning.Tapped -= OnWarningTapped;
         Tapped -= OnBackgroundTapped;
-        SizeChanged -= OnSizeChanged;
+        Loaded -= OnLoaded;
+        Unloaded -= OnUnloaded;
+        UnhookSurface();
         _state.Detach();
         ClearRows();
     }
@@ -387,7 +446,17 @@ internal sealed partial class ContactsView : Grid, IWidgetView, IWidgetHeaderCon
     // The surface takes no keystrokes unless asked: the box asks while it has focus ([S-584]).
     private void OnSearchFocus(object sender, RoutedEventArgs args) => _surface?.RequestTextInput(true);
 
-    private void OnSearchBlur(object sender, RoutedEventArgs args) => _surface?.RequestTextInput(false);
+    private void OnSearchBlur(object sender, RoutedEventArgs args)
+    {
+        _surface?.RequestTextInput(false);
+
+        // [S-1275] A box opened from the header folds away again once it is left empty.
+        if (_searchOpen && _query.Length == 0)
+        {
+            _searchOpen = false;
+            Render();
+        }
+    }
 
     private void OnSearchKeyDown(object sender, KeyRoutedEventArgs args)
     {
@@ -396,6 +465,14 @@ internal sealed partial class ContactsView : Grid, IWidgetView, IWidgetHeaderCon
             args.Handled = true;
             _search.Text = string.Empty;
         }
+    }
+
+    /// <summary>[S-1275] The header's search button opens the box and puts the caret in it.</summary>
+    private void OnSearchButton(object sender, RoutedEventArgs args)
+    {
+        _searchOpen = true;
+        Render();
+        _search.Focus(FocusState.Programmatic);
     }
 
     private void OnBackgroundTapped(object sender, TappedRoutedEventArgs args)
@@ -415,13 +492,90 @@ internal sealed partial class ContactsView : Grid, IWidgetView, IWidgetHeaderCon
         }
     }
 
-    private void OnSizeChanged(object sender, SizeChangedEventArgs args)
+    // ---- outside clicks and keys ([S-1277]) -----------------------------------------------------
+
+    private void OnLoaded(object sender, RoutedEventArgs args)
     {
-        // The search box and the layout fallback both follow the size, so the list is re-laid.
-        if (Math.Abs(args.NewSize.Width - args.PreviousSize.Width) > 0.5 || Math.Abs(args.NewSize.Height - args.PreviousSize.Height) > 0.5)
+        // The surface's root sees every press on this desktop, handled or not, so a click on
+        // another widget or on the desktop clears the selection as the classic blur did. A click in
+        // another app reaches no Themia window at all: that waits for the shell's mouse hook.
+        UnhookSurface();
+        _root = XamlRoot?.Content;
+        _root?.AddHandler(PointerPressedEvent, _outsidePressed, handledEventsToo: true);
+    }
+
+    private void OnUnloaded(object sender, RoutedEventArgs args) => UnhookSurface();
+
+    private void UnhookSurface()
+    {
+        _root?.RemoveHandler(PointerPressedEvent, _outsidePressed);
+        _root = null;
+    }
+
+    private void OnSurfacePressed(object sender, PointerRoutedEventArgs args)
+    {
+        if (_selectedId is not null && !IsInside(args.OriginalSource as DependencyObject))
         {
-            Render();
+            OnOutsideClick();
         }
+    }
+
+    /// <summary>Whether an element is this view or inside it (a flyout opened from it is not: it has its own root).</summary>
+    private bool IsInside(DependencyObject? element)
+    {
+        for (var node = element; node is not null; node = VisualTreeHelper.GetParent(node))
+        {
+            if (ReferenceEquals(node, this))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /// <summary>[S-1277] A click outside the widget clears the selection (the classic S-38).</summary>
+    public void OnOutsideClick() => Select(null);
+
+    /// <summary>
+    /// [S-1277] A key from the shell's keyboard lease (the classic S-31/32): Up / Down / Home / End
+    /// move the selection through the people on screen, Escape clears it, Enter writes to the
+    /// selected person (else calls them). Nothing calls this yet — the surface takes no keystrokes
+    /// outside the search box ([S-584]) until the shell's lease exists; this is the whole of what it
+    /// will call. Returns whether the key was used.
+    /// </summary>
+    public bool HandleKey(WidgetKey key)
+    {
+        if (_detached || _screen != Screen.Ready || _visible.Count == 0)
+        {
+            return false;
+        }
+
+        if (key == WidgetKey.Enter)
+        {
+            var person = _visible.FirstOrDefault(c => c.Id == _selectedId);
+            if (person is not null && ContactRules.EnterLink(person) is { } link)
+            {
+                ShellLauncher.OpenContactLink(link.Kind, link.Value);
+                return true;
+            }
+
+            return false;
+        }
+
+        var next = ContactRules.MoveSelection([.. _visible.Select(c => c.Id)], _selectedId, key);
+        if (next == _selectedId)
+        {
+            return key == WidgetKey.Escape;
+        }
+
+        Select(next);
+        if (next is not null && _rows.TryGetValue(next, out var row))
+        {
+            row.StartBringIntoView();
+        }
+
+        return true;
     }
 
     // -----------------------------------------------------------------------------------------
@@ -437,13 +591,18 @@ internal sealed partial class ContactsView : Grid, IWidgetView, IWidgetHeaderCon
 
         ClearRows();
 
+        var width = _area.Width;
+        var height = _area.Height;
         var ready = _screen == Screen.Ready;
         _warning.Visibility = ready && _warningText is not null ? Visibility.Visible : Visibility.Collapsed;
         ToolTipService.SetToolTip(_warning, _warningText);
         _badgeHost.Visibility = Visibility.Collapsed;
 
-        var showSearch = ready && ActualHeight >= SearchHidesBelow;
+        // [S-1275] The box is there when it costs little, on request on a mid-size tile, never on a small one.
+        var search = ContactRules.Search(height);
+        var showSearch = ready && (search == ContactSearch.Shown || (search == ContactSearch.OnDemand && (_searchOpen || _query.Length > 0)));
         _search.Visibility = showSearch ? Visibility.Visible : Visibility.Collapsed;
+        _searchButton.Visibility = ready && search == ContactSearch.OnDemand && !showSearch ? Visibility.Visible : Visibility.Collapsed;
 
         switch (_screen)
         {
@@ -467,6 +626,7 @@ internal sealed partial class ContactsView : Grid, IWidgetView, IWidgetHeaderCon
         // A search typed into a box that has since been hidden still filters; the box shows the
         // query again as soon as there is room for it.
         var visible = ContactRules.Visible(_contacts, _query, _config.EffectiveCount);
+        _visible = visible;
 
         if (visible.Count == 0)
         {
@@ -475,7 +635,7 @@ internal sealed partial class ContactsView : Grid, IWidgetView, IWidgetHeaderCon
             // The box stays, so a search that matched nothing can be changed.
             if (showSearch)
             {
-                _state.Margin = new Thickness(0, 40, 0, 0);
+                _state.Margin = new Thickness(0, SearchHeight, 0, 0);
             }
 
             return;
@@ -486,24 +646,35 @@ internal sealed partial class ContactsView : Grid, IWidgetView, IWidgetHeaderCon
 
         _badge.Text = visible.Count.ToString(CultureInfo.InvariantCulture);
         // The count gives way to the title on a tile too narrow for both.
-        _badgeHost.Visibility = ActualWidth is > 0 and < NarrowBelow ? Visibility.Collapsed : Visibility.Visible;
+        _badgeHost.Visibility = width is > 0 and < NarrowBelow ? Visibility.Collapsed : Visibility.Visible;
 
-        var width = ActualWidth;
-        var compactRows = ActualHeight > 0 && ActualHeight < Fluent.CompactBelow;
         var layout = ContactRules.Effective(_config.EffectiveLayout, width, _config.EffectiveColumns.Count);
+
+        // [S-1274] On an XL tile the selected person gets a pane; the list keeps the rest of the width.
+        var selected = _selectedId is null ? null : visible.FirstOrDefault(c => c.Id == _selectedId);
+        var pane = layout != ContactsLayout.Grid && ContactRules.ShowsDetailPane(_area, selected is not null);
+        var listWidth = pane ? width - ContactRules.DetailPaneWidth : width;
+
+        if (pane)
+        {
+            _detailPane.Child = DetailPane(selected!);
+            _detailPane.Visibility = Visibility.Visible;
+        }
+
+        var listHeight = height - (showSearch ? SearchHeight : 0) - Fluent.ListPadding.Bottom;
 
         switch (layout)
         {
             case ContactsLayout.Details:
-                DrawDetails(visible);
+                DrawDetails(visible, listWidth, listHeight);
                 break;
 
             case ContactsLayout.Grid:
-                DrawCards(visible, width);
+                DrawCards(visible, width, listHeight);
                 break;
 
             default:
-                DrawList(visible, layout == ContactsLayout.Compact || compactRows, layout == ContactsLayout.Compact);
+                DrawList(visible, layout == ContactsLayout.Compact, listWidth, listHeight);
                 break;
         }
     }
@@ -517,63 +688,145 @@ internal sealed partial class ContactsView : Grid, IWidgetView, IWidgetHeaderCon
 
         _hovers.Clear();
         _indicators.Clear();
+        _rows.Clear();
         _scroll.Content = null;
+        _scroll.MaxHeight = double.PositiveInfinity;
+        _detailPane.Child = null;
+        _detailPane.Visibility = Visibility.Collapsed;
         _columnHeader.Children.Clear();
         _columnHeader.ColumnDefinitions.Clear();
         _columnHeader.Visibility = Visibility.Collapsed;
     }
 
     /// <summary>
-    /// [S-581] List: avatar, name, then "title · company" and the address or number. Compact: a
-    /// small avatar, the name and one secondary field.
+    /// [S-581] List: avatar, name, then what the tile has room for ([S-1270]): the role, a way to
+    /// reach them, or both the address and the number, each with its glyph. Compact ([S-1271]): one
+    /// line — a small avatar, the name, and one field right-aligned when the column is wide enough.
+    /// Rows flow into columns of 240 px, and the list shows whole rows only.
     /// </summary>
-    private void DrawList(IReadOnlyList<Contact> contacts, bool compactRows, bool compactLayout)
+    private void DrawList(IReadOnlyList<Contact> contacts, bool compactLayout, double width, double height)
     {
-        var list = new StackPanel { Spacing = 0 };
-        var avatarSize = compactRows ? Fluent.RowHeightCompact - Fluent.Space2 : Fluent.RowHeight - Fluent.Space2;
+        var columns = ContactRules.ListColumns(width);
+        var columnWidth = width > 0 ? width / columns : 0;
+        var detail = compactLayout ? ContactDetail.Name : ContactRules.ListDetail(new WidgetArea(_area.Width, height));
+        var avatar = ContactRules.ShowsAvatar(columnWidth) && (compactLayout || detail != ContactDetail.Name);
+        var aside = compactLayout && ContactRules.CompactAside(columnWidth);
 
-        foreach (var contact in contacts)
+        // Every row of a render is one height: the most lines anyone on screen has, at this level.
+        var lines = contacts.Count == 0 ? 0 : contacts.Max(c => ContactRules.Lines(c, detail).Count);
+        var rowHeight = compactLayout || lines == 0 ? Fluent.RowHeightCompact : ContactRules.RowHeight(lines);
+        var avatarSize = compactLayout ? 24 : 32;
+
+        var grid = new Grid();
+        for (var c = 0; c < columns; c++)
         {
-            var text = new StackPanel { Spacing = 0, VerticalAlignment = VerticalAlignment.Center };
-            var name = Fluent.Text(FluentType.BodyStrong);
-            name.Text = contact.Name;
-            text.Children.Add(name);
-
-            var detail = compactLayout
-                ? ContactRules.CompactDetail(contact)
-                : FirstNonEmpty(ContactRules.Role(contact), contact.Email, contact.Phone);
-
-            if (detail.Length > 0)
-            {
-                var line = Fluent.Text(FluentType.Caption, "TextFillColorTertiaryBrush");
-                line.Text = detail;
-                text.Children.Add(line);
-            }
-
-            // The list layout gives the address or number its own line when the role took the first.
-            if (!compactLayout && !compactRows && ContactRules.Role(contact).Length > 0 && FirstNonEmpty(contact.Email, contact.Phone) is { Length: > 0 } reach)
-            {
-                var line = Fluent.Text(FluentType.Caption, "TextFillColorTertiaryBrush");
-                line.Text = reach;
-                text.Children.Add(line);
-            }
-
-            // A narrow tile gives the avatar's width to the name.
-            var avatar = ActualWidth is > 0 and < NarrowBelow ? null : Avatar(contact, compactLayout ? Math.Min(avatarSize, 24) : avatarSize);
-            var body = RowBody(contact, avatar, text);
-            var row = Fluent.Row(body, compactRows);
-            row.Padding = new Thickness(Fluent.Space4 - Fluent.Space2, Fluent.Space1, Fluent.Space4, Fluent.Space1);
-            Wire(row, contact);
-            list.Children.Add(row);
+            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         }
 
-        _scroll.Content = list;
+        for (var i = 0; i < contacts.Count; i++)
+        {
+            var contact = contacts[i];
+            if (i % columns == 0)
+            {
+                grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+            }
+
+            var row = compactLayout
+                ? CompactRow(contact, avatar ? avatarSize : 0, aside)
+                : ListRow(contact, detail, avatar ? avatarSize : 0);
+            row.MinHeight = rowHeight;
+            row.Height = rowHeight;
+            row.Padding = new Thickness(Fluent.Space4 - Fluent.Space2, 0, columns > 1 ? Fluent.Space2 : Fluent.Space4, 0);
+            Wire(row, contact);
+            SetRow(row, i / columns);
+            SetColumn(row, i % columns);
+            grid.Children.Add(row);
+        }
+
+        WholeRows((contacts.Count + columns - 1) / columns, rowHeight, height);
+        _scroll.Content = grid;
     }
 
-    /// <summary>[S-582] Details: a table of the chosen columns, in canonical order, under a header row.</summary>
-    private void DrawDetails(IReadOnlyList<Contact> contacts)
+    private Border ListRow(Contact contact, ContactDetail detail, double avatarSize)
+    {
+        var text = new StackPanel { Spacing = 0, VerticalAlignment = VerticalAlignment.Center };
+        var name = Fluent.Text(FluentType.BodyStrong);
+        name.Text = contact.Name;
+        text.Children.Add(name);
+
+        foreach (var (kind, value) in ContactRules.Lines(contact, detail))
+        {
+            var line = Fluent.Text(FluentType.Caption, "TextFillColorTertiaryBrush");
+            line.Text = value;
+
+            if (kind == ContactLine.Role || detail == ContactDetail.Role)
+            {
+                text.Children.Add(line);
+                continue;
+            }
+
+            // [S-1270] The address and the number each carry their glyph, as the classic rows did.
+            var glyph = Fluent.Icon(kind == ContactLine.Email ? Glyphs.Mail : PhoneGlyph, "TextFillColorTertiaryBrush", FluentType.Caption.FontSize);
+            glyph.Margin = new Thickness(0, 0, Fluent.Space1 + 2, 0);
+            glyph.VerticalAlignment = VerticalAlignment.Center;
+            var withGlyph = new Grid
+            {
+                ColumnDefinitions =
+                {
+                    new ColumnDefinition { Width = GridLength.Auto },
+                    new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) },
+                },
+            };
+            SetColumn(line, 1);
+            withGlyph.Children.Add(glyph);
+            withGlyph.Children.Add(line);
+            text.Children.Add(withGlyph);
+        }
+
+        var row = Fluent.Row(RowBody(contact, avatarSize > 0 ? Avatar(contact, avatarSize) : null, text));
+        return row;
+    }
+
+    /// <summary>[S-1271] One line: avatar, name, and the one field (email, else company, else phone) on the right.</summary>
+    private Border CompactRow(Contact contact, double avatarSize, bool aside)
+    {
+        // The name keeps the larger share; the field trims first.
+        var line = new Grid
+        {
+            ColumnDefinitions =
+            {
+                new ColumnDefinition { Width = new GridLength(1.25, GridUnitType.Star) },
+                new ColumnDefinition { Width = aside ? new GridLength(1, GridUnitType.Star) : new GridLength(0) },
+            },
+            VerticalAlignment = VerticalAlignment.Center,
+        };
+
+        var name = Fluent.Text(FluentType.Body);
+        name.Text = contact.Name;
+        line.Children.Add(name);
+
+        if (aside && ContactRules.CompactDetail(contact) is { Length: > 0 } field)
+        {
+            var right = Fluent.Text(FluentType.Caption, "TextFillColorTertiaryBrush");
+            right.Text = field;
+            right.HorizontalAlignment = HorizontalAlignment.Right;
+            right.VerticalAlignment = VerticalAlignment.Center;
+            right.Margin = new Thickness(Fluent.Space2, 0, 0, 0);
+            SetColumn(right, 1);
+            line.Children.Add(right);
+        }
+
+        return Fluent.Row(RowBody(contact, avatarSize > 0 ? Avatar(contact, avatarSize) : null, line), compact: true);
+    }
+
+    /// <summary>
+    /// [S-582] Details: a table of the chosen columns, in canonical order, under a header row; the
+    /// name carries a small avatar when the table is wide enough to spare it ([S-1272]).
+    /// </summary>
+    private void DrawDetails(IReadOnlyList<Contact> contacts, double width, double height)
     {
         var columns = _config.EffectiveColumns;
+        var avatars = width >= 360 && columns.Count > 0 && columns[0] == ContactColumn.Name;
 
         _columnHeader.Visibility = Visibility.Visible;
         AddColumns(_columnHeader, columns);
@@ -581,7 +834,7 @@ internal sealed partial class ContactsView : Grid, IWidgetView, IWidgetHeaderCon
         {
             var title = Fluent.Text(FluentType.Caption, "TextFillColorTertiaryBrush");
             title.Text = ContactRules.ColumnTitle(columns[c]);
-            title.Margin = new Thickness(0, 0, Fluent.Space2, 0);
+            title.Margin = new Thickness(c == 0 && avatars ? 20 + Fluent.Space2 : 0, 0, Fluent.Space2, 0);
             SetColumn(title, c);
             _columnHeader.Children.Add(title);
         }
@@ -598,8 +851,29 @@ internal sealed partial class ContactsView : Grid, IWidgetView, IWidgetHeaderCon
                 var cell = Fluent.Text(c == 0 ? FluentType.BodyStrong : FluentType.Body, c == 0 ? "TextFillColorPrimaryBrush" : "TextFillColorSecondaryBrush");
                 cell.Text = ContactRules.Cell(contact, columns[c]);
                 cell.Margin = new Thickness(0, 0, Fluent.Space2, 0);
-                SetColumn(cell, c);
-                cells.Children.Add(cell);
+                cell.VerticalAlignment = VerticalAlignment.Center;
+
+                FrameworkElement content = cell;
+                if (c == 0 && avatars)
+                {
+                    var face = Avatar(contact, 20);
+                    face.Margin = new Thickness(0, 0, Fluent.Space2, 0);
+                    var named = new Grid
+                    {
+                        ColumnDefinitions =
+                        {
+                            new ColumnDefinition { Width = GridLength.Auto },
+                            new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) },
+                        },
+                    };
+                    SetColumn(cell, 1);
+                    named.Children.Add(face);
+                    named.Children.Add(cell);
+                    content = named;
+                }
+
+                SetColumn(content, c);
+                cells.Children.Add(content);
             }
 
             var body = RowBody(contact, null, cells);
@@ -609,7 +883,21 @@ internal sealed partial class ContactsView : Grid, IWidgetView, IWidgetHeaderCon
             list.Children.Add(row);
         }
 
+        WholeRows(contacts.Count, Fluent.RowHeightCompact, height - FluentType.Caption.LineHeight - Fluent.Space1);
         _scroll.Content = list;
+    }
+
+    /// <summary>
+    /// Whole rows only: the viewport stops at the last row that fits instead of cutting a face in
+    /// half; scrolling still reaches everyone.
+    /// </summary>
+    private void WholeRows(int rows, double rowHeight, double height)
+    {
+        var fit = Disclosure.WholeRows(height, rowHeight);
+        if (height > 0 && fit > 0 && fit < rows)
+        {
+            _scroll.MaxHeight = (fit * rowHeight) + Fluent.ListPadding.Bottom;
+        }
     }
 
     /// <summary>The classic widths: the phone a fixed column, the email a little wider than the rest.</summary>
@@ -629,10 +917,18 @@ internal sealed partial class ContactsView : Grid, IWidgetView, IWidgetHeaderCon
         }
     }
 
-    /// <summary>[S-581] Grid: avatar cards with the name and the company (or job title).</summary>
-    private void DrawCards(IReadOnlyList<Contact> contacts, double width)
+    /// <summary>
+    /// [S-581] Grid: avatar cards with the name and the company (or job title); on a large tile
+    /// ([S-1273]) the cards grow a 56 px avatar and the address as a second line.
+    /// </summary>
+    private void DrawCards(IReadOnlyList<Contact> contacts, double width, double height)
     {
-        var perRow = Math.Max(2, (int)Math.Floor((width - Fluent.Space2) / CardWidth));
+        var large = ContactRules.LargeCards(_area);
+
+        // One height for every card (a person missing a field keeps the line), so rows align and
+        // the viewport can stop at a whole row.
+        var cardHeight = large ? LargeCardHeight : CardHeight;
+        var perRow = ContactRules.CardsPerRow(width, large);
         var grid = new Grid { Padding = new Thickness(Fluent.Space1, 0, Fluent.Space1, 0) };
 
         for (var c = 0; c < perRow; c++)
@@ -650,21 +946,27 @@ internal sealed partial class ContactsView : Grid, IWidgetView, IWidgetHeaderCon
             var contact = contacts[i];
             var stack = new StackPanel { Spacing = 2, HorizontalAlignment = HorizontalAlignment.Stretch };
 
-            var avatar = Avatar(contact, 40);
+            var avatar = Avatar(contact, large ? 56 : 40);
             avatar.HorizontalAlignment = HorizontalAlignment.Center;
-            avatar.Margin = new Thickness(0);
+            avatar.Margin = new Thickness(0, 0, 0, large ? Fluent.Space1 : 0);
             stack.Children.Add(avatar);
 
-            var name = Fluent.Text(FluentType.Caption);
-            name.FontWeight = Microsoft.UI.Text.FontWeights.SemiBold;
+            var name = Fluent.Text(large ? FluentType.BodyStrong : FluentType.Strong(FluentType.Caption));
             name.Text = contact.Name;
             name.HorizontalAlignment = HorizontalAlignment.Center;
             stack.Children.Add(name);
 
-            if (ContactRules.CardDetail(contact) is { Length: > 0 } detail)
+            // A large card keeps one line per field even when a person lacks it, so the cards align.
+            var lines = new List<string> { ContactRules.CardDetail(contact) };
+            if (large)
             {
-                var line = Fluent.Text(FluentType.Caption, "TextFillColorTertiaryBrush");
-                line.Text = detail;
+                lines.Add(contact.Email ?? contact.Phone ?? string.Empty);
+            }
+
+            foreach (var value in lines)
+            {
+                    var line = Fluent.Text(FluentType.Caption, "TextFillColorTertiaryBrush");
+                line.Text = value;
                 line.HorizontalAlignment = HorizontalAlignment.Center;
                 stack.Children.Add(line);
             }
@@ -672,7 +974,8 @@ internal sealed partial class ContactsView : Grid, IWidgetView, IWidgetHeaderCon
             var card = new Border
             {
                 Child = stack,
-                Padding = new Thickness(Fluent.Space1, Fluent.Space2, Fluent.Space1, Fluent.Space2),
+                Height = cardHeight,
+                Padding = new Thickness(Fluent.Space1, large ? Fluent.Space3 : 6, Fluent.Space1, large ? Fluent.Space3 : 6),
                 Margin = new Thickness(2),
                 CornerRadius = new CornerRadius(Fluent.ControlRadius),
                 Background = Fluent.RowRest(),
@@ -684,7 +987,90 @@ internal sealed partial class ContactsView : Grid, IWidgetView, IWidgetHeaderCon
             grid.Children.Add(card);
         }
 
+        WholeRows((contacts.Count + perRow - 1) / perRow, cardHeight + 4, height);
         _scroll.Content = grid;
+    }
+
+    /// <summary>
+    /// [S-1274] The selected person in full: a large avatar, the name, the role, then their address
+    /// and number, and what can be done with them — the item menu's actions, one click away.
+    /// </summary>
+    private StackPanel DetailPane(Contact contact)
+    {
+        var pane = new StackPanel { Spacing = Fluent.Space1, Padding = new Thickness(Fluent.Space4, Fluent.Space2, Fluent.Space3, Fluent.Space2) };
+
+        var avatar = Avatar(contact, 64);
+        avatar.HorizontalAlignment = HorizontalAlignment.Left;
+        avatar.Margin = new Thickness(0, 0, 0, Fluent.Space2);
+        pane.Children.Add(avatar);
+
+        var name = Fluent.Text(FluentType.Subtitle);
+        name.Text = contact.Name;
+        pane.Children.Add(name);
+
+        if (ContactRules.Role(contact) is { Length: > 0 } role)
+        {
+            var line = Fluent.Text(FluentType.Body, "TextFillColorSecondaryBrush");
+            line.Text = role;
+            pane.Children.Add(line);
+        }
+
+        var actions = new StackPanel { Spacing = 0, Margin = new Thickness(-Fluent.Space2, Fluent.Space3, 0, 0) };
+
+        if (ContactLinks.Build(ContactLinkKind.Email, contact.Email) is not null)
+        {
+            actions.Children.Add(Action(Glyphs.Mail, contact.Email!, "Send email", () => ShellLauncher.OpenContactLink(ContactLinkKind.Email, contact.Email)));
+            actions.Children.Add(Action(Glyphs.Copy, "Copy email", null, () => Copy(contact.Email!)));
+        }
+
+        if (ContactLinks.Build(ContactLinkKind.Call, contact.Phone) is not null)
+        {
+            actions.Children.Add(Action(PhoneGlyph, contact.Phone!, "Call", () => ShellLauncher.OpenContactLink(ContactLinkKind.Call, contact.Phone)));
+            actions.Children.Add(Action(MessageGlyph, "Message", null, () => ShellLauncher.OpenContactLink(ContactLinkKind.Message, contact.Phone)));
+        }
+
+        if (!string.IsNullOrWhiteSpace(contact.Phone))
+        {
+            actions.Children.Add(Action(Glyphs.Copy, "Copy phone", null, () => Copy(contact.Phone!)));
+        }
+
+        actions.Children.Add(Action(Glyphs.Copy, "Copy name", null, () => Copy(contact.Name)));
+        pane.Children.Add(actions);
+        return pane;
+
+        Border Action(string glyph, string text, string? hint, Action click)
+        {
+            var label = Fluent.Text(FluentType.Body);
+            label.Text = text;
+            label.VerticalAlignment = VerticalAlignment.Center;
+
+            var icon = Fluent.Icon(glyph);
+            icon.Margin = new Thickness(0, 0, Fluent.Space3, 0);
+
+            var content = new Grid
+            {
+                ColumnDefinitions =
+                {
+                    new ColumnDefinition { Width = GridLength.Auto },
+                    new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) },
+                },
+            };
+            SetColumn(label, 1);
+            content.Children.Add(icon);
+            content.Children.Add(label);
+
+            var row = Fluent.Row(content, compact: true);
+            row.Padding = new Thickness(Fluent.Space2, 0, Fluent.Space2, 0);
+            row.CornerRadius = new CornerRadius(Fluent.ControlRadius);
+            ToolTipService.SetToolTip(row, hint ?? text);
+            _hovers.Add(Fluent.Hover(row));
+            row.Tapped += (_, args) =>
+            {
+                args.Handled = true;
+                click();
+            };
+            return row;
+        }
     }
 
     /// <summary>A row's content: the selection mark, the avatar when there is one, and the text.</summary>
@@ -728,7 +1114,7 @@ internal sealed partial class ContactsView : Grid, IWidgetView, IWidgetHeaderCon
     /// <summary>[S-586] Initials on a colour hashed from the name, so a person keeps their colour.</summary>
     private static Border Avatar(Contact contact, double size)
     {
-        var initials = Fluent.Text(size >= 40 ? FluentType.BodyStrong : FluentType.Caption);
+        var initials = Fluent.Text(size >= 56 ? FluentType.Subtitle : size >= 40 ? FluentType.BodyStrong : FluentType.Caption);
 
         // The fill is always dark (34% lightness, the classic hsl), so the initials are always white,
         // in either theme; a theme brush would put black on it in the dark theme.
@@ -746,7 +1132,7 @@ internal sealed partial class ContactsView : Grid, IWidgetView, IWidgetHeaderCon
             CornerRadius = new CornerRadius(size / 2),
             Background = new SolidColorBrush(FromHsl(ContactRules.AvatarHue(contact.Name), 0.38, 0.34)),
             VerticalAlignment = VerticalAlignment.Center,
-            Margin = new Thickness(0, 0, Fluent.Space3, 0),
+            Margin = new Thickness(0, 0, size >= 32 ? Fluent.Space3 : Fluent.Space2, 0),
         };
     }
 
@@ -754,6 +1140,7 @@ internal sealed partial class ContactsView : Grid, IWidgetView, IWidgetHeaderCon
     private void Wire(Border row, Contact contact)
     {
         _hovers.Add(Fluent.Hover(row));
+        _rows[contact.Id] = row;
         ToolTipService.SetToolTip(row, Tooltip(contact));
 
         row.Tapped += (_, args) =>
@@ -773,6 +1160,19 @@ internal sealed partial class ContactsView : Grid, IWidgetView, IWidgetHeaderCon
 
     private void Select(string? id)
     {
+        if (id == _selectedId)
+        {
+            return;
+        }
+
+        // [S-1274] Where a selection opens or changes the detail pane, the list is laid out again.
+        if (ContactRules.ShowsDetailPane(_area, selected: true) && _config.EffectiveLayout != ContactsLayout.Grid)
+        {
+            _selectedId = id;
+            Render();
+            return;
+        }
+
         if (_selectedId is { } old && _indicators.TryGetValue(old, out var previous))
         {
             previous.Visibility = Visibility.Collapsed;
@@ -856,9 +1256,6 @@ internal sealed partial class ContactsView : Grid, IWidgetView, IWidgetHeaderCon
 
         return string.Join(Environment.NewLine, lines);
     }
-
-    private static string FirstNonEmpty(params string?[] values)
-        => values.FirstOrDefault(v => !string.IsNullOrWhiteSpace(v))?.Trim() ?? string.Empty;
 
     /// <summary>The classic <c>hsl(h, 38%, 34%)</c>, as a colour.</summary>
     private static Windows.UI.Color FromHsl(int hue, double saturation, double lightness)

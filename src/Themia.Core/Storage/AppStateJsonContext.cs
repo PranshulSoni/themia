@@ -70,4 +70,5 @@ namespace Themia.Core.Storage;
 [JsonSerializable(typeof(GitHubReviewsConfig))]
 [JsonSerializable(typeof(ClaudeUsageConfig))]
 [JsonSerializable(typeof(DesignState))]
+[JsonSerializable(typeof(AppPreferences))]
 internal sealed partial class AppStateJsonContext : JsonSerializerContext;

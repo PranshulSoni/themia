@@ -39,6 +39,39 @@ public abstract class WeatherConfig : WidgetConfig
     public int RefreshMinutes { get; set; } = 15;
 
     /// <summary>
+    /// [S-728] Keep the place's name out of the card header, which then reads as the widget's own
+    /// label ("Weather"). A title the user typed still wins either way.
+    /// </summary>
+    public bool HideLocation { get; set; }
+
+    /// <summary>
+    /// [S-728] The header title for the chosen place: the city, the first part of the name the
+    /// geocoder gave ("Zürich" of "Zürich, Zurich, Switzerland"), not the text that was typed to
+    /// find it, which is as often "zurich" or "zuerich". The typed text only stands in before a
+    /// place has been picked.
+    /// </summary>
+    [JsonIgnore]
+    public string? Title
+    {
+        get
+        {
+            if (HideLocation)
+            {
+                return null;
+            }
+
+            var name = LocationName.Split(',', 2)[0].Trim();
+
+            if (name.Length > 0)
+            {
+                return name;
+            }
+
+            return string.IsNullOrWhiteSpace(Place) ? null : Place.Trim();
+        }
+    }
+
+    /// <summary>
     /// Whether a location has actually been chosen.
     /// <para>
     /// A null test, not a truthiness test: latitude 0 is the equator and longitude 0 is the prime
@@ -67,6 +100,7 @@ public abstract class WeatherConfig : WidgetConfig
         other.LocationName = LocationName;
         other.Unit = Unit;
         other.RefreshMinutes = RefreshMinutes;
+        other.HideLocation = HideLocation;
     }
 }
 

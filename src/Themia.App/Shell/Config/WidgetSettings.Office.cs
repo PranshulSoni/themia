@@ -81,10 +81,10 @@ internal static partial class WidgetSettings
             rows.Add(row);
         }
 
+        // [S-583] / [S-1276] At least five, in steps of five, and no upper bound, as the original.
         rows.Add(FluentLayout.Row(Glyphs.Count, "People",
-            "How many to list, in steps of five; a short widget shows fewer",
-            FluentLayout.Slider(config.EffectiveCount, 5, 500, 5, string.Empty,
-                value => { config.Count = (int)Math.Round(value); save(); })));
+            "How many to list, at least five; a short widget shows fewer",
+            FluentLayout.Stepper(config.EffectiveCount, 5, 5, value => { config.Count = value; save(); })));
 
         // [S-584] Saved as the user stops typing would be nicer, but each keystroke is one cheap save
         // and the widget only re-filters what it holds.

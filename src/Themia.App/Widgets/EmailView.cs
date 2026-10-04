@@ -1,10 +1,7 @@
 using System.Globalization;
-using Microsoft.UI;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
-using Microsoft.UI.Xaml.Media;
-using Microsoft.UI.Xaml.Shapes;
 using Themia.App.Services;
 using Themia.App.Services.Mail;
 using Themia.App.Shell;
@@ -26,33 +23,40 @@ namespace Themia.App.Widgets;
 /// fits the tile is Core's too (<see cref="MailLayout"/>).
 /// </para>
 /// <para>
-/// Double-click opens a message, right-click offers what its account allows ([S-544]). Unread is
-/// carried by weight and an accent bar at the row's leading edge, the way Windows mail lists mark
-/// it, so it needs no legend.
+/// [S-1280] It uses the whole tile: two- and three-line rows on a narrow tile, one line per message
+/// on a wide strip and a big tile, as many whole rows as fit (the count setting is a floor), the
+/// envelope from a medium tile, the provider and a folder summary on the largest. A click focuses a
+/// row, a double-click opens it, right-click offers what its account allows ([S-544]).
 /// </para>
 /// </summary>
-internal sealed partial class EmailView : Grid, IWidgetView, IWidgetHeaderContent, IWidgetSurfaceAware, IWidgetContextActions
+internal sealed partial class EmailView : Grid, IWidgetView, IWidgetHeaderContent, IWidgetSurfaceAware, IWidgetContextActions, IWidgetSizeAware
 {
     private const string Scope = "email-widget";
-
-    /// <summary>The leading strip of a row that carries the unread bar, inside the row's own padding.</summary>
-    private const double BarLane = 12;
 
     /// <summary>Below this width the header has no room for a warning beside the title and the badge.</summary>
     private const double WarningNeedsWidth = 160;
 
+    /// <summary>[S-1289] Below this width the sort button would squeeze the folder name; the menu still has it.</summary>
+    private const double SortNeedsWidth = 200;
+
     /// <summary>Below this content height the accounts link under an empty state has no room.</summary>
     private const double LinkNeedsHeight = 100;
+
+    /// <summary>[S-542] Below this height the row view's column titles cost a message.</summary>
+    private const double ColumnHeaderNeedsHeight = 140;
 
     private readonly TextBlock _badge = new();
     private readonly Border _badgeHost;
     private readonly FontIcon _warning;
     private readonly ProgressRing _busy = new();
+    private readonly Border _sort;
+    private readonly IDisposable _sortHover;
     private readonly StackPanel _trailing;
 
     private readonly Grid _columnHeader = new();
     private readonly StackPanel _list = new() { Spacing = 0 };
     private readonly ScrollViewer _scroll;
+    private readonly TextBlock _footer;
 
     private readonly Grid _emptyHost = new();
     private readonly StackPanel _empty;
@@ -67,21 +71,23 @@ internal sealed partial class EmailView : Grid, IWidgetView, IWidgetHeaderConten
     private string? _feedKey;
     private IWidgetSurface? _surface;
     private IDisposable? _clock;
+    private ScrollFade? _fade;
     private EmailConfig _config = new();
     private string? _actionProblem;
     private bool _warningOpensAccounts;
     private bool _refreshing;
     private bool _detached;
 
-    // The size the rows were last built for, so a resize redraws only when a threshold is crossed.
-    private MailRowLayout _rowLayout;
-    private string _columnsShape = string.Empty;
-    private bool _compact;
+    private WidgetArea _area;
+
+    /// <summary>What the rows on screen were built for, so a resize redraws only when an answer changes.</summary>
+    private MailShape _shape;
 
     public EmailView()
     {
         RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
+        RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
 
         _badgeHost = Fluent.Badge(_badge);
         _badgeHost.Visibility = Visibility.Collapsed;
@@ -95,13 +101,25 @@ internal sealed partial class EmailView : Grid, IWidgetView, IWidgetHeaderConten
         _busy.IsActive = false;
         _busy.Visibility = Visibility.Collapsed;
 
+        // [S-1289] The original's sort toggle, beside the badge: one click turns the list round.
+        _sort = new Border
+        {
+            Child = Fluent.Icon(Glyphs.Sort, "TextFillColorSecondaryBrush", 14),
+            Padding = new Thickness(Fluent.Space1),
+            CornerRadius = new CornerRadius(Fluent.ControlRadius),
+            Background = Fluent.RowRest(),
+            Visibility = Visibility.Collapsed,
+        };
+        _sort.Tapped += OnSortTapped;
+        _sortHover = Fluent.Hover(_sort);
+
         // Read once by the card when it builds the header, so it exists from construction.
         _trailing = new StackPanel
         {
             Orientation = Orientation.Horizontal,
             Spacing = Fluent.Space2,
             VerticalAlignment = VerticalAlignment.Center,
-            Children = { _warning, _busy, _badgeHost },
+            Children = { _warning, _busy, _sort, _badgeHost },
         };
 
         _columnHeader.Padding = new Thickness(Fluent.Space4, 0, Fluent.Space4, Fluent.Space1);
@@ -118,6 +136,12 @@ internal sealed partial class EmailView : Grid, IWidgetView, IWidgetHeaderConten
             VerticalScrollBarVisibility = ScrollBarVisibility.Hidden,
         };
         Grid.SetRow(_scroll, 1);
+
+        // [S-1285] The largest tile's summary line under the list.
+        _footer = Fluent.Text(FluentType.Caption, "TextFillColorTertiaryBrush");
+        _footer.Margin = new Thickness(Fluent.Space4, 0, Fluent.Space4, Fluent.Space2);
+        _footer.Visibility = Visibility.Collapsed;
+        Grid.SetRow(_footer, 2);
 
         _empty = Fluent.EmptyState(Glyphs.Mail, _emptyText, out _);
 
@@ -141,19 +165,18 @@ internal sealed partial class EmailView : Grid, IWidgetView, IWidgetHeaderConten
         _emptyHost.Children.Add(_accountsLink);
         _emptyHost.Visibility = Visibility.Collapsed;
         Grid.SetRow(_emptyHost, 0);
-        Grid.SetRowSpan(_emptyHost, 2);
+        Grid.SetRowSpan(_emptyHost, 3);
 
         Children.Add(_columnHeader);
         Children.Add(_scroll);
+        Children.Add(_footer);
         Children.Add(_emptyHost);
 
-        SizeChanged += OnSizeChanged;
+        KeyDown += OnKeyDown;
     }
 
     /// <inheritdoc />
     public FrameworkElement? HeaderTrailing => _trailing;
-
-    private bool Compact => ActualHeight > 0 && ActualHeight < Fluent.CompactBelow;
 
     public void Bind(IWidgetSurface surface)
     {
@@ -165,6 +188,7 @@ internal sealed partial class EmailView : Grid, IWidgetView, IWidgetHeaderConten
     {
         _detached = false;
         _source = AppServices.Mail;
+        _fade = new ScrollFade(_scroll, _list);
 
         if (_source is not null)
         {
@@ -181,19 +205,35 @@ internal sealed partial class EmailView : Grid, IWidgetView, IWidgetHeaderConten
     {
         _config = config as EmailConfig ?? new EmailConfig();
         PublishTitle();
+        Lay();
         Reopen();
         Render();
     }
 
-    /// <summary>Open the feed this config asks for, letting go of the old one only if it changed.</summary>
+    /// <inheritdoc />
+    public void ApplySize(WidgetArea area)
+    {
+        _area = area;
+        FitEmptyState(area.Height);
+
+        var drawn = _shape;
+        Lay();
+        if (_shape != drawn)
+        {
+            Reopen();
+            Render();
+        }
+    }
+
+    /// <summary>Open the feed this config and tile ask for, letting go of the old one only if it changed.</summary>
     private void Reopen()
     {
-        if (_source is null)
+        if (_source is null || _detached)
         {
             return;
         }
 
-        var query = new MailQuery(_config.EffectiveAccountIds, _config.Folder, _config.EffectiveMaxCount);
+        var query = new MailQuery(_config.EffectiveAccountIds, _config.Folder, _shape.Fetch);
         if (_feed is not null && query.Key == _feedKey)
         {
             return;
@@ -231,20 +271,73 @@ internal sealed partial class EmailView : Grid, IWidgetView, IWidgetHeaderConten
 
     private void OnAccountsChanged() => Render();
 
-    private void OnSizeChanged(object sender, SizeChangedEventArgs args)
+    // -----------------------------------------------------------------------------------------
+    // The ladder
+    // -----------------------------------------------------------------------------------------
+
+    /// <summary>
+    /// [S-1280] What the tile holds, top to bottom: the rows (the first always), the row view's
+    /// column titles, then as many more whole rows as fit — which is also how many messages to
+    /// fetch, never fewer than the count setting asks for. The folder summary of the largest tile
+    /// ([S-1285]) is not a rung: it arrives with the feed, and a count that moved with it would
+    /// refetch the list it summarises; it sits under the list and the fade covers what it hides.
+    /// </summary>
+    private void Lay()
     {
-        var compact = Compact;
-        var layout = MailLayout.Rows(_config, args.NewSize.Width, args.NewSize.Height);
-        var columns = ColumnsShape(args.NewSize.Width);
+        var width = _area.Width;
+        var height = _area.Height;
+        var compact = height > 0 && height < Fluent.CompactBelow;
+        var rows = MailLayout.Rows(_config, width, height);
+        var columns = _config.ViewMode == MailViewMode.Row ? MailLayout.Columns(_config.EffectiveColumns, InnerWidth(width, rows.Envelope), Fluent.Space2) : [];
 
-        FitEmptyState(args.NewSize.Height);
+        var room = new Disclosure(_area);
+        var rowHeight = RowHeight(rows, compact);
+        room.Reserve(rowHeight);
 
-        if (compact != _compact || layout != _rowLayout || columns != _columnsShape
-            || (args.PreviousSize.Width < WarningNeedsWidth) != (args.NewSize.Width < WarningNeedsWidth))
-        {
-            Render();
-        }
+        var header = _config.ViewMode == MailViewMode.Row && height >= ColumnHeaderNeedsHeight
+            && room.Take(FluentType.Caption.LineHeight + Fluent.Space1);
+
+        var more = room.TakeRows(rowHeight, 49);
+        var fit = _area.IsMeasured ? 1 + more : 0;
+
+        _shape = new MailShape(
+            rows,
+            string.Join(",", columns.Select(c => c.Column)),
+            compact,
+            header,
+            Warning: width >= WarningNeedsWidth,
+            Sort: width >= SortNeedsWidth,
+            QuickActions: rows.Inline && _area.WidthClass >= SizeClass.Huge,
+            Fetch: _config.FetchCount(fit));
     }
+
+    /// <summary>
+    /// How tall one row is drawn, for counting whole rows: one line in the row view and on one-line
+    /// rows; otherwise the sender, the subject line, the preview lines and the row's breathing room.
+    /// </summary>
+    private double RowHeight(MailRowLayout rows, bool compact)
+    {
+        if (_config.ViewMode == MailViewMode.Row || rows.Inline)
+        {
+            return Fluent.RowHeightCompact;
+        }
+
+        var lines = FluentType.Body.LineHeight;
+        if (rows.Subject || rows.Account)
+        {
+            lines += FluentType.Caption.LineHeight;
+        }
+
+        if (rows.Preview)
+        {
+            lines += rows.PreviewLines * FluentType.Caption.LineHeight;
+        }
+
+        return lines + (2 * (compact ? Fluent.Space1 : RowPad));
+    }
+
+    private string? FooterText()
+        => _feed?.Snapshot is { } snapshot ? MailLayout.Footer(snapshot.Outcomes, _config.Folder) : null;
 
     // -----------------------------------------------------------------------------------------
     // Drawing
@@ -270,7 +363,7 @@ internal sealed partial class EmailView : Grid, IWidgetView, IWidgetHeaderConten
         var warning = _actionProblem ?? screen.Warning;
         _warningOpensAccounts = _actionProblem is null && screen.OffersAccounts;
         // On a tile this narrow the glyph would squeeze the folder name to a letter; the warning waits.
-        _warning.Visibility = warning is null || ActualWidth < WarningNeedsWidth ? Visibility.Collapsed : Visibility.Visible;
+        _warning.Visibility = warning is null || !_shape.Warning ? Visibility.Collapsed : Visibility.Visible;
         ToolTipService.SetToolTip(_warning, warning);
 
         if (screen.Kind != MailScreenKind.Messages)
@@ -286,16 +379,21 @@ internal sealed partial class EmailView : Grid, IWidgetView, IWidgetHeaderConten
         _badge.Text = unread.ToString(CultureInfo.InvariantCulture);
         _badgeHost.Visibility = unread > 0 ? Visibility.Visible : Visibility.Collapsed;
 
+        _sort.Visibility = _shape.Sort ? Visibility.Visible : Visibility.Collapsed;
+        ToolTipService.SetToolTip(_sort, _config.SortOrder == MailSortOrder.NewestFirst
+            ? "Newest first. Click to show oldest first"
+            : "Oldest first. Click to show newest first");
+
+        var footer = _area.HeightClass >= SizeClass.Huge ? FooterText() : null;
+        _footer.Text = footer ?? string.Empty;
+        _footer.Visibility = footer is null ? Visibility.Collapsed : Visibility.Visible;
+
         var labels = accounts.ToDictionary(a => a.Id, a => a.Label, StringComparer.Ordinal);
         var now = DateTimeOffset.Now;
 
-        _compact = Compact;
-        _rowLayout = MailLayout.Rows(_config, ActualWidth, ActualHeight);
-        _columnsShape = ColumnsShape(ActualWidth);
-
         if (_config.ViewMode == MailViewMode.Row)
         {
-            var columns = MailLayout.Columns(_config.EffectiveColumns, InnerWidth, Fluent.Space2);
+            var columns = MailLayout.Columns(_config.EffectiveColumns, InnerWidth(_area.Width, _shape.Rows.Envelope), Fluent.Space2);
             BuildColumnHeader(columns);
 
             foreach (var message in messages)
@@ -309,16 +407,22 @@ internal sealed partial class EmailView : Grid, IWidgetView, IWidgetHeaderConten
 
             foreach (var message in messages)
             {
-                AddRow(BuildListRow(message, labels, now), message);
+                AddRow(_shape.Rows.Inline ? BuildInlineRow(message, labels, now) : BuildListRow(message, labels, now), message);
             }
         }
+
+        _shown = messages;
+        RestoreFocus();
+        _fade?.Refresh();
     }
 
     private void ShowScreen(MailScreen screen)
     {
         _scroll.Visibility = Visibility.Collapsed;
         _columnHeader.Visibility = Visibility.Collapsed;
+        _footer.Visibility = Visibility.Collapsed;
         _badgeHost.Visibility = Visibility.Collapsed;
+        _sort.Visibility = Visibility.Collapsed;
         _emptyHost.Visibility = Visibility.Visible;
         _emptyText.Text = screen.Text;
         _accountsLink.Tag = screen.OffersAccounts;
@@ -328,7 +432,8 @@ internal sealed partial class EmailView : Grid, IWidgetView, IWidgetHeaderConten
             MailScreenKind.SignInRequired => "Sign in again",
             _ => "Choose an account",
         };
-        FitEmptyState(ActualHeight);
+        _shown = [];
+        FitEmptyState(_area.Height);
     }
 
     /// <summary>The link shows when the screen offers it and there is room; the sentence gets the rest.</summary>
@@ -340,258 +445,9 @@ internal sealed partial class EmailView : Grid, IWidgetView, IWidgetHeaderConten
         _empty.MaxHeight = height > 0 ? Math.Max(0, height - (link ? 36 : 0)) : double.PositiveInfinity;
     }
 
-    /// <summary>The row's width inside its padding: what the text has to share.</summary>
-    private double InnerWidth => Math.Max(0, ActualWidth - (2 * Fluent.Space4));
-
-    private string ColumnsShape(double width)
-        => _config.ViewMode != MailViewMode.Row
-            ? string.Empty
-            : string.Join(",", MailLayout.Columns(_config.EffectiveColumns, Math.Max(0, width - (2 * Fluent.Space4)), Fluent.Space2).Select(c => c.Column));
-
-    /// <summary>
-    /// A list or compact row: sender and time; then the subject with the account beside it; then,
-    /// in the list view, the preview.
-    /// </summary>
-    private Grid BuildListRow(MailMessage message, Dictionary<string, string> labels, DateTimeOffset now)
-    {
-        var layout = _rowLayout;
-        var unread = !message.IsRead;
-
-        var lines = new StackPanel { Spacing = 0 };
-
-        var sender = Fluent.Text(unread ? FluentType.BodyStrong : FluentType.Body);
-        sender.Text = message.Sender;
-
-        if (layout.Time)
-        {
-            var when = Fluent.Text(FluentType.Caption, unread ? "AccentTextFillColorPrimaryBrush" : "TextFillColorTertiaryBrush");
-            when.Text = MailTime.Short(message.Received, now, CultureInfo.CurrentCulture);
-            when.VerticalAlignment = VerticalAlignment.Center;
-            when.Margin = new Thickness(Fluent.Space2, 0, 0, 0);
-            _times.Add((when, message.Received, false));
-            lines.Children.Add(TwoColumns(sender, when));
-        }
-        else
-        {
-            lines.Children.Add(sender);
-        }
-
-        var account = layout.Account && labels.TryGetValue(message.AccountId, out var label) ? label : null;
-
-        if (layout.Subject || account is not null)
-        {
-            var subject = Fluent.Text(FluentType.Caption, unread ? "TextFillColorPrimaryBrush" : "TextFillColorSecondaryBrush");
-            subject.Text = layout.Subject ? message.SubjectLine : string.Empty;
-
-            if (account is not null)
-            {
-                var tag = Fluent.Text(FluentType.Caption, "TextFillColorTertiaryBrush");
-                tag.Text = account;
-                tag.MaxWidth = 120;
-                tag.Margin = new Thickness(Fluent.Space2, 0, 0, 0);
-                lines.Children.Add(TwoColumns(subject, tag));
-            }
-            else
-            {
-                lines.Children.Add(subject);
-            }
-        }
-
-        if (layout.Preview && !string.IsNullOrWhiteSpace(message.Preview))
-        {
-            var preview = Fluent.Text(FluentType.Caption, "TextFillColorTertiaryBrush");
-            preview.Text = message.Preview;
-            preview.TextWrapping = TextWrapping.Wrap;
-            preview.MaxLines = layout.PreviewLines;
-            lines.Children.Add(preview);
-        }
-
-        return WithBar(lines, unread);
-    }
-
-    /// <summary>A row-view row: one line, the chosen columns that fit.</summary>
-    private Grid BuildTableRow(MailMessage message, IReadOnlyList<MailColumnFit> columns, Dictionary<string, string> labels, DateTimeOffset now)
-    {
-        var unread = !message.IsRead;
-        var grid = ColumnGrid(columns);
-
-        for (var i = 0; i < columns.Count; i++)
-        {
-            var column = columns[i].Column;
-            var cell = column switch
-            {
-                MailColumn.From => Fluent.Text(unread ? FluentType.BodyStrong : FluentType.Body),
-                MailColumn.Subject => Fluent.Text(FluentType.Body, unread ? "TextFillColorPrimaryBrush" : "TextFillColorSecondaryBrush"),
-                MailColumn.Date => Fluent.Text(FluentType.Caption, unread ? "AccentTextFillColorPrimaryBrush" : "TextFillColorTertiaryBrush"),
-                _ => Fluent.Text(FluentType.Caption, "TextFillColorTertiaryBrush"),
-            };
-
-            cell.VerticalAlignment = VerticalAlignment.Center;
-            cell.Text = column switch
-            {
-                MailColumn.From => message.Sender,
-                MailColumn.Subject => message.SubjectLine,
-                MailColumn.Date => MailTime.Full(message.Received, now, CultureInfo.CurrentCulture),
-                MailColumn.Preview => message.Preview,
-                _ => labels.TryGetValue(message.AccountId, out var label) ? label : string.Empty,
-            };
-
-            if (column == MailColumn.Date)
-            {
-                cell.TextAlignment = TextAlignment.Right;
-                _times.Add((cell, message.Received, true));
-            }
-
-            Grid.SetColumn(cell, i);
-            grid.Children.Add(cell);
-        }
-
-        return WithBar(grid, unread);
-    }
-
-    /// <summary>[S-542] The row view's column titles, laid out on the same grid as its rows.</summary>
-    private void BuildColumnHeader(IReadOnlyList<MailColumnFit> columns)
-    {
-        _columnHeader.Children.Clear();
-        _columnHeader.ColumnDefinitions.Clear();
-
-        var template = ColumnGrid(columns);
-        foreach (var definition in template.ColumnDefinitions.ToList())
-        {
-            template.ColumnDefinitions.Remove(definition);
-            _columnHeader.ColumnDefinitions.Add(definition);
-        }
-
-        _columnHeader.ColumnSpacing = template.ColumnSpacing;
-
-        for (var i = 0; i < columns.Count; i++)
-        {
-            var title = Fluent.Text(FluentType.Caption, "TextFillColorTertiaryBrush");
-            title.Text = columns[i].Column.Label();
-            if (columns[i].Column == MailColumn.Date)
-            {
-                title.TextAlignment = TextAlignment.Right;
-            }
-
-            Grid.SetColumn(title, i);
-            _columnHeader.Children.Add(title);
-        }
-
-        // A header over two rows of data is a third of the tile; drop it when there is no room.
-        _columnHeader.Visibility = ActualHeight >= 140 ? Visibility.Visible : Visibility.Collapsed;
-    }
-
-    private static Grid ColumnGrid(IReadOnlyList<MailColumnFit> columns)
-    {
-        var grid = new Grid { ColumnSpacing = Fluent.Space2 };
-
-        foreach (var column in columns)
-        {
-            grid.ColumnDefinitions.Add(new ColumnDefinition
-            {
-                Width = column.Star > 0 ? new GridLength(column.Star, GridUnitType.Star) : new GridLength(column.Width),
-            });
-        }
-
-        return grid;
-    }
-
-    private static Grid TwoColumns(FrameworkElement left, FrameworkElement right)
-    {
-        Grid.SetColumn(left, 0);
-        Grid.SetColumn(right, 1);
-
-        return new Grid
-        {
-            ColumnDefinitions =
-            {
-                new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) },
-                new ColumnDefinition { Width = GridLength.Auto },
-            },
-            Children = { left, right },
-        };
-    }
-
-    /// <summary>
-    /// The content with the unread lane in front of it. The lane sits inside the row's leading
-    /// padding (a negative margin pulls it there), so read and unread rows keep their text on the
-    /// same line and the bar costs no width.
-    /// </summary>
-    private static Grid WithBar(FrameworkElement content, bool unread)
-    {
-        var grid = new Grid
-        {
-            Margin = new Thickness(-BarLane, 0, 0, 0),
-            ColumnDefinitions =
-            {
-                new ColumnDefinition { Width = new GridLength(BarLane) },
-                new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) },
-            },
-        };
-
-        if (unread)
-        {
-            var bar = new Rectangle
-            {
-                Width = 3,
-                RadiusX = 1.5,
-                RadiusY = 1.5,
-                Fill = FluentLayout.Themed("AccentFillColorDefaultBrush", Colors.DodgerBlue),
-                HorizontalAlignment = HorizontalAlignment.Left,
-                VerticalAlignment = VerticalAlignment.Stretch,
-                Margin = new Thickness(Fluent.Space1, Fluent.Space1, 0, Fluent.Space1),
-            };
-
-            grid.Children.Add(bar);
-        }
-
-        Grid.SetColumn(content, 1);
-        grid.Children.Add(content);
-        return grid;
-    }
-
-    private void AddRow(Grid content, MailMessage message)
-    {
-        var row = Fluent.Row(content, _compact);
-
-        if (_config.ViewMode == MailViewMode.Row)
-        {
-            row.MinHeight = Fluent.RowHeightCompact;
-        }
-        else
-        {
-            // As tall as its lines, with the breathing room a row of text needs; no taller.
-            row.MinHeight = 0;
-            content.Margin = new Thickness(-BarLane, _compact ? Fluent.Space1 : 6, 0, _compact ? Fluent.Space1 : 6);
-        }
-
-        _hovers.Add(Fluent.Hover(row));
-
-        row.DoubleTapped += (_, args) =>
-        {
-            args.Handled = true;
-            OpenMessage(message);
-        };
-
-        row.RightTapped += (_, args) =>
-        {
-            args.Handled = true;
-            ShowMessageMenu(row, message, args);
-        };
-
-        ToolTipService.SetToolTip(row, Tooltip(message));
-        _list.Children.Add(row);
-    }
-
-    private static string Tooltip(MailMessage message)
-    {
-        var from = message.FromAddress.Length > 0 && message.FromName.Length > 0
-            ? $"{message.FromName} <{message.FromAddress}>"
-            : message.Sender;
-
-        var when = message.Received is { } at ? Environment.NewLine + at.ToLocalTime().ToString("f", CultureInfo.CurrentCulture) : string.Empty;
-        return from + Environment.NewLine + message.SubjectLine + when;
-    }
+    /// <summary>The row's width inside its padding, the focus ring and the envelope: what the text has to share.</summary>
+    private static double InnerWidth(double width, bool envelope)
+        => Math.Max(0, width - (2 * (Fluent.Space4 + RowFocus.Ring)) - (envelope ? EnvelopeLane : 0));
 
     /// <summary>Re-label the times without rebuilding a row: "4m" an hour later is wrong, refetching to learn that is waste.</summary>
     private void UpdateTimes()
@@ -615,6 +471,7 @@ internal sealed partial class EmailView : Grid, IWidgetView, IWidgetHeaderConten
 
         _hovers.Clear();
         _times.Clear();
+        _rows.Clear();
         _list.Children.Clear();
     }
 
@@ -632,12 +489,15 @@ internal sealed partial class EmailView : Grid, IWidgetView, IWidgetHeaderConten
         }
     }
 
+    /// <summary>Whether the message's account lets Themia change it (Google is read-only, [S-544]).</summary>
+    private bool CanChange(MailMessage message)
+        => _source?.Accounts.FirstOrDefault(a => a.Id == message.AccountId) is { ReadOnly: false };
+
     /// <summary>[S-544] A message's own commands, offered only where its account allows them.</summary>
     private void ShowMessageMenu(FrameworkElement anchor, MailMessage message, RightTappedRoutedEventArgs args)
     {
         var menu = new MenuFlyout();
-        var account = _source?.Accounts.FirstOrDefault(a => a.Id == message.AccountId);
-        var canChange = account is { ReadOnly: false };
+        var canChange = CanChange(message);
 
         menu.Items.Add(Item(Glyphs.Open, "Open", () => OpenMessage(message)));
         menu.Items.Add(Item(Glyphs.MailReply, "Reply", () =>
@@ -672,13 +532,13 @@ internal sealed partial class EmailView : Grid, IWidgetView, IWidgetHeaderConten
         if (canChange)
         {
             menu.Items.Add(new MenuFlyoutSeparator());
-            menu.Items.Add(Item(Glyphs.Delete,
-                message.Folder == MailFolder.Deleted ? "Delete permanently" : "Delete",
-                () => Change(message, MailChange.Delete)));
+            menu.Items.Add(Item(Glyphs.Delete, DeleteLabel(message), () => Change(message, MailChange.Delete)));
         }
 
         menu.ShowAt(anchor, args.GetPosition(anchor));
     }
+
+    private static string DeleteLabel(MailMessage message) => message.Folder == MailFolder.Deleted ? "Delete permanently" : "Delete";
 
     private static MenuFlyoutItem Item(string glyph, string text, Action action)
     {
@@ -720,7 +580,7 @@ internal sealed partial class EmailView : Grid, IWidgetView, IWidgetHeaderConten
 
         _actionProblem = problem;
         _warningOpensAccounts = false;
-        _warning.Visibility = ActualWidth < WarningNeedsWidth ? Visibility.Collapsed : Visibility.Visible;
+        _warning.Visibility = _shape.Warning ? Visibility.Visible : Visibility.Collapsed;
         ToolTipService.SetToolTip(_warning, problem);
     }
 
@@ -732,6 +592,13 @@ internal sealed partial class EmailView : Grid, IWidgetView, IWidgetHeaderConten
             args.Handled = true;
             OnAccountsClicked(sender, args);
         }
+    }
+
+    /// <summary>[S-1289] The header's sort button turns the list round, saved like the menu's toggle.</summary>
+    private void OnSortTapped(object sender, TappedRoutedEventArgs args)
+    {
+        args.Handled = true;
+        Edit(c => c.SortOrder = c.SortOrder == MailSortOrder.NewestFirst ? MailSortOrder.OldestFirst : MailSortOrder.NewestFirst);
     }
 
     private void OnAccountsClicked(object sender, RoutedEventArgs args)
@@ -808,6 +675,7 @@ internal sealed partial class EmailView : Grid, IWidgetView, IWidgetHeaderConten
         change(_config);
         _surface?.RequestSave();
         PublishTitle();
+        Lay();
         Reopen();
         Render();
     }
@@ -823,12 +691,17 @@ internal sealed partial class EmailView : Grid, IWidgetView, IWidgetHeaderConten
         }
 
         _detached = true;
-        SizeChanged -= OnSizeChanged;
+        KeyDown -= OnKeyDown;
         _warning.Tapped -= OnWarningTapped;
+        _sort.Tapped -= OnSortTapped;
+        _sortHover.Dispose();
         _accountsLink.Click -= OnAccountsClicked;
 
         _clock?.Dispose();
         _clock = null;
+
+        _fade?.Dispose();
+        _fade = null;
 
         CloseFeed();
 
@@ -840,4 +713,15 @@ internal sealed partial class EmailView : Grid, IWidgetView, IWidgetHeaderConten
 
         ClearRows();
     }
+
+    /// <summary>The answers a layout pass gave; a resize that changes none of them redraws nothing.</summary>
+    private readonly record struct MailShape(
+        MailRowLayout Rows,
+        string Columns,
+        bool Compact,
+        bool ColumnHeader,
+        bool Warning,
+        bool Sort,
+        bool QuickActions,
+        int Fetch);
 }

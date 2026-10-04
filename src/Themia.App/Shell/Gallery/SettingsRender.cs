@@ -3,6 +3,8 @@ using Microsoft.UI;
 using Microsoft.UI.Dispatching;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Media;
+using Themia.App.Interop;
 using Themia.App.Services;
 using Themia.App.Shell.Config;
 using Themia.Core.Diagnostics;
@@ -14,8 +16,10 @@ using Windows.Graphics;
 namespace Themia.App.Shell.Gallery;
 
 /// <summary>
-/// The debug-only settings render: <c>Themia.exe --settings-png &lt;Page&gt; &lt;out.png&gt; [waitMs]</c>
-/// builds one settings page off-screen and writes it to a PNG, then exits. [S-499]
+/// The debug-only settings render:
+/// <c>Themia.exe --settings-png &lt;Page&gt; &lt;out.png&gt; [waitMs] [--theme light|dark] [--search text] [--land text]</c>
+/// draws the real settings window — title bar, navigation, breadcrumb and page — off-screen to a
+/// PNG, then exits. [S-499], [S-1548]
 /// <para>
 /// The gallery's counterpart for the settings window, so a page can be looked at without running
 /// the app — no state file is read, no single-instance hand-off happens, and nothing is written:
@@ -23,19 +27,42 @@ namespace Themia.App.Shell.Gallery;
 /// that saves as it is built still never touches the user's real state.
 /// </para>
 /// <para>
-/// The page is drawn at the width the settings window gives its body and at its full height, so
-/// rows below the fold are in the picture too.
+/// The window is made as tall as the page, so rows below the fold are in the picture too. Mica
+/// cannot be captured, so the render paints the colour Mica falls back to. <c>--theme</c> picks
+/// light or dark (the app's own theme is set from it at start-up, see <c>App</c>);
+/// <c>--search</c> types into "Find a setting" and also writes the open suggestion list to
+/// <c>&lt;out&gt;-search.png</c>; <c>--land</c> goes to the best match and rings it, as choosing a
+/// suggestion does.
 /// </para>
 /// </summary>
 internal static class SettingsRender
 {
     private const string Scope = "settings-render";
 
-    /// <summary>The settings window's body width: 1060 wide, less the 280 navigation pane.</summary>
-    private const double BodyWidth = 780;
+    /// <summary>The window's width: wide enough that the navigation pane stays open, as by default.</summary>
+    private const double WindowWidth = 1100;
 
-    /// <summary>The body's own padding in the settings window.</summary>
-    private static readonly Thickness BodyPadding = new(28, 16, 28, 28);
+    /// <summary>Set while a render runs, so nothing destructive (uninstall) can happen in one.</summary>
+    public static bool IsRendering { get; private set; }
+
+    /// <summary>
+    /// The <c>--theme</c> a render asked for, read before the app's resources load, because the
+    /// application theme can only be set then. Null when not rendering or not asked.
+    /// </summary>
+    public static ApplicationTheme? RequestedTheme(string[] args)
+    {
+        if (Array.IndexOf(args, "--settings-png") < 0)
+        {
+            return null;
+        }
+
+        return Option(args, "--theme")?.ToLowerInvariant() switch
+        {
+            "light" => ApplicationTheme.Light,
+            "dark" => ApplicationTheme.Dark,
+            _ => null,
+        };
+    }
 
     /// <summary>
     /// Handle <c>--settings-png</c>. Returns false when the arguments are not for it, so the caller
@@ -49,16 +76,18 @@ internal static class SettingsRender
             return false;
         }
 
+        IsRendering = true;
+
         if (at + 2 >= args.Length)
         {
-            Log.Error(Scope, "usage: --settings-png <General|Appearance|Layout|About|Accounts|Widget:<Kind>> <out.png> [waitMs]");
+            Log.Error(Scope, "usage: --settings-png <General|Appearance|Layout|About|Accounts|Widget:<Kind>|View|Display> <out.png> [waitMs] [--theme light|dark] [--search text] [--land text] [--flyout row-title]");
             app.Exit();
             return true;
         }
 
         var name = args[at + 1];
         var outPath = Path.GetFullPath(args[at + 2]);
-        var wait = at + 3 < args.Length && int.TryParse(args[at + 3], out var ms) ? ms : 1500;
+        var wait = at + 3 < args.Length && int.TryParse(args[at + 3], out var ms) ? ms : 2000;
 
         // "Widget:<Kind>" is that kind's settings page, for the demo profile's widget of that kind.
         var widgetKind = name.StartsWith("Widget:", StringComparison.OrdinalIgnoreCase)
@@ -66,7 +95,12 @@ internal static class SettingsRender
                 ? kind
                 : (WidgetKind?)null;
 
-        if ((widgetKind is null ? Resolve(name) : new ConfigTarget.App()) is not { } target)
+        var page = name.Equals("View", StringComparison.OrdinalIgnoreCase) ? PageKind.View
+            : name.Equals("Display", StringComparison.OrdinalIgnoreCase) ? PageKind.Display
+            : widgetKind is not null ? PageKind.Widget
+            : PageKind.App;
+
+        if (page == PageKind.App && Resolve(name) is null)
         {
             Log.Error(Scope, $"unknown settings page '{name}'");
             Console.Error.WriteLine($"settings: unknown page '{name}'");
@@ -81,8 +115,42 @@ internal static class SettingsRender
             return true;
         }
 
-        _ = RenderAsync(app, dispatcher, target, widgetKind, outPath, wait);
+        var request = new Request(page, Resolve(name), widgetKind, outPath, wait, Option(args, "--search"), Option(args, "--land"),
+            RequestedTheme(args) switch
+            {
+                ApplicationTheme.Light => AppTheme.Light,
+                ApplicationTheme.Dark => AppTheme.Dark,
+                _ => AppTheme.System,
+            },
+            Option(args, "--flyout"));
+
+        _ = RenderAsync(app, dispatcher, request);
         return true;
+    }
+
+    private enum PageKind
+    {
+        App,
+        Widget,
+        View,
+        Display,
+    }
+
+    private sealed record Request(
+        PageKind Page,
+        ConfigTarget? App,
+        WidgetKind? Kind,
+        string OutPath,
+        int WaitMs,
+        string? Search,
+        string? Land,
+        AppTheme Theme,
+        string? Flyout);
+
+    private static string? Option(string[] args, string name)
+    {
+        var at = Array.IndexOf(args, name);
+        return at >= 0 && at + 1 < args.Length ? args[at + 1] : null;
     }
 
     /// <summary>
@@ -94,66 +162,96 @@ internal static class SettingsRender
             ? new ConfigTarget.App(page)
             : null;
 
-    private static async Task RenderAsync(Application app, DispatcherQueue dispatcher, ConfigTarget target, WidgetKind? widgetKind, string outPath, int waitMs)
+    private static async Task RenderAsync(Application app, DispatcherQueue dispatcher, Request request)
     {
         AppHost? host = null;
-        Window? window = null;
+        ConfigWindow? settings = null;
 
         try
         {
             // A path of its own under %TEMP%, not the real one: the host keeps other files beside
             // the state file (accounts, screen time), and those must not be the user's either.
             var statePath = Path.Combine(Path.GetTempPath(), "themia-settings-render", "state.json");
-            host = new AppHost(dispatcher, AppStateStore.Detached(statePath), DemoState());
+            var state = DemoState();
+            state.Design.Theme = request.Theme;
+            host = new AppHost(dispatcher, AppStateStore.Detached(statePath), state);
 
-            if (widgetKind is { } wanted)
+            ConfigTarget target = request.Page switch
             {
-                var demo = host.State.Views.SelectMany(v => v.Widgets).FirstOrDefault(w => w.Kind == wanted);
-                if (demo is null)
-                {
-                    demo = WidgetInstance.Create(wanted, new FracRect(0.6, 0.6, 0.2, 0.2));
-                    host.State.Views[0].Widgets.Add(demo);
-                }
-
-                target = new ConfigTarget.Widget(demo.Id);
-            }
-
-            var page = ConfigPages.Build(host, target, _ => { });
-
-            var body = new Border
-            {
-                Child = page,
-                Width = BodyWidth,
-                Padding = BodyPadding,
-                HorizontalAlignment = HorizontalAlignment.Left,
-                VerticalAlignment = VerticalAlignment.Top,
-
-                // The app's own theme, not a forced one: the pages paint with brushes looked up
-                // from the application's resources, which follow the app theme, so forcing this
-                // element dark would draw dark text on light cards on a light-themed PC.
-                Background = FluentLayout.Themed("SolidBackgroundFillColorBaseBrush", Colors.Black),
+                PageKind.View => new ConfigTarget.View(host.State.Views[0].Id),
+                PageKind.Display => new ConfigTarget.Display("\\\\.\\DISPLAY1"),
+                PageKind.Widget => new ConfigTarget.Widget(DemoWidget(host, request.Kind!.Value).Id),
+                _ => request.App!,
             };
 
-            // Measured up front so the window can be made tall enough for all of it: a page cut off
-            // at the fold would hide exactly the rows most likely to be wrong.
-            body.Measure(new Windows.Foundation.Size(BodyWidth, double.PositiveInfinity));
-            var height = Math.Ceiling(Math.Max(body.DesiredSize.Height, 200));
+            settings = new ConfigWindow(host);
+            var window = settings.DebugWindow;
 
-            window = new Window { Title = "Themia settings render", Content = new ScrollViewer { Content = body } };
+            // Off-screen and never activated, like the gallery's render: it must not take the
+            // user's focus or appear on their desktop.
+            var hwnd = WinRT.Interop.WindowNative.GetWindowHandle(window);
+            var dpi = Win32.GetDpiForWindow(hwnd);
+            var scale = dpi > 0 ? dpi / 96.0 : 1.0;
 
-            // Off-screen and never activated, like the gallery's render: it must not take the user's
-            // focus or appear on their desktop.
-            var scale = 1.5;
-            window.AppWindow.Resize(new SizeInt32((int)((BodyWidth + 40) * scale), (int)((height + 80) * scale)));
             window.AppWindow.Move(new PointInt32(-32000, -32000));
+            window.AppWindow.Resize(new SizeInt32((int)(WindowWidth * scale), (int)(800 * scale)));
             window.AppWindow.Show(activateWindow: false);
 
-            // Long enough for the logo bitmaps to decode; the page itself has nothing to fetch.
-            await Task.Delay(waitMs).ConfigureAwait(true);
+            var root = settings.DebugRoot;
+            if (root is Panel panel)
+            {
+                // What Mica falls back to; the backdrop itself is not in a RenderTargetBitmap.
+                panel.Background = FluentLayout.Themed("SolidBackgroundFillColorBaseBrush", Colors.Black);
+            }
 
-            Directory.CreateDirectory(Path.GetDirectoryName(outPath)!);
-            await WidgetGallery.SavePngAsync(body, outPath).ConfigureAwait(true);
-            Console.WriteLine($"settings: wrote {outPath}");
+            settings.DebugShow(target);
+
+            if (request.Land is { } land)
+            {
+                settings.DebugLand(land);
+            }
+
+            // Let the first layout happen, then make the window as tall as the page.
+            await Task.Delay(400).ConfigureAwait(true);
+            var pageHeight = settings.DebugPageHeight();
+            var height = request.Land is null && request.Search is null && request.Flyout is null
+                ? Math.Max(600, pageHeight + 180)
+                : 800;
+
+            window.AppWindow.Resize(new SizeInt32((int)(WindowWidth * scale), (int)(height * scale)));
+
+            if (request.Search is { } query)
+            {
+                settings.DebugSearch(query);
+            }
+
+            if (request.Flyout is { } flyoutRow && !settings.DebugOpenFlyout(flyoutRow))
+            {
+                Log.Warn(Scope, $"no drop-down on a row titled '{flyoutRow}'");
+            }
+
+            // Long enough for bitmaps to decode and the expander/scroll animations to settle.
+            await Task.Delay(request.WaitMs).ConfigureAwait(true);
+
+            Directory.CreateDirectory(Path.GetDirectoryName(request.OutPath)!);
+            await WidgetGallery.SavePngAsync(root, request.OutPath).ConfigureAwait(true);
+            Console.WriteLine($"settings: wrote {request.OutPath}");
+
+            if (request.Search is not null || request.Flyout is not null)
+            {
+                // The suggestion list is a popup, outside the window's tree: drawn on its own.
+                foreach (var popup in VisualTreeHelper.GetOpenPopupsForXamlRoot(root.XamlRoot))
+                {
+                    if (popup.Child is FrameworkElement child)
+                    {
+                        var path = Path.ChangeExtension(request.OutPath, null) + (request.Search is not null ? "-search.png" : "-flyout.png");
+                        await WidgetGallery.SavePngAsync(child, path).ConfigureAwait(true);
+                        Console.WriteLine($"settings: wrote {path}");
+                        break;
+                    }
+                }
+            }
+
         }
         catch (Exception ex)
         {
@@ -161,10 +259,22 @@ internal static class SettingsRender
         }
         finally
         {
+            settings?.Close();
             host?.Dispose();
-            window?.Close();
             app.Exit();
         }
+    }
+
+    private static WidgetInstance DemoWidget(AppHost host, WidgetKind kind)
+    {
+        var demo = host.State.Views.SelectMany(v => v.Widgets).FirstOrDefault(w => w.Kind == kind);
+        if (demo is null)
+        {
+            demo = WidgetInstance.Create(kind, new FracRect(0.6, 0.6, 0.2, 0.2));
+            host.State.Views[0].Widgets.Add(demo);
+        }
+
+        return demo;
     }
 
     /// <summary>A believable profile: three views with a few widgets, defaults everywhere else.</summary>

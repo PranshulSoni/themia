@@ -51,6 +51,7 @@ internal static class GalleryFixtures
         or WidgetKind.Email
         or WidgetKind.Tasks or WidgetKind.OneDrive
         or WidgetKind.Calendar or WidgetKind.Contacts
+        or WidgetKind.Power or WidgetKind.Bluetooth
         or WidgetKind.GitHub or WidgetKind.GitHubIssues or WidgetKind.GitHubNotifications or WidgetKind.GitHubReviews or WidgetKind.ClaudeUsage
         || LayoutFixtures.Has(kind);
 
@@ -75,6 +76,16 @@ internal static class GalleryFixtures
 
         // [S-637] GitHub and Claude usage read sources; their plain pages are "sign in".
         DeveloperFixture.Install(populated: false);
+
+        // [S-1253]/[S-1258] Power and Bluetooth: the plain pages read this machine.
+        PowerFixture.Install(populated: false);
+        BluetoothFixture.Install(populated: false);
+
+        // [S-1420] Habits read the device's list pool; the plain page starts with none.
+        HabitsFixture.Install(populated: false);
+
+        // [S-1443] Clipboard seeds its in-memory history from a fixture; the plain page has none.
+        ClipboardFixture.Install(populated: false);
     }
 
     /// <summary>The populated config for a kind, or null when it has no fixture.</summary>
@@ -120,6 +131,17 @@ internal static class GalleryFixtures
                 // [S-637] Two made-up GitHub accounts (one Enterprise) and a Claude plan.
                 DeveloperFixture.Install(populated: true);
                 return DeveloperFixture.Config(kind);
+
+            case WidgetKind.Power:
+                // [S-1253] A laptop on battery with every action chosen. Buttons stay inert: gallery
+                // cards are previews ([S-1251]).
+                PowerFixture.Install(populated: true);
+                return PowerFixture.Config();
+
+            case WidgetKind.Bluetooth:
+                // [S-1258] Fourteen paired devices, three connected with battery and signal.
+                BluetoothFixture.Install(populated: true);
+                return BluetoothFixture.Config();
 
             default:
                 // The ported widgets' populated states, kept in their own file.

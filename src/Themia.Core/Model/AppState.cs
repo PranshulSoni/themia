@@ -70,9 +70,19 @@ public sealed class WidgetInstance
     /// themselves a piece of chrome: the Themia mark is its own label, and a view switcher is a row
     /// of buttons whose names already say what it is. A header on either is the same word twice.
     /// Only the default: the user can still give either one a header.
+    /// <para>
+    /// [S-700] Calculator, Clock, Colour swatch and Web search start headerless too, as they did in
+    /// the original: each is a single readout or field whose content says what it is, and at the
+    /// small sizes they are usually placed at, a header would take a third of the card. Widgets
+    /// already saved keep the placement they were saved with; this is only read on creation.
+    /// </para>
     /// </summary>
-    public static HeaderPlacement DefaultHeader(WidgetKind kind)
-        => kind is WidgetKind.Themia or WidgetKind.ViewSwitcher ? HeaderPlacement.Hidden : HeaderPlacement.Top;
+    public static HeaderPlacement DefaultHeader(WidgetKind kind) => kind switch
+    {
+        WidgetKind.Themia or WidgetKind.ViewSwitcher => HeaderPlacement.Hidden,
+        WidgetKind.Calculator or WidgetKind.Clock or WidgetKind.ColorSwatch or WidgetKind.WebSearch => HeaderPlacement.Hidden,
+        _ => HeaderPlacement.Top,
+    };
 
     public WidgetInstance Clone() => new()
     {
@@ -96,6 +106,12 @@ public sealed class ViewState
     public required string Id { get; set; }
 
     public required string Name { get; set; }
+
+    /// <summary>
+    /// [S-703] A Segoe Fluent glyph shown for the view in switchers and the view bar, or null for
+    /// the name's initials.
+    /// </summary>
+    public string? Icon { get; set; }
 
     public List<WidgetInstance> Widgets { get; set; } = [];
 
@@ -158,6 +174,25 @@ public sealed class DesignState
     /// <summary>Duration of that animation, in milliseconds.</summary>
     public double IntroAnimationMs { get; set; } = 500;
 
+    /// <summary>[S-704] The header strip's fill, as <c>#RRGGBB</c>. Empty uses the widget's own fill.</summary>
+    public string HeaderBackgroundColor { get; set; } = string.Empty;
+
+    /// <summary>Opacity of the header strip, 0 to 1. Independent of the body, as in the original.</summary>
+    public double HeaderOpacity { get; set; } = 1.0;
+
+    /// <summary>[S-704] The animation widgets play when the user switches views.</summary>
+    public IntroAnimation TransitionAnimation { get; set; } = IntroAnimation.Scale;
+
+    public double TransitionAnimationMs { get; set; } = 500;
+
+    /// <summary>[S-704] The animation replayed when the session is unlocked. None turns the replay off.</summary>
+    public IntroAnimation UnlockAnimation { get; set; } = IntroAnimation.Scale;
+
+    public double UnlockAnimationMs { get; set; } = 500;
+
+    /// <summary>Play a short sound with the startup animation. Opt-in, as in the original.</summary>
+    public bool StartupSound { get; set; }
+
     /// <summary>Launch with Windows, via the per-user Run key.</summary>
     public bool RunAtStartup { get; set; }
 
@@ -179,6 +214,13 @@ public sealed class DesignState
         BorderOpacity = BorderOpacity,
         IntroAnimation = IntroAnimation,
         IntroAnimationMs = IntroAnimationMs,
+        HeaderBackgroundColor = HeaderBackgroundColor,
+        HeaderOpacity = HeaderOpacity,
+        TransitionAnimation = TransitionAnimation,
+        TransitionAnimationMs = TransitionAnimationMs,
+        UnlockAnimation = UnlockAnimation,
+        UnlockAnimationMs = UnlockAnimationMs,
+        StartupSound = StartupSound,
         RunAtStartup = RunAtStartup,
     };
 }
@@ -189,7 +231,7 @@ public sealed class DesignState
 /// </summary>
 public sealed class AppState
 {
-    /// <summary>Bumped whenever the shape changes in a way older builds cannot read.</summary>
+    /// <summary>Bumped whenever the shape changes. Only this version is read; there is no upgrade path.</summary>
     public const int CurrentSchemaVersion = 1;
 
     public int SchemaVersion { get; set; } = CurrentSchemaVersion;
@@ -202,6 +244,24 @@ public sealed class AppState
     public Dictionary<string, string> MonitorViews { get; set; } = [];
 
     public DesignState Design { get; set; } = new();
+
+    /// <summary>[S-702] How the app behaves: language, game mode, network guard, developer switches.</summary>
+    public AppPreferences Preferences { get; set; } = new();
+
+    /// <summary>
+    /// [S-705] The view a display shows the first time it is seen, or null for the active view.
+    /// Repaired to null when the view is deleted.
+    /// </summary>
+    public string? DefaultViewForNewDisplays { get; set; }
+
+    /// <summary>[S-705] Displays the user turned Themia off on, keyed like <see cref="MonitorViews"/>. No surface is built there.</summary>
+    public List<string> DisabledMonitors { get; set; } = [];
+
+    /// <summary>
+    /// [S-705] Per-display widget scale, keyed like <see cref="MonitorViews"/>, as a factor from 0.5 to 2. Missing means 1, so
+    /// only displays the user changed are stored.
+    /// </summary>
+    public Dictionary<string, double> MonitorScales { get; set; } = [];
 
     /// <summary>A fresh profile: one view holding one clock, roughly centred.</summary>
     public static AppState CreateDefault()

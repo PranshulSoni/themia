@@ -58,6 +58,15 @@ public static class Ical
 
         foreach (var raw in text.Replace("\r\n", "\n", StringComparison.Ordinal).Replace('\r', '\n').Split('\n'))
         {
+            // [S-1278] vCard 2.1 quoted-printable: a value ending in a lone '=' is a soft line break,
+            // and the next line continues it as written (it is not indented, so it is no fold).
+            if (any && IsSoftBreak(current))
+            {
+                current.Length--;
+                current.Append(raw);
+                continue;
+            }
+
             if (raw.Length > 0 && (raw[0] == ' ' || raw[0] == '\t'))
             {
                 current.Append(raw, 1, raw.Length - 1);
@@ -79,6 +88,19 @@ public static class Ical
         }
 
         return lines;
+    }
+
+    /// <summary>Whether a line so far is a quoted-printable value cut by a soft line break.</summary>
+    private static bool IsSoftBreak(StringBuilder line)
+    {
+        if (line.Length == 0 || line[^1] != '=')
+        {
+            return false;
+        }
+
+        var text = line.ToString();
+        var colon = text.IndexOf(':', StringComparison.Ordinal);
+        return colon > 0 && text.AsSpan(0, colon).Contains("QUOTED-PRINTABLE", StringComparison.OrdinalIgnoreCase);
     }
 
     /// <summary>
@@ -132,8 +154,11 @@ public static class Ical
             var eq = part.IndexOf('=', StringComparison.Ordinal);
             if (eq <= 0)
             {
-                // vCard 2.1's bare "TYPE" value ("TEL;CELL:…").
-                parameters.TryAdd("TYPE", part.Trim().ToUpperInvariant());
+                // vCard 2.1's bare values: an encoding ("…;QUOTED-PRINTABLE:"), else a type
+                // ("TEL;CELL;PREF:"), several of which join as TYPE=a,b does.
+                var bare = part.Trim().ToUpperInvariant();
+                var bareKey = bare is "QUOTED-PRINTABLE" or "BASE64" or "8BIT" or "7BIT" ? "ENCODING" : "TYPE";
+                parameters[bareKey] = parameters.TryGetValue(bareKey, out var had) ? $"{had},{bare}" : bare;
                 continue;
             }
 
@@ -142,7 +167,57 @@ public static class Ical
             parameters[key] = parameters.TryGetValue(key, out var existing) ? $"{existing},{value}" : value;
         }
 
-        return new IcalProperty(name, parameters, line[(colon + 1)..]);
+        var text = line[(colon + 1)..];
+        if (parameters.TryGetValue("ENCODING", out var encoding) && encoding.Equals("QUOTED-PRINTABLE", StringComparison.OrdinalIgnoreCase))
+        {
+            text = DecodeQuotedPrintable(text, parameters.TryGetValue("CHARSET", out var charset) ? charset : null);
+        }
+
+        return new IcalProperty(name, parameters, text);
+    }
+
+    /// <summary>
+    /// [S-1278] A vCard 2.1 quoted-printable value as text: <c>=XX</c> is a byte, anything else is
+    /// itself, and the bytes are read in the declared charset — UTF-8 unless it says Latin-1 (the
+    /// two the old phones write; anything else is read as UTF-8 rather than refused). A stray
+    /// <c>=</c> not followed by two hex digits is kept as written. Never throws.
+    /// </summary>
+    public static string DecodeQuotedPrintable(string value, string? charset)
+    {
+        var bytes = new List<byte>(value.Length);
+        Span<byte> scratch = stackalloc byte[4];
+
+        for (var i = 0; i < value.Length; i++)
+        {
+            var c = value[i];
+            if (c == '=' && i + 2 < value.Length && char.IsAsciiHexDigit(value[i + 1]) && char.IsAsciiHexDigit(value[i + 2]))
+            {
+                bytes.Add((byte)((Hex(value[i + 1]) << 4) | Hex(value[i + 2])));
+                i += 2;
+                continue;
+            }
+
+            // Raw text between escapes is ASCII in practice; anything else is kept as its UTF-8.
+            var count = Encoding.UTF8.GetBytes(value.AsSpan(i, char.IsHighSurrogate(c) && i + 1 < value.Length ? 2 : 1), scratch);
+            for (var b = 0; b < count; b++)
+            {
+                bytes.Add(scratch[b]);
+            }
+
+            if (count > 0 && char.IsHighSurrogate(c) && i + 1 < value.Length)
+            {
+                i++;
+            }
+        }
+
+        var latin = charset is not null
+            && (charset.Equals("ISO-8859-1", StringComparison.OrdinalIgnoreCase)
+                || charset.Equals("LATIN1", StringComparison.OrdinalIgnoreCase)
+                || charset.Equals("WINDOWS-1252", StringComparison.OrdinalIgnoreCase));
+
+        return (latin ? Encoding.Latin1 : Encoding.UTF8).GetString([.. bytes]);
+
+        static int Hex(char h) => h <= '9' ? h - '0' : char.ToUpperInvariant(h) - 'A' + 10;
     }
 
     /// <summary>The component tree of a text: its top-level components, in order.</summary>

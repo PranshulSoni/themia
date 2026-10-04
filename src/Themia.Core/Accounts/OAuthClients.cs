@@ -21,7 +21,7 @@ public static class OAuthClients
 
         public const string Tenant = "common";
 
-        /// <summary>[S-509] The classic app's scopes, unchanged, so an imported refresh token still covers them.</summary>
+        /// <summary>[S-509] The Microsoft Graph scopes the widgets need.</summary>
         public const string Scope = "User.Read Mail.ReadWrite Calendars.Read Contacts.Read Tasks.ReadWrite Files.Read offline_access";
 
         public static readonly Uri DeviceCodeUrl = new($"https://login.microsoftonline.com/{Tenant}/oauth2/v2.0/devicecode");

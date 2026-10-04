@@ -61,17 +61,6 @@ public sealed class TasksConfig : WidgetConfig
         set => _taskOrder = value ?? [];
     }
 
-    /// <summary>
-    /// [S-605] What the hearth-backed widget stored as its collection. Read so an old state file can
-    /// be recognised and upgraded; never written (null is omitted), and cleared on load.
-    /// </summary>
-    [JsonPropertyName("collectionId")]
-    public string? LegacyCollectionId { get; set; }
-
-    /// <summary>[S-605] The hearth widget's row cap; read for recognition only, as above.</summary>
-    [JsonPropertyName("maxCount")]
-    public int? LegacyMaxCount { get; set; }
-
     [JsonIgnore]
     public int EffectiveTitleLines => TaskRules.ClampTitleLines(TitleLines);
 
@@ -79,45 +68,12 @@ public sealed class TasksConfig : WidgetConfig
     public TimeSpan RefreshInterval => TimeSpan.FromSeconds(Math.Clamp(RefreshSeconds, 30, 600));
 
     /// <summary>
-    /// [S-605] Upgrade a config written by the hearth-backed widget. A hearth collection id means
-    /// nothing to Graph or Google, so it cannot be carried over: the widget falls back to the first
-    /// account with tasks and its default list, which is what the hearth widget's own "all task
-    /// lists" default came closest to. What the two had in common — show completed, show due date —
-    /// is kept. Returns a sentence for the load report, or null when there was nothing to upgrade.
-    /// </summary>
-    public string? UpgradeFromHearth()
-    {
-        if (LegacyCollectionId is null && LegacyMaxCount is null)
-        {
-            return null;
-        }
-
-        var hadCollection = !string.IsNullOrEmpty(LegacyCollectionId);
-        LegacyCollectionId = null;
-        LegacyMaxCount = null;
-
-        Source = TaskSource.Account;
-        AccountId = string.Empty;
-        ListId = string.Empty;
-        ListName = string.Empty;
-
-        return hadCollection
-            ? "a Tasks widget named a hearth task list, which Themia's own accounts cannot open; it now shows the first account's default list"
-            : "a Tasks widget was set up for the hearth hub; it now shows the first account's default list";
-    }
-
-    /// <summary>
-    /// [S-605] Fold an older or hand-edited shape back inside the invariants: the hearth upgrade,
-    /// and nulls a hand edit can put where the model promises a value.
+    /// Fold a hand-edited or corrupt config back inside the invariants: nulls a hand edit can put
+    /// where the model promises a value, an unknown enum, a broken row order.
     /// </summary>
     public override IReadOnlyList<string> Repair()
     {
         var repairs = new List<string>();
-
-        if (UpgradeFromHearth() is { } upgraded)
-        {
-            repairs.Add(upgraded);
-        }
 
         // System.Text.Json writes a JSON null straight through a non-nullable string property.
         AccountId ??= string.Empty;

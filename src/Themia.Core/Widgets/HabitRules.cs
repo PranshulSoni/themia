@@ -1,183 +1,159 @@
 namespace Themia.Core.Widgets;
 
+/// <summary>One dot of a habit's history strip: a period, and whether the habit was done in it.</summary>
+public readonly record struct HabitDot(HabitBucket Bucket, bool Done);
+
 /// <summary>
-/// What a habit's log of completed days means: whether it is done, how long the run is, and what the
-/// last few days looked like.
+/// [S-1421]..[S-1426] What a habit's log means under a cadence: whether the current period is done,
+/// how long the run is, the best run, and what the last few periods looked like.
 /// <para>
-/// Every function here takes the day to reckon from as an argument. None of them can read the clock,
-/// which is the point: a streak that is right in June and wrong on the last Sunday in October is the
-/// classic bug in this widget, and it is only catchable by a test that can put "today" anywhere it
-/// likes. The day arithmetic is <see cref="LocalDay"/>'s, so the 23-hour and 25-hour days are one
-/// day long here like every other.
+/// Every function takes the period to reckon from (or the moment and zone that give it) as an
+/// argument; none reads the clock, so each is testable at any date and across a DST change.
 /// </para>
 /// <para>
-/// The log is a list of <c>YYYY-MM-DD</c> strings, and it is treated as untrusted on every read: it
-/// comes out of a JSON file in the user's profile that anybody can edit. Keys that are not dates are
-/// dropped, duplicates collapse, and days in the future are ignored rather than counted — a clock
-/// that went backwards, or a hand-edited file, must not be able to mint a streak.
+/// The log is a set of period keys (see <see cref="HabitPeriods"/>), untrusted on every read: it
+/// comes from a file anybody can edit. Nothing here trusts a key it did not derive. The streak and
+/// the dots walk <i>back</i> from the current period and only ask "is this key in the log", so a key
+/// in the future, a malformed key or a key of another cadence is never counted — it simply never
+/// comes up. Duplicates collapse in the set.
 /// </para>
 /// </summary>
 public static class HabitRules
 {
     /// <summary>
-    /// How far back <see cref="Recent"/> will ever look, and the ceiling the config clamps to. A
-    /// month of squares is already more than a row can draw; past that the number is only a bound on
-    /// a render loop that a hand-edited file would otherwise get to choose.
+    /// The most dots a row asks for, and the ceiling the config clamps to: a month of days. Past that
+    /// the number is only the bound of a render loop a hand-edited file would get to choose.
     /// </summary>
-    public const int MaxHistoryDays = 31;
+    public const int MaxHistory = 31;
+
+    /// <summary>The window the summary's completion rate looks back over, in periods.</summary>
+    public const int RateWindow = 7;
 
     /// <summary>
-    /// The days in the log, as a set, with everything unreadable or in the future removed.
-    /// <para>
-    /// Public because the view builds it once per render and hands it to each of the three functions
-    /// below, rather than each of them re-parsing the same list. Parsing per row per tick is the
-    /// difference between a widget that costs nothing and one that re-reads a year of history every
-    /// minute.
-    /// </para>
+    /// The log as a set. Built once per render and handed to the functions below, rather than each
+    /// re-reading the same list per row per tick.
     /// </summary>
-    public static HashSet<LocalDay> Days(IEnumerable<string>? log, LocalDay today)
+    public static HashSet<string> Log(IEnumerable<string?>? log)
     {
-        var days = new HashSet<LocalDay>();
+        var set = new HashSet<string>(StringComparer.Ordinal);
 
         if (log is null)
         {
-            return days;
+            return set;
         }
 
         foreach (var key in log)
         {
-            // Not an error to report: a key that will not parse is a file somebody edited, and the
-            // honest reading of it is "this day is not marked". Dropping it silently is the whole
-            // of the recovery, and it cannot cascade because every other key is independent.
-            if (!LocalDay.TryParse(key, out var day))
+            if (!string.IsNullOrEmpty(key))
             {
-                continue;
+                set.Add(key);
             }
-
-            // A day that has not happened yet cannot have been completed. Ignored rather than
-            // trusted, so neither a hand-edit nor a clock that jumped forward and back can inflate
-            // a streak.
-            if (day > today)
-            {
-                continue;
-            }
-
-            days.Add(day);
         }
 
-        return days;
+        return set;
     }
 
-    /// <summary>Whether the habit is marked on <paramref name="day"/>.</summary>
-    public static bool IsDone(IReadOnlySet<LocalDay> days, LocalDay day) => days.Contains(day);
+    /// <summary>[S-1421] Whether the habit is ticked in <paramref name="bucket"/>.</summary>
+    public static bool IsDone(IReadOnlySet<string> log, HabitBucket bucket) => log.Contains(bucket.Key);
 
     /// <summary>
-    /// The current run of completed days ending at <paramref name="today"/>.
+    /// [S-1423] The current run of completed periods ending at <paramref name="current"/>.
     /// <para>
-    /// Today not being done does <b>not</b> break the streak — the day is not over, and a counter
-    /// that resets itself every midnight and has to be earned back before breakfast is a counter
-    /// nobody would keep. So the count starts at today when today is done, and at yesterday when it
-    /// is not; a gap anywhere before that ends it.
+    /// The current period not being done does <b>not</b> break the run — it is not over yet. So the
+    /// count starts at the current period when it is done and at the one before when it is not; a gap
+    /// anywhere before that ends it. Bounded by the log: every step consumes a distinct key that is in
+    /// it, so the walk cannot outrun the log however far back it goes.
     /// </para>
     /// </summary>
-    public static int Streak(IReadOnlySet<LocalDay> days, LocalDay today)
+    public static int Streak(IReadOnlySet<string> log, HabitBucket current, HabitCadence cadence, TimeZoneInfo zone)
     {
-        if (days.Count == 0)
+        if (log.Count == 0)
         {
             return 0;
         }
 
-        var cursor = days.Contains(today) ? today : today.AddDays(-1);
+        var cursor = log.Contains(current.Key) ? current : HabitPeriods.Previous(current, cadence, zone);
         var streak = 0;
 
-        // Bounded by the log rather than by the calendar: every step must consume one of the days
-        // actually in the set, so the loop cannot run past days.Count however far back the log goes.
-        while (streak <= days.Count && days.Contains(cursor))
+        while (streak < log.Count && log.Contains(cursor.Key))
         {
             streak++;
-            cursor = cursor.AddDays(-1);
+            cursor = HabitPeriods.Previous(cursor, cadence, zone);
         }
 
         return streak;
     }
 
     /// <summary>
-    /// The last <paramref name="count"/> days, oldest first, with <paramref name="today"/> last.
-    /// <para>
-    /// Derived from the same set the streak counts, so the squares in a row and the number beside
-    /// them can never disagree about which day is which.
-    /// </para>
+    /// [S-1426] The last <paramref name="count"/> periods, oldest first, with <paramref name="current"/>
+    /// last. Walks the same ladder as the streak, so the dots and the number beside them can never
+    /// disagree about which period is which.
     /// </summary>
-    public static IReadOnlyList<bool> Recent(IReadOnlySet<LocalDay> days, LocalDay today, int count)
+    public static IReadOnlyList<HabitDot> Recent(IReadOnlySet<string> log, HabitBucket current, HabitCadence cadence, TimeZoneInfo zone, int count)
     {
-        var wanted = Math.Clamp(count, 0, MaxHistoryDays);
+        var wanted = Math.Clamp(count, 0, MaxHistory);
+        var dots = new HabitDot[wanted];
+        var cursor = current;
 
-        if (wanted == 0)
+        for (var i = wanted - 1; i >= 0; i--)
         {
-            return [];
+            dots[i] = new HabitDot(cursor, log.Contains(cursor.Key));
+            cursor = HabitPeriods.Previous(cursor, cadence, zone);
         }
 
-        var recent = new bool[wanted];
-
-        for (var i = 0; i < wanted; i++)
-        {
-            recent[i] = days.Contains(today.AddDays(i - (wanted - 1)));
-        }
-
-        return recent;
+        return dots;
     }
 
     /// <summary>
-    /// Flip <paramref name="day"/> in a log, and say what it is now.
-    /// <para>
-    /// Un-marking removes <i>every</i> copy of the day, not the first one found: a log that
-    /// somehow holds the same day twice would otherwise take two taps to clear and would read as a
-    /// checkbox that ignored a click.
-    /// </para>
+    /// [S-1424] The longest run in the whole log under this cadence. Only keys of this cadence that
+    /// are not in the future count; two are consecutive when one is the other's
+    /// <see cref="HabitPeriods.Previous"/>, the same step the streak takes.
     /// </summary>
-    public static bool Toggle(IList<string> log, LocalDay day)
+    public static int BestStreak(IReadOnlySet<string> log, HabitBucket current, HabitCadence cadence, TimeZoneInfo zone)
     {
-        ArgumentNullException.ThrowIfNull(log);
+        var buckets = new List<HabitBucket>(log.Count);
 
-        var key = day.Key;
-        var removed = false;
-
-        for (var i = log.Count - 1; i >= 0; i--)
+        foreach (var key in log)
         {
-            // Compared as parsed days rather than as strings, so a log written by an older build
-            // with a differently-shaped key still matches the day it means.
-            if (LocalDay.TryParse(log[i], out var logged) && logged == day)
+            if (HabitPeriods.TryParse(key, cadence, zone, out var bucket) && bucket.Start <= current.Start)
             {
-                log.RemoveAt(i);
-                removed = true;
+                buckets.Add(bucket);
             }
         }
 
-        if (removed)
+        if (buckets.Count == 0)
         {
-            return false;
+            return 0;
         }
 
-        log.Add(key);
-        return true;
+        buckets.Sort((a, b) => a.Start.CompareTo(b.Start));
+
+        var best = 1;
+        var run = 1;
+
+        for (var i = 1; i < buckets.Count; i++)
+        {
+            run = HabitPeriods.Previous(buckets[i], cadence, zone).Key == buckets[i - 1].Key ? run + 1 : 1;
+            best = Math.Max(best, run);
+        }
+
+        return best;
     }
 
-    /// <summary>How many of <paramref name="habits"/> are marked today, for the header's count.</summary>
-    public static int DoneToday<T>(IReadOnlyList<T> habits, Func<T, IEnumerable<string>?> log, LocalDay today)
+    /// <summary>[S-1427] How many of the last <paramref name="window"/> periods, the current one included, are done.</summary>
+    public static int DoneIn(IReadOnlySet<string> log, HabitBucket current, HabitCadence cadence, TimeZoneInfo zone, int window)
+        => Recent(log, current, cadence, zone, window).Count(d => d.Done);
+
+    /// <summary>
+    /// [S-1421] Flip <paramref name="key"/> in a log and return the new log. Un-ticking removes
+    /// <i>every</i> copy, so a log that somehow holds a key twice does not take two taps to clear.
+    /// </summary>
+    public static IReadOnlyList<string> Toggle(IReadOnlyList<string> log, string key)
     {
-        ArgumentNullException.ThrowIfNull(habits);
         ArgumentNullException.ThrowIfNull(log);
+        ArgumentException.ThrowIfNullOrEmpty(key);
 
-        var done = 0;
-
-        foreach (var habit in habits)
-        {
-            if (Days(log(habit), today).Contains(today))
-            {
-                done++;
-            }
-        }
-
-        return done;
+        var without = log.Where(k => k != key).ToList();
+        return without.Count != log.Count ? without : [.. log, key];
     }
 }

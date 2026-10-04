@@ -335,17 +335,6 @@ public sealed class CalendarRulesTests
         Assert.Equal(0, earlyTop);
     }
 
-    [Fact]
-    public void S574_UnreadableViewsFallBackToTheAgenda()
-    {
-        Assert.Equal(CalendarViewMode.Agenda, CalendarRules.Effective(CalendarViewMode.Month, 120, 80));
-        Assert.Equal(CalendarViewMode.Month, CalendarRules.Effective(CalendarViewMode.Month, 320, 200));
-        Assert.Equal(CalendarViewMode.Agenda, CalendarRules.Effective(CalendarViewMode.Week, 200, 360));
-        Assert.Equal(CalendarViewMode.Week, CalendarRules.Effective(CalendarViewMode.Week, 480, 120));
-        Assert.Equal(CalendarViewMode.Agenda, CalendarRules.Effective(CalendarViewMode.Day, 200, 100));
-        Assert.Equal(CalendarViewMode.Agenda, CalendarRules.Effective(CalendarViewMode.Agenda, 560, 400));
-    }
-
     private static CalendarEvent Timed(string id, DateTimeOffset start, TimeSpan length)
         => new() { Id = id, Subject = id, Start = start, End = start + length };
 }

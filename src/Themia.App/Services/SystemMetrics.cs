@@ -1,48 +1,7 @@
-using System.Runtime.InteropServices;
 using Themia.App.Interop;
 using Themia.Core.Diagnostics;
 
 namespace Themia.App.Services;
-
-/// <summary>One labelled figure in a reading's breakdown: "Free" / "844 GB".</summary>
-public readonly record struct MeterFact(string Label, string Value);
-
-/// <summary>One reading from a meter. <see cref="Fraction"/> is 0..1, or null when unavailable.</summary>
-/// <param name="Fraction">The value the bar shows.</param>
-/// <param name="Primary">The big number.</param>
-/// <param name="Secondary">The line under it, or null.</param>
-/// <param name="Available">False when the machine cannot answer (no battery, drive gone).</param>
-/// <param name="Absent">
-/// True when the thing being measured does not exist on this machine at all, as opposed to
-/// existing but being momentarily unreadable. A desktop with no battery is not a battery meter
-/// that failed, and the two want different things on screen: one is an empty state, the other
-/// is a dimmed <c>--</c>. Carried as a flag because the view used to tell them apart by
-/// matching the reason string, which made a display decision depend on the exact wording of a
-/// caption in another file.
-/// </param>
-/// <param name="Facts">
-/// [S-664] The reading broken down — used, free, total — for a large tile to show as stat tiles.
-/// Exactly three, or null.
-/// </param>
-/// <param name="Value">
-/// [S-664] The reading in its own unit — bytes per second, milliseconds — for a meter whose
-/// <see cref="Fraction"/> is a position on a scale rather than the value itself. Null means the
-/// fraction is the value (a percentage meter). Its history is what a large tile summarises.
-/// </param>
-public readonly record struct MeterReading(
-    double? Fraction,
-    string Primary,
-    string? Secondary,
-    bool Available,
-    bool Absent = false,
-    double? Value = null,
-    IReadOnlyList<MeterFact>? Facts = null)
-{
-    public static MeterReading Unavailable(string reason) => new(null, "--", reason, false);
-
-    /// <summary>The thing being measured is not present on this machine.</summary>
-    public static MeterReading Missing(string reason) => new(null, "--", reason, false, Absent: true);
-}
 
 /// <summary>
 /// System readings, straight from Win32.
@@ -119,26 +78,6 @@ internal static class SystemMetrics
         return new MeterReading(busy, Themia.Core.Widgets.Formatting.Percent(busy), "all cores", true);
     }
 
-    /// <summary>Physical memory in use.</summary>
-    public static MeterReading Memory()
-    {
-        var status = new Win32.MemoryStatusEx { Length = (uint)Marshal.SizeOf<Win32.MemoryStatusEx>() };
-
-        if (!Win32.GlobalMemoryStatusEx(ref status) || status.TotalPhys == 0)
-        {
-            return MeterReading.Unavailable("unavailable");
-        }
-
-        var used = status.TotalPhys - status.AvailPhys;
-        var fraction = (double)used / status.TotalPhys;
-
-        return new MeterReading(
-            fraction,
-            Themia.Core.Widgets.Formatting.Percent(fraction),
-            $"{Themia.Core.Widgets.Formatting.Bytes(used)} of {Themia.Core.Widgets.Formatting.Bytes(status.TotalPhys)}",
-            true);
-    }
-
     /// <summary>Space used on a drive. An empty or unreadable drive reports unavailable rather than 0%.</summary>
     public static MeterReading Disk(string drive)
     {
@@ -187,8 +126,12 @@ internal static class SystemMetrics
     }
 
     /// <summary>Charge level, and whether it is on mains.</summary>
-    public static MeterReading Battery(bool showTimeRemaining)
+    /// <param name="showTimeRemaining">Put Windows' estimate in the caption while on battery.</param>
+    /// <param name="charging">[S-1123] On mains: the meter's colour is the accent, not a low-charge warning.</param>
+    public static MeterReading Battery(bool showTimeRemaining, out bool charging)
     {
+        charging = false;
+
         if (!Win32.GetSystemPowerStatus(out var status))
         {
             return MeterReading.Unavailable("unavailable");
@@ -201,7 +144,7 @@ internal static class SystemMetrics
         }
 
         var fraction = status.BatteryLifePercent / 100.0;
-        var charging = status.ACLineStatus == 1;
+        charging = status.ACLineStatus == 1;
 
         string? secondary = charging ? "charging" : null;
 

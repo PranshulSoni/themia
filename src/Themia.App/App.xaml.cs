@@ -15,12 +15,44 @@ public partial class App : Application
 
     public App()
     {
+#if DEBUG
+        // The settings render's --theme: the application theme can only be chosen before the
+        // resources load, and the pages' brushes come from it.
+        if (Shell.Gallery.SettingsRender.RequestedTheme(Environment.GetCommandLineArgs()) is { } theme)
+        {
+            RequestedTheme = theme;
+        }
+#endif
+
         InitializeComponent();
         UnhandledException += OnUnhandledException;
     }
 
     protected override void OnLaunched(LaunchActivatedEventArgs args)
     {
+        // [S-1553] The uninstall's data cleanup: waits for the app to exit, deletes its folders and
+        // quits. Before the log sink, which would write a log file back into a folder being deleted.
+        var commandLine = Environment.GetCommandLineArgs();
+        if (Array.IndexOf(commandLine, DataPurge.Flag) >= 0)
+        {
+            var queue = DispatcherQueue.GetForCurrentThread();
+            _ = Task.Run(() =>
+            {
+                try
+                {
+                    DataPurge.TryRunFromCommandLine(commandLine);
+                }
+                finally
+                {
+                    if (queue is null || !queue.TryEnqueue(Exit))
+                    {
+                        Environment.Exit(0);
+                    }
+                }
+            });
+            return;
+        }
+
         InstallLogSink();
 
 #if DEBUG

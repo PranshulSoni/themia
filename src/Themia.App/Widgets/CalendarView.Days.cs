@@ -18,8 +18,8 @@ internal sealed partial class CalendarView
     /// <summary>The agenda's time column: "All day" at the caption step, on the 4px grid.</summary>
     private const double TimeColumn = 52;
 
-    /// <summary>One hour on the day timeline: a standard list row, so the hours read like a list.</summary>
-    private const double HourHeight = Fluent.RowHeight;
+    /// <summary>The all-day bar over the timeline: one chip line and its margin.</summary>
+    private const double AllDayBar = 22;
 
     private const double HourLabelWidth = 48;
 
@@ -39,6 +39,11 @@ internal sealed partial class CalendarView
         // What a column can hold below its header; chips past it become "+N" ([S-572]).
         var available = height - 40 - Fluent.Space1;
 
+        // [S-1265] A wide column spells the weekday and gives a timed chip its end and its place.
+        var columnWidth = Math.Max(0, (width - (2 * Fluent.Space1)) / 7);
+        var names = columnWidth >= CalendarFit.WeekdayNamesFrom;
+        var detail = columnWidth >= CalendarFit.WeekDetailFrom;
+
         for (var c = 0; c < 7; c++)
         {
             grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
@@ -47,7 +52,7 @@ internal sealed partial class CalendarView
             var header = new StackPanel { Spacing = 0, HorizontalAlignment = HorizontalAlignment.Center, Margin = new Thickness(0, 0, 0, Fluent.Space1) };
 
             var weekday = Fluent.Text(FluentType.Caption, "TextFillColorTertiaryBrush");
-            weekday.Text = CalendarText.WeekdayInitial(day.DayOfWeek);
+            weekday.Text = names ? CalendarText.WeekdayName(day.DayOfWeek)[..3] : CalendarText.WeekdayInitial(day.DayOfWeek);
             weekday.HorizontalAlignment = HorizontalAlignment.Center;
             header.Children.Add(weekday);
 
@@ -69,8 +74,9 @@ internal sealed partial class CalendarView
 
             foreach (var item in items)
             {
-                var chip = WeekChip(item, showColors);
-                var cost = item.Event is { AllDay: false } ? 34 : 18;
+                var chip = WeekChip(item, showColors, detail);
+                var lines = item.Event is { AllDay: false } e ? 2 + (detail && e.Location is not null ? 1 : 0) : 1;
+                var cost = (lines * FluentType.Caption.LineHeight) + 2 + 2;
 
                 // Keep a line for "+N" when something will not fit.
                 if (used + cost > available - (shown < items.Count - 1 ? 16 : 0))
@@ -100,8 +106,11 @@ internal sealed partial class CalendarView
         _content.Children.Add(grid);
     }
 
-    /// <summary>[S-561] A timed chip stacks its start time above the title, so the title keeps the column's width.</summary>
-    private Border WeekChip(DayItem item, bool showColors)
+    /// <summary>
+    /// [S-561] A timed chip stacks its start time above the title, so the title keeps the column's
+    /// width; a wide column ([S-1265]) shows the end time too and puts the place under the title.
+    /// </summary>
+    private Border WeekChip(DayItem item, bool showColors, bool detail)
     {
         var stack = new StackPanel { Spacing = 0 };
         var chip = new Border
@@ -126,7 +135,7 @@ internal sealed partial class CalendarView
         if (!e.AllDay)
         {
             var time = Fluent.Text(FluentType.Caption, "TextFillColorSecondaryBrush");
-            time.Text = Clock(e.Start);
+            time.Text = detail && e.End > e.Start ? $"{Clock(e.Start)}–{Clock(e.End)}" : Clock(e.Start);
             Typography.SetNumeralAlignment(time, FontNumeralAlignment.Tabular);
             stack.Children.Add(time);
         }
@@ -134,6 +143,13 @@ internal sealed partial class CalendarView
         var title = Fluent.Text(FluentType.Caption);
         title.Text = Title(e);
         stack.Children.Add(title);
+
+        if (detail && !e.AllDay && e.Location is { } place)
+        {
+            var where = Fluent.Text(FluentType.Caption, "TextFillColorTertiaryBrush");
+            where.Text = place;
+            stack.Children.Add(where);
+        }
 
         if (showColors)
         {
@@ -177,7 +193,9 @@ internal sealed partial class CalendarView
             root.Children.Add(bar);
         }
 
-        var timelineHeight = (CalendarRules.TimelineEndHour - CalendarRules.TimelineFirstHour) * HourHeight;
+        // [S-1266] Compact hours when that shows the whole day unscrolled; list-row hours otherwise.
+        var hourHeight = CalendarFit.HourHeight(height - (allDay.Count > 0 ? AllDayBar : 0) - Fluent.Space1 - Fluent.Space2);
+        var timelineHeight = (CalendarRules.TimelineEndHour - CalendarRules.TimelineFirstHour) * hourHeight;
         var timeline = new Grid { Height = timelineHeight };
         timeline.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(HourLabelWidth) });
         timeline.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
@@ -187,7 +205,7 @@ internal sealed partial class CalendarView
 
         for (var h = CalendarRules.TimelineFirstHour; h < CalendarRules.TimelineEndHour; h++)
         {
-            var top = (h - CalendarRules.TimelineFirstHour) * HourHeight;
+            var top = (h - CalendarRules.TimelineFirstHour) * hourHeight;
 
             var label = Fluent.Text(FluentType.Caption, "TextFillColorTertiaryBrush");
             label.Text = h.ToString("00", CultureInfo.InvariantCulture) + ":00";
@@ -215,10 +233,11 @@ internal sealed partial class CalendarView
             var e = timed[i];
             var (column, columns) = lanes[i];
             var (top, span) = CalendarRules.TimelineSpan(e.Start, e.End, day, zone);
-            var block = TimedBlock(e, showColors);
+            var blockHeight = Math.Max(18, (span * timelineHeight) - 1);
+            var block = TimedBlock(e, showColors, blockHeight);
 
             block.Width = Math.Max(0, (laneWidth / columns) - 2);
-            block.Height = Math.Max(18, span * timelineHeight - 1);
+            block.Height = blockHeight;
             Canvas.SetLeft(block, column * (laneWidth / columns));
             Canvas.SetTop(block, top * timelineHeight);
             canvas.Children.Add(block);
@@ -251,7 +270,7 @@ internal sealed partial class CalendarView
         var focusHour = timed.Count > 0
             ? timed.Min(e => e.Start.ToLocalTime().Hour)
             : day == Today ? DateTime.Now.Hour : CalendarRules.TimelineFirstHour + 1;
-        var offset = Math.Max(0, (focusHour - CalendarRules.TimelineFirstHour - 0.5) * HourHeight);
+        var offset = Math.Max(0, (focusHour - CalendarRules.TimelineFirstHour - 0.5) * hourHeight);
         scroll.Loaded += (_, _) => scroll.ChangeView(null, offset, null, disableAnimation: true);
 
         _content.Children.Add(root);
@@ -290,7 +309,11 @@ internal sealed partial class CalendarView
         return chip;
     }
 
-    private Border TimedBlock(CalendarEvent e, bool showColors)
+    /// <summary>
+    /// [S-573] A timed event on the timeline: title, then times; a block tall enough for a third
+    /// line ([S-1266]) adds where and who.
+    /// </summary>
+    private Border TimedBlock(CalendarEvent e, bool showColors, double height)
     {
         var stack = new StackPanel { Spacing = 0 };
 
@@ -305,10 +328,18 @@ internal sealed partial class CalendarView
         stack.Children.Add(title);
         stack.Children.Add(time);
 
+        var meta = string.Join(" · ", new[] { e.Location, e.Organizer }.Where(s => !string.IsNullOrWhiteSpace(s)));
+        if (meta.Length > 0 && height >= 3 * FluentType.Caption.LineHeight)
+        {
+            var where = Fluent.Text(FluentType.Caption, "TextFillColorTertiaryBrush");
+            where.Text = meta;
+            stack.Children.Add(where);
+        }
+
         var block = new Border
         {
             Child = stack,
-            Padding = new Thickness(Fluent.Space1, 1, Fluent.Space1, 1),
+            Padding = new Thickness(Fluent.Space1, 0, Fluent.Space1, 0),
             CornerRadius = new CornerRadius(Fluent.ControlRadius),
             Background = FluentLayout.Themed("SubtleFillColorSecondaryBrush", Colors.Gray),
             BorderThickness = new Thickness(2, 0, 0, 0),
@@ -327,8 +358,7 @@ internal sealed partial class CalendarView
 
     private void DrawAgenda(double width, double height)
     {
-        var today = Today;
-        var (first, last) = CalendarRules.ViewRange(CalendarViewMode.Agenda, _anchor, today, _config.EffectiveWeekStart);
+        var (first, last) = CalendarRules.ViewRange(CalendarViewMode.Agenda, _anchor, Today, _config.EffectiveWeekStart);
         var groups = CalendarRules.Agenda(_events, _birthdays, first, last, TimeZoneInfo.Local, _config.EffectiveAgendaCount, DateTimeOffset.Now);
 
         if (groups.Count == 0)
@@ -337,43 +367,86 @@ internal sealed partial class CalendarView
             return;
         }
 
+        _content.Children.Add(BuildAgenda(groups, width, height));
+    }
+
+    /// <summary>
+    /// [S-571] The agenda list for a box, scrolling. A short box drops the first "Today" heading
+    /// ([S-1267]); a wide one gives location and organizer columns of their own, and from
+    /// <see cref="CalendarFit.AgendaTwoColumnsFrom"/> the days flow into two columns.
+    /// </summary>
+    private ScrollViewer BuildAgenda(IReadOnlyList<(DateOnly Day, IReadOnlyList<DayItem> Items)> groups, double width, double height)
+    {
+        var today = Today;
         var compact = height > 0 && height < Fluent.CompactBelow;
-        var narrow = width > 0 && width < AgendaNarrowBelow;
+        var columns = width >= CalendarFit.AgendaTwoColumnsFrom ? 2 : 1;
+        var columnWidth = columns == 1 ? width : (width - Fluent.Space2) / 2;
+        var narrow = columnWidth > 0 && columnWidth < AgendaNarrowBelow;
+        var metaColumns = columnWidth >= CalendarFit.AgendaColumnsFrom && !compact;
         var showColors = ShowColors;
         var now = DateTimeOffset.Now;
-        var list = new StackPanel { Spacing = 0 };
 
-        foreach (var (day, items) in groups)
+        // Split the days between the columns by what they hold (a heading and its rows), whole days only.
+        var placement = columns == 1
+            ? new int[groups.Count]
+            : ColumnLayout.Partition([.. groups.Select(g => g.Items.Count + 1)], columns);
+
+        var stacks = Enumerable.Range(0, columns).Select(_ => new StackPanel { Spacing = 0 }).ToArray();
+
+        for (var g = 0; g < groups.Count; g++)
         {
-            var heading = Fluent.Text(FluentType.BodyStrong, "TextFillColorSecondaryBrush");
-            heading.Text = Formatting.DayHeading(day, today);
-            list.Children.Add(new Border { Child = heading, Padding = new Thickness(Fluent.Space4, Fluent.Space2, Fluent.Space4, Fluent.Space1) });
+            var (day, items) = groups[g];
+            var list = stacks[placement[g]];
+
+            if (CalendarFit.ShowsHeading(day, today, g == 0, height))
+            {
+                var heading = Fluent.Text(FluentType.BodyStrong, "TextFillColorSecondaryBrush");
+                heading.Text = Formatting.DayHeading(day, today);
+                list.Children.Add(new Border { Child = heading, Padding = new Thickness(Fluent.Space4, Fluent.Space2, Fluent.Space4, Fluent.Space1) });
+            }
 
             foreach (var item in items)
             {
-                var row = AgendaRow(item, day, now, compact, narrow, showColors);
+                var row = AgendaRow(item, day, now, compact, narrow, metaColumns, showColors);
                 _hovers.Add(Fluent.Hover(row));
                 list.Children.Add(row);
             }
         }
 
-        _content.Children.Add(new ScrollViewer
+        UIElement content = stacks[0];
+        if (columns > 1)
+        {
+            var grid = new Grid { ColumnSpacing = Fluent.Space2 };
+            for (var c = 0; c < columns; c++)
+            {
+                grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+                SetColumn(stacks[c], c);
+                grid.Children.Add(stacks[c]);
+            }
+
+            content = grid;
+        }
+
+        return new ScrollViewer
         {
             Padding = Fluent.ListPadding,
-            Content = list,
+            Content = content,
             HorizontalScrollMode = ScrollMode.Disabled,
             HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
             VerticalScrollBarVisibility = ScrollBarVisibility.Hidden,
-        });
+        };
     }
 
     /// <summary>
     /// [S-571] One agenda row: the time column (start over end, "All day", or "Now" in the strong
     /// step for one under way), then the title over where and who. On a narrow tile ([S-574]) the
-    /// time moves under the title, where it costs a line rather than half the width.
+    /// time moves under the title, where it costs a line rather than half the width; on a wide one
+    /// ([S-1267]) where and who get columns of their own beside the title.
     /// </summary>
-    private Border AgendaRow(DayItem item, DateOnly day, DateTimeOffset now, bool compact, bool narrow, bool showColors)
+    private Border AgendaRow(DayItem item, DateOnly day, DateTimeOffset now, bool compact, bool narrow, bool metaColumns, bool showColors)
     {
+        string? location = null;
+        string? organizer = null;
         var when = new StackPanel { Spacing = 0, Width = TimeColumn, Margin = new Thickness(0, 0, Fluent.Space2, 0), VerticalAlignment = VerticalAlignment.Top };
         var text = new StackPanel { Spacing = 0, VerticalAlignment = VerticalAlignment.Center };
         var title = Fluent.Text(FluentType.BodyStrong);
@@ -417,7 +490,13 @@ internal sealed partial class CalendarView
 
             second = narrow
                 ? (compact || meta.Length == 0 ? span : $"{span} · {meta}")
-                : (compact || meta.Length == 0 ? null : meta);
+                : (compact || meta.Length == 0 || metaColumns ? null : meta);
+
+            if (metaColumns)
+            {
+                location = e.Location;
+                organizer = e.Organizer;
+            }
 
             if (showColors)
             {
@@ -443,6 +522,23 @@ internal sealed partial class CalendarView
             },
             Padding = new Thickness(0, Fluent.Space1, 0, Fluent.Space1),
         };
+
+        if (metaColumns)
+        {
+            // [S-1267] Where, then who, each in its own column, tertiary like the line they replace.
+            body.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(0.6, GridUnitType.Star) });
+            body.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(0.45, GridUnitType.Star) });
+
+            for (var i = 0; i < 2; i++)
+            {
+                var cell = Fluent.Text(FluentType.Caption, "TextFillColorTertiaryBrush");
+                cell.Text = (i == 0 ? location : organizer) ?? string.Empty;
+                cell.VerticalAlignment = VerticalAlignment.Center;
+                cell.Margin = new Thickness(Fluent.Space2, 0, 0, 0);
+                SetColumn(cell, 3 + i);
+                body.Children.Add(cell);
+            }
+        }
 
         // [S-566] The calendar's colour as a stripe before the time, when colours show; a birthday's
         // is the caution hue, as its chips are.

@@ -75,6 +75,12 @@ internal static class Glyphs
     public static readonly string Hidden = From(0xE890);
     public static readonly string Open = From(0xE8E5);
     public static readonly string Power = From(0xE7E8);
+
+    // [S-1242] Power tile actions beyond the shared ones (Power, Reset, Moon, Display).
+    public static readonly string Lock = From(0xE72E);
+    public static readonly string SignOut = From(0xF3B1);
+    public static readonly string Hibernate = From(0xEA38);
+    public static readonly string Signal = From(0xE870);
     public static readonly string Shortcut = From(0xE71B);
     public static readonly string Warning = From(0xE7BA);
     public static readonly string Undo = From(0xE7A7);
@@ -110,6 +116,16 @@ internal static class Glyphs
     public static readonly string Rain = From(0xEA91);
     public static readonly string Snow = From(0xEA38);
     public static readonly string Thunderstorm = From(0xE945);
+
+    // [S-733] The weather readings and the forecast layouts. Checked against SegoeIcons.ttf's cmap
+    // and a rendered sheet: a filled drop, a thermometer, wind lines, a bulleted list, three
+    // vertical bars, four squares.
+    public static readonly string Droplet = From(0xEB42);
+    public static readonly string Thermometer = From(0xE9CA);
+    public static readonly string Wind = From(0xE7BC);
+    public static readonly string ListLayout = From(0xE8FD);
+    public static readonly string ColumnsLayout = From(0xE8C0);
+    public static readonly string GridLayout = From(0xE8A9);
     public static readonly string Stocks = From(0xEB05);
     public static readonly string Rss = From(0xE8F1);
     public static readonly string Apps = From(0xE71D);

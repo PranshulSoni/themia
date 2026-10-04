@@ -1,12 +1,10 @@
-using Microsoft.UI.Xaml;
+﻿using Microsoft.UI.Xaml;
 using Themia.Core.Model;
-using Themia.Core.Widgets;
 
 namespace Themia.App.Shell.Config;
 
 /// <summary>
-/// The settings rows for the two widgets that are typed into rather than watched: Notes and the
-/// Calculator.
+/// The Notes settings rows.
 /// <para>
 /// Each row writes straight to the live config and saves, so the widget on the desktop behind the
 /// window changes as the control moves. Nothing is mirrored into a local field first: the config is
@@ -52,19 +50,5 @@ internal static partial class WidgetSettings
                 config.Text = string.Empty;
                 save();
             }));
-    }
-
-    public static void Calculator(List<FrameworkElement> rows, CalculatorConfig config, Action save)
-    {
-        ArgumentNullException.ThrowIfNull(rows);
-        ArgumentNullException.ThrowIfNull(config);
-        ArgumentNullException.ThrowIfNull(save);
-
-        rows.Add(FluentLayout.Header("Calculator"));
-
-        // [S-05] Applied to the live result and to every row already in the history.
-        rows.Add(FluentLayout.Row(Glyphs.Calculator, "Decimal places", "Digits shown after the point",
-            FluentLayout.Slider(config.EffectiveDecimalPlaces, 0, ExpressionResult.MaxDecimalPlaces, 1, string.Empty,
-                value => { config.DecimalPlaces = (int)Math.Round(value); save(); })));
     }
 }

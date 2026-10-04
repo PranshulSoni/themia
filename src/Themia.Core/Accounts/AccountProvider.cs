@@ -71,8 +71,7 @@ public static class AccountProviders
     ];
 
     /// <summary>
-    /// [S-501] The name a provider is written under in <c>accounts.json</c>. Lower case and identical to
-    /// the classic app's, so an imported account and a new one read the same on disk.
+    /// [S-501] The name a provider is written under in <c>accounts.json</c>. Lower case.
     /// </summary>
     public static string WireName(this AccountProvider provider) => provider switch
     {

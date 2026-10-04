@@ -131,6 +131,21 @@ public static partial class TaskDue
         _ => ShortDate(due.Day),
     };
 
+    /// <summary>
+    /// [S-789] The label with its date, for a due column with room for it: <c>Overdue · 2 Oct</c>,
+    /// <c>Today</c>, <c>Tomorrow</c>, <c>Thu 8 Oct</c>. Today and tomorrow need no date to be exact.
+    /// </summary>
+    public static string WideText(Due due) => due.Label switch
+    {
+        DueLabel.Overdue => $"Overdue · {ShortDate(due.Day)}",
+        DueLabel.Today => "Today",
+        DueLabel.Tomorrow => "Tomorrow",
+        _ => LongText(due),
+    };
+
+    /// <summary>[S-780] Whether a due date is worth a line on a tile with room for almost nothing.</summary>
+    public static bool IsUrgent(Due due) => due.Label is DueLabel.Overdue or DueLabel.Today;
+
     /// <summary>The whole date, for a tooltip: <c>Wed 14 Oct</c>.</summary>
     public static string LongText(Due due) => $"{DayNames[(int)due.Day.DayOfWeek]} {ShortDate(due.Day)}";
 

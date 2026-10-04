@@ -9,8 +9,9 @@ namespace Themia.App.Shell.Gallery;
 /// show the layout a user actually sees once the widget has something in it. Reached through
 /// <see cref="GalleryFixtures"/> (<c>--gallery-png Kind+fixture</c>).
 /// <para>
-/// Debug builds only. The weather, stock and feed fixtures fetch from the same public services the
-/// widgets use in real life; the rest are local and fixed.
+/// Debug builds only. The weather fixture is a fixed reading ([S-731]); the stock and feed
+/// fixtures fetch from the same public services the widgets use in real life; the rest are local
+/// and fixed.
 /// </para>
 /// </summary>
 internal static class LayoutFixtures
@@ -21,6 +22,7 @@ internal static class LayoutFixtures
         WidgetKind.Stocks or
         WidgetKind.Rss or
         WidgetKind.Countdown or
+        WidgetKind.Clipboard or
         WidgetKind.Shortcuts or
         WidgetKind.HabitTracker or
         WidgetKind.MoodTracker or
@@ -30,15 +32,15 @@ internal static class LayoutFixtures
     public static WidgetConfig? Create(WidgetKind kind)
     {
         var now = DateTimeOffset.Now;
-        var today = LocalDay.From(now);
 
         switch (kind)
         {
             case WidgetKind.WeatherNow:
-                return new WeatherNowConfig { Place = "Zurich", LocationName = "Zurich", Latitude = 47.37, Longitude = 8.54 };
+                // [S-731] A fixed reading seeded into the cache: offline and the same every run.
+                return WeatherFixture.NowConfig();
 
             case WidgetKind.WeatherForecast:
-                return new WeatherForecastConfig { Place = "Zurich", LocationName = "Zurich", Latitude = 47.37, Longitude = 8.54 };
+                return WeatherFixture.ForecastConfig();
 
             case WidgetKind.Stocks:
                 return new StocksConfig { Symbol = "MSFT", DisplayName = "Microsoft" };
@@ -51,9 +53,11 @@ internal static class LayoutFixtures
                 {
                     Timers =
                     [
-                        CountdownTimer.Create("Product launch", now.AddHours(3).AddMinutes(25)),
-                        CountdownTimer.Create("Holiday", now.AddDays(12)),
-                        CountdownTimer.Create("New Year", new DateTimeOffset(now.Year + 1, 1, 1, 0, 0, 0, now.Offset)),
+                        // [S-1448] Created stamps, so the large tiers draw their progress bars.
+                        CountdownTimer.Create("Product launch", now.AddHours(3).AddMinutes(25), now.AddDays(-2)),
+                        CountdownTimer.Create("Holiday", now.AddDays(12), now.AddDays(-30)),
+                        CountdownTimer.Create("New Year", new DateTimeOffset(now.Year + 1, 1, 1, 0, 0, 0, now.Offset), now.AddDays(-200)),
+                        CountdownTimer.Create("Dentist", now.AddDays(-2), now.AddDays(-20)),
                     ],
                 };
 
@@ -71,15 +75,9 @@ internal static class LayoutFixtures
                 };
 
             case WidgetKind.HabitTracker:
-                return new HabitTrackerConfig
-                {
-                    Habits =
-                    [
-                        Habit("Read 20 pages", today, 0, 1, 2, 4, 5),
-                        Habit("Walk", today, 1, 2, 3),
-                        Habit("No phone after 22:00", today, 0, 2, 3, 4, 5, 6),
-                    ],
-                };
+                // [S-1420] The habits live in a pool, not the config: the fixture is a data source.
+                HabitsFixture.Install(populated: true);
+                return HabitsFixture.Config();
 
             case WidgetKind.MoodTracker:
                 var mood = new MoodTrackerConfig();
@@ -95,6 +93,11 @@ internal static class LayoutFixtures
 
                 return mood;
 
+            case WidgetKind.Clipboard:
+                // [S-1443] The history is per widget and in memory: the fixture is a seed.
+                ClipboardFixture.Install(populated: true);
+                return new ClipboardConfig();
+
             case WidgetKind.Gallery:
                 return new GalleryConfig { Path = @"C:\Windows\Web\Wallpaper", Recursive = true };
 
@@ -105,12 +108,5 @@ internal static class LayoutFixtures
                 return null;
         }
     }
-
-    private static HabitRecord Habit(string name, LocalDay today, params int[] daysAgo) => new()
-    {
-        Id = HabitRecord.NewId(),
-        Name = name,
-        Days = [.. daysAgo.Select(ago => today.AddDays(-ago).Key)],
-    };
 }
 #endif

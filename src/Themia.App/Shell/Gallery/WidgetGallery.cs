@@ -544,6 +544,9 @@ internal sealed class WidgetGallery : IDisposable
 
         /// <summary>A pretend display with a few views, so the view switcher shows a real row.</summary>
         public IWidgetDisplay? Display { get; } = new GalleryDisplay();
+
+        /// <summary>[S-1251] Gallery cards are previews: the power tile's buttons do nothing here.</summary>
+        public bool IsPreview => true;
     }
 
     /// <summary>

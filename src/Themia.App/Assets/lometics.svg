@@ -1,0 +1,47 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" role="img" aria-label="Lometics">
+	<defs>
+		<linearGradient id="fold" gradientUnits="userSpaceOnUse" x1="0" y1="313.7" x2="0" y2="610">
+			<stop offset="0" stop-color="#fff" />
+			<stop offset=".287" stop-color="#f8f9fd" />
+			<stop offset=".443" stop-color="#f0f5fd" />
+			<stop offset=".6" stop-color="#eaf2fd" />
+			<stop offset=".756" stop-color="#e0ebfc" />
+			<stop offset=".912" stop-color="#d2e3fb" />
+			<stop offset="1" stop-color="#caddfa" />
+		</linearGradient>
+		<linearGradient id="bg-fold-0" gradientUnits="userSpaceOnUse" x1="310" y1="980" x2="30" y2="1260">
+			<stop offset="0" stop-color="#002a80" stop-opacity="0" />
+			<stop offset="1" stop-color="#002a80" stop-opacity=".3" />
+		</linearGradient>
+		<linearGradient id="bg-fold-1" gradientUnits="userSpaceOnUse" x1="590" y1="700" x2="310" y2="980">
+			<stop offset="0" stop-color="#002a80" stop-opacity="0" />
+			<stop offset="1" stop-color="#002a80" stop-opacity=".3" />
+		</linearGradient>
+		<linearGradient id="bg-fold-2" gradientUnits="userSpaceOnUse" x1="870" y1="420" x2="590" y2="700">
+			<stop offset="0" stop-color="#002a80" stop-opacity="0" />
+			<stop offset="1" stop-color="#002a80" stop-opacity=".3" />
+		</linearGradient>
+		<linearGradient id="bg-fold-3" gradientUnits="userSpaceOnUse" x1="1150" y1="140" x2="870" y2="420">
+			<stop offset="0" stop-color="#002a80" stop-opacity="0" />
+			<stop offset="1" stop-color="#002a80" stop-opacity=".3" />
+		</linearGradient>
+		<linearGradient id="bg-fold-4" gradientUnits="userSpaceOnUse" x1="1430" y1="-140" x2="1150" y2="140">
+			<stop offset="0" stop-color="#002a80" stop-opacity="0" />
+			<stop offset="1" stop-color="#002a80" stop-opacity=".3" />
+		</linearGradient>
+		<clipPath id="bg"><rect width="1024" height="1024" rx="16" /></clipPath>
+		<clipPath id="card-b"><rect x="431.7" y="392.1" width="464.9" height="471.8" rx="16" /></clipPath>
+	</defs>
+	<rect width="1024" height="1024" rx="16" fill="#0067ff" />
+	<g clip-path="url(#bg)">
+		<path d="M-560-50V890A560 370 0 0 0 0 1260H60a520 480 0 0 1 520 480v-640h520V-50ZM-280-50V610a560 370 0 0 0 560 370h60a520 480 0 0 1 520 480v-360h240V-50Z" fill="url(#bg-fold-0)" fill-rule="evenodd" />
+		<path d="M-280-50V610a560 370 0 0 0 560 370h60a520 480 0 0 1 520 480v-360h240V-50ZM0-50V330a560 370 0 0 0 560 370h60a520 480 0 0 1 520 480v-80h-40V-50Z" fill="url(#bg-fold-1)" fill-rule="evenodd" />
+		<path d="M0-50V330a560 370 0 0 0 560 370h60a520 480 0 0 1 520 480v-80h-40V-50ZM280-50V50a560 370 0 0 0 560 370h60a520 480 0 0 1 520 480v200h-320V-50Z" fill="url(#bg-fold-2)" fill-rule="evenodd" />
+		<path d="M280-50V50a560 370 0 0 0 560 370h60a520 480 0 0 1 520 480v200h-320V-50ZM560-50v-180a560 370 0 0 0 560 370h60a520 480 0 0 1 520 480v480h-500V-50Z" fill="url(#bg-fold-3)" fill-rule="evenodd" />
+		<path d="M560-50v-180a560 370 0 0 0 560 370h60a520 480 0 0 1 520 480v480h-500V-50Z" fill="url(#bg-fold-4)" fill-rule="evenodd" />
+	</g>
+	<rect x="431.7" y="392.1" width="464.9" height="471.8" rx="16" fill="#fff" />
+	<rect x="127" y="160" width="464.9" height="486.5" rx="16" fill="#fff" />
+	<path d="M146.7 306v28.6A236.3 210.1 0 0 0 383 544.6h58.7A240.9 299.6 0 0 1 591.9 610V306Z" fill="url(#fold)" />
+	<path d="M431.7 544.6h10A240.9 299.6 0 0 1 682.1 864H431.7Z" fill="#f4f7fd" clip-path="url(#card-b)" />
+</svg>

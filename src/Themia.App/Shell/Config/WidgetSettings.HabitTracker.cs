@@ -1,7 +1,10 @@
-using System.Globalization;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Themia.App.Services;
+using Themia.App.Services.Habits;
 using Themia.App.Widgets;
+using Themia.Core.Diagnostics;
+using Themia.Core.Habits;
 using Themia.Core.Model;
 using Themia.Core.Widgets;
 using Windows.System;
@@ -9,125 +12,240 @@ using Windows.System;
 namespace Themia.App.Shell.Config;
 
 /// <summary>
-/// The Habit widget's settings rows: which habits there are, and how the list reads.
+/// [S-1429] The Habits widget's settings: which list it shows, and how often and how it reads.
 /// <para>
-/// The habits are edited <i>here</i> and ticked off on the widget. Splitting it that way is
-/// deliberate: a widget sits under the pointer's path across the whole desktop and has no undo, so
-/// the gestures that can destroy a month of history belong behind a window that has to be opened on
-/// purpose, while the one gesture that is the whole point of the widget — the daily box — stays one
-/// click away.
-/// </para>
-/// <para>
-/// Both sides write the same <see cref="HabitTrackerConfig"/> object, so they cannot disagree, and a
-/// habit's days travel inside the habit — deleting one here takes its history with it because there
-/// is nowhere else for that history to be. That is why this is the one list on any settings page
-/// whose remove asks first.
+/// The habits themselves are added, renamed, moved and deleted <i>in the widget</i>, where the user
+/// is looking at them ([S-1425]); a second editor here would be a parallel path to the same data.
+/// This page owns the lists — the device-wide pool every Habits widget picks from — and the widget's
+/// own settings.
 /// </para>
 /// </summary>
 internal static partial class WidgetSettings
 {
+    private const string HabitsScope = "habits-settings";
+
     public static void HabitTracker(List<FrameworkElement> rows, HabitTrackerConfig config, Action save)
     {
         ArgumentNullException.ThrowIfNull(rows);
         ArgumentNullException.ThrowIfNull(config);
         ArgumentNullException.ThrowIfNull(save);
 
-        rows.Add(FluentLayout.Header("Habits"));
+        rows.Add(FluentLayout.Header("Habit list"));
 
-        FluentLayout.ListEditor(rows, new ListEditorOptions<HabitRecord>
+        if (AppServices.Habits is not { } pool)
         {
-            Items = config.Habits,
-            Save = save,
-            EmptyText = "No habits yet.",
-            AddTitle = "Add a habit",
-            AddDescription = "One line a day, ticked off on the widget",
-            AddAction = "Add",
-            RemoveTooltip = "Remove habit",
-            Create = () => new HabitRecord { Id = HabitRecord.NewId(), Name = string.Empty },
-            Body = habit => HabitBody(habit, save),
-
-            // Removing takes the habit's whole history with it and there is no undo anywhere in this
-            // app, so it goes through the same confirmation every other destructive action does.
-            ConfirmRemove = (habit, source) => FluentLayout.ConfirmAsync(
-                source,
-                "Remove this habit?",
-                RemovalDetail(habit),
-                "Remove"),
-        });
-
-        rows.Add(FluentLayout.Row(Glyphs.Done, "Show streaks", "The run of days each habit is on",
-            FluentLayout.Toggle(config.ShowStreak, value => { config.ShowStreak = value; save(); })));
-
-        rows.Add(FluentLayout.Row(Glyphs.Count, "Days of history",
-            "How many past days each row shows as squares. Zero hides them",
-            FluentLayout.Slider(
-                config.EffectiveHistoryDays,
-                0,
-                HabitRules.MaxHistoryDays,
-                1,
-                string.Empty,
-                value => { config.HistoryDays = (int)Math.Round(value); save(); })));
-    }
-
-    /// <summary>One habit's editor: its name, and how much of it there is.</summary>
-    private static FrameworkElement HabitBody(HabitRecord habit, Action save)
-    {
-        var name = new TextBox
+            rows.Add(FluentLayout.Note("Habit lists are not available."));
+        }
+        else
         {
-            Text = habit.Name,
-            PlaceholderText = "Untitled habit",
-            HorizontalAlignment = HorizontalAlignment.Stretch,
+            // The rows change as lists are added and deleted, so they live in one host rebuilt in place.
+            var lists = new StackPanel { Spacing = Fluent.Space1 };
+            rows.Add(lists);
+
+            void Rebuild()
+            {
+                lists.Children.Clear();
+
+                foreach (var row in HabitListRows(pool, config, save, Rebuild))
+                {
+                    lists.Children.Add(row);
+                }
+            }
+
+            Rebuild();
+        }
+
+        rows.Add(FluentLayout.Header("Display"));
+
+        // The interval row only means something under the custom period; it is shown with it.
+        var verdict = FluentLayout.Verdict();
+        var minutes = new TextBox
+        {
+            Text = config.Cadence.Minutes.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            MinWidth = 120,
+            HorizontalAlignment = HorizontalAlignment.Right,
         };
 
-        // On lost focus and on Enter, never per keystroke: a rebuild between two letters takes the
-        // caret with it, and a save per letter writes the state file a dozen times a word.
-        void CommitName()
+        void CommitMinutes()
         {
-            if (name.Text == habit.Name)
+            if (!HabitCadence.TryParseMinutes(minutes.Text, out var value, out var refusal))
             {
+                FluentLayout.Refuse(verdict, refusal ?? string.Empty);
                 return;
             }
 
-            habit.Name = name.Text;
-            save();
+            FluentLayout.Confirm(verdict, value == 1 ? "Clears every minute." : $"Clears every {value} minutes.");
+
+            if (value != config.CustomMinutes)
+            {
+                config.CustomMinutes = value;
+                save();
+            }
         }
 
-        name.LostFocus += (_, _) => CommitName();
-        name.KeyDown += (_, args) =>
+        minutes.LostFocus += (_, _) => CommitMinutes();
+        minutes.KeyDown += (_, args) =>
         {
             if (args.Key == VirtualKey.Enter)
             {
                 args.Handled = true;
-                CommitName();
+                CommitMinutes();
             }
         };
 
-        var days = HabitRules.Days(habit.Days, LocalDay.From(DateTimeOffset.Now));
+        var interval = FluentLayout.FieldRow(Glyphs.Countdown, "Interval", "Minutes per window, 1 to 1440", minutes, verdict);
+        interval.Visibility = config.Cadence.Period == HabitPeriod.Custom ? Visibility.Visible : Visibility.Collapsed;
 
-        var summary = new TextBlock
-        {
-            Text = days.Count switch
-            {
-                0 => "Not started",
-                1 => "1 day recorded",
-                _ => $"{days.Count.ToString(CultureInfo.InvariantCulture)} days recorded",
-            },
-            FontSize = 12,
-            Opacity = 0.65,
-            Margin = new Thickness(0, Fluent.Space2, 0, 0),
-        };
+        rows.Add(FluentLayout.Row(Glyphs.Calendar, "Resets", "How often each box clears",
+            FluentLayout.Choice<HabitPeriod>(
+                [
+                    (HabitPeriod.Hourly, "Every hour"),
+                    (HabitPeriod.Daily, "Every day"),
+                    (HabitPeriod.Weekly, "Every week"),
+                    (HabitPeriod.Monthly, "Every month"),
+                    (HabitPeriod.Custom, "Custom interval"),
+                ],
+                config.Cadence.Period,
+                value =>
+                {
+                    config.Period = value;
+                    interval.Visibility = value == HabitPeriod.Custom ? Visibility.Visible : Visibility.Collapsed;
+                    save();
+                })));
 
-        return new StackPanel { Children = { name, summary } };
+        rows.Add(interval);
+
+        rows.Add(FluentLayout.Row(Glyphs.Done, "Show streaks", "The run each habit is on",
+            FluentLayout.Toggle(config.ShowStreak, value => { config.ShowStreak = value; save(); })));
+
+        rows.Add(FluentLayout.Row(Glyphs.Count, "History",
+            "How many past periods each row shows as dots. Zero hides them; a narrow widget shows fewer",
+            FluentLayout.Slider(
+                config.EffectiveHistoryDots,
+                0,
+                HabitRules.MaxHistory,
+                1,
+                string.Empty,
+                value => { config.HistoryDots = (int)Math.Round(value); save(); })));
     }
 
-    /// <summary>What the confirmation says is about to go, which is the habit and its whole record.</summary>
-    private static string RemovalDetail(HabitRecord habit)
+    /// <summary>
+    /// [S-1429] The habit lists on this PC: pick one, rename it as you type, add one, delete one after
+    /// asking. A pool every Habits widget shares, so renaming here retitles each widget showing it.
+    /// </summary>
+    private static IEnumerable<FrameworkElement> HabitListRows(HabitPool pool, HabitTrackerConfig config, Action save, Action rebuild)
     {
-        var label = string.IsNullOrWhiteSpace(habit.Name) ? "this habit" : $"“{habit.Name}”";
-        var recorded = habit.Days.Count;
+        if (pool.Problem is { } problem)
+        {
+            yield return FluentLayout.Note(problem);
+        }
 
-        return recorded == 0
-            ? $"{label} has nothing recorded yet."
-            : $"{label} and its {recorded.ToString(CultureInfo.InvariantCulture)} recorded days are deleted. This cannot be undone.";
+        foreach (var list in pool.Lists)
+        {
+            var listId = list.Id;
+
+            var pick = new RadioButton
+            {
+                GroupName = "habit-lists",
+                IsChecked = listId == config.ListId,
+                MinWidth = 0,
+                VerticalAlignment = VerticalAlignment.Center,
+            };
+
+            pick.Checked += (_, _) =>
+            {
+                if (config.ListId != listId)
+                {
+                    config.ListId = listId;
+                    save();
+                }
+            };
+
+            var name = new TextBox
+            {
+                Text = list.Name,
+                PlaceholderText = "List name",
+                MinWidth = 160,
+                VerticalAlignment = VerticalAlignment.Center,
+                IsEnabled = pool.Writable,
+            };
+
+            // Written through as it is typed; a blank name is kept so the box can be cleared.
+            name.TextChanged += (_, _) => pool.Rename(listId, name.Text);
+
+            var count = Fluent.Text(FluentType.Caption, "TextFillColorTertiaryBrush");
+            count.Text = list.Habits.Count == 1 ? "1 habit" : $"{list.Habits.Count} habits";
+            count.VerticalAlignment = VerticalAlignment.Center;
+
+            var remove = FluentLayout.IconCommand(Glyphs.Delete, "Delete this list");
+            remove.IsEnabled = pool.Writable;
+            remove.Click += async (_, _) =>
+            {
+                try
+                {
+                    // [S-1429] Always asked, empty or not: it takes every habit and streak in it, and
+                    // the button sits one row from the name being typed in.
+                    var label = string.IsNullOrWhiteSpace(list.Name) ? "Untitled list" : list.Name;
+                    var detail = list.Habits.Count == 0
+                        ? $"\"{label}\" will be deleted from this PC."
+                        : $"\"{label}\" and its {count.Text}, with their history, will be deleted from this PC. This cannot be undone.";
+
+                    if (!await FluentLayout.ConfirmAsync(remove, "Delete this list?", detail, "Delete").ConfigureAwait(true))
+                    {
+                        return;
+                    }
+
+                    pool.Delete(listId);
+
+                    // Every widget showing it says so rather than being handed another list's habits.
+                    rebuild();
+                }
+                catch (Exception ex)
+                {
+                    Log.Error(HabitsScope, "could not delete the habit list", ex);
+                }
+            };
+
+            var line = new Grid
+            {
+                ColumnSpacing = Fluent.Space2,
+                ColumnDefinitions =
+                {
+                    new ColumnDefinition { Width = GridLength.Auto },
+                    new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) },
+                    new ColumnDefinition { Width = GridLength.Auto },
+                    new ColumnDefinition { Width = GridLength.Auto },
+                },
+            };
+
+            Grid.SetColumn(name, 1);
+            Grid.SetColumn(count, 2);
+            Grid.SetColumn(remove, 3);
+            line.Children.Add(pick);
+            line.Children.Add(name);
+            line.Children.Add(count);
+            line.Children.Add(remove);
+
+            yield return FluentLayout.Card(line);
+        }
+
+        if (pool.Lists.Count == 0)
+        {
+            yield return FluentLayout.Note("No habit lists on this PC yet.");
+        }
+
+        var add = new Button { Content = "Add a list", IsEnabled = pool.Writable };
+        add.Click += (_, _) =>
+        {
+            if (pool.Create(HabitLists.NewListName) is { } id)
+            {
+                config.ListId = id;
+                save();
+            }
+
+            rebuild();
+        };
+
+        yield return add;
     }
 }

@@ -1,6 +1,7 @@
 using System.Globalization;
 using Microsoft.UI;
 using Microsoft.UI.Xaml;
+using Microsoft.UI.Xaml.Automation;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
 using Themia.App.Services;
@@ -8,6 +9,7 @@ using Themia.App.Shell;
 using Themia.Core.Developer;
 using Themia.Core.Diagnostics;
 using Themia.Core.Widgets;
+using Windows.ApplicationModel.DataTransfer;
 
 namespace Themia.App.Widgets;
 
@@ -160,14 +162,29 @@ internal sealed class DevChrome
 /// <param name="Time">The age, at the end of the (first) line.</param>
 /// <param name="Lead">The coloured lead on a one-line row.</param>
 /// <param name="Meta">The meta on a one-line row.</param>
-internal readonly record struct DevRowLayout(bool TwoLine, bool Time, bool Lead, bool Meta);
+/// <param name="Detail">[S-743] The row's detail (author, comments, subject) at its right edge.</param>
+/// <param name="Labels">[S-743] The row's label chips.</param>
+internal readonly record struct DevRowLayout(bool TwoLine, bool Time, bool Lead, bool Meta, bool Detail = false, bool Labels = false);
 
 /// <summary>One list row's text, as the developer lists draw it.</summary>
 /// <param name="Lead">The short coloured lead: <c>#312</c>, a reason word, a commit's hash.</param>
 /// <param name="Meta">What goes after the lead on the second line: the repository, a branch.</param>
 /// <param name="Dim">Read, or a draft: drawn in the secondary colour.</param>
 /// <param name="Url">Opened on a double-click, through the launcher's allow list.</param>
-internal sealed record DevRowText(string Title, string Lead, Brush LeadBrush, string Meta, string Time, bool Dim, string? Url);
+/// <param name="Detail">[S-743] Secondary facts for a wide row: "rosa · 4 comments".</param>
+/// <param name="Labels">[S-743] Label chips for a wide row; null for none.</param>
+/// <param name="Unread">[S-748] Null for a list without read state; else whether to draw the unread dot (its slot is kept either way, so titles align).</param>
+internal sealed record DevRowText(
+    string Title,
+    string Lead,
+    Brush LeadBrush,
+    string Meta,
+    string Time,
+    bool Dim,
+    string? Url,
+    string Detail = "",
+    IReadOnlyList<IssueLabel>? Labels = null,
+    bool? Unread = null);
 
 /// <summary>[S-627] Building and opening developer list rows.</summary>
 internal static class DevRows
@@ -183,22 +200,55 @@ internal static class DevRows
     /// <summary>From this width a one-line row has room for its meta (the repository) as well.</summary>
     public const double MetaInlineWidth = 400;
 
+    /// <summary>[S-743] From this width a two-line row puts its detail at the right of its second line.</summary>
+    public const double DetailTwoLineWidth = 400;
+
+    /// <summary>[S-743] From this width a two-line row adds its label chips.</summary>
+    public const double LabelsTwoLineWidth = 480;
+
+    /// <summary>[S-743] A one-line row has the title to feed as well: detail and chips need more.</summary>
+    public const double DetailOneLineWidth = 640;
+
+    public const double LabelsOneLineWidth = 720;
+
+    /// <summary>[S-743] Chips a row draws at most; the tooltip names the rest.</summary>
+    public const int ChipsShown = 2;
+
+    /// <summary>A one-line row's height: the compact row.</summary>
+    public const double OneLineHeight = Fluent.RowHeightCompact;
+
+    /// <summary>A two-line row's height: body and caption lines plus the row's inner margin.</summary>
+    public const double TwoLineHeight = (Fluent.Space1 * 2) + 20 + 16;
+
+    /// <summary>A section heading's height: a caption line plus its margins.</summary>
+    public const double SectionHeight = 16 + Fluent.Space2 + Fluent.Space1;
+
     /// <summary>
     /// What a list's rows show at a size: two lines where the body is tall enough, the age, the
-    /// coloured lead and — on one line — the meta only where they fit. An unmeasured box gets all.
+    /// coloured lead and — on one line — the meta only where they fit; the detail and the label
+    /// chips where the width has room for them beside the rest. An unmeasured box gets all.
     /// </summary>
-    public static DevRowLayout LayoutFor(double width, double height, bool twoLineAllowed = true)
+    /// <param name="twoLineFrom">The body height two-line rows need; lists that would rather show more about each item than more items pass less.</param>
+    public static DevRowLayout LayoutFor(double width, double height, bool twoLineAllowed = true, double twoLineFrom = Fluent.CompactBelow)
     {
         var w = width > 0 ? width : double.PositiveInfinity;
         var h = height > 0 ? height : double.PositiveInfinity;
-        return new DevRowLayout(twoLineAllowed && h >= Fluent.CompactBelow, w >= TimeNeedsWidth, w >= LeadNeedsWidth, w >= MetaInlineWidth);
+        var twoLine = twoLineAllowed && h >= twoLineFrom;
+        return new DevRowLayout(
+            twoLine,
+            w >= TimeNeedsWidth,
+            w >= LeadNeedsWidth,
+            w >= MetaInlineWidth,
+            w >= (twoLine ? DetailTwoLineWidth : DetailOneLineWidth),
+            w >= (twoLine ? LabelsTwoLineWidth : LabelsOneLineWidth));
     }
 
     /// <summary>
-    /// A row: two lines (title and time over the coloured lead and its meta) or, compact, one line
-    /// (lead, title, meta where it fits, time). Edge to edge with the text inset; double-click opens it.
+    /// A row: two lines (title and time over the coloured lead, its meta, chips and detail) or,
+    /// compact, one line (lead, title, meta, chips, detail where they fit, time). Edge to edge with
+    /// the text inset; double-click opens it, right-click opens <paramref name="menu"/> when given.
     /// </summary>
-    public static Border Build(DevRowText text, DevRowLayout layout, List<IDisposable> hovers)
+    public static Border Build(DevRowText text, DevRowLayout layout, List<IDisposable> hovers, Func<MenuFlyout>? menu = null)
     {
         ArgumentNullException.ThrowIfNull(text);
         ArgumentNullException.ThrowIfNull(hovers);
@@ -222,23 +272,63 @@ internal static class DevRows
         time.Margin = new Thickness(Fluent.Space2, 0, 0, 0);
         time.TextTrimming = TextTrimming.None;
 
+        var marker = text.Unread is { } unread && layout.Lead ? UnreadDot(unread) : null;
+        var chips = layout.Labels && text.Labels is { Count: > 0 } labels ? Chips(labels) : null;
+        var detail = layout.Detail && text.Detail.Length > 0 ? Caption(text.Detail, "TextFillColorTertiaryBrush") : null;
+
         FrameworkElement content;
 
         if (twoLine)
         {
-            var meta = Fluent.Text(FluentType.Caption, "TextFillColorTertiaryBrush");
-            meta.Text = text.Meta;
-            meta.VerticalAlignment = VerticalAlignment.Center;
+            var meta = Caption(text.Meta, "TextFillColorTertiaryBrush");
 
-            var top = Columns(title, showTime ? time : null);
-            var bottom = Columns(null, null);
-            bottom.ColumnDefinitions[0].Width = GridLength.Auto;
-            bottom.ColumnDefinitions[1].Width = new GridLength(1, GridUnitType.Star);
+            var top = new Grid
+            {
+                ColumnDefinitions =
+                {
+                    new ColumnDefinition { Width = GridLength.Auto },
+                    new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) },
+                    new ColumnDefinition { Width = GridLength.Auto },
+                },
+            };
+            Place(top, marker, 0);
+            Place(top, title, 1);
+            Place(top, showTime ? time : null, 2);
+
+            var bottom = new Grid
+            {
+                ColumnDefinitions =
+                {
+                    new ColumnDefinition { Width = GridLength.Auto },
+                    new ColumnDefinition { Width = GridLength.Auto },
+                    new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) },
+                    new ColumnDefinition { Width = GridLength.Auto },
+                    new ColumnDefinition { Width = GridLength.Auto },
+                },
+            };
+
+            // The lead lines up under the title, past the unread dot's slot.
+            if (marker is not null)
+            {
+                bottom.Margin = new Thickness(marker.Width + marker.Margin.Right, 0, 0, 0);
+            }
+
             lead.Margin = new Thickness(0, 0, text.Meta.Length > 0 ? Fluent.Space2 : 0, 0);
-            Grid.SetColumn(lead, 0);
-            Grid.SetColumn(meta, 1);
-            bottom.Children.Add(lead);
-            bottom.Children.Add(meta);
+            Place(bottom, lead, 0);
+            Place(bottom, meta, 2);
+            Place(bottom, chips, 3);
+            Place(bottom, detail, 4);
+
+            if (chips is not null)
+            {
+                chips.Margin = new Thickness(Fluent.Space2, 0, 0, 0);
+            }
+
+            if (detail is not null)
+            {
+                detail.Margin = new Thickness(Fluent.Space2, 0, 0, 0);
+                detail.TextTrimming = TextTrimming.None;
+            }
 
             content = new StackPanel
             {
@@ -254,46 +344,54 @@ internal static class DevRows
                 ColumnDefinitions =
                 {
                     new ColumnDefinition { Width = GridLength.Auto },
+                    new ColumnDefinition { Width = GridLength.Auto },
                     new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) },
+                    new ColumnDefinition { Width = GridLength.Auto },
+                    new ColumnDefinition { Width = GridLength.Auto },
                     new ColumnDefinition { Width = GridLength.Auto },
                     new ColumnDefinition { Width = GridLength.Auto },
                 },
             };
 
+            Place(grid, marker, 0);
+
             if (layout.Lead && text.Lead.Length > 0)
             {
                 lead.Margin = new Thickness(0, 0, Fluent.Space2, 0);
-                Grid.SetColumn(lead, 0);
-                grid.Children.Add(lead);
+                Place(grid, lead, 1);
             }
 
-            Grid.SetColumn(title, 1);
-            grid.Children.Add(title);
+            Place(grid, title, 2);
 
             if (layout.Meta && text.Meta.Length > 0)
             {
-                var meta = Fluent.Text(FluentType.Caption, "TextFillColorTertiaryBrush");
-                meta.Text = text.Meta;
+                var meta = Caption(text.Meta, "TextFillColorTertiaryBrush");
                 meta.MaxWidth = 160;
-                meta.VerticalAlignment = VerticalAlignment.Center;
                 meta.Margin = new Thickness(Fluent.Space3, 0, 0, 0);
-                Grid.SetColumn(meta, 2);
-                grid.Children.Add(meta);
+                Place(grid, meta, 3);
             }
 
-            if (showTime)
+            if (chips is not null)
             {
-                Grid.SetColumn(time, 3);
-                grid.Children.Add(time);
+                chips.Margin = new Thickness(Fluent.Space3, 0, 0, 0);
+                Place(grid, chips, 4);
             }
 
+            if (detail is not null)
+            {
+                detail.MaxWidth = 180;
+                detail.Margin = new Thickness(Fluent.Space3, 0, 0, 0);
+                Place(grid, detail, 5);
+            }
+
+            Place(grid, showTime ? time : null, 6);
             content = grid;
         }
 
         var row = Fluent.Row(content, compact: !twoLine);
         hovers.Add(Fluent.Hover(row));
 
-        ToolTipService.SetToolTip(row, text.Meta.Length > 0 ? $"{text.Title}\n{text.Lead} {text.Meta}" : text.Title);
+        ToolTipService.SetToolTip(row, Tooltip(text));
 
         if (text.Url is { } url)
         {
@@ -304,7 +402,107 @@ internal static class DevRows
             };
         }
 
+        if (menu is not null)
+        {
+            row.RightTapped += (_, args) =>
+            {
+                menu().ShowAt(row, args.GetPosition(row));
+                args.Handled = true;
+            };
+        }
+
         return row;
+    }
+
+    /// <summary>The whole row in words: what a trimmed row leaves out is in its tooltip.</summary>
+    private static string Tooltip(DevRowText text)
+    {
+        var lines = new List<string>(4) { text.Title };
+
+        if (text.Meta.Length > 0)
+        {
+            lines.Add($"{text.Lead} {text.Meta}".Trim());
+        }
+
+        if (text.Detail.Length > 0)
+        {
+            lines.Add(text.Detail);
+        }
+
+        if (text.Labels is { Count: > 0 } labels)
+        {
+            lines.Add(string.Join(", ", labels.Select(l => l.Name)));
+        }
+
+        return string.Join('\n', lines);
+    }
+
+    private static TextBlock Caption(string text, string colorKey)
+    {
+        var block = Fluent.Text(FluentType.Caption, colorKey);
+        block.Text = text;
+        block.VerticalAlignment = VerticalAlignment.Center;
+        return block;
+    }
+
+    /// <summary>[S-748] The unread dot, so read and unread differ by more than colour; a read row keeps the slot empty.</summary>
+    private static FontIcon UnreadDot(bool unread)
+    {
+        var dot = Fluent.Icon(Glyphs.Dot, "AccentTextFillColorPrimaryBrush", 8);
+        dot.Width = 8;
+        dot.Margin = new Thickness(0, 0, Fluent.Space2, 0);
+        dot.VerticalAlignment = VerticalAlignment.Center;
+        dot.Opacity = unread ? 1 : 0;
+        AutomationProperties.SetName(dot, unread ? "Unread" : string.Empty);
+        return dot;
+    }
+
+    /// <summary>
+    /// [S-744] Label chips: a dot in the label's own colour (GitHub's data, validated to six hex
+    /// digits) beside its name on the theme's subtle fill, so the text keeps the theme's contrast
+    /// whatever colour the label is. At most <see cref="ChipsShown"/>; the tooltip names the rest.
+    /// </summary>
+    private static StackPanel Chips(IReadOnlyList<IssueLabel> labels)
+    {
+        var panel = new StackPanel { Orientation = Orientation.Horizontal, Spacing = Fluent.Space1, VerticalAlignment = VerticalAlignment.Center };
+
+        foreach (var label in labels.Take(ChipsShown))
+        {
+            var dot = Fluent.Icon(Glyphs.Dot, "TextFillColorTertiaryBrush", 8);
+            if (HexColor.TryParse(label.Color, out var r, out var g, out var b))
+            {
+                dot.Foreground = new SolidColorBrush(Windows.UI.Color.FromArgb(255, r, g, b));
+            }
+
+            var name = Caption(label.Name, "TextFillColorSecondaryBrush");
+            name.MaxWidth = 96;
+
+            panel.Children.Add(new Border
+            {
+                CornerRadius = new CornerRadius(Fluent.ControlRadius),
+                Padding = new Thickness(Fluent.Space1, 0, Fluent.Space2, 0),
+                Background = FluentLayout.Themed("SubtleFillColorSecondaryBrush", Colors.Gray),
+                Child = new StackPanel { Orientation = Orientation.Horizontal, Spacing = Fluent.Space1, Children = { dot, name } },
+            });
+        }
+
+        if (labels.Count > ChipsShown)
+        {
+            panel.Children.Add(Caption($"+{labels.Count - ChipsShown}", "TextFillColorTertiaryBrush"));
+        }
+
+        return panel;
+    }
+
+    private static void Place(Grid grid, FrameworkElement? element, int column)
+    {
+        if (element is null)
+        {
+            return;
+        }
+
+        Grid.SetColumn(element, column);
+        grid.Children.Add(element);
     }
 
     /// <summary>A small caption heading a section of a list, inset like the row text.</summary>
@@ -326,30 +524,97 @@ internal static class DevRows
         }
     }
 
-    private static Grid Columns(FrameworkElement? left, FrameworkElement? right)
+    /// <summary>[S-749] A menu item.</summary>
+    public static MenuFlyoutItem Item(string glyph, string text, Action click, bool enabled = true)
     {
-        var grid = new Grid
+        var item = new MenuFlyoutItem { Text = text, Icon = new FontIcon { Glyph = glyph }, IsEnabled = enabled };
+        item.Click += (_, _) => click();
+        return item;
+    }
+
+    /// <summary>
+    /// [S-749] The menu every linked row shares: open it, copy its address, and open the repository
+    /// it lives in (when that is a different page). The caller adds its own items after these.
+    /// </summary>
+    public static MenuFlyout LinkMenu(string url, string? repoUrl)
+    {
+        var menu = new MenuFlyout();
+        menu.Items.Add(Item(Glyphs.OpenExternal, "Open in browser", () => Open(url)));
+        menu.Items.Add(Item(Glyphs.Copy, "Copy link", () => CopyLink(url)));
+
+        if (repoUrl is not null && !string.Equals(repoUrl, url, StringComparison.OrdinalIgnoreCase))
         {
-            ColumnDefinitions =
+            menu.Items.Add(Item(Glyphs.Code, "Open repository", () => Open(repoUrl)));
+        }
+
+        return menu;
+    }
+
+    /// <summary>[S-749] Put a page's address on the clipboard, kept after Themia exits.</summary>
+    public static void CopyLink(string url)
+    {
+        try
+        {
+            var package = new DataPackage { RequestedOperation = DataPackageOperation.Copy };
+            package.SetText(url);
+            Clipboard.SetContent(package);
+            Clipboard.Flush();
+        }
+        catch (Exception ex)
+        {
+            // Another process can hold the clipboard open; Windows fails the call rather than wait.
+            Log.Error(Scope, "could not copy a GitHub link to the clipboard", ex);
+        }
+    }
+}
+
+/// <summary>
+/// [S-742] One or two columns of sectioned lists side by side, each a <see cref="WholeRows"/> host,
+/// so a wide tile puts its lists next to each other instead of leaving the right half empty.
+/// </summary>
+internal sealed partial class DevColumns : Grid
+{
+    private readonly StackPanel[] _lists = [new() { Spacing = 0 }, new() { Spacing = 0 }];
+    private readonly WholeRows[] _hosts;
+
+    public DevColumns()
+    {
+        ColumnSpacing = 0;
+        _hosts = [.. _lists.Select(list => new WholeRows(
+            new ScrollViewer
             {
-                new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) },
-                new ColumnDefinition { Width = GridLength.Auto },
+                Padding = Fluent.ListPadding,
+                Content = list,
+                HorizontalScrollMode = ScrollMode.Disabled,
+                HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
+                VerticalScrollBarVisibility = ScrollBarVisibility.Hidden,
             },
-        };
+            list))];
 
-        if (left is not null)
+        for (var i = 0; i < _hosts.Length; i++)
         {
-            Grid.SetColumn(left, 0);
-            grid.Children.Add(left);
+            ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            SetColumn(_hosts[i], i);
+            Children.Add(_hosts[i]);
         }
+    }
 
-        if (right is not null)
+    public int Count { get; private set; } = 1;
+
+    /// <summary>The list of column <paramref name="index"/>.</summary>
+    public StackPanel this[int index] => _lists[index];
+
+    /// <summary>Show <paramref name="count"/> columns (1 or 2), emptied.</summary>
+    public void Reset(int count)
+    {
+        Count = Math.Clamp(count, 1, _lists.Length);
+
+        for (var i = 0; i < _lists.Length; i++)
         {
-            Grid.SetColumn(right, 1);
-            grid.Children.Add(right);
+            _lists[i].Children.Clear();
+            _hosts[i].Visibility = i < Count ? Visibility.Visible : Visibility.Collapsed;
+            ColumnDefinitions[i].Width = i < Count ? new GridLength(1, GridUnitType.Star) : new GridLength(0);
         }
-
-        return grid;
     }
 }
 

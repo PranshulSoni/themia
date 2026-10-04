@@ -9,6 +9,7 @@ using Themia.Core.Accounts;
 using Themia.Core.Diagnostics;
 using Themia.Core.Model;
 using Themia.Core.Office;
+using Themia.Core.Settings;
 using Themia.Core.Widgets;
 using Themia.App.Widgets;
 
@@ -123,7 +124,7 @@ internal static partial class WidgetSettings
 
                 if (index >= 0)
                 {
-                    controls.Children.Add(ColorChoice(config, key, index, save));
+                    controls.Children.Add(CalendarColor(config, key, index, calendar.Name, save));
                 }
 
                 if (calendars.Count > 1)
@@ -175,72 +176,47 @@ internal static partial class WidgetSettings
         }
     }
 
-    /// <summary>[S-566] Automatic (the palette colour at the calendar's index) or one of the six, by name.</summary>
-    private static ComboBox ColorChoice(CalendarConfig config, string key, int index, Action save)
+    /// <summary>
+    /// [S-566] Automatic (the palette colour at the calendar's index), one of the six, or any colour
+    /// from the shared picker ([S-1549]) — never typed.
+    /// </summary>
+    private static DropDownButton CalendarColor(CalendarConfig config, string key, int index, string name, Action save)
     {
-        var combo = new ComboBox { MinWidth = 150 };
         var automatic = CalendarRules.PaletteColor(index);
-
-        combo.Items.Add(new ComboBoxItem { Content = Swatch(automatic, "Automatic"), Tag = string.Empty });
+        var presets = new List<ColorPreset>();
         for (var i = 0; i < CalendarRules.Palette.Count; i++)
         {
-            combo.Items.Add(new ComboBoxItem { Content = Swatch(CalendarRules.Palette[i], CalendarRules.PaletteNames[i]), Tag = CalendarRules.Palette[i] });
+            presets.Add(new ColorPreset(CalendarRules.Palette[i], CalendarRules.PaletteNames[i]));
         }
 
-        var chosen = config.CalendarColors.TryGetValue(key, out var hex) && CalendarRules.IsHexColor(hex) ? hex.ToLowerInvariant() : string.Empty;
-        var selected = 0;
-        for (var i = 0; i < combo.Items.Count; i++)
-        {
-            if (combo.Items[i] is ComboBoxItem { Tag: string tag } && tag == chosen)
+        var chosen = config.CalendarColors.TryGetValue(key, out var hex) && CalendarRules.IsHexColor(hex) ? hex : string.Empty;
+
+        return Shell.ColorChoice.Create(
+            chosen,
+            value =>
             {
-                selected = i;
-            }
-        }
+                var colors = new Dictionary<string, string>(config.CalendarColors, StringComparer.Ordinal);
+                if (value.Length == 0)
+                {
+                    colors.Remove(key);
+                }
+                else
+                {
+                    colors[key] = value.ToLowerInvariant();
+                }
 
-        // A colour picked elsewhere (by hand in the file) is kept and shown as its own entry.
-        if (chosen.Length > 0 && selected == 0)
-        {
-            combo.Items.Add(new ComboBoxItem { Content = Swatch(chosen, chosen), Tag = chosen });
-            selected = combo.Items.Count - 1;
-        }
-
-        combo.SelectedIndex = selected;
-        combo.SelectionChanged += (_, _) =>
-        {
-            if (combo.SelectedItem is not ComboBoxItem { Tag: string tag })
-            {
-                return;
-            }
-
-            var colors = new Dictionary<string, string>(config.CalendarColors, StringComparer.Ordinal);
-            if (tag.Length == 0)
-            {
-                colors.Remove(key);
-            }
-            else
-            {
-                colors[key] = tag;
-            }
-
-            config.CalendarColors = colors;
-            save();
-        };
-
-        return combo;
-    }
-
-    private static StackPanel Swatch(string hex, string label)
-    {
-        HexColor.TryParse(hex, out var r, out var g, out var b);
-        return new StackPanel
-        {
-            Orientation = Orientation.Horizontal,
-            Spacing = Fluent.Space2,
-            Children =
-            {
-                new Ellipse { Width = 12, Height = 12, Fill = new SolidColorBrush(Windows.UI.Color.FromArgb(255, r, g, b)), VerticalAlignment = VerticalAlignment.Center },
-                new TextBlock { Text = label, VerticalAlignment = VerticalAlignment.Center },
+                config.CalendarColors = colors;
+                save();
             },
-        };
+            new ColorChoiceOptions
+            {
+                Presets = presets,
+                PresetsTitle = "Calendar colours",
+                DefaultLabel = "Automatic",
+                DefaultColor = () => HexColor.TryParse(automatic, out var r, out var g, out var b)
+                    ? Windows.UI.Color.FromArgb(255, r, g, b)
+                    : null,
+            },
+            $"{name} colour");
     }
 }

@@ -1,3 +1,4 @@
+using System.Globalization;
 using Microsoft.UI;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
@@ -13,34 +14,46 @@ namespace Themia.App.Widgets;
 /// <summary>
 /// The weather where the user says they are, from open-meteo.
 /// <para>
-/// A readout, in the shape <see cref="MeterView"/> uses for a system meter: a header, one large
-/// number stepped off the Fluent ramp, and a quiet line of supporting detail. Not the web app's
-/// tiled card of boxed statistics, which is a dashboard pattern and reads as one.
+/// A readout that grows with its tile ([S-723]): the temperature alone at the smallest size, then a
+/// "Feels" token, then a flat row of icon + label + value cells (the original's details, S-07),
+/// today's high and low, the next 24 hours as a chart, and at the largest size a second row of
+/// readings and the next days. A strip puts the readings beside the number, a tall column stacks
+/// them as rows under it. The ladder is <see cref="WeatherNowLayout"/>; this view only builds it.
 /// </para>
 /// <para>
 /// The header carries how old the reading is, always, in every state. That line is the reason this
-/// widget can be trusted: every other thing on it — a temperature, a humidity — looks exactly as
-/// authoritative four days stale as four seconds fresh, and a weather tile silently showing
-/// Tuesday's conditions on Friday is the specific way this kind of widget misleads somebody.
+/// widget can be trusted: every other thing on it looks exactly as authoritative four days stale as
+/// four seconds fresh, and a weather tile silently showing Tuesday's conditions on Friday is the
+/// specific way this kind of widget misleads somebody.
 /// </para>
 /// </summary>
-internal sealed partial class WeatherNowView : Grid, IWidgetView, IWidgetHeaderContent, IWidgetSurfaceAware
+internal sealed partial class WeatherNowView : Grid, IWidgetView, IWidgetHeaderContent, IWidgetSurfaceAware,
+    IWidgetSizeAware, IWidgetContextActions
 {
     private const string Scope = "weather";
-
-    /// <summary>Under this height the detail line is dropped: the temperature is what the tile is for.</summary>
-    private const double DetailHidesBelow = 168;
 
     /// <summary>The widest reading this widget prints, in characters — "-18°F". Stable, so the step is.</summary>
     private const double ReadingCharacters = 5;
 
+    /// <summary>The days the strip shows after today.</summary>
+    private const int DailyCount = 5;
+
     private readonly TextBlock _freshness = Fluent.Text(FluentType.Caption, "TextFillColorTertiaryBrush");
     private readonly TextBlock _temperature = Fluent.Text(FluentType.Subtitle);
     private readonly TextBlock _condition = Fluent.Text(FluentType.Body, "TextFillColorSecondaryBrush");
-    private readonly TextBlock _detail = Fluent.Text(FluentType.Caption, "TextFillColorSecondaryBrush");
+    private readonly TextBlock _highLow = Fluent.Text(FluentType.Caption, "TextFillColorSecondaryBrush");
+    private readonly StackPanel _conditionStack = new() { VerticalAlignment = VerticalAlignment.Bottom };
     private readonly FontIcon _look = Fluent.Icon(Glyphs.Weather, "TextFillColorSecondaryBrush", Fluent.Space6);
     private readonly Grid _readout = new();
-    private readonly Border _detailHost;
+    private readonly Grid _top = new();
+
+    private readonly TextBlock _feels = Fluent.Text(FluentType.Caption, "TextFillColorSecondaryBrush");
+    private readonly Grid _cells = new() { ColumnSpacing = WeatherNowLayout.CellGap, RowSpacing = WeatherNowLayout.Gap };
+    private readonly Grid _side = new() { ColumnSpacing = Fluent.Space4, RowSpacing = WeatherNowLayout.SideGap, VerticalAlignment = VerticalAlignment.Center };
+    private readonly StackPanel _stack = new();
+    private readonly Grid _daily = new();
+    private readonly WeatherHourlyChart _chart = new();
+
     private readonly StackPanel _emptyState;
     private readonly TextBlock _emptyMessage = new();
     private readonly FontIcon _emptyIcon;
@@ -58,8 +71,7 @@ internal sealed partial class WeatherNowView : Grid, IWidgetView, IWidgetHeaderC
     /// <summary>
     /// [S-13a] A copy of the settings this view last acted on, which is what a change is measured
     /// against. Not <c>_config</c>: the settings page edits the live config object in place, so by
-    /// the time a change arrives the "previous" config already holds the new values, and comparing
-    /// the two found no difference — a new address or place stayed unfetched until the next tick.
+    /// the time a change arrives the "previous" config already holds the new values.
     /// </summary>
     private WeatherNowConfig _applied = new();
 
@@ -76,58 +88,78 @@ internal sealed partial class WeatherNowView : Grid, IWidgetView, IWidgetHeaderC
     private int _generation;
 
     private Fetched<CurrentWeather>? _reading;
-    private TypeStep _heroStep = FluentType.Subtitle;
+    private IReadOnlyList<WeatherFact> _facts = [];
+    private IReadOnlyList<HourlyPoint> _hours = [];
+    private IReadOnlyList<ForecastDay> _days = [];
+    private WidgetArea _area;
+    private WeatherNowPlan? _built;
     private bool _detached;
 
     public WeatherNowView()
     {
         RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
         RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
 
         _look.Margin = new Thickness(0, 0, Fluent.Space3, 0);
+        _look.VerticalAlignment = VerticalAlignment.Center;
         _temperature.VerticalAlignment = VerticalAlignment.Center;
+        Microsoft.UI.Xaml.Documents.Typography.SetNumeralAlignment(_temperature, FontNumeralAlignment.Tabular);
 
-        _condition.VerticalAlignment = VerticalAlignment.Bottom;
-        _condition.Margin = new Thickness(Fluent.Space2, 0, 0, Fluent.Space1);
+        _conditionStack.Children.Add(_condition);
+        _conditionStack.Children.Add(_highLow);
 
         // A Grid, not a horizontal StackPanel: a StackPanel measures its children with unbounded
-        // width, so the condition never learns how much room it has and its trimming never fires —
-        // "Thunderstorm with hail" then runs off the edge of a narrow card mid-word.
+        // width, so the condition never learns how much room it has and its trimming never fires.
         _readout.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         _readout.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         _readout.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-
-        // The condition's own line, for a tile too narrow to keep it beside the number ([S-656]).
         _readout.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         _readout.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-        SetRowSpan(_look, 2);
-        _look.VerticalAlignment = VerticalAlignment.Center;
-        _readout.Margin = WidgetLayout.SideInset;
         _readout.VerticalAlignment = VerticalAlignment.Center;
-
+        SetRowSpan(_look, 2);
         SetColumn(_look, 0);
         SetColumn(_temperature, 1);
-        SetColumn(_condition, 2);
+        SetColumn(_conditionStack, 2);
         _readout.Children.Add(_look);
         _readout.Children.Add(_temperature);
-        _readout.Children.Add(_condition);
+        _readout.Children.Add(_conditionStack);
 
-        _detailHost = new Border
-        {
-            Child = _detail,
-            Padding = new Thickness(Fluent.Space4, 0, Fluent.Space4, Fluent.Space4),
-        };
+        // The top band: the reading, and on a strip the readings column beside it.
+        _top.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        _top.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        _top.Margin = new Thickness(WeatherNowLayout.Inset, WeatherNowLayout.VerticalInset, WeatherNowLayout.Inset, 0);
+        SetColumn(_side, 1);
+        _top.Children.Add(_readout);
+        _top.Children.Add(_side);
 
-        SetRow(_detailHost, 1);
+        _feels.Margin = new Thickness(WeatherNowLayout.Inset, WeatherNowLayout.Gap, WeatherNowLayout.Inset, 0);
+        _feels.TextTrimming = TextTrimming.CharacterEllipsis;
+        _cells.Margin = new Thickness(WeatherNowLayout.Inset, WeatherNowLayout.Gap, WeatherNowLayout.Inset, 0);
+        _stack.Margin = new Thickness(0, WeatherNowLayout.Gap, 0, 0);
+        _daily.Margin = new Thickness(WeatherNowLayout.Inset, WeatherNowLayout.Gap, WeatherNowLayout.Inset, 0);
+        _chart.Margin = new Thickness(0, WeatherNowLayout.Gap, 0, 0);
+
+        SetRow(_feels, 1);
+        SetRow(_cells, 1);
+        SetRow(_stack, 1);
+        SetRow(_daily, 2);
+        SetRow(_chart, 3);
 
         _emptyState = Fluent.EmptyState(Glyphs.Weather, _emptyMessage, out _emptyIcon);
         _emptyState.Visibility = Visibility.Collapsed;
+        SetRowSpan(_emptyState, 4);
 
-        Children.Add(_readout);
-        Children.Add(_detailHost);
+        Children.Add(_top);
+        Children.Add(_feels);
+        Children.Add(_cells);
+        Children.Add(_stack);
+        Children.Add(_daily);
+        Children.Add(_chart);
         Children.Add(_emptyState);
 
-        SizeChanged += OnSizeChanged;
+        Collapse(_feels, _cells, _side, _stack, _daily, _chart);
     }
 
     /// <summary>
@@ -135,6 +167,10 @@ internal sealed partial class WeatherNowView : Grid, IWidgetView, IWidgetHeaderC
     /// reads this once, when it builds that header.
     /// </summary>
     public FrameworkElement? HeaderTrailing => _freshness;
+
+    /// <summary>[S-730] "Refresh": the network now, past both the back-off and the cache.</summary>
+    public IReadOnlyList<WidgetAction> ContextActions =>
+        _config.HasLocation ? [new WidgetAction(Glyphs.Refresh, "Refresh", () => { _schedule.Reset(); Reload(force: true); })] : [];
 
     public void Attach(Ticker ticker, WidgetConfig config)
     {
@@ -168,8 +204,7 @@ internal sealed partial class WeatherNowView : Grid, IWidgetView, IWidgetHeaderC
             // about somewhere else and must not linger on screen under the new heading.
             _reading = null;
 
-            // And the user has just changed something, which is an explicit "try again now": a
-            // back-off earned by the previous setting has nothing to do with this one.
+            // And the user has just changed something, which is an explicit "try again now".
             _schedule.Reset();
         }
 
@@ -187,6 +222,13 @@ internal sealed partial class WeatherNowView : Grid, IWidgetView, IWidgetHeaderC
         {
             Render();
         }
+    }
+
+    /// <summary>[S-663] The card's word on how much room the widget has.</summary>
+    public void ApplySize(WidgetArea area)
+    {
+        _area = area;
+        Lay();
     }
 
     /// <summary>
@@ -228,7 +270,7 @@ internal sealed partial class WeatherNowView : Grid, IWidgetView, IWidgetHeaderC
         Render();
     }
 
-    private void Reload()
+    private void Reload(bool force = false)
     {
         if (_detached)
         {
@@ -246,9 +288,8 @@ internal sealed partial class WeatherNowView : Grid, IWidgetView, IWidgetHeaderC
         var longitude = _config.Longitude!.Value;
         var unit = _config.Unit;
 
-        // Whatever the shared cache already holds for this exact place, drawn before the request
-        // goes out. A second weather widget on the same city, or this one after a relayout, shows
-        // a temperature immediately instead of flashing "Loading".
+        // Whatever the shared cache already holds for this exact place — another widget's answer,
+        // or the one saved at the last shutdown ([S-729]) — drawn before the request goes out.
         _reading ??= WeatherService.PeekCurrent(latitude, longitude, unit);
 
         _inFlight?.Cancel();
@@ -257,7 +298,7 @@ internal sealed partial class WeatherNowView : Grid, IWidgetView, IWidgetHeaderC
         var generation = ++_generation;
 
         Render();
-        _ = LoadAsync(latitude, longitude, unit, generation, cts);
+        _ = LoadAsync(latitude, longitude, unit, generation, force, cts);
     }
 
     private async Task LoadAsync(
@@ -265,12 +306,13 @@ internal sealed partial class WeatherNowView : Grid, IWidgetView, IWidgetHeaderC
         double longitude,
         TemperatureUnit unit,
         int generation,
+        bool force,
         CancellationTokenSource cts)
     {
         try
         {
             var result = await WeatherService
-                .CurrentAsync(latitude, longitude, unit, _config.TickInterval, cts.Token)
+                .CurrentAsync(latitude, longitude, unit, _config.TickInterval, cts.Token, force)
                 .ConfigureAwait(true);
 
             // A late reply for a place the widget has since left. Dropped rather than drawn.
@@ -287,8 +329,7 @@ internal sealed partial class WeatherNowView : Grid, IWidgetView, IWidgetHeaderC
             }
             else if (_reading is { } held)
             {
-                // Keep what is on screen and annotate it with what has just failed. The reading
-                // stays true as of its own timestamp; only the attempt to improve on it failed.
+                // Keep what is on screen and annotate it with what has just failed.
                 _reading = held.Stale(result.Status, result.Detail);
             }
 
@@ -309,103 +350,9 @@ internal sealed partial class WeatherNowView : Grid, IWidgetView, IWidgetHeaderC
         }
     }
 
-    private void OnSizeChanged(object sender, SizeChangedEventArgs e)
-    {
-        UpdateDetailVisibility();
-        ApplyTypeScale();
-    }
-
-    /// <summary>
-    /// Step the temperature to the tile: Subtitle on a small one, up to Display on a large one.
-    /// <para>
-    /// A ramp step chosen for the box, not a font size computed as a fraction of it. Fitted against
-    /// the widest string this widget can print rather than the one on screen, so "8°C" and "-18°C"
-    /// do not pick different steps and make the number jump size between two readings.
-    /// </para>
-    /// </summary>
-    private void ApplyTypeScale()
-    {
-        // [S-656] Sized against the room the reading really has — the tile less its insets and
-        // the detail line — rather than against the readout's own height, which is only ever the
-        // height of the step already chosen: a tall tile kept the first, smallest step for good.
-        var width = ActualWidth - (Fluent.Space4 * 2);
-        var height = ActualHeight - DetailBlock();
-
-        if (!(width > 0) || !(height > 0))
-        {
-            return;
-        }
-
-        // The icon is the first thing to go: on a tile that cannot hold it beside even the
-        // smallest reading, "19°C" matters and the cloud beside it does not.
-        var showIcon = width >= IconFor(FluentType.Subtitle) + Fluent.Space3 + FluentType.EstimateWidth(FluentType.Subtitle, ReadingCharacters);
-        _look.Visibility = showIcon ? Visibility.Visible : Visibility.Collapsed;
-
-        TypeStep Pick(double h)
-        {
-            var first = FluentType.Fit(width, h, ReadingCharacters, FluentType.Subtitle, FluentType.Display);
-            var room = showIcon ? width - IconFor(first) - Fluent.Space3 : width;
-            return FluentType.Fit(room, h, ReadingCharacters, FluentType.Subtitle, FluentType.Display);
-        }
-
-        var step = Pick(height);
-        var readingRoom = showIcon ? width - IconFor(step) - Fluent.Space3 : width;
-
-        // The condition moves under the temperature when it would be trimmed beside it ("Ove…"),
-        // and on a tile with no room for it even there it is left to its ellipsis.
-        var stacked = _condition.Text.Length > 0 && !ReadoutLayout.CaptionFitsBeside(
-            readingRoom,
-            step,
-            ReadingCharacters,
-            FluentType.Body,
-            _condition.Text.Length,
-            Fluent.Space2);
-
-        if (stacked)
-        {
-            step = Pick(height - FluentType.Body.LineHeight - Fluent.Space1);
-        }
-
-        SetRow(_condition, stacked ? 1 : 0);
-        SetColumn(_condition, stacked ? 1 : 2);
-        SetColumnSpan(_condition, stacked ? 2 : 1);
-        _condition.VerticalAlignment = stacked ? VerticalAlignment.Top : VerticalAlignment.Bottom;
-        _condition.Margin = stacked ? new Thickness(0) : new Thickness(Fluent.Space2, 0, 0, Fluent.Space1);
-
-        if (step == _heroStep)
-        {
-            return;
-        }
-
-        _heroStep = step;
-        _temperature.Apply(step);
-
-        // The icon grows with the number it sits beside; a 16px glyph next to a 68px reading reads
-        // as a bullet point rather than as the condition.
-        _look.FontSize = IconFor(step);
-    }
-
-    private static double IconFor(TypeStep step) => Math.Clamp(step.FontSize * 0.8, Fluent.Space6, 72);
-
-    /// <summary>What the detail line under the reading takes, when it is showing.</summary>
-    private double DetailBlock()
-        => _detailHost.Visibility == Visibility.Visible
-            ? FluentType.Caption.LineHeight + Fluent.Space4 + Fluent.Space2
-            : Fluent.Space2;
-
-    private void UpdateDetailVisibility()
-    {
-        var wanted = _config.ShowDetails
-            && ActualHeight >= DetailHidesBelow
-            && _reading?.Value is not null;
-
-        _detailHost.Visibility = wanted ? Visibility.Visible : Visibility.Collapsed;
-    }
-
     /// <summary>
     /// Draw what is in hand. Every state with no reading says which state it is: a blank weather
-    /// tile is indistinguishable from a broken one, and each of these needs a different thing from
-    /// the person looking at it.
+    /// tile is indistinguishable from a broken one.
     /// </summary>
     private void Render()
     {
@@ -427,53 +374,369 @@ internal sealed partial class WeatherNowView : Grid, IWidgetView, IWidgetHeaderC
 
             _emptyIcon.Glyph = Glyphs.Weather;
             _emptyState.Visibility = Visibility.Visible;
-            _readout.Visibility = Visibility.Collapsed;
-            _detailHost.Visibility = Visibility.Collapsed;
+            Collapse(_top, _feels, _cells, _stack, _daily, _chart);
             _freshness.Text = string.Empty;
+            _built = null;
             return;
         }
 
         _emptyState.Visibility = Visibility.Collapsed;
-        _readout.Visibility = Visibility.Visible;
+        _top.Visibility = Visibility.Visible;
 
         _temperature.Text = WeatherReport.Temperature(reading.Temperature, _config.Unit);
         _condition.Text = WeatherReport.Describe(reading.Code);
         _look.Glyph = LookGlyph(WeatherReport.Look(reading.Code));
+        _highLow.Text = reading.Today is { } today ? WeatherReport.HighLow(today.High, today.Low) : string.Empty;
+        _feels.Text = $"Feels {WeatherReport.Temperature(reading.FeelsLike, _config.Unit)}";
 
-        _detail.Text = string.Join(
-            "   ",
-            $"Feels {WeatherReport.Temperature(reading.FeelsLike, _config.Unit)}",
-            $"Humidity {WeatherReport.Humidity(reading.Humidity)}",
-            $"Wind {WeatherReport.Wind(reading.WindKilometresPerHour)}");
+        _facts = WeatherFacts.For(reading, _config.Unit, CultureInfo.CurrentCulture);
 
-        // The age of the reading, and — when the last attempt to refresh it failed — the reason,
-        // in the caution colour. Said in the tooltip as well as in the colour, because a state
-        // carried only by a colour is a state some readers never get.
+        // The chart starts at the current hour; hours already past are not "next".
+        var hourAgo = now.AddMinutes(-59);
+        _hours = [.. reading.Hours.Where(hour => hour.At >= hourAgo).Take(24)];
+        _days = [.. reading.Days.Skip(1).Take(DailyCount)];
+        _chart.SetHours(_hours, _config.Unit);
+
+        // The age of the reading, and — when the last attempt to refresh it failed, or it was read
+        // back from disk at launch and not yet replaced — in the caution colour. Said in the
+        // tooltip as well, because a state carried only by a colour is one some readers never get.
         var failed = FetchState.IsFailure(held.Status);
-        var stale = failed || FetchState.IsStale(held.At, now, _config.TickInterval);
+        var stale = failed || held.Restored || FetchState.IsStale(held.At, now, _config.TickInterval);
+        var age = FetchState.Freshness(held.At, now);
 
-        _freshness.Text = FetchState.Freshness(held.At, now);
+        _freshness.Text = age;
         _freshness.Foreground = stale ? _staleBrush : _freshBrush;
 
         ToolTipService.SetToolTip(
             _freshness,
-            failed
-                ? $"{FetchState.Message(held.Status)}. Showing the reading from {FetchState.Freshness(held.At, now).ToLowerInvariant()}."
-                : $"Updated {FetchState.Freshness(held.At, now).ToLowerInvariant()}");
+            failed ? $"{FetchState.Message(held.Status)}. Showing the reading from {age.ToLowerInvariant()}."
+            : held.Restored ? $"Saved reading from {age.ToLowerInvariant()}; refreshing."
+            : $"Updated {age.ToLowerInvariant()}");
 
-        // Detail first: whether it shows decides how much height the reading has.
-        UpdateDetailVisibility();
-        ApplyTypeScale();
+        _built = null;
+        Lay();
     }
 
     /// <summary>
+    /// Climb the ladder for the current area: ask <see cref="WeatherNowLayout"/> which rungs are up,
+    /// build them, then size the reading from what they leave.
+    /// </summary>
+    private void Lay()
+    {
+        if (_detached || _reading?.Value is null || !_area.IsMeasured)
+        {
+            return;
+        }
+
+        var width = Math.Max(0, _area.Width - (2 * WeatherNowLayout.Inset));
+        var hasToday = _highLow.Text.Length > 0;
+
+        var plan = WeatherNowLayout.Plan(_area, HeroFloor(width), _facts.Count, _config.ShowDetails, hasToday, _hours.Count, _days.Count);
+
+        // A strip's readings column narrows the reading; measure the floor again for what is left.
+        if (plan.Detail == WeatherDetailMode.Side)
+        {
+            plan = WeatherNowLayout.Plan(_area, HeroFloor(width - plan.SideWidth - Fluent.Space4), _facts.Count, _config.ShowDetails, hasToday, _hours.Count, _days.Count);
+        }
+
+        if (plan != _built)
+        {
+            Build(plan);
+            _built = plan;
+        }
+
+        var heroWidth = plan.Detail == WeatherDetailMode.Side ? width - plan.SideWidth - Fluent.Space4 : width;
+        FitHero(heroWidth, plan.HeroRoom);
+    }
+
+    /// <summary>The reading at its smallest step, with the condition under it if it cannot sit beside.</summary>
+    private double HeroFloor(double width)
+    {
+        var room = ShowsIcon(width) ? width - IconFor(FluentType.Subtitle) - Fluent.Space3 : width;
+        var stacked = !ReadoutLayout.CaptionFitsBeside(room, FluentType.Subtitle, ReadingCharacters, FluentType.Body, _condition.Text.Length, Fluent.Space2);
+        return FluentType.Subtitle.LineHeight + (stacked ? FluentType.Body.LineHeight + Fluent.Space1 : 0);
+    }
+
+    private static bool ShowsIcon(double width)
+        => width >= IconFor(FluentType.Subtitle) + Fluent.Space3 + FluentType.EstimateWidth(FluentType.Subtitle, ReadingCharacters);
+
+    /// <summary>Build the rungs the plan has up, and hide the rest.</summary>
+    private void Build(WeatherNowPlan plan)
+    {
+        Collapse(_feels, _cells, _side, _stack, _daily, _chart);
+        _cells.Children.Clear();
+        _cells.ColumnDefinitions.Clear();
+        _cells.RowDefinitions.Clear();
+        _side.Children.Clear();
+        _side.ColumnDefinitions.Clear();
+        _side.RowDefinitions.Clear();
+        _stack.Children.Clear();
+        _daily.Children.Clear();
+        _daily.ColumnDefinitions.Clear();
+
+        _highLow.Visibility = plan.HighLow ? Visibility.Visible : Visibility.Collapsed;
+        var facts = _facts.Take(plan.FactCount).ToList();
+
+        switch (plan.Detail)
+        {
+            case WeatherDetailMode.Feels:
+                _feels.Visibility = Visibility.Visible;
+                break;
+
+            case WeatherDetailMode.Cells:
+                BuildCells(facts, Math.Max(1, plan.FactColumns));
+                _cells.Visibility = Visibility.Visible;
+                break;
+
+            case WeatherDetailMode.Side:
+                BuildSide(facts, Math.Max(1, plan.FactColumns), plan.SideWidth);
+                _side.Visibility = Visibility.Visible;
+                break;
+
+            case WeatherDetailMode.Stack:
+                foreach (var fact in facts)
+                {
+                    _stack.Children.Add(FactRow(fact, WeatherNowLayout.StackRow, FluentType.Body, edgeToEdge: true));
+                }
+
+                _stack.Visibility = Visibility.Visible;
+                break;
+        }
+
+        if (plan.Daily)
+        {
+            BuildDaily();
+            _daily.Visibility = Visibility.Visible;
+        }
+
+        if (plan.ChartHeight > 0)
+        {
+            _chart.Height = plan.ChartHeight;
+            _chart.Visibility = Visibility.Visible;
+        }
+    }
+
+    /// <summary>The flat cells: an icon and caption label over a strong value, no boxes (S-07).</summary>
+    private void BuildCells(List<WeatherFact> facts, int columns)
+    {
+        for (var c = 0; c < columns; c++)
+        {
+            _cells.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        }
+
+        var rows = (facts.Count + columns - 1) / columns;
+
+        for (var r = 0; r < rows; r++)
+        {
+            _cells.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        }
+
+        for (var i = 0; i < facts.Count; i++)
+        {
+            var fact = facts[i];
+
+            var icon = Fluent.Icon(FactGlyph(fact.Kind), "TextFillColorTertiaryBrush", 12);
+            icon.Margin = new Thickness(0, 0, Fluent.Space1, 0);
+            icon.VerticalAlignment = VerticalAlignment.Center;
+
+            var label = Fluent.Text(FluentType.Caption, "TextFillColorSecondaryBrush");
+            label.Text = fact.Label;
+            label.TextTrimming = TextTrimming.CharacterEllipsis;
+
+            var labelRow = new Grid
+            {
+                ColumnDefinitions =
+                {
+                    new ColumnDefinition { Width = GridLength.Auto },
+                    new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) },
+                },
+            };
+
+            SetColumn(label, 1);
+            labelRow.Children.Add(icon);
+            labelRow.Children.Add(label);
+
+            var value = Fluent.Text(FluentType.BodyStrong);
+            value.Text = fact.Value;
+            value.TextTrimming = TextTrimming.CharacterEllipsis;
+
+            var cell = new StackPanel { Children = { labelRow, value } };
+            SetColumn(cell, i % columns);
+            SetRow(cell, i / columns);
+            _cells.Children.Add(cell);
+        }
+    }
+
+    /// <summary>A strip's readings: label/value lines in one or two columns beside the reading.</summary>
+    private void BuildSide(List<WeatherFact> facts, int columns, double width)
+    {
+        var columnWidth = (width - ((columns - 1) * Fluent.Space4)) / columns;
+        var perColumn = (facts.Count + columns - 1) / columns;
+
+        for (var c = 0; c < columns; c++)
+        {
+            _side.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(columnWidth) });
+        }
+
+        for (var r = 0; r < perColumn; r++)
+        {
+            _side.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        }
+
+        for (var i = 0; i < facts.Count; i++)
+        {
+            var line = FactRow(facts[i], WeatherNowLayout.SideLine, FluentType.Body, edgeToEdge: false);
+            SetColumn(line, i / perColumn);
+            SetRow(line, i % perColumn);
+            _side.Children.Add(line);
+        }
+    }
+
+    /// <summary>One label/value line: glyph, label on the left, value on the right.</summary>
+    private static FrameworkElement FactRow(WeatherFact fact, double height, TypeStep step, bool edgeToEdge)
+    {
+        var icon = Fluent.Icon(FactGlyph(fact.Kind), "TextFillColorTertiaryBrush", 14);
+        icon.Margin = new Thickness(0, 0, Fluent.Space2, 0);
+        icon.VerticalAlignment = VerticalAlignment.Center;
+
+        var label = Fluent.Text(step, "TextFillColorSecondaryBrush");
+        label.Text = fact.Label;
+        label.TextTrimming = TextTrimming.CharacterEllipsis;
+        label.VerticalAlignment = VerticalAlignment.Center;
+
+        var value = Fluent.Text(step);
+        value.Text = fact.Value;
+        value.Margin = new Thickness(Fluent.Space2, 0, 0, 0);
+        value.VerticalAlignment = VerticalAlignment.Center;
+
+        var grid = new Grid
+        {
+            Height = height,
+            ColumnDefinitions =
+            {
+                new ColumnDefinition { Width = GridLength.Auto },
+                new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) },
+                new ColumnDefinition { Width = GridLength.Auto },
+            },
+        };
+
+        SetColumn(label, 1);
+        SetColumn(value, 2);
+        grid.Children.Add(icon);
+        grid.Children.Add(label);
+        grid.Children.Add(value);
+
+        // A stacked row spans the card, its text inset like every list row in the app.
+        return edgeToEdge
+            ? new Border { Child = grid, Padding = new Thickness(WeatherNowLayout.Inset, 0, WeatherNowLayout.Inset, 0) }
+            : grid;
+    }
+
+    /// <summary>The next days: day, glyph, high and low, one column each.</summary>
+    private void BuildDaily()
+    {
+        var today = DateOnly.FromDateTime(DateTime.Now);
+
+        foreach (var day in _days)
+        {
+            _daily.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+
+            var label = Fluent.Text(FluentType.Caption, "TextFillColorSecondaryBrush");
+            label.Text = WeatherReport.DayLabel(day.Day, today);
+            label.HorizontalAlignment = HorizontalAlignment.Center;
+
+            var icon = Fluent.Icon(LookGlyph(WeatherReport.Look(day.Code)), "TextFillColorSecondaryBrush", 20);
+            icon.HorizontalAlignment = HorizontalAlignment.Center;
+            icon.Margin = new Thickness(0, Fluent.Space1, 0, Fluent.Space1);
+
+            var range = Fluent.Text(FluentType.Caption);
+            range.Text = $"{WeatherReport.Degrees(day.High)}  {WeatherReport.Degrees(day.Low)}";
+            range.HorizontalAlignment = HorizontalAlignment.Center;
+
+            var column = new StackPanel { Children = { label, icon, range } };
+            ToolTipService.SetToolTip(column, $"{Formatting.ShortDate(day.Day)} · {WeatherReport.Describe(day.Code)}");
+            SetColumn(column, _daily.ColumnDefinitions.Count - 1);
+            _daily.Children.Add(column);
+        }
+    }
+
+    /// <summary>
+    /// Step the temperature to the room the ladder left it: Subtitle up to Display, fitted against
+    /// the widest string this widget prints rather than the one on screen, so "8°C" and "-18°C" do
+    /// not pick different steps and make the number jump between two readings.
+    /// </summary>
+    /// <param name="width">The reading's width.</param>
+    /// <param name="height">The height the plan left the reading (and its condition).</param>
+    private void FitHero(double width, double height)
+    {
+        if (!(width > 0) || !(height > 0))
+        {
+            return;
+        }
+
+        // The icon is the first thing to go: on a tile that cannot hold it beside even the
+        // smallest reading, "19°C" matters and the cloud beside it does not.
+        var showIcon = ShowsIcon(width);
+        _look.Visibility = showIcon ? Visibility.Visible : Visibility.Collapsed;
+
+        TypeStep Pick(double h)
+        {
+            var first = FluentType.Fit(width, h, ReadingCharacters, FluentType.Subtitle, FluentType.Display);
+            var room = showIcon ? width - IconFor(first) - Fluent.Space3 : width;
+            return FluentType.Fit(room, h, ReadingCharacters, FluentType.Subtitle, FluentType.Display);
+        }
+
+        var step = Pick(height);
+        var readingRoom = showIcon ? width - IconFor(step) - Fluent.Space3 : width;
+
+        // [S-656] The condition moves under the temperature when it would be trimmed beside it.
+        var stacked = _condition.Text.Length > 0 && !ReadoutLayout.CaptionFitsBeside(
+            readingRoom, step, ReadingCharacters, FluentType.Body, _condition.Text.Length, Fluent.Space2);
+
+        if (stacked)
+        {
+            step = Pick(height - FluentType.Body.LineHeight - Fluent.Space1);
+        }
+
+        SetRow(_conditionStack, stacked ? 1 : 0);
+        SetColumn(_conditionStack, stacked ? 1 : 2);
+        SetColumnSpan(_conditionStack, stacked ? 2 : 1);
+        _conditionStack.VerticalAlignment = stacked ? VerticalAlignment.Top : VerticalAlignment.Center;
+        _conditionStack.Margin = stacked ? new Thickness(0) : new Thickness(Fluent.Space3, 0, 0, 0);
+
+        _temperature.Apply(step);
+
+        // The icon grows with the number it sits beside; a 16px glyph next to a 68px reading reads
+        // as a bullet point rather than as the condition.
+        _look.FontSize = IconFor(step);
+    }
+
+    private static double IconFor(TypeStep step) => Math.Clamp(step.FontSize * 0.8, Fluent.Space6, 72);
+
+    private static void Collapse(params UIElement[] parts)
+    {
+        foreach (var part in parts)
+        {
+            part.Visibility = Visibility.Collapsed;
+        }
+    }
+
+    /// <summary>The glyph for a reading, checked against the font ([S-733]).</summary>
+    private static string FactGlyph(WeatherFactKind kind) => kind switch
+    {
+        WeatherFactKind.FeelsLike => Glyphs.Thermometer,
+        WeatherFactKind.Humidity or WeatherFactKind.Precipitation => Glyphs.Droplet,
+        WeatherFactKind.Wind or WeatherFactKind.Gusts => Glyphs.Wind,
+        WeatherFactKind.Pressure => Glyphs.Gauge,
+        WeatherFactKind.Uv or WeatherFactKind.Sunrise => Glyphs.Sun,
+        WeatherFactKind.Sunset => Glyphs.Moon,
+        WeatherFactKind.CloudCover => Glyphs.Cloudy,
+        _ => Glyphs.Info,
+    };
+
+    /// <summary>
     /// The Segoe glyph for a condition. Shared with the forecast, so a day reads the same in both.
-    /// <para>
-    /// [S-652] One glyph per kind of weather. This used to fold rain, snow and thunder into the
-    /// thermometer — the forecast widget's own icon — because the weather code points in
-    /// <c>Glyphs</c> were not in the font and drew as boxes; they are fixed, so each condition has
-    /// its own shape again.
-    /// </para>
+    /// [S-652] One glyph per kind of weather.
     /// </summary>
     internal static string LookGlyph(WeatherLook look) => look switch
     {
@@ -490,8 +753,6 @@ internal sealed partial class WeatherNowView : Grid, IWidgetView, IWidgetHeaderC
     {
         _detached = true;
 
-        SizeChanged -= OnSizeChanged;
-
         _subscription?.Dispose();
         _subscription = null;
         _subscribedInterval = TimeSpan.Zero;
@@ -503,15 +764,7 @@ internal sealed partial class WeatherNowView : Grid, IWidgetView, IWidgetHeaderC
 
         _ticker = null;
     }
-    /// <summary>
-    /// Tell the card what this widget is about. The catalogue can only say "Weather" or
-    /// "Folder"; the widget knows which place, which folder, which ticker — and on a desktop
-    /// holding three of them, that is the only thing telling them apart.
-    /// </summary>
-    private void PublishTitle()
-    {
-        var title = string.IsNullOrWhiteSpace(_config.Place) ? _config.LocationName : _config.Place;
-        _surface?.SetHeaderTitle(string.IsNullOrWhiteSpace(title) ? null : title);
-    }
 
+    /// <summary>[S-728] The city as the header title, or the widget's label when the user hid it.</summary>
+    private void PublishTitle() => _surface?.SetHeaderTitle(_config.Title);
 }

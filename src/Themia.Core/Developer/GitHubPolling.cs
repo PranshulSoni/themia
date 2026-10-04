@@ -19,6 +19,17 @@ public static class GitHubPolling
     /// <summary>A poll interval longer than this is not believed: the widget's own cadence is at most an hour.</summary>
     public static readonly TimeSpan MaxPollInterval = TimeSpan.FromHours(1);
 
+    /// <summary>
+    /// [S-746] The fastest a widget reading without an account asks. GitHub allows 60 requests an
+    /// hour per address without one, shared by everything on the machine, and a repository costs
+    /// six; every quarter hour is 24 of them, and a <c>304</c> costs none.
+    /// </summary>
+    public static readonly TimeSpan AnonymousMinimum = TimeSpan.FromMinutes(15);
+
+    /// <summary>[S-746] The cadence a slot keeps: the widget's own, stretched to the anonymous minimum without an account.</summary>
+    public static TimeSpan Cadence(TimeSpan refresh, bool anonymous)
+        => anonymous && refresh < AnonymousMinimum ? AnonymousMinimum : refresh;
+
     /// <summary><c>X-Poll-Interval</c>, in seconds; null when absent or not a positive number.</summary>
     public static TimeSpan? PollInterval(string? header)
     {

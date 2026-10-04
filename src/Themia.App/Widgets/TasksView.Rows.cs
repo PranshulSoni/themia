@@ -1,21 +1,19 @@
 using Microsoft.UI;
+using Microsoft.UI.Input;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
 using Themia.App.Shell;
-using Themia.Core.Diagnostics;
 using Themia.Core.Tasks;
 using Themia.Core.Widgets;
 using Windows.System;
+using Windows.UI.Core;
 
 namespace Themia.App.Widgets;
 
 /// <summary>The rows, and everything the user does to one.</summary>
 internal sealed partial class TasksView
 {
-    /// <summary>Under this width the due date goes under the title whatever the layout: a column would starve it.</summary>
-    private const double NarrowBelow = 240;
-
     private readonly Border _addRow;
 
     // One per row, so the handlers come off with the row they belong to. A leaked one keeps the row
@@ -26,18 +24,34 @@ internal sealed partial class TasksView
     /// <summary>The rows as drawn, in order: what "move up" and a new task's place are measured against.</summary>
     private IReadOnlyList<TaskItem> _displayed = [];
 
-    /// <summary>The row height and due-date placement the rows on screen were drawn for.</summary>
-    private (bool Compact, bool Narrow)? _drawnDensity;
-
-    private (bool Compact, bool Narrow) Density() => (Compact, ActualWidth > 0 && ActualWidth < NarrowBelow);
+    /// <summary>The layout the rows on screen were drawn for; a new size that changes it redraws them.</summary>
+    private TaskLayoutPlan? _drawnPlan;
 
     /// <summary>The open editor, if any: renaming a task (its id) or adding one (null id).</summary>
     private (TextBox Box, string? TaskId)? _editor;
 
-    private void BuildRows(IReadOnlyList<TaskItem> rows, DateOnly today)
+    /// <summary>[S-787] A row holds the keyboard focus (the user clicked it): arrows, Enter, Delete, F2 work.</summary>
+    private bool _rowFocused;
+
+    /// <summary>The task the focus is on, so a redraw (a tick, a refresh) puts it back on the same task.</summary>
+    private string? _focusTaskId;
+
+    /// <summary>Where the focus was, for when its task has gone (deleted): the row now in that place.</summary>
+    private int _focusIndex;
+
+    /// <summary>Rows being torn down and rebuilt: the focus leaving them is not the user leaving the list.</summary>
+    private bool _rebuilding;
+
+    private void BuildRows(IReadOnlyList<TaskItem> rows, DateOnly today, TaskLayoutPlan plan)
     {
         // A rebuild while the user types would throw their words away; the editor's own commit or
         // cancel redraws when it is done.
+        // Nor while a row is lifted: the row under the pointer would vanish mid-drag. The drop redraws.
+        if (_dragging)
+        {
+            return;
+        }
+
         if (_editor is { TaskId: { } editing })
         {
             if (rows.Any(r => r.Id == editing))
@@ -49,45 +63,114 @@ internal sealed partial class TasksView
             CancelEdit();
         }
 
-        ClearRows();
-
-        var (compact, narrow) = Density();
-        _drawnDensity = (compact, narrow);
-
-        foreach (var task in rows)
+        _rebuilding = true;
+        try
         {
-            var row = BuildRow(task, today, compact, narrow);
-            _list.Children.Add(row);
+            ClearRows();
+            _drawnPlan = plan;
+            _rowsPanel.Columns = plan.Columns;
+
+            // A tile with no add row and no height to spare spends the list's foot padding on a row.
+            _scroll.Padding = plan.AddRow ? Fluent.ListPadding : new Thickness(0);
+
+            var doneCount = rows.Count(t => t.Completed);
+
+            foreach (var task in rows)
+            {
+                // [S-784] Completed tasks follow the open ones under their own heading, where a
+                // heading earns its line.
+                if (task.Completed && plan.CompletedHeading && ReferenceEquals(task, rows.First(t => t.Completed)))
+                {
+                    _rowsPanel.Children.Add(Heading($"Completed · {doneCount}"));
+                }
+
+                _rowsPanel.Children.Add(BuildRow(task, today, plan));
+            }
+
+            _rowsPanel.ResetOrder();
+            RestoreFocus();
+        }
+        finally
+        {
+            _rebuilding = false;
         }
     }
 
-    /// <summary>
-    /// One task: the state marker, the title wrapping to the configured number of lines ([S-601]),
-    /// and the due date under it or beside it ([S-602]). A fixed Fluent height at minimum, taller
-    /// only when the title wraps.
-    /// </summary>
-    private Border BuildRow(TaskItem task, DateOnly today, bool compact, bool narrow)
+    private static TextBlock Heading(string text)
     {
-        var markerSize = compact ? Fluent.IconSize : Fluent.Space5;
-        var marker = BuildMarker(task, markerSize);
+        var heading = Fluent.Text(FluentType.Caption, "TextFillColorSecondaryBrush");
+        heading.Text = text;
+        heading.Margin = new Thickness(Fluent.Space4, Fluent.Space2, Fluent.Space4, Fluent.Space1);
+        return heading;
+    }
 
-        // Weight marks an important task the way an unread message is marked: no extra glyph to
-        // learn, and both steps are the same 14/20 line, so nothing moves.
+    /// <summary>
+    /// One task: the state marker, the title wrapping to the plan's lines ([S-601]) with the "!" of
+    /// an important task after it ([S-785]), the list it is from under Today on a panel ([S-789]), and
+    /// as much of the due date as the width earns, under the title or beside it ([S-780]).
+    /// </summary>
+    private Border BuildRow(TaskItem task, DateOnly today, TaskLayoutPlan plan)
+    {
+        var markerSize = plan.CompactRows ? Fluent.IconSize : Fluent.Space5;
+        var due = TaskDue.Resolve(task.DueRaw, today, TimeZoneInfo.Local);
+
+        // [S-780] An open task that is late rings in the critical colour: the cue that survives on
+        // a tile with no room for the word.
+        var marker = BuildMarker(task, markerSize, due is { IsPast: true } && !task.Completed && _config.ShowDueDate);
+        var inset = plan.NarrowInset ? Fluent.Space2 : Fluent.Space4;
+
+        if (plan.NarrowInset)
+        {
+            marker.Margin = new Thickness(0, 0, Fluent.Space2, 0);
+        }
+        var important = task.Important && !task.Completed;
+
+        // Weight marks an important task the way an unread message is marked, and the glyph says it
+        // to a reader who does not notice weight.
         var title = Fluent.Text(
-            task.Important && !task.Completed ? FluentType.BodyStrong : FluentType.Body,
+            important ? FluentType.BodyStrong : FluentType.Body,
             task.Completed ? "TextFillColorTertiaryBrush" : "TextFillColorPrimaryBrush");
 
         title.Text = task.DisplayTitle;
         title.TextWrapping = TextWrapping.WrapWholeWords;
         title.TextTrimming = TextTrimming.CharacterEllipsis;
-        title.MaxLines = compact ? Math.Min(2, _config.EffectiveTitleLines) : _config.EffectiveTitleLines;
+        title.MaxLines = plan.TitleLines;
 
         // [S-186] Done is struck through, not merely dimmed: the one mark that says "done" without
         // a legend and without relying on colour.
         title.TextDecorations = task.Completed ? Windows.UI.Text.TextDecorations.Strikethrough : Windows.UI.Text.TextDecorations.None;
 
+        var titleLine = new Grid
+        {
+            ColumnDefinitions =
+            {
+                new ColumnDefinition { Width = GridLength.Auto },
+                new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) },
+            },
+        };
+        Grid.SetColumn(title, 1);
+        titleLine.Children.Add(title);
+
+        if (important && plan.PriorityGlyph)
+        {
+            // [S-785] The classic "!" badge, in the critical colour, leading the title: never cut
+            // off by the ellipsis, and read before the words it qualifies.
+            var bang = Fluent.Text(FluentType.BodyStrong, "SystemFillColorCriticalBrush");
+            bang.Text = "!";
+            bang.Margin = new Thickness(0, 0, Fluent.Space1 + (Fluent.Space1 / 2), 0);
+            bang.VerticalAlignment = VerticalAlignment.Top;
+            titleLine.Children.Add(bang);
+        }
+
         var content = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
-        content.Children.Add(title);
+        content.Children.Add(titleLine);
+
+        if (plan.ListNames && _listNames.TryGetValue(task.ListId, out var listName))
+        {
+            var list = Fluent.Text(FluentType.Caption, "TextFillColorTertiaryBrush");
+            list.Text = listName;
+            content.Children.Add(list);
+        }
 
         var body = new Grid
         {
@@ -104,17 +187,15 @@ internal sealed partial class TasksView
         body.Children.Add(marker);
         body.Children.Add(content);
 
-        var due = TaskDue.Resolve(task.DueRaw, today, TimeZoneInfo.Local);
-
-        if (_config.ShowDueDate && due is { } resolved)
+        if (DueText(task, due, plan.Due) is { } text)
         {
             // [S-186] Overdue says so in words as well as in the critical colour, and only for open
             // work: a finished task is not late.
-            var overdue = resolved.IsPast && !task.Completed;
+            var overdue = due!.Value.IsPast && !task.Completed;
             var when = Fluent.Text(FluentType.Caption, overdue ? "SystemFillColorCriticalBrush" : "TextFillColorTertiaryBrush");
-            when.Text = resolved.IsPast && task.Completed ? TaskDue.ShortDate(resolved.Day) : TaskDue.Text(resolved);
+            when.Text = text;
 
-            if (_config.ViewMode == TaskViewMode.Compact && !narrow)
+            if (plan.DueBeside)
             {
                 when.VerticalAlignment = VerticalAlignment.Center;
                 when.Margin = new Thickness(Fluent.Space2, 0, 0, 0);
@@ -127,19 +208,50 @@ internal sealed partial class TasksView
             }
         }
 
-        var row = Fluent.Row(body, compact);
+        var row = Fluent.Row(body, plan.CompactRows);
 
         // The title may wrap; a little air above and below keeps two wrapped rows apart without a rule.
-        row.Padding = new Thickness(Fluent.Space4, Fluent.Space1, Fluent.Space4, Fluent.Space1);
+        row.Padding = new Thickness(inset, Fluent.Space1, inset, Fluent.Space1);
         row.Tag = task;
+
+        // [S-787] Focusable, so a clicked row can take the arrows; the system focus rect shows which.
+        row.IsTabStop = true;
+        row.UseSystemFocusVisuals = true;
+
         _hovers.Add(Fluent.Hover(row));
         _rows.Add((row, marker));
 
+        row.Tapped += OnRowTapped;
         row.DoubleTapped += OnRowDoubleTapped;
         row.RightTapped += OnRowRightTapped;
+        row.KeyDown += OnRowKeyDown;
+        row.LostFocus += OnRowLostFocus;
+        HookDrag(row);
 
         ToolTipService.SetToolTip(row, Tooltip(task, due));
         return row;
+    }
+
+    /// <summary>[S-780] The due text a row shows at this width, or null for none.</summary>
+    private static string? DueText(TaskItem task, Due? due, DueDetail detail)
+    {
+        if (due is not { } resolved || detail == DueDetail.None)
+        {
+            return null;
+        }
+
+        // A finished task that was due in the past shows its date, not "Overdue".
+        if (resolved.IsPast && task.Completed)
+        {
+            return detail == DueDetail.Urgent ? null : TaskDue.ShortDate(resolved.Day);
+        }
+
+        return detail switch
+        {
+            DueDetail.Urgent => TaskDue.IsUrgent(resolved) ? TaskDue.Text(resolved) : null,
+            DueDetail.Long => TaskDue.WideText(resolved),
+            _ => TaskDue.Text(resolved),
+        };
     }
 
     /// <summary>
@@ -147,7 +259,7 @@ internal sealed partial class TasksView
     /// for open work, a filled tick for finished. Drawn rather than taken from the icon font, because
     /// there is no hollow circle in it, and sized from the row height, never from the tile.
     /// </summary>
-    private Border BuildMarker(TaskItem task, double size)
+    private Border BuildMarker(TaskItem task, double size, bool overdue)
     {
         var marker = new Border
         {
@@ -156,7 +268,9 @@ internal sealed partial class TasksView
             CornerRadius = new CornerRadius(size / 2),
             VerticalAlignment = VerticalAlignment.Center,
             Margin = new Thickness(0, 0, Fluent.Space3, 0),
-            BorderBrush = FluentLayout.Themed("ControlStrongStrokeColorDefaultBrush", Colors.Gray),
+            BorderBrush = overdue
+                ? FluentLayout.Themed("SystemFillColorCriticalBrush", Colors.IndianRed)
+                : FluentLayout.Themed("ControlStrongStrokeColorDefaultBrush", Colors.Gray),
             BorderThickness = new Thickness(task.Completed ? 0 : 1),
             Background = task.Completed
                 ? FluentLayout.Themed("AccentFillColorDefaultBrush", Colors.DodgerBlue)
@@ -196,7 +310,7 @@ internal sealed partial class TasksView
             lines.Add("High priority");
         }
 
-        lines.Add("Double-click to rename; right-click for more");
+        lines.Add("Drag to reorder; double-click or F2 to rename; right-click for more");
         return string.Join(Environment.NewLine, lines);
     }
 
@@ -209,16 +323,23 @@ internal sealed partial class TasksView
 
         foreach (var (row, marker) in _rows)
         {
+            row.Tapped -= OnRowTapped;
             row.DoubleTapped -= OnRowDoubleTapped;
             row.RightTapped -= OnRowRightTapped;
+            row.KeyDown -= OnRowKeyDown;
+            row.LostFocus -= OnRowLostFocus;
+            UnhookDrag(row);
             marker.Tapped -= OnMarkerTapped;
             marker.DoubleTapped -= OnMarkerDoubleTapped;
         }
 
         _hovers.Clear();
         _rows.Clear();
-        _list.Children.Clear();
+        _rowsPanel.Children.Clear();
     }
+
+    /// <summary>The task rows in list order, without the section heading.</summary>
+    private List<Border> TaskRows() => [.. _rowsPanel.InSlotOrder().OfType<Border>().Where(b => b.Tag is TaskItem)];
 
     // ---- what a click does ---------------------------------------------------------------------------
 
@@ -234,6 +355,17 @@ internal sealed partial class TasksView
 
     /// <summary>Two quick ticks are two ticks, not a rename: the row must not see them as a double-click.</summary>
     private static void OnMarkerDoubleTapped(object sender, DoubleTappedRoutedEventArgs args) => args.Handled = true;
+
+    /// <summary>[S-787] A click on a row (not its marker) gives the list the keyboard, focused on that row.</summary>
+    private void OnRowTapped(object sender, TappedRoutedEventArgs args)
+    {
+        if (ConsumeDragEnd() || _editor is not null || sender is not Border row)
+        {
+            return;
+        }
+
+        FocusRow(row);
+    }
 
     private void OnRowDoubleTapped(object sender, DoubleTappedRoutedEventArgs args)
     {
@@ -293,6 +425,128 @@ internal sealed partial class TasksView
         }
 
         return -1;
+    }
+
+    // ---- the keyboard ([S-787]) ----------------------------------------------------------------------
+
+    /// <summary>
+    /// Whether this widget wants the keyboard: an editor is open or a row is focused. The one place
+    /// that asks the surface, so when the shell grows a shared keyboard lease only this changes.
+    /// </summary>
+    private void UpdateKeyboard() => _surface?.RequestTextInput(!_detached && (_editor is not null || _rowFocused));
+
+    private void FocusRow(Border row)
+    {
+        if (row.Tag is not TaskItem task)
+        {
+            return;
+        }
+
+        _rowFocused = true;
+        _focusTaskId = task.Id;
+        _focusIndex = Math.Max(0, TaskRows().IndexOf(row));
+        UpdateKeyboard();
+        row.Focus(FocusState.Keyboard);
+        row.StartBringIntoView();
+    }
+
+    /// <summary>After a redraw, the focus goes back to its task, or to the row now in its place.</summary>
+    private void RestoreFocus()
+    {
+        if (!_rowFocused || _editor is not null)
+        {
+            return;
+        }
+
+        var rows = TaskRows();
+        if (rows.Count == 0)
+        {
+            ReleaseRowFocus();
+            return;
+        }
+
+        var row = rows.FirstOrDefault(r => r.Tag is TaskItem t && t.Id == _focusTaskId) ?? rows[Math.Clamp(_focusIndex, 0, rows.Count - 1)];
+        FocusRow(row);
+    }
+
+    private void ReleaseRowFocus()
+    {
+        _rowFocused = false;
+        _focusTaskId = null;
+        UpdateKeyboard();
+    }
+
+    private void OnRowKeyDown(object sender, KeyRoutedEventArgs args)
+    {
+        if (sender is not Border { Tag: TaskItem task } row || _editor is not null || Key(args.Key) is not { } key)
+        {
+            return;
+        }
+
+        args.Handled = true;
+        var rows = TaskRows();
+        var decision = TaskLayout.Decide(key, rows.IndexOf(row), rows.Count);
+
+        switch (decision.Command)
+        {
+            case TaskKeyCommand.Focus:
+                FocusRow(rows[decision.Index]);
+                break;
+
+            case TaskKeyCommand.Toggle:
+                SetCompleted(task, !task.Completed);
+                break;
+
+            case TaskKeyCommand.Delete:
+                _focusIndex = decision.Index;
+                Delete(task);
+                break;
+
+            case TaskKeyCommand.Rename:
+                BeginRename(row, task);
+                break;
+
+            case TaskKeyCommand.Release:
+                ReleaseRowFocus();
+
+                // Rebuilt rows drop the focus rect with the focus.
+                _drawnPlan = null;
+                Render();
+                break;
+        }
+    }
+
+    private static TaskKey? Key(VirtualKey key) => key switch
+    {
+        VirtualKey.Up => TaskKey.Up,
+        VirtualKey.Down => TaskKey.Down,
+        VirtualKey.Home => TaskKey.Home,
+        VirtualKey.End => TaskKey.End,
+        VirtualKey.Enter => TaskKey.Enter,
+        VirtualKey.Delete => TaskKey.Delete,
+        VirtualKey.F2 => TaskKey.Rename,
+        VirtualKey.Escape => TaskKey.Escape,
+        _ => null,
+    };
+
+    /// <summary>
+    /// [S-787] Leaving the list gives the keyboard back. Moving between rows, into an editor, or a
+    /// redraw replacing the focused row is not leaving it.
+    /// </summary>
+    private void OnRowLostFocus(object sender, RoutedEventArgs args)
+    {
+        if (_rebuilding || !_rowFocused || XamlRoot is null)
+        {
+            return;
+        }
+
+        var focused = FocusManager.GetFocusedElement(XamlRoot) as DependencyObject;
+        if (focused is Border { Tag: TaskItem } || (_editor is { } editor && ReferenceEquals(focused, editor.Box)))
+        {
+            return;
+        }
+
+        ReleaseRowFocus();
     }
 
     // ---- changes ---------------------------------------------------------------------------------------
@@ -366,17 +620,25 @@ internal sealed partial class TasksView
         }
     }
 
-    /// <summary>
-    /// [S-598] Move a task one place among the rows shown. A list on this PC stores its order in the
-    /// list; an account list's order lives in this widget's config, because no provider keeps one.
-    /// </summary>
+    /// <summary>[S-598] Move a task one place among the rows shown.</summary>
     private void Move(TaskItem task, int step)
     {
         var shown = _displayed.Select(t => t.Id).ToList();
-        var moved = TaskRules.Nudge(shown, task.Id, step);
+        CommitOrder(TaskRules.Nudge(shown, task.Id, step));
+    }
 
-        if (ReferenceEquals(moved, shown) || _service is null)
+    /// <summary>
+    /// [S-598]/[S-786] Keep a new arrangement of the rows shown, from the menu or a drag. A list on
+    /// this PC stores its order in the list; an account list's order lives in this widget's config,
+    /// because no provider keeps one. An unchanged order writes nothing.
+    /// </summary>
+    private void CommitOrder(IReadOnlyList<string> ids)
+    {
+        var shown = _displayed.Select(t => t.Id).ToList();
+
+        if (TaskRules.SameOrder(ids, shown) || _service is null)
         {
+            _rowsPanel.ResetOrder();
             return;
         }
 
@@ -384,13 +646,13 @@ internal sealed partial class TasksView
         {
             if (_localListId is { } listId)
             {
-                _service.Local.Update(listId, tasks => LocalTaskLists.Reorder(tasks, moved));
+                _service.Local.Update(listId, tasks => LocalTaskLists.Reorder(tasks, ids));
             }
 
             return;
         }
 
-        _config.TaskOrder = [.. moved];
+        _config.TaskOrder = [.. ids];
         _surface?.RequestSave();
         Render();
     }
@@ -525,18 +787,17 @@ internal sealed partial class TasksView
     }
 
     /// <summary>
-    /// The add row shows only when there is a list to add to and room for it: on a small tile every
-    /// row is worth more as a task.
+    /// The add row shows when the plan has room for it and there is a list to add to: on a small tile
+    /// every row is worth more as a task ([S-780]).
     /// </summary>
-    private void FitAddRow()
+    private void FitAddRow(TaskLayoutPlan plan)
     {
-        var room = ActualHeight <= 0 || ActualHeight >= AddRowNeedsHeight;
-        var writable = IsLocal ? _service?.Local.Writable == true && _localListId is not null : _feed is { Loaded: true };
-        var show = room && _screen == Screen.Ready && writable;
-
+        var show = plan.AddRow && _screen == Screen.Ready && Writable;
         _addRow.Visibility = show || _editor is { TaskId: null } ? Visibility.Visible : Visibility.Collapsed;
-        Fluent.SetDensity(_addRow, Compact);
+        Fluent.SetDensity(_addRow, plan.CompactRows);
     }
+
+    private bool Writable => IsLocal ? _service?.Local.Writable == true && _localListId is not null : _feed is { Loaded: true };
 
     private TextBox NewEditor(string text)
     {
@@ -550,6 +811,7 @@ internal sealed partial class TasksView
         };
 
         box.KeyDown += OnEditorKeyDown;
+        box.PreviewKeyDown += OnEditorPreviewKeyDown;
         box.LostFocus += OnEditorLostFocus;
         box.GotFocus += OnEditorGotFocus;
         return box;
@@ -561,12 +823,12 @@ internal sealed partial class TasksView
     /// </summary>
     private void StartTyping(TextBox box)
     {
-        _surface?.RequestTextInput(true);
+        UpdateKeyboard();
         box.Focus(FocusState.Programmatic);
         box.SelectionStart = box.Text.Length;
     }
 
-    private void OnEditorGotFocus(object sender, RoutedEventArgs args) => _surface?.RequestTextInput(true);
+    private void OnEditorGotFocus(object sender, RoutedEventArgs args) => UpdateKeyboard();
 
     private void OnEditorKeyDown(object sender, KeyRoutedEventArgs args)
     {
@@ -582,6 +844,37 @@ internal sealed partial class TasksView
                 CancelEdit();
                 Render();
                 break;
+        }
+    }
+
+    /// <summary>
+    /// [S-788] Tab, caught before focus navigation takes it: in a rename box it commits and opens the
+    /// next task's box (none past the last); in the add box it commits and stays open for the next
+    /// task. Shift+Tab commits and closes.
+    /// </summary>
+    private void OnEditorPreviewKeyDown(object sender, KeyRoutedEventArgs args)
+    {
+        if (args.Key != VirtualKey.Tab || _editor is not { } editor)
+        {
+            return;
+        }
+
+        args.Handled = true;
+        var backwards = InputKeyboardSource.GetKeyStateForCurrentThread(VirtualKey.Shift).HasFlag(CoreVirtualKeyStates.Down);
+
+        if (editor.TaskId is not { } editing)
+        {
+            CommitEdit(keepAdding: !backwards);
+            return;
+        }
+
+        var next = TaskLayout.NextEditor([.. _displayed.Select(t => t.Id)], editing, backwards);
+        CommitEdit(keepAdding: false);
+
+        if (next is not null && !_detached
+            && TaskRows().FirstOrDefault(r => r.Tag is TaskItem t && t.Id == next) is { Tag: TaskItem task } row)
+        {
+            BeginRename(row, task);
         }
     }
 
@@ -633,6 +926,7 @@ internal sealed partial class TasksView
 
         _editor = null;
         editor.Box.KeyDown -= OnEditorKeyDown;
+        editor.Box.PreviewKeyDown -= OnEditorPreviewKeyDown;
         editor.Box.LostFocus -= OnEditorLostFocus;
         editor.Box.GotFocus -= OnEditorGotFocus;
 
@@ -646,7 +940,7 @@ internal sealed partial class TasksView
             }
         }
 
-        _surface?.RequestTextInput(false);
+        UpdateKeyboard();
     }
 
     private void DetachAddRow()

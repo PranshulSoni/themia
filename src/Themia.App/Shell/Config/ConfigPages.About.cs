@@ -37,11 +37,11 @@ internal static partial class ConfigPages
 
         var link = new HyperlinkButton
         {
-            Content = "crazy-rabbit.com",
-            NavigateUri = new Uri("https://www.crazy-rabbit.com/en/"),
+            Content = "lometics.com",
+            NavigateUri = new Uri("https://lometics.com/"),
         };
 
-        rows.Add(FluentLayout.Row(CompanyMark(), "Crazy Rabbit Software",
+        rows.Add(FluentLayout.Row(CompanyMark(), "Lometics",
             "Independent software studio in St. Gallen, Switzerland", link));
 
         rows.Add(FluentLayout.Header("Themia"));
@@ -65,6 +65,10 @@ internal static partial class ConfigPages
             import));
 
         rows.Add(FluentLayout.ClickRow(Glyphs.Code, "Open config file", host.StatePath, () => OpenConfigFile(host)));
+
+        // [S-1552] The very last card on the page, under its own heading.
+        rows.Add(FluentLayout.Header("Uninstall"));
+        rows.Add(UninstallRow(host));
 
         return Page("About", rows);
     }
@@ -142,14 +146,14 @@ internal static partial class ConfigPages
         {
             Width = size,
             Height = size,
-            Source = new SvgImageSource(new Uri(Path.Combine(AppContext.BaseDirectory, "Assets", "crazy-rabbit.svg")))
+            Source = new SvgImageSource(new Uri(Path.Combine(AppContext.BaseDirectory, "Assets", "lometics.svg")))
             {
                 RasterizePixelWidth = 64,
                 RasterizePixelHeight = 64,
             },
         };
 
-        Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(image, "Crazy Rabbit Software logo");
+        Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(image, "Lometics logo");
         return image;
     }
 

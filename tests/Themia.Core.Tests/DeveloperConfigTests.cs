@@ -138,4 +138,15 @@ public sealed class DeveloperConfigTests : IDisposable
         Assert.Equal(20, new GitHubNotificationsConfig { Count = 50 }.EffectiveCount);
         Assert.Equal(10, new GitHubConfig { CommitCount = 50 }.EffectiveCommitCount);
     }
+
+    [Fact]
+    public async Task S740_fill_the_tile_survives_the_state_file()
+    {
+        var off = await RoundTrip(WidgetKind.GitHubIssues, new GitHubIssuesConfig { FillTile = false, Count = 4 });
+        var on = await RoundTrip(WidgetKind.GitHub, new GitHubConfig { Repo = "o/r" });
+
+        Assert.False(off.FillTile);
+        Assert.Equal(4, off.FetchCount);
+        Assert.True(on.FillTile);
+    }
 }

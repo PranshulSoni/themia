@@ -266,7 +266,7 @@ public sealed class AccountModelTests : IDisposable
 
         Assert.Equal(EnvelopeKind.Absent, SecretEnvelope.TryUnwrap(null, out _));
         Assert.Equal(EnvelopeKind.Absent, SecretEnvelope.TryUnwrap(string.Empty, out _));
-        Assert.Equal(EnvelopeKind.Plaintext, SecretEnvelope.TryUnwrap("legacy-token", out _));
+        Assert.Equal(EnvelopeKind.Plaintext, SecretEnvelope.TryUnwrap("untagged-token", out _));
         Assert.Equal(EnvelopeKind.Damaged, SecretEnvelope.TryUnwrap("dpapi:v1:***", out _));
         Assert.Equal(EnvelopeKind.Damaged, SecretEnvelope.TryUnwrap("dpapi:v1:", out _));
     }
@@ -288,14 +288,6 @@ public sealed class AccountModelTests : IDisposable
     [InlineData(99_999_999_999L, 30 * 86400)]
     public void S507_expires_in_is_defaulted_and_clamped(long? expiresIn, int expectedSeconds)
         => Assert.Equal(Now.AddSeconds(expectedSeconds), TokenExpiry.FromExpiresIn(expiresIn, Now));
-
-    [Fact]
-    public void S507_classic_expiry_zero_means_none()
-    {
-        Assert.Null(TokenExpiry.FromUnixSeconds(0));
-        Assert.Equal(DateTimeOffset.FromUnixTimeSeconds(1_700_000_000), TokenExpiry.FromUnixSeconds(1_700_000_000));
-        Assert.Null(TokenExpiry.FromUnixSeconds(long.MaxValue));
-    }
 
     [Fact]
     public void S530_a_stale_or_missing_token_is_refreshed_a_fresh_one_is_not()
@@ -409,6 +401,6 @@ public sealed class AccountModelTests : IDisposable
     [Fact]
     public void S524_accounts_json_lives_beside_the_state_file()
         => Assert.Equal(
-            Path.Combine("C:\\data\\Themia.WinUI", "accounts.json"),
-            AccountStore.PathBeside(Path.Combine("C:\\data\\Themia.WinUI", "state.json")));
+            Path.Combine("C:\\data\\Themia", "accounts.json"),
+            AccountStore.PathBeside(Path.Combine("C:\\data\\Themia", "state.json")));
 }

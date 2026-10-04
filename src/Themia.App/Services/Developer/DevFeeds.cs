@@ -1,5 +1,6 @@
 using System.Net.Http;
 using System.Text.Json;
+using System.Text.Json.Serialization.Metadata;
 using Themia.Core.Accounts;
 using Themia.Core.Developer;
 using Themia.Core.Diagnostics;
@@ -11,7 +12,8 @@ namespace Themia.App.Services.Developer;
 /// <param name="Value">The merged content, or null before anything arrived.</param>
 /// <param name="Outcomes">How each account's last attempt went; an account still on its first is <see cref="FetchStatus.Loading"/>.</param>
 /// <param name="At">When the oldest account's content on screen was fetched, or null.</param>
-internal sealed record DevFeedSnapshot<T>(T? Value, IReadOnlyList<DevOutcome> Outcomes, DateTimeOffset? At)
+/// <param name="SavedAt">[S-747] When the oldest saved copy on screen was fetched, while one is shown that no refresh has replaced yet.</param>
+internal sealed record DevFeedSnapshot<T>(T? Value, IReadOnlyList<DevOutcome> Outcomes, DateTimeOffset? At, DateTimeOffset? SavedAt = null)
     where T : class
 {
     public static DevFeedSnapshot<T> Empty { get; } = new(null, [], null);
@@ -40,13 +42,17 @@ internal sealed record DevPart<T>(T Value, TimeSpan? PollInterval = null)
 /// <param name="Single">Read only the first of them (a repository, a usage meter).</param>
 /// <param name="Fetch">One account's request. Throws <see cref="AccountException"/> for a failure it can name.</param>
 /// <param name="Combine">The accounts' answers, in account order, as the widget's one value.</param>
+/// <param name="Anonymous">[S-746] With no account signed in and none chosen, read as <see cref="DevScreens.Anonymous"/>.</param>
+/// <param name="Saved">[S-747] The contract to keep each account's last answer on disk with; null keeps it in memory only.</param>
 internal sealed record DevFeedSpec<TPart, TValue>(
     string Key,
     IReadOnlyList<string> AccountIds,
     bool Single,
     TimeSpan Refresh,
     Func<string, CancellationToken, Task<DevPart<TPart>>> Fetch,
-    Func<IReadOnlyList<TPart>, TValue> Combine)
+    Func<IReadOnlyList<TPart>, TValue> Combine,
+    bool Anonymous = false,
+    JsonTypeInfo<TPart>? Saved = null)
     where TPart : class
     where TValue : class;
 
@@ -68,15 +74,25 @@ internal sealed class DevFeedHub : IDisposable
     private readonly Func<IReadOnlyList<DevAccount>> _accounts;
     private readonly Dictionary<string, IFeed> _feeds = new(StringComparer.Ordinal);
     private readonly Dictionary<string, DateTimeOffset> _blocked = new(StringComparer.Ordinal);
+    private readonly string? _savedDirectory;
+    private Task _writes = Task.CompletedTask;
     private IDisposable? _tick;
     private bool _disposed;
 
     /// <param name="accounts">The accounts of the hub's kind, read fresh whenever a feed reconciles.</param>
-    public DevFeedHub(string scope, Ticker ticker, Func<IReadOnlyList<DevAccount>> accounts)
+    /// <param name="savedDirectory">[S-747] Where feeds that ask for it keep their last answers; null for nowhere.</param>
+    public DevFeedHub(string scope, Ticker ticker, Func<IReadOnlyList<DevAccount>> accounts, string? savedDirectory = null)
     {
         _scope = scope;
         _ticker = ticker;
         _accounts = accounts;
+        _savedDirectory = savedDirectory;
+
+        if (savedDirectory is not null)
+        {
+            // Copies nobody has asked for in a week (a widget removed, a repository changed) go.
+            Write(() => Prune(savedDirectory));
+        }
     }
 
     private interface IFeed
@@ -168,6 +184,120 @@ internal sealed class DevFeedHub : IDisposable
         return null;
     }
 
+    // ---- [S-747] saved copies --------------------------------------------------------------------
+
+    /// <summary>The file a feed's answer for an account is saved in, or null when this hub saves nothing.</summary>
+    private string? SavedPath(string key, string accountId)
+        => _savedDirectory is null ? null : Path.Combine(_savedDirectory, DevSavedCopy.FileName(key, accountId));
+
+    /// <summary>
+    /// Queue a file operation behind the ones before it: one writer, in order, off the UI thread.
+    /// Each step logs its own failure, so the chain never faults.
+    /// </summary>
+    private void Write(Action step)
+        => _writes = _writes.ContinueWith(_ => step(), CancellationToken.None, TaskContinuationOptions.None, TaskScheduler.Default);
+
+    private void Save<T>(string key, string accountId, DateTimeOffset at, T value, JsonTypeInfo<T> contract)
+        where T : class
+    {
+        if (SavedPath(key, accountId) is not { } path)
+        {
+            return;
+        }
+
+        // Encoded here, on the UI thread that owns the value; only the text crosses to the writer.
+        string json;
+        try
+        {
+            json = DevSavedCopy.Encode(key, accountId, at, value, contract);
+        }
+        catch (Exception ex) when (ex is JsonException or NotSupportedException or InvalidOperationException)
+        {
+            Log.Error(_scope, "could not encode a saved copy", ex);
+            return;
+        }
+
+        Write(() => Themia.Core.Storage.ScreenTimeStore.WriteAtomic(path, json));
+    }
+
+    private void Forget(string key, string accountId)
+    {
+        if (SavedPath(key, accountId) is not { } path)
+        {
+            return;
+        }
+
+        Write(() =>
+        {
+            try
+            {
+                File.Delete(path);
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                Log.Warn(_scope, "could not remove a signed-out account's saved copy", ex);
+            }
+        });
+    }
+
+    private async Task<DevSaved<T>?> LoadAsync<T>(string key, string accountId, JsonTypeInfo<T> contract)
+        where T : class
+    {
+        if (SavedPath(key, accountId) is not { } path)
+        {
+            return null;
+        }
+
+        // Behind any write still queued, so a copy is never read while this process replaces it.
+        var pending = _writes;
+        return await Task.Run(async () =>
+        {
+            await pending.ConfigureAwait(false);
+
+            string json;
+            try
+            {
+                json = await File.ReadAllTextAsync(path).ConfigureAwait(false);
+            }
+            catch (Exception ex) when (ex is FileNotFoundException or DirectoryNotFoundException)
+            {
+                // ignore: nothing saved for this feed yet, the normal first run.
+                return null;
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                Log.Warn(_scope, "could not read a saved copy", ex);
+                return null;
+            }
+
+            return DevSavedCopy.Decode(json, key, accountId, contract, DateTimeOffset.UtcNow);
+        }).ConfigureAwait(true);
+    }
+
+    private void Prune(string directory)
+    {
+        try
+        {
+            if (!Directory.Exists(directory))
+            {
+                return;
+            }
+
+            var cutoff = DateTime.UtcNow - DevSavedCopy.MaxAge;
+            foreach (var file in Directory.EnumerateFiles(directory, "*.json"))
+            {
+                if (File.GetLastWriteTimeUtc(file) < cutoff)
+                {
+                    File.Delete(file);
+                }
+            }
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            Log.Warn(_scope, "could not prune old saved copies", ex);
+        }
+    }
+
     private void OnTick()
     {
         foreach (var feed in _feeds.Values.ToArray())
@@ -235,13 +365,21 @@ internal sealed class DevFeedHub : IDisposable
 
         public void Reconcile()
         {
-            var wanted = DevScreens.Targets(hub._accounts(), Spec.AccountIds, Spec.Single).Where(a => a.Problem is null).ToList();
+            var accounts = hub._accounts();
+            var wanted = DevScreens.Targets(accounts, Spec.AccountIds, Spec.Single, Spec.Anonymous).Where(a => a.Problem is null).ToList();
             var keep = new HashSet<string>(wanted.Select(a => a.Id), StringComparer.Ordinal);
 
             foreach (var id in _slots.Keys.Where(id => !keep.Contains(id)).ToList())
             {
                 _slots[id].Cancel();
                 _slots.Remove(id);
+
+                // [S-747] A signed-out account's lists do not stay on disk. One that only needs
+                // signing in again keeps its copy, as does the public one a sign-in replaced.
+                if (Spec.Saved is not null && id != DevScreens.AnonymousId && accounts.All(a => a.Id != id))
+                {
+                    hub.Forget(Spec.Key, id);
+                }
             }
 
             var added = false;
@@ -249,8 +387,14 @@ internal sealed class DevFeedHub : IDisposable
             {
                 if (!_slots.ContainsKey(account.Id))
                 {
-                    _slots[account.Id] = new Slot<TPart>(hub._scope, account.Id);
+                    var slot = new Slot<TPart>(hub._scope, account.Id);
+                    _slots[account.Id] = slot;
                     added = true;
+
+                    if (Spec.Saved is { } contract)
+                    {
+                        _ = RestoreAsync(slot, contract);
+                    }
                 }
             }
 
@@ -280,17 +424,43 @@ internal sealed class DevFeedHub : IDisposable
             }
         }
 
+        /// <summary>[S-747] Show the saved copy until the first answer arrives; never over one that already has.</summary>
+        private async Task RestoreAsync(Slot<TPart> slot, JsonTypeInfo<TPart> contract)
+        {
+            var saved = await hub.LoadAsync(Spec.Key, slot.AccountId, contract).ConfigureAwait(true);
+
+            if (saved is null || slot.Value is not null || !_slots.TryGetValue(slot.AccountId, out var current) || current != slot)
+            {
+                return;
+            }
+
+            slot.Value = saved.Value;
+            slot.At = saved.At;
+            slot.FromSaved = true;
+            Publish();
+        }
+
         private async Task RunAsync(Slot<TPart> slot)
         {
             slot.Busy = true;
             var token = slot.Token;
 
+            // [S-746] Without an account the shared hourly budget is small: never faster than the minimum.
+            var refresh = GitHubPolling.Cadence(Spec.Refresh, slot.AccountId == DevScreens.AnonymousId);
+
             try
             {
                 var part = await Spec.Fetch(slot.AccountId, token).ConfigureAwait(true);
+                var at = DateTimeOffset.UtcNow;
                 slot.Value = part.Value;
-                slot.At = DateTimeOffset.UtcNow;
-                slot.Record(FetchStatus.Ok, null, null, Spec.Refresh, part.PollInterval, hub.BlockedUntil(slot.AccountId, DateTimeOffset.UtcNow));
+                slot.At = at;
+                slot.FromSaved = false;
+                slot.Record(FetchStatus.Ok, null, null, refresh, part.PollInterval, hub.BlockedUntil(slot.AccountId, at));
+
+                if (Spec.Saved is { } contract)
+                {
+                    hub.Save(Spec.Key, slot.AccountId, at, part.Value, contract);
+                }
             }
             catch (OperationCanceledException) when (token.IsCancellationRequested)
             {
@@ -304,14 +474,14 @@ internal sealed class DevFeedHub : IDisposable
                     hub.Block(slot.AccountId, ex.RetryAt ?? DateTimeOffset.UtcNow + RateLimitRules.DefaultWait);
                 }
 
-                slot.Record(ex.ToFetchStatus(), Detail(ex), ex.RetryAt, Spec.Refresh, null, null);
+                slot.Record(ex.ToFetchStatus(), Detail(ex), ex.RetryAt, refresh, null, null);
             }
             catch (Exception ex) when (ex is HttpRequestException or IOException or InvalidOperationException or JsonException or ObjectDisposedException)
             {
                 // Should already be an AccountException; anything that slipped through is still one
                 // account's failure, never the desktop's.
                 Log.Error(hub._scope, $"unexpected failure reading {slot.AccountId}", ex);
-                slot.Record(FetchStatus.BadResponse, null, null, Spec.Refresh, null, null);
+                slot.Record(FetchStatus.BadResponse, null, null, refresh, null, null);
             }
             finally
             {
@@ -339,11 +509,13 @@ internal sealed class DevFeedHub : IDisposable
         {
             var parts = _slots.Values.Where(s => s.Value is not null).Select(s => s.Value!).ToList();
             var at = _slots.Values.Where(s => s.At is not null).Select(s => s.At!.Value).DefaultIfEmpty().Min();
+            var saved = _slots.Values.Where(s => s.FromSaved && s.At is not null).Select(s => s.At!.Value).DefaultIfEmpty().Min();
 
             Snapshot = new DevFeedSnapshot<TValue>(
                 parts.Count > 0 ? Spec.Combine(parts) : null,
                 [.. _slots.Values.Select(s => s.Outcome)],
-                at == default ? null : at);
+                at == default ? null : at,
+                saved == default ? null : saved);
 
             foreach (var handle in Handles.ToArray())
             {
@@ -374,6 +546,9 @@ internal sealed class DevFeedHub : IDisposable
         public TPart? Value { get; set; }
 
         public DateTimeOffset? At { get; set; }
+
+        /// <summary>[S-747] <see cref="Value"/> is the copy read from disk, and no refresh has replaced it yet.</summary>
+        public bool FromSaved { get; set; }
 
         public FetchStatus Status { get; private set; } = FetchStatus.Loading;
 

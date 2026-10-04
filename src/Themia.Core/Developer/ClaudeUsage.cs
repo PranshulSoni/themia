@@ -82,6 +82,48 @@ public enum UsageLabelSize
     Mini,
 }
 
+/// <summary>[S-793] Usage against the share of its window that has gone by.</summary>
+public enum UsagePace
+{
+    Under,
+    On,
+    Ahead,
+}
+
+/// <summary>[S-790] How a stacked layout spends the height its rows leave over.</summary>
+/// <param name="Bar">Bar thickness.</param>
+/// <param name="Value">The percentage's type step.</param>
+/// <param name="Gap">Space between rows.</param>
+/// <param name="Slack">Height still unspent, split above and below the rows.</param>
+public sealed record UsageSpread(double Bar, TypeStep Value, double Gap, double Slack);
+
+/// <summary>[S-794] Where the session gauge sits relative to the other bars.</summary>
+public enum UsageGaugePlace
+{
+    None,
+    Beside,
+    Above,
+}
+
+/// <summary>[S-794] Points on the session gauge: a 270° arc open at the bottom.</summary>
+public static class UsageGauge
+{
+    public const double StartDegrees = 135;
+    public const double SweepDegrees = 270;
+
+    /// <summary>The point at <paramref name="fraction"/> (0..1) of the arc, in screen coordinates (y down).</summary>
+    public static (double X, double Y) Point(double cx, double cy, double radius, double fraction)
+    {
+        var f = double.IsFinite(fraction) ? Math.Clamp(fraction, 0, 1) : 0;
+        var radians = (StartDegrees + (SweepDegrees * f)) * Math.PI / 180;
+        return (cx + (radius * Math.Cos(radians)), cy + (radius * Math.Sin(radians)));
+    }
+
+    /// <summary>Whether the arc from the start to <paramref name="fraction"/> is the long way round.</summary>
+    public static bool IsLargeArc(double fraction)
+        => double.IsFinite(fraction) && Math.Clamp(fraction, 0, 1) * SweepDegrees > 180;
+}
+
 /// <summary>One row of the widget, with its label at three widths.</summary>
 /// <param name="Short">Mid width: the qualifier only ("Session").</param>
 /// <param name="Mini">Narrowest: a few characters, still distinct between rows ("5h").</param>
@@ -257,6 +299,18 @@ public static class ClaudeUsageRules
         (UsageDensity.Tight, 16, 0, 6),
     ];
 
+    /// <summary>[S-794] The height <paramref name="rows"/> stacked rows need at a density, unspread.</summary>
+    public static double StackHeight(int rows, UsageDensity density)
+    {
+        if (rows <= 0)
+        {
+            return 0;
+        }
+
+        var budget = Budgets.FirstOrDefault(b => b.Density == density);
+        return (rows * (budget.Text + budget.Fixed)) + ((rows - 1) * RowGap(density));
+    }
+
     /// <summary>The space between rows at a density.</summary>
     public static double RowGap(UsageDensity density) => density switch
     {
@@ -304,7 +358,7 @@ public static class ClaudeUsageRules
     /// the bar and the percentage, so it has much less to spend than a stacked one. Unmeasured
     /// spells the label out; a measured zero is the narrowest.
     /// </summary>
-    public static UsageLabelSize LabelSize(IReadOnlyList<UsageBar> bars, double width, UsageDensity density)
+    public static UsageLabelSize LabelSize(IReadOnlyList<UsageBar> bars, double width, UsageDensity density, bool resetColumn = false)
     {
         ArgumentNullException.ThrowIfNull(bars);
 
@@ -318,6 +372,13 @@ public static class ClaudeUsageRules
 
         // The percentage column ("100%") and its gap; inline rows also hold a bar worth seeing.
         var reserve = FluentType.EstimateWidth(step, 4) + 8 + (stacked ? 0 : 48 + 8);
+
+        // [S-791] The reset column ("6d 23h") and its gap, on a strip that carries one.
+        if (resetColumn && !stacked)
+        {
+            reserve += FluentType.EstimateWidth(FluentType.Caption, 6) + 8;
+        }
+
         var room = width - reserve;
 
         foreach (var size in (UsageLabelSize[])[UsageLabelSize.Full, UsageLabelSize.Short])
@@ -330,6 +391,157 @@ public static class ClaudeUsageRules
 
         return UsageLabelSize.Mini;
     }
+
+    // ---- using the space (S-790..S-795) --------------------------------------------------------
+
+    /// <summary>The thinnest and thickest bar; the spread grows it in 2px steps.</summary>
+    public const double BarMin = 6;
+
+    public const double BarMax = 12;
+
+    /// <summary>The widest gap the spread opens between stacked rows; past it the rows are centred.</summary>
+    public const double GapMax = 24;
+
+    /// <summary>[S-791] A one-line row gets a reset column ("2h 9m") from this box width.</summary>
+    public const double ResetColumnNeedsWidth = 360;
+
+    /// <summary>[S-793] Within this many points of the elapsed share of a window, usage is on pace.</summary>
+    public const double PaceSlack = 5;
+
+    /// <summary>
+    /// [S-790] Spend the height a stacked density leaves over, in this order: a thicker bar (6 → 12),
+    /// then the percentage a step up (Body → Subtitle), then wider gaps up to <see cref="GapMax"/>.
+    /// What is still left is <see cref="UsageSpread.Slack"/>, for the view to centre the rows in.
+    /// One-line densities are returned unchanged: they are already the fallback for no room.
+    /// </summary>
+    public static UsageSpread Spread(double height, int rows, UsageDensity density)
+    {
+        var gap = RowGap(density);
+
+        if (density is not (UsageDensity.Full or UsageDensity.Compact) || rows <= 0 || !double.IsFinite(height))
+        {
+            return new UsageSpread(BarMin, FluentType.Body, gap, 0);
+        }
+
+        var budget = Budgets.First(b => b.Density == density);
+        var left = height - ((rows * (budget.Text + budget.Fixed)) + ((rows - 1) * gap));
+        var bar = BarMin;
+
+        while (bar < BarMax && left + 0.5 >= rows * 2)
+        {
+            bar += 2;
+            left -= rows * 2;
+        }
+
+        var value = FluentType.Body;
+        var grow = FluentType.Subtitle.LineHeight - FluentType.Body.LineHeight;
+
+        if (left + 0.5 >= rows * grow)
+        {
+            value = FluentType.Subtitle;
+            left -= rows * grow;
+        }
+
+        if (rows > 1 && left > 0)
+        {
+            var extra = Math.Min(GapMax - gap, left / (rows - 1));
+            if (extra > 0)
+            {
+                gap += extra;
+                left -= extra * (rows - 1);
+            }
+        }
+
+        return new UsageSpread(bar, value, gap, Math.Max(0, left));
+    }
+
+    /// <summary>[S-791] Whether one-line rows carry a reset column: a wide strip has the width for it.</summary>
+    public static bool ResetColumn(double width, UsageDensity density)
+        => density is UsageDensity.Tight or UsageDensity.Micro && double.IsFinite(width) && width >= ResetColumnNeedsWidth;
+
+    /// <summary>[S-793] A window's length: the session is five hours, every weekly window seven days.</summary>
+    public static TimeSpan WindowLength(UsageBar bar)
+    {
+        ArgumentNullException.ThrowIfNull(bar);
+        return bar.Key == "five_hour" ? TimeSpan.FromHours(5) : TimeSpan.FromDays(7);
+    }
+
+    /// <summary>
+    /// [S-793] How much of a window has gone by (0..1), derived from its reset time and fixed length.
+    /// Null when the window has no reset (nothing used yet), it has passed, or the length is unusable.
+    /// </summary>
+    public static double? Elapsed(TimeSpan length, DateTimeOffset? resetsAt, DateTimeOffset now)
+    {
+        if (resetsAt is not { } at || at <= now || length <= TimeSpan.Zero)
+        {
+            return null;
+        }
+
+        return Math.Clamp(1 - ((at - now) / length), 0, 1);
+    }
+
+    /// <summary>[S-793] Usage against the share of the window gone by.</summary>
+    public static UsagePace Pace(double percent, double elapsed)
+    {
+        var expected = Math.Clamp(elapsed, 0, 1) * 100;
+        return percent > expected + PaceSlack ? UsagePace.Ahead
+            : percent < expected - PaceSlack ? UsagePace.Under
+            : UsagePace.On;
+    }
+
+    public static string PaceText(UsagePace pace) => pace switch
+    {
+        UsagePace.Ahead => "ahead of pace",
+        UsagePace.Under => "under pace",
+        _ => "on pace",
+    };
+
+    /// <summary>
+    /// [S-793] When a window resets, on the viewer's clock: "14:20" today, "Thu 14:20" another day.
+    /// </summary>
+    public static string ResetClock(DateTimeOffset at, DateTimeOffset now, TimeZoneInfo viewer)
+    {
+        ArgumentNullException.ThrowIfNull(viewer);
+
+        var local = TimeZoneInfo.ConvertTime(at, viewer);
+        var today = TimeZoneInfo.ConvertTime(now, viewer);
+
+        return local.Date == today.Date
+            ? local.ToString("HH:mm", CultureInfo.InvariantCulture)
+            : local.ToString("ddd HH:mm", CultureInfo.InvariantCulture);
+    }
+
+    /// <summary>
+    /// [S-792] An XS tile with at most two bars shows the session as one large reading instead of two
+    /// micro rows: what a glance wants is "how much of my session is gone".
+    /// </summary>
+    public static bool SessionHero(WidgetArea area, int bars)
+        => area.IsMeasured && area.WidthClass == SizeClass.Compact && bars is > 0 and <= 2;
+
+    /// <summary>
+    /// [S-794] Where the session gauge goes, if anywhere: beside the weekly bars on a Huge-wide panel,
+    /// or on any Expanded panel when there are only one or two bars (stacked bars would leave most of
+    /// it empty); above the week in a tall column with one or two bars. Otherwise the plain stack.
+    /// </summary>
+    public static UsageGaugePlace GaugePlace(WidgetArea area, int bars)
+    {
+        if (bars < 1 || area.HeightClass < SizeClass.Expanded)
+        {
+            return UsageGaugePlace.None;
+        }
+
+        if ((area.WidthClass == SizeClass.Huge && bars >= 2) || (area.WidthClass >= SizeClass.Expanded && bars <= 2))
+        {
+            return UsageGaugePlace.Beside;
+        }
+
+        return area.Shape == AreaShape.Tall && area.WidthClass >= SizeClass.Regular && bars <= 2
+            ? UsageGaugePlace.Above
+            : UsageGaugePlace.None;
+    }
+
+    /// <summary>[S-795] The "Updated 3m ago" footer, from Regular height up.</summary>
+    public static bool Footer(WidgetArea area) => area.HeightClass >= SizeClass.Regular;
 
     public static string Label(UsageBar bar, UsageLabelSize size)
     {

@@ -13,6 +13,9 @@ public static class GitHubRules
 {
     private static readonly string[] MonthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
+    /// <summary>[S-744] Labels kept per issue: a row has room for two chips, the tooltip for the rest.</summary>
+    public const int MaxLabels = 5;
+
     // ---- repository references ---------------------------------------------------------------
 
     /// <summary>
@@ -102,6 +105,23 @@ public static class GitHubRules
             : string.Empty;
     }
 
+    /// <summary>
+    /// [S-749] The repository page an issue or pull request lives in, from its own page:
+    /// <c>…/owner/name/issues/12</c> → <c>…/owner/name</c>. Null when it is not that shape.
+    /// </summary>
+    public static string? RepoPageOf(string? itemHtmlUrl)
+    {
+        if (WebUrl(itemHtmlUrl) is not { } raw || !Uri.TryCreate(raw, UriKind.Absolute, out var url))
+        {
+            return null;
+        }
+
+        var parts = url.AbsolutePath.Split('/', StringSplitOptions.RemoveEmptyEntries);
+        return parts.Length >= 4 && parts[^2] is "issues" or "pull" or "pulls" && IsOwner(parts[^4]) && IsRepoName(parts[^3])
+            ? $"{url.Scheme}://{url.Authority}/{string.Join('/', parts[..^2])}"
+            : null;
+    }
+
     // ---- addresses -----------------------------------------------------------------------------
 
     /// <summary>The account's REST root as a base address ending in a slash, so relative paths append.</summary>
@@ -158,6 +178,9 @@ public static class GitHubRules
     /// <summary>[S-621] One thread, for <c>PATCH</c> (mark read). The id is provider data: escaped into one segment.</summary>
     public static Uri ThreadUrl(Uri api, string threadId) => new(api, $"notifications/threads/{Uri.EscapeDataString(threadId)}");
 
+    /// <summary>[S-748] Every notification of the account, for <c>PUT</c> (mark all read).</summary>
+    public static Uri AllNotificationsUrl(Uri api) => new(api, "notifications");
+
     /// <summary>[S-621] A repository's notifications, for <c>PUT</c> (mark all read).</summary>
     public static Uri RepoNotificationsUrl(Uri api, RepoRef repo) => new(api, $"repos/{Escape(repo)}/notifications");
 
@@ -202,8 +225,21 @@ public static class GitHubRules
             Math.Max(0, repo.OpenIssues ?? 0),
             string.IsNullOrWhiteSpace(repo.Language) ? null : repo.Language,
             repo.PushedAt,
-            string.IsNullOrWhiteSpace(repo.DefaultBranch) ? "main" : repo.DefaultBranch);
+            string.IsNullOrWhiteSpace(repo.DefaultBranch) ? "main" : repo.DefaultBranch,
+            FirstLine(repo.Description) is { Length: > 0 } description ? description : null);
     }
+
+    /// <summary>
+    /// [S-744] An issue's labels: named ones only, at most <see cref="MaxLabels"/>, the colour kept
+    /// only when it is GitHub's six hex digits (anything else draws neutral, never as given).
+    /// </summary>
+    public static IReadOnlyList<IssueLabel> ToLabels(List<GhLabel>? labels)
+        => [.. (labels ?? [])
+            .Where(l => l is { Name.Length: > 0 } && !string.IsNullOrWhiteSpace(l.Name))
+            .Select(l => new IssueLabel(
+                l.Name!.Trim(),
+                l.Color is { Length: 6 } color && color.All(char.IsAsciiHexDigit) ? color.ToUpperInvariant() : string.Empty))
+            .Take(MaxLabels)];
 
     /// <summary>[S-610] Where a run stands, from GitHub's two fields.</summary>
     public static RunState ToRunState(string? status, string? conclusion) => status switch
@@ -233,7 +269,7 @@ public static class GitHubRules
         => [.. (list?.Runs ?? [])
             .Where(r => r is not null)
             .Select(r => WebUrl(r.HtmlUrl) is { } html
-                ? new RunItem(r.Id ?? 0, string.IsNullOrWhiteSpace(r.Name) ? "Workflow" : r.Name.Trim(), ToRunState(r.Status, r.Conclusion), r.HeadBranch ?? string.Empty, r.CreatedAt, html)
+                ? new RunItem(r.Id ?? 0, string.IsNullOrWhiteSpace(r.Name) ? "Workflow" : r.Name.Trim(), ToRunState(r.Status, r.Conclusion), r.HeadBranch ?? string.Empty, r.CreatedAt, html, EventLabel(r.Event), r.Actor?.Login ?? string.Empty)
                 : null)
             .OfType<RunItem>()
             .Take(Math.Max(0, count))];
@@ -242,7 +278,7 @@ public static class GitHubRules
         => [.. (list ?? [])
             .Where(c => c is { Sha.Length: >= 7 })
             .Select(c => WebUrl(c.HtmlUrl) is { } html
-                ? new CommitItem(c.Sha![..7], FirstLine(c.Commit?.Message), html, c.Commit?.Author?.Date)
+                ? new CommitItem(c.Sha![..7], FirstLine(c.Commit?.Message), html, c.Commit?.Author?.Date, CommitAuthor(c))
                 : null)
             .OfType<CommitItem>()
             .Take(Math.Max(0, count))];
@@ -255,7 +291,7 @@ public static class GitHubRules
         => [.. (list ?? [])
             .Where(p => p is { Number: > 0, CreatedAt: not null })
             .Select(p => WebUrl(p.HtmlUrl) is { } html
-                ? new PullItem(p.Number!.Value, FirstLine(p.Title), ToPullState(p.State, p.MergedAt), p.Draft == true, html, p.CreatedAt!.Value)
+                ? new PullItem(p.Number!.Value, FirstLine(p.Title), ToPullState(p.State, p.MergedAt), p.Draft == true, html, p.CreatedAt!.Value, p.User?.Login ?? string.Empty)
                 : null)
             .OfType<PullItem>()];
 
@@ -285,19 +321,35 @@ public static class GitHubRules
     public static IReadOnlyList<IssueRow> ToIssues(List<GhIssue>? list, int count)
         => [.. (list ?? [])
             .Where(i => i is { Number: > 0, PullRequest: null })
-            .Select(i => WebUrl(i.HtmlUrl) is { } html ? new IssueRow(i.Number!.Value, FirstLine(i.Title), html, i.CreatedAt) : null)
+            .Select(i => WebUrl(i.HtmlUrl) is { } html
+                ? new IssueRow(i.Number!.Value, FirstLine(i.Title), html, i.CreatedAt, i.User?.Login ?? string.Empty, Math.Max(0, i.Comments ?? 0), ToLabels(i.Labels))
+                : null)
             .OfType<IssueRow>()
             .Take(Math.Max(0, count))];
 
     public static ReleaseItem? ToRelease(GhRelease? release)
-        => release is { TagName.Length: > 0 } && WebUrl(release.HtmlUrl) is { } html ? new ReleaseItem(release.TagName, html) : null;
+        => release is { TagName.Length: > 0 } && WebUrl(release.HtmlUrl) is { } html
+            ? new ReleaseItem(
+                release.TagName,
+                html,
+                FirstLine(release.Name) is { Length: > 0 } name && !string.Equals(name, release.TagName, StringComparison.Ordinal) ? name : string.Empty,
+                release.PublishedAt)
+            : null;
+
+    /// <summary>[S-744] Who a commit is by: the name in the commit, else the login GitHub matched it to.</summary>
+    private static string CommitAuthor(GhCommit commit)
+        => FirstLine(commit.Commit?.Author?.Name) is { Length: > 0 } name ? name : commit.Author?.Login ?? string.Empty;
+
+    /// <summary>[S-744] A run's trigger in words: <c>pull_request</c> → "pull request".</summary>
+    public static string EventLabel(string? trigger)
+        => string.IsNullOrWhiteSpace(trigger) ? string.Empty : trigger.Trim().Replace('_', ' ');
 
     /// <summary>[S-615][S-616] One account's search results.</summary>
     public static IReadOnlyList<SearchItem> ToSearchItems(string accountId, GhSearch? search)
         => [.. (search?.Items ?? [])
             .Where(i => i is { Number: > 0, UpdatedAt: not null })
             .Select(i => WebUrl(i.HtmlUrl) is { } html
-                ? new SearchItem(accountId, i.Number!.Value, FirstLine(i.Title), html, RepoFromRepositoryUrl(i.RepositoryUrl), i.UpdatedAt!.Value, i.Draft == true, i.User?.Login ?? string.Empty)
+                ? new SearchItem(accountId, i.Number!.Value, FirstLine(i.Title), html, RepoFromRepositoryUrl(i.RepositoryUrl), i.UpdatedAt!.Value, i.Draft == true, i.User?.Login ?? string.Empty, Math.Max(0, i.Comments ?? 0), ToLabels(i.Labels))
                 : null)
             .OfType<SearchItem>()];
 
@@ -483,6 +535,20 @@ public static class GitHubRules
     }
 
     // ---- text ----------------------------------------------------------------------------------
+
+    /// <summary>[S-743] A row's detail, "rosa · 4 comments": who opened it and how much it has been talked about; either half alone when the other is missing.</summary>
+    public static string ItemDetail(string? author, int comments)
+    {
+        var talk = comments switch
+        {
+            <= 0 => string.Empty,
+            1 => "1 comment",
+            _ => string.Create(CultureInfo.InvariantCulture, $"{comments} comments"),
+        };
+
+        var who = author?.Trim() ?? string.Empty;
+        return who.Length > 0 && talk.Length > 0 ? $"{who} · {talk}" : who.Length > 0 ? who : talk;
+    }
 
     /// <summary>
     /// [S-629] A count the way GitHub shows one: <c>999</c>, <c>1.2k</c>, <c>12k</c>, <c>3.4M</c>.

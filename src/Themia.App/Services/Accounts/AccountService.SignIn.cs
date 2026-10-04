@@ -26,16 +26,6 @@ internal sealed class DeviceSignIn
 /// <summary>A Claude sign-in in progress: the page to open, and what proves the pasted code is ours.</summary>
 internal sealed record ClaudeSignIn(Uri AuthorizeUrl, string State, string Verifier);
 
-/// <summary>What the classic app's file holds, before anything is imported.</summary>
-/// <param name="Path">The file, which is never written.</param>
-/// <param name="New">Accounts that are not here yet.</param>
-/// <param name="AlreadyHere">How many are already in this app (by id) and would be left as they are.</param>
-/// <param name="Skipped">Entries that cannot be imported, and why.</param>
-internal sealed record ClassicPreview(string Path, IReadOnlyList<ClassicAccount> New, int AlreadyHere, IReadOnlyList<string> Skipped);
-
-/// <summary>How an import went.</summary>
-internal sealed record ImportOutcome(int Imported, IReadOnlyList<string> Notes);
-
 /// <summary>Signing in: one method pair per provider, each verifying before anything is saved.</summary>
 internal sealed partial class AccountService
 {
@@ -522,120 +512,6 @@ internal sealed partial class AccountService
             SealedPassword = Dpapi.Seal(password),
             AddedAt = Now,
         }, cancellation).ConfigureAwait(false);
-    }
-
-    // -----------------------------------------------------------------------------------------
-    // Import from classic Themia
-    // -----------------------------------------------------------------------------------------
-
-    /// <summary>The classic app's account file: <c>%APPDATA%\com.themia.desktop\email_accounts.json</c>.</summary>
-    public static string ClassicPath => System.IO.Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-        ClassicAccounts.FolderName,
-        ClassicAccounts.FileName);
-
-    /// <summary>
-    /// [S-538] What an import would bring over, or null when there is no classic file. Reads the file
-    /// and nothing else: it is never written, moved or deleted.
-    /// </summary>
-    public async Task<ClassicPreview?> PreviewClassicAsync(CancellationToken cancellation = default)
-    {
-        string json;
-        try
-        {
-            if (!File.Exists(ClassicPath))
-            {
-                return null;
-            }
-
-            // Shared read: the classic app may be running and holding it.
-            await using var stream = new FileStream(ClassicPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
-            using var reader = new StreamReader(stream);
-            json = await reader.ReadToEndAsync(cancellation).ConfigureAwait(false);
-        }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-        {
-            Log.Warn(Scope, "the classic account file could not be read", ex);
-            return new ClassicPreview(ClassicPath, [], 0, [$"The file could not be read: {ex.Message}"]);
-        }
-
-        var parsed = ClassicAccounts.Parse(json, Now);
-        var here = _accounts.Select(a => a.Id).ToHashSet(StringComparer.Ordinal);
-        var fresh = parsed.Accounts.Where(a => !here.Contains(a.Account.Id)).ToList();
-
-        return new ClassicPreview(ClassicPath, fresh, parsed.Accounts.Count - fresh.Count, parsed.Skipped);
-    }
-
-    /// <summary>
-    /// Bring the classic accounts over: each secret opened (the classic app sealed for this same
-    /// Windows user) and sealed afresh. A secret that will not open is said so, and the account comes
-    /// over marked "sign in again" rather than being dropped. Accounts already here are left alone.
-    /// </summary>
-    public async Task<ImportOutcome> ImportClassicAsync(CancellationToken cancellation = default)
-    {
-        var preview = await PreviewClassicAsync(cancellation).ConfigureAwait(false)
-            ?? throw new AccountException(AccountError.NotFound, "There is no classic Themia account file on this PC.");
-
-        var notes = new List<string>(preview.Skipped);
-        var imported = new List<Account>();
-
-        foreach (var classic in preview.New)
-        {
-            var account = classic.Account with
-            {
-                SealedAccessToken = Reseal(classic.AccessToken, classic.Account, "token", notes),
-                SealedRefreshToken = Reseal(classic.RefreshToken, classic.Account, "sign-in", notes),
-                SealedPassword = Reseal(classic.Password, classic.Account, "password", notes),
-            };
-
-            imported.Add(account);
-        }
-
-        if (imported.Count > 0)
-        {
-            await MutateAsync(list =>
-            {
-                foreach (var account in imported)
-                {
-                    // Checked again under the gate: an account added since the preview wins.
-                    if (!list.Any(a => a.Id == account.Id))
-                    {
-                        list.Add(account);
-                    }
-                }
-            }, userAction: true, cancellation).ConfigureAwait(false);
-
-            foreach (var account in imported)
-            {
-                Diagnose(account);
-            }
-
-            RaiseChanged();
-        }
-
-        if (preview.AlreadyHere > 0)
-        {
-            notes.Add($"{preview.AlreadyHere} already in Themia, left as they are");
-        }
-
-        Log.Info(Scope, $"imported {imported.Count} account(s) from the classic app; {notes.Count} note(s)");
-        return new ImportOutcome(imported.Count, notes);
-    }
-
-    private static string? Reseal(string? classicValue, Account account, string what, List<string> notes)
-    {
-        var opened = Dpapi.Open(classicValue);
-
-        switch (opened.State)
-        {
-            case SecretState.Absent:
-                return null;
-            case SecretState.Open or SecretState.Plaintext when opened.Value is { Length: > 0 } value:
-                return Dpapi.Seal(value);
-            default:
-                notes.Add($"{account.Address}: the {what} could not be read, so it will need signing in again");
-                return null;
-        }
     }
 
     // -----------------------------------------------------------------------------------------

@@ -202,14 +202,7 @@ public class ResponsiveLayoutTests
         Assert.Equal(1, EmptyStateFit.LineBudget(5, 20));
     }
 
-    [Theory]
-    [InlineData(0, MeterHistory.MinimumWindow)]
-    [InlineData(120, MeterHistory.MinimumWindow)]
-    [InlineData(320, 53)]
-    [InlineData(800, 133)]
-    [InlineData(5000, MeterHistory.Capacity)]
-    public void S664_a_wider_chart_spans_more_history(double width, int expected)
-        => Assert.Equal(expected, MeterHistory.Window(width));
+    // The chart's window now comes from the span setting: see MeterFrameworkTests (S-1121).
 
     [Fact]
     public void S664_the_summary_ignores_gaps_and_is_null_when_empty()

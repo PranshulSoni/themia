@@ -18,14 +18,21 @@ internal static partial class WidgetSettings
         AddPlacePicker(rows, config, save);
 
         rows.Add(FluentLayout.Header("Forecast"));
+        AddWeatherDisplay(rows, config, save);
 
-        rows.Add(FluentLayout.Row(Glyphs.Weather, "Units", "Celsius or Fahrenheit",
+        // [S-724] Auto follows the tile: columns on a strip, rows otherwise.
+        rows.Add(FluentLayout.Row(Glyphs.ListLayout, "Layout", "How the days are arranged",
             FluentLayout.Choice(
-                [(TemperatureUnit.Celsius, "Celsius"), (TemperatureUnit.Fahrenheit, "Fahrenheit")],
-                config.Unit,
-                value => { config.Unit = value; save(); })));
+                [
+                    (ForecastLayout.Auto, "Automatic"),
+                    (ForecastLayout.Rows, "Rows"),
+                    (ForecastLayout.Columns, "Columns"),
+                    (ForecastLayout.Grid, "Grid"),
+                ],
+                config.Layout,
+                value => { config.Layout = value; save(); })));
 
-        rows.Add(FluentLayout.Row(Glyphs.Forecast, "Show precipitation",
+        rows.Add(FluentLayout.Row(Glyphs.Droplet, "Show precipitation",
             "The day's total rain or snow, where there is any",
             FluentLayout.Toggle(config.ShowPrecipitation, value => { config.ShowPrecipitation = value; save(); })));
 

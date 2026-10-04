@@ -17,7 +17,8 @@ public enum MailAccountState
 }
 
 /// <summary>How one account's part of a feed last went.</summary>
-public sealed record MailAccountOutcome(string AccountId, MailAccountState State, FetchStatus Status, string? Detail);
+/// <param name="Folder">[S-1285] The folder's total and unread counts as the account last reported them, or null.</param>
+public sealed record MailAccountOutcome(string AccountId, MailAccountState State, FetchStatus Status, string? Detail, MailFolderStatus? Folder = null);
 
 /// <summary>
 /// [S-546] What a widget asks the mail service for. Two widgets asking the same thing share one feed

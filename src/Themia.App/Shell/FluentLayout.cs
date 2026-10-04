@@ -1,6 +1,9 @@
+using CommunityToolkit.WinUI.Controls;
 using Microsoft.UI;
 using Microsoft.UI.Text;
 using Microsoft.UI.Xaml;
+using Microsoft.UI.Xaml.Automation;
+using Microsoft.UI.Xaml.Automation.Peers;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
 using Themia.App.Widgets;
@@ -10,19 +13,26 @@ using Themia.Core.Widgets;
 namespace Themia.App.Shell;
 
 /// <summary>
-/// A hand-rolled equivalent of the Community Toolkit's settings card, built from stock Fluent theme
-/// resources.
+/// The vocabulary every settings page is written in, drawn exactly as Windows 11's Settings app
+/// draws it. [S-1540]
 /// <para>
-/// Rolled by hand rather than taken from the toolkit purely to keep the dependency surface at one
-/// package: every extra assembly is more for the AOT compiler to root, and a settings row is a
-/// border with two text blocks.
+/// A row is the Community Toolkit's <see cref="SettingsCard"/> — the control Settings itself is
+/// built from — with the header icon, title, secondary-text description and control on the right,
+/// the card fill and stroke, hover and press, and the wrap under the title when the window is
+/// narrow. Groups of related rows are a <see cref="SettingsExpander"/>. Section headings are
+/// BodyStrong, 30 above and 6 below; cards sit 4 apart.
 /// </para>
 /// <para>
 /// This is the whole vocabulary a settings page gets: a <see cref="Header"/>, a <see cref="Row"/>
 /// and the handful of controls that go in one. Everything a widget's settings page wants to draw is
 /// here rather than in the page, because thirty pages each inventing their own list editor, their
 /// own refusal message and their own confirmation dialog is how they drifted apart in the first
-/// place. A page that needs a shape that is not here adds it here.
+/// place — and because restyling this file restyles every page at once, including pages written
+/// after it. A page that needs a shape that is not here adds it here.
+/// </para>
+/// <para>
+/// Every row is also registered for the window's "Find a setting" box (see <see cref="SettingRow"/>),
+/// so anything built through these helpers is searchable without being listed anywhere.
 /// </para>
 /// </summary>
 internal static class FluentLayout
@@ -30,18 +40,20 @@ internal static class FluentLayout
     private const string Scope = "layout";
 
     /// <summary>
-    /// The marker that sends a row to the bottom of the page.
-    /// <para>
-    /// A row built with <see cref="DangerRow"/> destroys something the user cannot get back, and the
-    /// page hoists every one of them into its own section under the last heading — so a destructive
-    /// action is never sitting between two switches where a stray click finds it.
-    /// </para>
+    /// The narrowest a drop-down on a settings card is, so a column of them lines up on the card
+    /// edge instead of each being as wide as whatever it happens to show.
     /// </summary>
-    private const string DangerMark = "themia.danger";
+    public const double ChoiceMinWidth = 200;
 
-    /// <summary>A settings row: icon, title, optional description, and a control on the right.</summary>
-    public static Border Row(string glyph, string title, string? description, FrameworkElement control)
-        => Card(RowContent(GlyphIcon(glyph), title, description, control));
+    /// <summary>
+    /// A settings row: icon, title, optional description, and a control on the right.
+    /// </summary>
+    /// <param name="keywords">
+    /// Words that should find this row in search without being on it ("dark mode" for a theme
+    /// row). A drop-down's own options are added automatically.
+    /// </param>
+    public static Border Row(string glyph, string title, string? description, FrameworkElement control, params string[] keywords)
+        => Wrap(Card(GlyphIcon(glyph), title, description, control), title, description, control, keywords);
 
     /// <summary>
     /// A settings row whose icon is a picture rather than a glyph — a company's mark on the About
@@ -50,144 +62,220 @@ internal static class FluentLayout
     public static Border Row(FrameworkElement icon, string title, string? description, FrameworkElement control)
     {
         ArgumentNullException.ThrowIfNull(icon);
-        icon.VerticalAlignment = VerticalAlignment.Center;
-        icon.Margin = new Thickness(0, 0, Fluent.Space4, 0);
-        return Card(RowContent(icon, title, description, control));
+        return Wrap(Card(PictureIcon(icon), title, description, control), title, description, control, []);
     }
 
     /// <summary>
-    /// A row that is itself the button — "open the config file" — with an arrow on the right saying
-    /// that it leaves this window, the shape Windows Settings uses for a link to elsewhere.
+    /// A row that is itself the button and leaves this window — "open the config file", "open the
+    /// website" — with Windows' open-in-new-window mark on the right.
     /// </summary>
-    public static Button ClickRow(string glyph, string title, string? description, Action onClick)
+    public static Border ClickRow(string glyph, string title, string? description, Action onClick)
+        => ActionRow(glyph, title, description, onClick, new FontIcon { Glyph = Glyphs.OpenExternal, FontSize = 14 });
+
+    /// <summary>
+    /// A row that is itself the button and goes to another page of this window — a view's widget,
+    /// the accounts page — with the chevron Settings puts on a card that drills in.
+    /// </summary>
+    public static Border NavRow(string glyph, string title, string? description, Action onClick)
+        => ActionRow(glyph, title, description, onClick, actionIcon: null);
+
+    private static Border ActionRow(string glyph, string title, string? description, Action onClick, IconElement? actionIcon)
     {
         ArgumentNullException.ThrowIfNull(onClick);
 
-        var arrow = new FontIcon { Glyph = Glyphs.OpenExternal, FontSize = Fluent.IconSize - 4 };
+        var card = Card(GlyphIcon(glyph), title, description, control: null);
+        card.IsClickEnabled = true;
 
-        var button = new Button
+        if (actionIcon is not null)
         {
-            Content = RowContent(GlyphIcon(glyph), title, description, arrow),
-            HorizontalAlignment = HorizontalAlignment.Stretch,
-            HorizontalContentAlignment = HorizontalAlignment.Stretch,
-            Padding = new Thickness(Fluent.Space4, Fluent.Space3, Fluent.Space4, Fluent.Space3),
-            CornerRadius = new CornerRadius(Fluent.ControlRadius),
-            BorderThickness = new Thickness(Fluent.Hairline),
-        };
-
-        // The stock button, re-filled as a settings card: the same fill and stroke as every row
-        // around it at rest, and a control's hover fill under the pointer.
-        void Set(string key, string brush, Windows.UI.Color fallback) => button.Resources[key] = Themed(brush, fallback);
-        Set("ButtonBackground", "CardBackgroundFillColorDefaultBrush", Colors.Transparent);
-        Set("ButtonBackgroundPointerOver", "ControlFillColorSecondaryBrush", Colors.Transparent);
-        Set("ButtonBackgroundPressed", "ControlFillColorTertiaryBrush", Colors.Transparent);
-        Set("ButtonBorderBrush", "CardStrokeColorDefaultBrush", Colors.Gray);
-        Set("ButtonBorderBrushPointerOver", "CardStrokeColorDefaultBrush", Colors.Gray);
-        Set("ButtonBorderBrushPressed", "CardStrokeColorDefaultBrush", Colors.Gray);
-
-        button.Click += (_, _) => onClick();
-        Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(button, title);
-        return button;
-    }
-
-    private static FontIcon GlyphIcon(string glyph) => new()
-    {
-        Glyph = glyph,
-        FontSize = Fluent.IconSize,
-        VerticalAlignment = VerticalAlignment.Center,
-        Margin = new Thickness(0, 0, Fluent.Space4, 0),
-    };
-
-    /// <summary>The inside of a row: icon, the title over its description, and the control.</summary>
-    private static Grid RowContent(FrameworkElement icon, string title, string? description, FrameworkElement control)
-    {
-        var text = new StackPanel { VerticalAlignment = VerticalAlignment.Center, Spacing = 2 };
-        text.Children.Add(new TextBlock { Text = title, TextWrapping = TextWrapping.Wrap });
-
-        if (!string.IsNullOrWhiteSpace(description))
-        {
-            text.Children.Add(new TextBlock
-            {
-                Text = description,
-                FontSize = 12,
-                Opacity = 0.65,
-                TextWrapping = TextWrapping.Wrap,
-            });
+            card.ActionIcon = actionIcon;
         }
 
-        Grid.SetColumn(text, 1);
-        Grid.SetColumn(icon, 0);
-
-        control.HorizontalAlignment = HorizontalAlignment.Right;
-        control.VerticalAlignment = VerticalAlignment.Center;
-        control.Margin = new Thickness(Fluent.Space4, 0, 0, 0);
-        Grid.SetColumn(control, 2);
-
-        var grid = new Grid
+        card.Click += (_, _) =>
         {
-            ColumnDefinitions =
+            try
             {
-                new ColumnDefinition { Width = GridLength.Auto },
-                new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) },
-                new ColumnDefinition { Width = GridLength.Auto },
-            },
-            Children = { icon, text, control },
+                onClick();
+            }
+            catch (Exception ex)
+            {
+                // A row's click runs the page's code; nothing it throws may reach the window.
+                Log.Error(Scope, $"'{title}' failed", ex);
+            }
         };
 
-        return grid;
+        return Wrap(card, title, description, null, []);
     }
 
     /// <summary>
-    /// The card a settings row sits in: the padding, radius, fill and stroke every surface on a
-    /// settings page shares.
-    /// <para>
-    /// Public because the list editor's item cards are the same card. Five widgets had each written
-    /// this border out by hand and two of them had already drifted on the thickness.
-    /// </para>
+    /// A group of related rows that fold under one header, as Settings folds "Choose your mode" and
+    /// its friends. The header row may carry its own control (a master switch); the folded rows are
+    /// built with <see cref="Row"/> as usual and are searched like any other row.
     /// </summary>
-    public static Border Card(FrameworkElement child) => new()
+    public static Border Expander(
+        string glyph,
+        string title,
+        string? description,
+        FrameworkElement? control,
+        IReadOnlyList<Border> rows,
+        bool expanded = false)
     {
-        Child = child,
-        Padding = new Thickness(Fluent.Space4, Fluent.Space3, Fluent.Space4, Fluent.Space3),
-        CornerRadius = new CornerRadius(Fluent.ControlRadius),
-        Background = Themed("CardBackgroundFillColorDefaultBrush", Colors.Transparent),
-        BorderBrush = Themed("CardStrokeColorDefaultBrush", Colors.Gray),
-        BorderThickness = new Thickness(Fluent.Hairline),
-    };
+        ArgumentNullException.ThrowIfNull(rows);
 
-    /// <summary>A group heading above a run of rows.</summary>
-    public static TextBlock Header(string text) => new()
-    {
-        Text = text,
-        FontWeight = FontWeights.SemiBold,
-        Margin = new Thickness(0, Fluent.Space3, 0, 0),
-    };
-
-    /// <summary>A plain line of explanation between rows, in the tertiary text colour.</summary>
-    public static TextBlock Note(string text) => new()
-    {
-        Text = text,
-        FontSize = 12,
-        TextWrapping = TextWrapping.Wrap,
-        Foreground = Themed("TextFillColorTertiaryBrush", Colors.Gray),
-        Margin = new Thickness(Fluent.Space4, Fluent.Space1, Fluent.Space4, Fluent.Space2),
-    };
-
-    public static ToggleSwitch Toggle(bool value, Action<bool> onChanged)
-    {
-        // MinWidth 0 matters: the default ToggleSwitch style reserves about 150px for on/off
-        // content. With that content cleared the knob stayed at the left of the reserved block, so
-        // every switch sat visibly short of the right edge that the combo boxes and sliders lined
-        // up against.
-        var toggle = new ToggleSwitch
+        var expander = new SettingsExpander
         {
-            IsOn = value,
-            OnContent = null,
-            OffContent = null,
-            MinWidth = 0,
-            HorizontalAlignment = HorizontalAlignment.Right,
+            Header = title,
+            HeaderIcon = GlyphIcon(glyph),
+            IsExpanded = expanded,
         };
 
+        if (!string.IsNullOrWhiteSpace(description))
+        {
+            expander.Description = description;
+        }
+
+        if (control is not null)
+        {
+            expander.Content = control;
+        }
+
+        var nested = new List<SettingRow>();
+
+        foreach (var row in rows)
+        {
+            // The expander lays out cards, not frames: take the card out of its frame and keep the
+            // frame's record of it for search.
+            if (SettingRow.Of(row) is { } setting && row.Child is SettingsCard card)
+            {
+                row.Child = null;
+                setting.Parent = expander;
+                nested.Add(setting);
+                expander.Items.Add(card);
+            }
+            else
+            {
+                expander.Items.Add(row);
+            }
+        }
+
+        return new Border { Child = expander, Tag = new SettingRow(title, description, control) { Card = expander, Nested = nested } };
+    }
+
+    /// <summary>
+    /// [S-1549] A colour setting: the shared swatch button and its Windows 11-style picker. Every
+    /// colour in the settings is one of these — never a hex box. <paramref name="onChanged"/> gets
+    /// <c>#RRGGBB</c>, or empty for the default when <see cref="ColorChoiceOptions.DefaultLabel"/> is set.
+    /// </summary>
+    public static Border ColorPickerRow(
+        string glyph,
+        string title,
+        string? description,
+        string? value,
+        Action<string> onChanged,
+        ColorChoiceOptions? options = null)
+        => Row(glyph, title, description, ColorChoice.Create(value, onChanged, options, title), "colour", "color picker");
+
+    /// <summary>The card itself. Its own method so every row is built the same way.</summary>
+    private static SettingsCard Card(IconElement icon, string title, string? description, FrameworkElement? control)
+    {
+        var card = new SettingsCard
+        {
+            Header = title,
+            HeaderIcon = icon,
+        };
+
+        if (!string.IsNullOrWhiteSpace(description))
+        {
+            card.Description = description;
+        }
+
+        if (control is not null)
+        {
+            card.Content = control;
+
+            // A switch reads its row's title, so a screen reader says "Start with Windows, on"
+            // rather than "toggle switch, on".
+            if (string.IsNullOrEmpty(AutomationProperties.GetName(control)))
+            {
+                AutomationProperties.SetName(control, title);
+            }
+        }
+
+        return card;
+    }
+
+    private static Border Wrap(Control card, string title, string? description, FrameworkElement? control, string[] keywords)
+        => new() { Child = card, Tag = new SettingRow(title, description, control) { Card = card, Keywords = keywords } };
+
+    private static FontIcon GlyphIcon(string glyph) => new() { Glyph = glyph };
+
+    /// <summary>A picture in the icon slot: an image becomes an image icon, an icon stays itself.</summary>
+    private static IconElement PictureIcon(FrameworkElement picture) => picture switch
+    {
+        IconElement icon => icon,
+        Image { Source: { } source } image => new ImageIcon { Source = source, Width = image.Width, Height = image.Height },
+        _ => new FontIcon { Glyph = Glyphs.Info },
+    };
+
+    /// <summary>
+    /// A card that is not a settings row: a list item, a sign-in flow, a preview. The same fill,
+    /// stroke, radius and height as the rows around it, from the theme, so it follows light and dark.
+    /// </summary>
+    public static Border Card(FrameworkElement child)
+    {
+        var border = new Border { Child = child };
+        ApplyStyle(border, "SettingsCardBorderStyle");
+        return border;
+    }
+
+    /// <summary>
+    /// A section heading above a run of rows: BodyStrong, 30 above and 6 below, as Settings spaces
+    /// them. Marked, so search knows which section a row sits under.
+    /// </summary>
+    public static TextBlock Header(string text)
+    {
+        var heading = new TextBlock { Text = text, Tag = SettingsIndex.SectionMark };
+        ApplyStyle(heading, "SettingsSectionHeaderTextBlockStyle");
+        AutomationProperties.SetHeadingLevel(heading, AutomationHeadingLevel.Level2);
+        return heading;
+    }
+
+    /// <summary>Whether an element is a section heading built by <see cref="Header"/>.</summary>
+    public static bool IsHeader(FrameworkElement element)
+        => element is TextBlock { Tag: string mark } && mark == SettingsIndex.SectionMark;
+
+    /// <summary>A plain line of explanation between rows, in the secondary text colour.</summary>
+    public static TextBlock Note(string text)
+    {
+        var note = new TextBlock { Text = text };
+        ApplyStyle(note, "SettingsNoteTextBlockStyle");
+        return note;
+    }
+
+    /// <summary>
+    /// A named style from App.xaml. Styles carry ThemeResource brushes that follow the window's own
+    /// theme; a missing one is a typo worth a log line, and the element keeps the defaults.
+    /// </summary>
+    public static void ApplyStyle(FrameworkElement element, string key)
+    {
+        ArgumentNullException.ThrowIfNull(element);
+
+        if (Application.Current.Resources.TryGetValue(key, out var value) && value is Style style)
+        {
+            element.Style = style;
+            return;
+        }
+
+        Log.Warn(Scope, $"style '{key}' missing from App.xaml");
+    }
+
+    /// <summary>
+    /// A switch, drawn as Settings draws it inside a card: "On" / "Off" to the left of the knob,
+    /// the whole thing flush with the card's right edge (the toolkit card's own switch style).
+    /// </summary>
+    public static ToggleSwitch Toggle(bool value, Action<bool> onChanged)
+    {
+        var toggle = new ToggleSwitch { IsOn = value };
         toggle.Toggled += (_, _) => onChanged(toggle.IsOn);
         return toggle;
     }
@@ -195,7 +283,7 @@ internal static class FluentLayout
     public static ComboBox Choice<T>(IReadOnlyList<(T Value, string Label)> options, T selected, Action<T> onChanged)
         where T : struct
     {
-        var combo = new ComboBox { MinWidth = 150 };
+        var combo = new ComboBox { MinWidth = ChoiceMinWidth };
 
         foreach (var (value, label) in options)
         {
@@ -230,8 +318,10 @@ internal static class FluentLayout
             Text = $"{value:0}{unit}",
             VerticalAlignment = VerticalAlignment.Center,
             MinWidth = 44,
-            Opacity = 0.7,
+            TextAlignment = TextAlignment.Right,
         };
+
+        ApplyStyle(readout, "SettingsDescriptionTextBlockStyle");
 
         var slider = new Slider
         {
@@ -253,8 +343,50 @@ internal static class FluentLayout
         {
             Orientation = Orientation.Horizontal,
             Spacing = Fluent.Space2,
-            Children = { slider, readout },
+            Children = { readout, slider },
         };
+    }
+
+    /// <summary>
+    /// A whole-number box with up/down buttons and no upper bound, for a count a slider would cap
+    /// ([S-1276]). Typed text that is not a number is overwritten with the last good value; a number
+    /// under <paramref name="min"/> becomes <paramref name="min"/>. The buttons step by
+    /// <paramref name="step"/>.
+    /// </summary>
+    public static NumberBox Stepper(int value, int min, int step, Action<int> onChanged)
+    {
+        var box = new NumberBox
+        {
+            Value = Math.Max(min, value),
+            Minimum = min,
+            SmallChange = step,
+            LargeChange = step * 5,
+            SpinButtonPlacementMode = NumberBoxSpinButtonPlacementMode.Inline,
+            ValidationMode = NumberBoxValidationMode.InvalidInputOverwritten,
+            MinWidth = 140,
+            VerticalAlignment = VerticalAlignment.Center,
+        };
+
+        box.ValueChanged += (_, args) =>
+        {
+            if (double.IsNaN(args.NewValue))
+            {
+                // Cleared: the last good value goes back in, rather than a count of nothing.
+                box.Value = double.IsNaN(args.OldValue) ? min : args.OldValue;
+                return;
+            }
+
+            var whole = (int)Math.Clamp(Math.Round(args.NewValue), min, int.MaxValue);
+            if (whole != args.NewValue)
+            {
+                box.Value = whole;
+                return;
+            }
+
+            onChanged(whole);
+        };
+
+        return box;
     }
 
     // ---------------------------------------------------------------------------------------
@@ -392,14 +524,12 @@ internal static class FluentLayout
     /// <summary>A row whose action cannot be undone. The page puts every one of these last.</summary>
     public static Border DangerRow(string glyph, string title, string? description, FrameworkElement control)
     {
-        var row = Row(glyph, title, description, control);
-        row.Tag = DangerMark;
-        return row;
+        var card = Card(GlyphIcon(glyph), title, description, control);
+        return new Border { Child = card, Tag = new SettingRow(title, description, control) { Card = card, IsDanger = true } };
     }
 
     /// <summary>Whether a row belongs in the page's danger section.</summary>
-    public static bool IsDanger(FrameworkElement element)
-        => element is Border { Tag: string mark } && mark == DangerMark;
+    public static bool IsDanger(FrameworkElement element) => SettingRow.Of(element) is { IsDanger: true };
 
     /// <summary>
     /// A destructive row: a button that asks first, the same way everywhere.
@@ -559,13 +689,7 @@ internal static class FluentLayout
 
             if (options.Items.Count == 0)
             {
-                host.Children.Add(new TextBlock
-                {
-                    Text = options.EmptyText,
-                    TextWrapping = TextWrapping.Wrap,
-                    Foreground = Themed("TextFillColorTertiaryBrush", Colors.Gray),
-                    Margin = new Thickness(0, Fluent.Space1, 0, Fluent.Space1),
-                });
+                host.Children.Add(Note(options.EmptyText));
             }
 
             for (var index = 0; index < options.Items.Count; index++)

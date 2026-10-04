@@ -28,6 +28,12 @@ internal static unsafe partial class PowerStatus
     /// <summary>ERROR_MORE_DATA: the buffer was too small, and the required size came back in the size.</summary>
     private const uint MoreData = 234;
 
+    /// <summary>ERROR_NO_MORE_ITEMS: the end of an enumeration.</summary>
+    private const uint NoMoreItems = 259;
+
+    /// <summary>ACCESS_SCHEME: enumerate the schemes themselves.</summary>
+    private const uint AccessScheme = 16;
+
     /// <summary>
     /// A friendly name longer than this is a scheme somebody has been creative with. Capped so a
     /// hostile registry value cannot make the widget allocate without bound; the display rule caps
@@ -120,6 +126,80 @@ internal static unsafe partial class PowerStatus
     }
 
     /// <summary>
+    /// [S-1249] Every power plan on the machine, by friendly name, with the active one marked — the
+    /// read-only list the largest power tile shows. Empty when the scheme list cannot be read; a
+    /// scheme whose name cannot be read is skipped rather than listed blank.
+    /// </summary>
+    public static IReadOnlyList<PowerPlanEntry> Plans()
+    {
+        var plans = new List<PowerPlanEntry>();
+        Guid active = default;
+        nint scheme = 0;
+
+        try
+        {
+            if (PowerGetActiveScheme(0, &scheme) == Success && scheme != 0)
+            {
+                active = *(Guid*)scheme;
+            }
+        }
+        finally
+        {
+            if (scheme != 0)
+            {
+                LocalFree(scheme);
+            }
+        }
+
+        // A machine has a handful of schemes; the cap only stops a corrupt registry from looping.
+        for (uint index = 0; index < 32; index++)
+        {
+            Guid guid;
+            var size = (uint)sizeof(Guid);
+            var listed = PowerEnumerate(0, null, null, AccessScheme, index, (byte*)&guid, &size);
+
+            if (listed == NoMoreItems)
+            {
+                break;
+            }
+
+            if (listed != Success)
+            {
+                NotePlanFailure(listed, "could not list the power plans");
+                break;
+            }
+
+            if (PowerRules.PlanDisplayName(FriendlyName(&guid)) is { } name)
+            {
+                plans.Add(new PowerPlanEntry(name, guid == active));
+            }
+        }
+
+        return plans;
+    }
+
+    /// <summary>One scheme's friendly name, sized then read, or null.</summary>
+    private static string? FriendlyName(Guid* scheme)
+    {
+        uint bytes = 0;
+        var sized = PowerReadFriendlyName(0, (nint)scheme, 0, 0, null, &bytes);
+
+        if (sized is not (Success or MoreData) || bytes == 0 || bytes > MaxNameBytes)
+        {
+            return null;
+        }
+
+        var buffer = new byte[bytes];
+
+        fixed (byte* target = buffer)
+        {
+            return PowerReadFriendlyName(0, (nint)scheme, 0, 0, target, &bytes) == Success
+                ? new string((char*)target, 0, (int)(bytes / sizeof(char))).TrimEnd('\0')
+                : null;
+        }
+    }
+
+    /// <summary>
     /// Log a plan-read failure once rather than once per tick. A machine whose power registry is
     /// locked down answers identically forever.
     /// </summary>
@@ -157,6 +237,19 @@ internal static unsafe partial class PowerStatus
         byte* buffer,
         uint* bufferSize);
 
+    [LibraryImport("powrprof.dll")]
+    private static partial uint PowerEnumerate(
+        nint rootPowerKey,
+        Guid* schemeGuid,
+        Guid* subGroupOfPowerSettingsGuid,
+        uint accessFlags,
+        uint index,
+        byte* buffer,
+        uint* bufferSize);
+
     [LibraryImport("kernel32.dll")]
     private static partial nint LocalFree(nint mem);
 }
+
+/// <summary>One power plan, by name, and whether it is the active one.</summary>
+internal readonly record struct PowerPlanEntry(string Name, bool Active);

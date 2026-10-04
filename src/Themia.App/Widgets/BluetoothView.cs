@@ -14,7 +14,7 @@ namespace Themia.App.Widgets;
 /// <summary>
 /// The paired Bluetooth devices, as a Windows 11 list.
 /// <para>
-/// Built to sit next to the Bluetooth page in Settings: a 40px list row, the Body step for the
+/// Built to sit next to the Bluetooth page in Settings: a Fluent list row, the Body step for the
 /// device name, a 16px Segoe glyph chosen by what the device is, and no rule between rows. The row
 /// carries the 16px inset as its own padding, so the highlight under the pointer reaches both card
 /// edges the way a row's does.
@@ -24,20 +24,23 @@ namespace Themia.App.Widgets;
 /// other window, with no confirmation and no undo, is the wrong place to drop a headset mid-call.
 /// </para>
 /// <para>
-/// Every empty list says which empty list it is. A machine with no radio, one with the radio off
-/// and one with nothing paired are three different facts, and rendering all three as a blank tile
-/// throws away the only useful thing the widget knew.
+/// <b>Ladder</b> ([S-1254], <see cref="BluetoothLayout"/>): every whole row the tile has, up to the
+/// ceiling; the status word from 260 px; a second line (kind · state · battery · signal) on tall
+/// tiles; a battery bar from 400 px; "2 connected" in the header and two columns on the largest.
+/// Every empty list says which empty list it is.
 /// </para>
 /// </summary>
-internal sealed partial class BluetoothView : Grid, IWidgetView, IWidgetHeaderContent
+internal sealed partial class BluetoothView : Grid, IWidgetView, IWidgetHeaderContent, IWidgetSizeAware, IWidgetSurfaceAware, IWidgetContextActions
 {
     private const string Scope = "bluetooth";
 
-    /// <summary>Below this the connection word is dropped and the dot carries the state alone.</summary>
-    private const double StatusWordMinimumWidth = 260;
-
     /// <summary>The connection dot's diameter. Fluent's smallest meaningful mark.</summary>
     private const double DotSize = Fluent.Space2;
+
+    /// <summary>The battery bar: a short track, the height of Fluent's progress bar.</summary>
+    private const double BarWidth = 40;
+
+    private const double BarHeight = 4;
 
     // Segoe Fluent Icons code points this view needs beyond the shared table.
     private static readonly string[] KindGlyphs =
@@ -54,9 +57,10 @@ internal sealed partial class BluetoothView : Grid, IWidgetView, IWidgetHeaderCo
 
     private readonly TextBlock _count = new();
     private readonly Border _badge;
+    private readonly TextBlock _summary = Fluent.Text(FluentType.Caption, "TextFillColorSecondaryBrush");
     private readonly ProgressRing _busy = new();
     private readonly StackPanel _trailing;
-    private readonly StackPanel _list = new() { Spacing = 0 };
+    private readonly Grid _columns = new();
     private readonly ScrollViewer _scroll;
     private readonly TextBlock _message;
     private readonly Border _messageHost;
@@ -67,6 +71,8 @@ internal sealed partial class BluetoothView : Grid, IWidgetView, IWidgetHeaderCo
 
     private readonly Brush _connectedBrush = FluentLayout.Themed("AccentFillColorDefaultBrush", Colors.DodgerBlue);
     private readonly Brush _pairedBrush = FluentLayout.Themed("TextFillColorDisabledBrush", Colors.Gray);
+    private readonly Brush _trackBrush = FluentLayout.Themed("ControlStrongFillColorDisabledBrush", Colors.Gray);
+    private readonly Brush _lowBrush = FluentLayout.Themed("SystemFillColorCriticalBrush", Colors.Red);
 
     private Ticker? _ticker;
     private BluetoothConfig _config = new();
@@ -74,13 +80,14 @@ internal sealed partial class BluetoothView : Grid, IWidgetView, IWidgetHeaderCo
     /// <summary>
     /// [S-13a] A copy of the settings this view last acted on, which is what a change is measured
     /// against. Not <c>_config</c>: the settings page edits the live config object in place, so by
-    /// the time a change arrives the "previous" config already holds the new values, and comparing
-    /// the two found no difference — a new address or place stayed unfetched until the next tick.
+    /// the time a change arrives the "previous" config already holds the new values.
     /// </summary>
     private BluetoothConfig _applied = new();
     private IDisposable? _subscription;
     private TimeSpan _subscribedInterval = TimeSpan.Zero;
     private CancellationTokenSource? _inFlight;
+    private WidgetArea _area;
+    private bool _preview;
 
     private BluetoothSnapshot _snapshot = BluetoothSnapshot.Of(BluetoothStatus.Loading);
 
@@ -90,13 +97,10 @@ internal sealed partial class BluetoothView : Grid, IWidgetView, IWidgetHeaderCo
     /// </summary>
     private int _generation;
 
-    private bool _statusWords = true;
     private bool _detached;
 
     public BluetoothView()
     {
-        RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
-
         _busy.Width = 14;
         _busy.Height = 14;
         _busy.IsActive = false;
@@ -106,20 +110,25 @@ internal sealed partial class BluetoothView : Grid, IWidgetView, IWidgetHeaderCo
         _badge.Visibility = Visibility.Collapsed;
         _badge.Margin = new Thickness(0, 0, Fluent.Space2, 0);
 
-        // Both sit in the card header's trailing slot: the ring while a pass is out, the count once
-        // one has landed. A panel rather than swapping the slot's child, so neither has to know
-        // about the other. Built here because the card reads it once, when it builds the header.
+        _summary.Visibility = Visibility.Collapsed;
+        _summary.VerticalAlignment = VerticalAlignment.Center;
+        _summary.Margin = new Thickness(0, 0, Fluent.Space2, 0);
+
+        // All sit in the card header's trailing slot: the ring while a pass is out, the count (or,
+        // on a large tile, "2 connected") once one has landed. Built here because the card reads it
+        // once, when it builds the header.
         _trailing = new StackPanel
         {
             Orientation = Orientation.Horizontal,
             VerticalAlignment = VerticalAlignment.Center,
-            Children = { _badge, _busy },
+            Children = { _summary, _badge, _busy },
         };
 
         _scroll = new ScrollViewer
         {
-            Content = _list,
+            Content = _columns,
             Padding = WidgetLayout.ListInset,
+            VerticalAlignment = VerticalAlignment.Top,
             HorizontalScrollMode = ScrollMode.Disabled,
             HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
             VerticalScrollBarVisibility = ScrollBarVisibility.Hidden,
@@ -140,12 +149,20 @@ internal sealed partial class BluetoothView : Grid, IWidgetView, IWidgetHeaderCo
 
         Children.Add(_scroll);
         Children.Add(_messageHost);
-
-        SizeChanged += OnSizeChanged;
     }
 
     /// <inheritdoc />
     public FrameworkElement? HeaderTrailing => _trailing;
+
+    /// <inheritdoc />
+    public void Bind(IWidgetSurface surface) => _preview = surface.IsPreview;
+
+    /// <inheritdoc />
+    public IReadOnlyList<WidgetAction> ContextActions =>
+    [
+        // [S-1259] The original's "Refresh": enumerate now rather than at the next tick.
+        new WidgetAction(Glyphs.Refresh, "Refresh", Reload),
+    ];
 
     public void Attach(Ticker ticker, WidgetConfig config)
     {
@@ -161,10 +178,10 @@ internal sealed partial class BluetoothView : Grid, IWidgetView, IWidgetHeaderCo
         _config = next;
         _applied = (BluetoothConfig)next.Clone();
 
-        // Only the one field that changes what comes off the radio is worth a re-enumeration.
+        // Only the fields that change what comes off the radio are worth a re-enumeration.
         // Everything else redraws what is already in hand: dragging the row-count slider must not
         // fire a GATT pass per frame.
-        var needsRead = previous.ShowBattery != next.ShowBattery;
+        var needsRead = previous.ShowBattery != next.ShowBattery || previous.ShowSignal != next.ShowSignal;
 
         // Subscribing fires a tick of its own, which reads with the new config already in place.
         if (Resubscribe())
@@ -180,6 +197,13 @@ internal sealed partial class BluetoothView : Grid, IWidgetView, IWidgetHeaderCo
         {
             Render();
         }
+    }
+
+    /// <inheritdoc />
+    public void ApplySize(WidgetArea area)
+    {
+        _area = area;
+        Render();
     }
 
     /// <summary>
@@ -213,24 +237,33 @@ internal sealed partial class BluetoothView : Grid, IWidgetView, IWidgetHeaderCo
             return;
         }
 
+#if DEBUG
+        // [S-1258] The gallery's sample list, for preview cards only.
+        if (_preview && Shell.Gallery.BluetoothFixture.Snapshot is { } fixture)
+        {
+            _snapshot = fixture;
+            Render();
+            return;
+        }
+#endif
+
         // The previous pass is now for a configuration nobody is looking at.
         _inFlight?.Cancel();
 
         var cts = new CancellationTokenSource();
         _inFlight = cts;
         var generation = ++_generation;
-        var withBattery = _config.ShowBattery;
 
-        _ = LoadAsync(withBattery, generation, cts);
+        _ = LoadAsync(_config.ShowBattery, _config.ShowSignal, generation, cts);
     }
 
-    private async Task LoadAsync(bool withBattery, int generation, CancellationTokenSource cts)
+    private async Task LoadAsync(bool withBattery, bool withSignal, int generation, CancellationTokenSource cts)
     {
         try
         {
             SetBusy(true);
 
-            var snapshot = await BluetoothInventory.ReadAsync(withBattery, cts.Token).ConfigureAwait(true);
+            var snapshot = await BluetoothInventory.ReadAsync(withBattery, withSignal, cts.Token).ConfigureAwait(true);
 
             // A late reply from a pass the widget has moved on from. Discarded rather than drawn.
             if (_detached || generation != _generation)
@@ -278,46 +311,36 @@ internal sealed partial class BluetoothView : Grid, IWidgetView, IWidgetHeaderCo
         _busy.Visibility = busy ? Visibility.Visible : Visibility.Collapsed;
     }
 
-    private void OnSizeChanged(object sender, SizeChangedEventArgs args)
-    {
-        var wanted = args.NewSize.Width >= StatusWordMinimumWidth;
-
-        if (wanted == _statusWords)
-        {
-            // The rows still change height at the density breakpoint even when the columns do not.
-            ApplyDensity();
-            return;
-        }
-
-        _statusWords = wanted;
-        Render();
-    }
-
     /// <summary>
-    /// Draw the snapshot in hand. Every state with no rows says which state it is: a blank tile is
-    /// indistinguishable from a broken one, and each of these needs a different thing from whoever
-    /// is reading it.
+    /// Draw the snapshot in hand at the size in hand. Every state with no rows says which state it
+    /// is: a blank tile is indistinguishable from a broken one.
     /// </summary>
     private void Render()
     {
+        if (_detached)
+        {
+            return;
+        }
+
         ClearRows();
 
         List<BluetoothDeviceEntry> devices = _snapshot.Status == BluetoothStatus.Ok
             ? BluetoothRules.Arrange(_snapshot.Devices, _config.ConnectedOnly, _config.EffectiveMaxCount)
             : [];
 
-        var connected = 0;
+        var connected = devices.Count(device => device.Connected);
 
-        foreach (var device in devices)
-        {
-            if (device.Connected)
-            {
-                connected++;
-            }
-        }
+        // The list's own height: the slot less the list's top and bottom padding.
+        var inset = WidgetLayout.ListInset;
+        var listHeight = Math.Max(0, _area.Height - inset.Top - inset.Bottom);
+        var plan = BluetoothLayout.Plan(_area, listHeight, devices.Count);
 
+        // [S-1255] "2 connected" in words where the header has room; the bare count elsewhere.
+        var summary = plan.Summary ? BluetoothRules.ConnectedSummary(connected) : null;
+        _summary.Text = summary ?? string.Empty;
+        _summary.Visibility = summary is null ? Visibility.Collapsed : Visibility.Visible;
         _count.Text = connected.ToString(System.Globalization.CultureInfo.InvariantCulture);
-        _badge.Visibility = connected > 0 ? Visibility.Visible : Visibility.Collapsed;
+        _badge.Visibility = connected > 0 && summary is null ? Visibility.Visible : Visibility.Collapsed;
 
         if (devices.Count == 0)
         {
@@ -331,36 +354,36 @@ internal sealed partial class BluetoothView : Grid, IWidgetView, IWidgetHeaderCo
         _messageHost.Visibility = Visibility.Collapsed;
         _scroll.Visibility = Visibility.Visible;
 
-        foreach (var device in devices)
+        // Two columns fill the first before the second, each as tall as the tile allows.
+        var perColumn = plan.Columns == 2
+            ? Math.Max(plan.VisibleRows, (devices.Count + 1) / 2)
+            : devices.Count;
+
+        _columns.ColumnDefinitions.Clear();
+
+        for (var c = 0; c < plan.Columns; c++)
         {
-            _list.Children.Add(BuildRow(device));
+            _columns.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            var column = new StackPanel { Spacing = 0 };
+            SetColumn(column, c);
+            _columns.Children.Add(column);
+
+            foreach (var device in devices.Skip(c * perColumn).Take(perColumn))
+            {
+                column.Children.Add(BuildRow(device, plan));
+            }
         }
 
-        ApplyDensity();
+        // [S-1254] The list shows whole rows only: snapped to the rows that fit, the rest a scroll
+        // away, so no row is ever cut through its middle at the card's foot.
+        var rows = Math.Min(perColumn, plan.VisibleRows);
+        _scroll.Height = _area.IsMeasured && perColumn > plan.VisibleRows
+            ? (rows * plan.RowHeight) + inset.Top + inset.Bottom
+            : double.NaN;
     }
 
-    private FrameworkElement BuildRow(BluetoothDeviceEntry device)
+    private Border BuildRow(BluetoothDeviceEntry device, BluetoothRowPlan plan)
     {
-        var icon = Fluent.Icon(
-            KindGlyphs[(int)device.Kind],
-            device.Connected ? "TextFillColorPrimaryBrush" : "TextFillColorSecondaryBrush");
-
-        icon.Margin = new Thickness(0, 0, Fluent.Space3, 0);
-
-        var name = Fluent.Text(FluentType.Body);
-        name.Text = device.Name;
-
-        // The dot is a colour from the theme, never a literal: accent for connected, the disabled
-        // text colour for merely paired, both of which follow light and dark.
-        var dot = new Ellipse
-        {
-            Width = DotSize,
-            Height = DotSize,
-            Fill = device.Connected ? _connectedBrush : _pairedBrush,
-            VerticalAlignment = VerticalAlignment.Center,
-            Margin = new Thickness(Fluent.Space2, 0, 0, 0),
-        };
-
         var grid = new Grid
         {
             ColumnDefinitions =
@@ -370,43 +393,132 @@ internal sealed partial class BluetoothView : Grid, IWidgetView, IWidgetHeaderCo
                 new ColumnDefinition { Width = GridLength.Auto },
                 new ColumnDefinition { Width = GridLength.Auto },
                 new ColumnDefinition { Width = GridLength.Auto },
+                new ColumnDefinition { Width = GridLength.Auto },
             },
         };
 
-        SetColumn(icon, 0);
-        SetColumn(name, 1);
-        grid.Children.Add(icon);
-        grid.Children.Add(name);
+        // [S-1257] The kind icon is the original's "type" metric: optional.
+        if (_config.ShowIcon)
+        {
+            var icon = Fluent.Icon(
+                KindGlyphs[(int)device.Kind],
+                device.Connected ? "TextFillColorPrimaryBrush" : "TextFillColorSecondaryBrush");
+
+            icon.Margin = new Thickness(0, 0, Fluent.Space3, 0);
+            SetColumn(icon, 0);
+            grid.Children.Add(icon);
+        }
+
+        // On a two-line row the facts go under the name, except the ones a wide row has its own
+        // column for: a battery bar reads better than "80%" buried in a sentence.
+        var batteryColumn = _config.ShowBattery && plan.BatteryColumn && (!plan.TwoLine || plan.BatteryBar);
+        var signalColumn = _config.ShowSignal && plan.SignalColumn && (!plan.TwoLine || plan.BatteryBar);
+
+        var name = Fluent.Text(FluentType.Body);
+        name.Text = device.Name;
+
+        if (plan.TwoLine)
+        {
+            var detail = Fluent.Text(FluentType.Caption, "TextFillColorSecondaryBrush");
+            detail.Text = BluetoothRules.DetailLine(device, _config.ShowConnection, _config.ShowBattery && !batteryColumn, _config.ShowSignal && !signalColumn);
+
+            var stack = new StackPanel { VerticalAlignment = VerticalAlignment.Center, Children = { name, detail } };
+            SetColumn(stack, 1);
+            grid.Children.Add(stack);
+        }
+        else
+        {
+            SetColumn(name, 1);
+            grid.Children.Add(name);
+        }
 
         // Only when the device actually reported one. A column of blanks down the list is worse
         // than no column, and "--" would read as a battery at zero.
-        if (_config.ShowBattery && BluetoothRules.BatteryLabel(device.BatteryPercent) is { } battery)
+        if (batteryColumn && BluetoothRules.BatteryLabel(device.BatteryPercent) is { } battery && device.BatteryPercent is { } percent)
         {
-            var level = Detail(battery);
+            FrameworkElement level = plan.BatteryBar ? BatteryWithBar(percent, battery) : Detail(battery);
             SetColumn(level, 2);
             grid.Children.Add(level);
         }
 
-        if (_statusWords)
+        if (signalColumn && BluetoothRules.SignalLabel(device.SignalDbm) is { } signal)
         {
-            var state = Detail(BluetoothRules.ConnectionLabel(device.Connected));
-            SetColumn(state, 3);
-            grid.Children.Add(state);
+            var strength = Detail(signal);
+            SetColumn(strength, 3);
+            grid.Children.Add(strength);
         }
 
-        SetColumn(dot, 4);
-        grid.Children.Add(dot);
+        if (_config.ShowConnection)
+        {
+            if (plan.StatusWord)
+            {
+                var state = Detail(BluetoothRules.ConnectionLabel(device.Connected));
+                SetColumn(state, 4);
+                grid.Children.Add(state);
+            }
+
+            // The dot is a colour from the theme, never a literal: accent for connected, the
+            // disabled text colour for merely paired, both of which follow light and dark.
+            var dot = new Ellipse
+            {
+                Width = DotSize,
+                Height = DotSize,
+                Fill = device.Connected ? _connectedBrush : _pairedBrush,
+                VerticalAlignment = VerticalAlignment.Center,
+                Margin = new Thickness(Fluent.Space2, 0, 0, 0),
+            };
+
+            SetColumn(dot, 5);
+            grid.Children.Add(dot);
+        }
 
         var row = Fluent.Row(grid);
+        row.MinHeight = plan.RowHeight;
+        row.Height = plan.RowHeight;
         _hovers.Add(Fluent.Hover(row));
 
-        // The connection state in words for a reader who cannot see the dot, and the battery
-        // alongside it, on a surface that has room for neither.
-        ToolTipService.SetToolTip(row, BluetoothRules.BatteryLabel(device.BatteryPercent) is { } percent
-            ? $"{device.Name} · {BluetoothRules.ConnectionLabel(device.Connected)} · {percent}"
-            : $"{device.Name} · {BluetoothRules.ConnectionLabel(device.Connected)}");
+        // Everything the row knows, in words, for a reader who cannot see the dot or the bar.
+        ToolTipService.SetToolTip(row, $"{device.Name} · {BluetoothRules.DetailLine(device, true, true, true)}");
 
         return row;
+    }
+
+    /// <summary>
+    /// [S-1254] The battery as a short level bar beside its percentage, on a row wide enough to
+    /// carry both. The bar turns critical at 20% and below, like the system tray's.
+    /// </summary>
+    private StackPanel BatteryWithBar(int percent, string label)
+    {
+        var fill = new Rectangle
+        {
+            Width = BarWidth * Math.Clamp(percent, 0, 100) / 100.0,
+            Height = BarHeight,
+            RadiusX = BarHeight / 2,
+            RadiusY = BarHeight / 2,
+            Fill = percent <= 20 ? _lowBrush : _connectedBrush,
+            HorizontalAlignment = HorizontalAlignment.Left,
+        };
+
+        var track = new Grid
+        {
+            Width = BarWidth,
+            Height = BarHeight,
+            CornerRadius = new CornerRadius(BarHeight / 2),
+            Background = _trackBrush,
+            VerticalAlignment = VerticalAlignment.Center,
+            Children = { fill },
+        };
+
+        var text = Detail(label);
+        text.MinWidth = 32;
+
+        return new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            VerticalAlignment = VerticalAlignment.Center,
+            Margin = new Thickness(Fluent.Space2, 0, 0, 0),
+            Children = { track, text },
+        };
     }
 
     /// <summary>
@@ -419,27 +531,10 @@ internal sealed partial class BluetoothView : Grid, IWidgetView, IWidgetHeaderCo
         block.Text = text;
         block.TextAlignment = TextAlignment.Right;
         block.Margin = new Thickness(Fluent.Space2, 0, 0, 0);
+        block.VerticalAlignment = VerticalAlignment.Center;
 
         Microsoft.UI.Xaml.Documents.Typography.SetNumeralAlignment(block, FontNumeralAlignment.Tabular);
         return block;
-    }
-
-    /// <summary>
-    /// Switch the rows between the standard and compact heights. A short tile shows fewer rows at
-    /// the right height rather than the same rows squeezed — rows sized to the tile are the single
-    /// clearest tell of a web table.
-    /// </summary>
-    private void ApplyDensity()
-    {
-        var compact = ActualHeight > 0 && ActualHeight < Fluent.CompactBelow;
-
-        foreach (var child in _list.Children)
-        {
-            if (child is Border row)
-            {
-                Fluent.SetDensity(row, compact);
-            }
-        }
     }
 
     /// <summary>Drop the rows and, with them, their hover handlers.</summary>
@@ -451,14 +546,13 @@ internal sealed partial class BluetoothView : Grid, IWidgetView, IWidgetHeaderCo
         }
 
         _hovers.Clear();
-        _list.Children.Clear();
+        _columns.Children.Clear();
     }
 
     public void Detach()
     {
         _detached = true;
 
-        SizeChanged -= OnSizeChanged;
         ClearRows();
 
         _subscription?.Dispose();

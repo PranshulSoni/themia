@@ -11,6 +11,26 @@ public enum GalleryLayout
 
     /// <summary>As many tiles as the card has room for.</summary>
     Grid = 1,
+
+    /// <summary>[S-764] Prints dropped on a table: random place, size and tilt per picture.</summary>
+    Scatter = 2,
+
+    /// <summary>[S-765] The card cut into rectangles of varied size, one picture each, no gaps.</summary>
+    Mosaic = 3,
+}
+
+/// <summary>[S-760] Where the pictures come from. A closed set.</summary>
+[JsonConverter(typeof(JsonStringEnumConverter<GallerySource>))]
+public enum GallerySource
+{
+    /// <summary>The pictures in a folder (and, optionally, the folders below it).</summary>
+    Folder = 0,
+
+    /// <summary>One picture file.</summary>
+    File = 1,
+
+    /// <summary>Bing's photo of the day. Needs no setup.</summary>
+    Bing = 2,
 }
 
 /// <summary>What a picture does with a frame that is not its shape.</summary>
@@ -25,7 +45,7 @@ public enum GalleryFit
 }
 
 /// <summary>
-/// Pictures from a folder on this PC.
+/// Pictures from a folder on this PC, one picture file, or Bing's photo of the day.
 /// <para>
 /// An empty <see cref="Path"/> means <b>no folder chosen</b>, and the widget says so. It
 /// deliberately does not fall back to the Pictures library the way the folder widget falls back to
@@ -48,11 +68,30 @@ public sealed class GalleryConfig : WidgetConfig
     /// </summary>
     public const int MaxImageCount = 60;
 
+    /// <summary>[S-772] The rescan cadences offered, in minutes. The original's set.</summary>
+    public static IReadOnlyList<int> RefreshChoices { get; } = [5, 15, 30, 60];
+
     [JsonIgnore]
     public override WidgetKind Kind => WidgetKind.Gallery;
 
+    /// <summary>[S-760] Where the pictures come from.</summary>
+    public GallerySource Source { get; set; } = GallerySource.Folder;
+
     /// <summary>The folder to show. Empty means none has been chosen yet.</summary>
     public string Path { get; set; } = string.Empty;
+
+    /// <summary>[S-761] The one picture the <see cref="GallerySource.File"/> source shows. Empty means none chosen.</summary>
+    public string FilePath { get; set; } = string.Empty;
+
+    /// <summary>[S-763] Show the photo of the day's title and credit under it. Bing only.</summary>
+    public bool ShowCaption { get; set; } = true;
+
+    /// <summary>
+    /// [S-772] How often the source is read again, in minutes. Snapped to
+    /// <see cref="RefreshChoices"/> by <see cref="TickInterval"/>, so a hand-edited value cannot
+    /// turn a photo library into a once-a-second directory walk.
+    /// </summary>
+    public int RefreshMinutes { get; set; } = 60;
 
     /// <summary>Include pictures in folders below this one.</summary>
     public bool Recursive { get; set; }
@@ -87,13 +126,42 @@ public sealed class GalleryConfig : WidgetConfig
     /// The rescan cadence. A folder changes when something writes to it, which no timer can know, so
     /// this is a slow backstop rather than the refresh: walking a directory tree is disk work and
     /// doing it often on a photo library is the widget nobody can explain the fan noise about.
+    /// "Refresh images" on the widget's menu is the way to see a change now.
     /// </summary>
     [JsonIgnore]
-    public TimeSpan TickInterval => TimeSpan.FromMinutes(5);
+    public TimeSpan TickInterval => TimeSpan.FromMinutes(EffectiveRefreshMinutes);
+
+    /// <summary>[S-772] <see cref="RefreshMinutes"/>, or the nearest offered cadence when it is not one.</summary>
+    [JsonIgnore]
+    public int EffectiveRefreshMinutes
+    {
+        get
+        {
+            var best = RefreshChoices[^1];
+
+            foreach (var choice in RefreshChoices)
+            {
+                if (Math.Abs(choice - RefreshMinutes) < Math.Abs(best - RefreshMinutes))
+                {
+                    best = choice;
+                }
+            }
+
+            return best;
+        }
+    }
+
+    /// <summary>[S-762] File and Bing show one picture full-bleed; the layouts are a folder's.</summary>
+    [JsonIgnore]
+    public bool IsSingleSource => Source != GallerySource.Folder;
 
     public override WidgetConfig Clone() => new GalleryConfig
     {
+        Source = Source,
         Path = Path,
+        FilePath = FilePath,
+        ShowCaption = ShowCaption,
+        RefreshMinutes = RefreshMinutes,
         Recursive = Recursive,
         Layout = Layout,
         Fit = Fit,

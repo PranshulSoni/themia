@@ -20,7 +20,7 @@ internal enum SecretState
     /// </summary>
     Unreadable,
 
-    /// <summary>Stored as plain text (only the classic app's oldest builds did this).</summary>
+    /// <summary>Stored as plain text: never written by this app, so it is refused.</summary>
     Plaintext,
 }
 
@@ -29,15 +29,14 @@ internal readonly record struct OpenedSecret(SecretState State, string? Value);
 
 /// <summary>
 /// [S-525] Secrets at rest: DPAPI for the current Windows user (<c>CryptProtectData</c>), in the
-/// classic app's <c>dpapi:v1:</c> envelope.
+/// <c>dpapi:v1:</c> envelope.
 /// <para>
-/// CurrentUser scope with no extra entropy, exactly as the classic app sealed them, which is what lets
-/// an import open its tokens. The bytes are tied to this user on this PC: <c>accounts.json</c> copied
-/// elsewhere, or read by another account here, gives up nothing.
+/// CurrentUser scope with no extra entropy. The bytes are tied to this user on this PC:
+/// <c>accounts.json</c> copied elsewhere, or read by another account here, gives up nothing.
 /// </para>
 /// <para>
-/// Sealing never falls back to plain text — the classic app did, "rather than lose the secret", and
-/// that is how a token ends up on disk in the clear. A failure here throws and nothing is written.
+/// Sealing never falls back to plain text: that is how a token ends up on disk in the clear. A
+/// failure here throws and nothing is written.
 /// </para>
 /// </summary>
 internal static partial class Dpapi

@@ -196,14 +196,14 @@ public class MailImapTests
     }
 
     [Fact]
-    public void S555_message_ids_round_trip_and_read_older_shapes()
+    public void S555_message_ids_round_trip()
     {
         Assert.Equal("inbox|12|1", new ImapMessageId(MailFolder.Inbox, 12, 1).ToString());
         Assert.Equal(new ImapMessageId(MailFolder.Inbox, 12, 1), ImapMessageId.Parse("inbox|12|1"));
         Assert.Equal(new ImapMessageId(MailFolder.Sent, 42, 7788), ImapMessageId.Parse("sentitems|42|7788"));
         Assert.Equal(new ImapMessageId(MailFolder.Deleted, 7, null), ImapMessageId.Parse("deleteditems|7"));
-        Assert.Equal(new ImapMessageId(MailFolder.Inbox, 99, null), ImapMessageId.Parse("99"));
 
+        Assert.Null(ImapMessageId.Parse("99"));
         Assert.Null(ImapMessageId.Parse("sentitems|notanumber"));
         Assert.Null(ImapMessageId.Parse("notanumber"));
         Assert.Null(ImapMessageId.Parse("inbox|12|notanumber"));

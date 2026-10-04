@@ -25,11 +25,46 @@ public sealed class OneDriveConfig : WidgetConfig
 
     public DriveStart StartIn { get; set; } = DriveStart.Recent;
 
-    /// <summary>How many items to load, 5 to 50.</summary>
+    /// <summary>
+    /// [S-1292] How many items to load at least, 5 to 50. A tile with room for more whole rows loads
+    /// that many instead (up to <see cref="MaxFiles"/>), so a big widget is never half empty.
+    /// </summary>
     public int FileCount { get; set; } = 15;
+
+    /// <summary>[S-1291] Whether a file opens on a single or a double click.</summary>
+    public ClickMode ClickMode { get; set; } = ClickMode.Double;
 
     [JsonIgnore]
     public int EffectiveFileCount => Math.Clamp(FileCount, MinFiles, MaxFiles);
+
+    /// <summary>[S-1292] What to fetch for a tile that holds <paramref name="rowsThatFit"/> whole rows.</summary>
+    public int FetchCount(int rowsThatFit) => Math.Clamp(Math.Max(FileCount, rowsThatFit), MinFiles, MaxFiles);
+
+    /// <summary>Bring every value back inside its range.</summary>
+    public override IReadOnlyList<string> Repair()
+    {
+        var repairs = new List<string>();
+
+        if (FileCount != EffectiveFileCount)
+        {
+            repairs.Add($"OneDrive widget count {FileCount} was out of range");
+            FileCount = EffectiveFileCount;
+        }
+
+        if (!Enum.IsDefined(StartIn))
+        {
+            repairs.Add("OneDrive widget had an unknown start");
+            StartIn = DriveStart.Recent;
+        }
+
+        if (!Enum.IsDefined(ClickMode))
+        {
+            repairs.Add("OneDrive widget had an unknown click mode");
+            ClickMode = ClickMode.Double;
+        }
+
+        return repairs;
+    }
 
     /// <summary>[S-608] A drive changes slowly; every five minutes is plenty, and the widget is never the only way to see it.</summary>
     public static TimeSpan RefreshInterval => TimeSpan.FromMinutes(5);
@@ -39,5 +74,6 @@ public sealed class OneDriveConfig : WidgetConfig
         AccountId = AccountId,
         StartIn = StartIn,
         FileCount = FileCount,
+        ClickMode = ClickMode,
     };
 }

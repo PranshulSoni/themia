@@ -53,6 +53,12 @@ public interface IWidgetSurface
     /// display, and neither does a card that has not been placed. See <see cref="IWidgetDisplay"/>.
     /// </summary>
     IWidgetDisplay? Display { get; }
+
+    /// <summary>
+    /// [S-1251] True when the card is a preview (the widget gallery) rather than a widget on the
+    /// desktop. A view whose buttons act on the machine — the power tile — must be inert there.
+    /// </summary>
+    bool IsPreview => false;
 }
 
 /// <summary>
@@ -199,7 +205,7 @@ internal static class WidgetCatalog
         new(WidgetKind.SunMoon, "Sun & Moon", "Sunrise, sunset and the moon phase", Glyphs.Sun, 320, 240, WidgetCategory.Time),
         new(WidgetKind.Folder, "Folder", "What is in a folder on this PC", Glyphs.Folder, 340, 280, WidgetCategory.Launch),
         new(WidgetKind.Volume, "Volume", "Master output level and mute", Glyphs.Volume, 200, 150, WidgetCategory.System),
-        new(WidgetKind.Power, "Power", "Power plan and mains status", Glyphs.Power, 200, 150, WidgetCategory.System),
+        new(WidgetKind.Power, "Power", "Shut down, restart, sleep and lock", Glyphs.Power, 260, 120, WidgetCategory.System),
         new(WidgetKind.Bluetooth, "Bluetooth", "Paired devices and their battery", Glyphs.Bluetooth, 300, 240, WidgetCategory.System),
         new(WidgetKind.Music, "Now playing", "Whatever Windows is playing", Glyphs.Music, 340, 160, WidgetCategory.Media),
         new(WidgetKind.WeatherNow, "Weather", "Conditions where you are", Glyphs.Weather, 260, 200, WidgetCategory.Information),
@@ -214,7 +220,7 @@ internal static class WidgetCatalog
         new(WidgetKind.Scratchpad, "Scratchpad", "A place to draw", Glyphs.Scratchpad, 300, 260, WidgetCategory.Desk),
         new(WidgetKind.ColorSwatch, "Colours", "A palette you can copy from", Glyphs.Color, 280, 180, WidgetCategory.Desk),
         new(WidgetKind.Quote, "Quote", "A line worth rereading", Glyphs.Quote, 320, 180, WidgetCategory.Desk),
-        new(WidgetKind.Gallery, "Gallery", "Pictures from a folder", Glyphs.Gallery, 320, 240, WidgetCategory.Media),
+        new(WidgetKind.Gallery, "Gallery", "Pictures from a folder, a file or Bing", Glyphs.Gallery, 320, 240, WidgetCategory.Media),
         new(WidgetKind.VideoStream, "Video stream", "A live camera: MJPEG, a snapshot, MP4 or HLS", Glyphs.Video, 320, 240, WidgetCategory.Media),
         new(WidgetKind.WebElement, "Web element", "One part of a web page, kept up to date", Glyphs.WebElement, 360, 260, WidgetCategory.Information),
         new(WidgetKind.HabitTracker, "Habits", "Daily check-offs and streaks", Glyphs.Habit, 320, 240, WidgetCategory.Trackers),

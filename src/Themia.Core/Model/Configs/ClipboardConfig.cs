@@ -22,7 +22,7 @@ public sealed class ClipboardConfig : WidgetConfig
     [JsonIgnore]
     public override WidgetKind Kind => WidgetKind.Clipboard;
 
-    /// <summary>How many entries to keep, 5 to 100.</summary>
+    /// <summary>[S-1440] How many entries to keep, 1 to 200 (default 50, as the original).</summary>
     public int Capacity { get; set; } = ClipboardHistory.DefaultCapacity;
 
     /// <summary>Show how long ago each entry was copied.</summary>

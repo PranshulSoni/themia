@@ -15,9 +15,8 @@ namespace Themia.Core.Accounts;
 public sealed record Account
 {
     /// <summary>
-    /// Stable id. The same scheme as the classic app (<see cref="AccountIds"/>), so signing the same
-    /// account in again replaces it instead of adding a twin, and widget configs written against an
-    /// imported account keep pointing at it.
+    /// Stable id (<see cref="AccountIds"/>), so signing the same account in again replaces it
+    /// instead of adding a twin, and widget configs naming it keep pointing at it.
     /// </summary>
     public required string Id { get; init; }
 

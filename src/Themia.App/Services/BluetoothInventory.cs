@@ -1,6 +1,7 @@
 using Themia.Core.Diagnostics;
 using Themia.Core.Widgets;
 using Windows.Devices.Bluetooth;
+using Windows.Devices.Bluetooth.Advertisement;
 using Windows.Devices.Bluetooth.GenericAttributeProfile;
 using Windows.Devices.Enumeration;
 using Windows.Devices.Radios;
@@ -42,7 +43,22 @@ internal static class BluetoothInventory
     /// <summary>The Aep property carrying whether a paired device is connected right now.</summary>
     private const string ConnectedProperty = "System.Devices.Aep.IsConnected";
 
+    /// <summary>[S-1256] The association endpoint's own signal reading, in dBm, where it has one.</summary>
+    private const string SignalProperty = "System.Devices.Aep.SignalStrength";
+
+    /// <summary>[S-1256] The device's address, to match an LE advertisement to a paired device.</summary>
+    private const string AddressProperty = "System.Devices.Aep.DeviceAddress";
+
     private static readonly string[] RequestedProperties = [ConnectedProperty];
+
+    private static readonly string[] SignalProperties = [ConnectedProperty, SignalProperty, AddressProperty];
+
+    /// <summary>
+    /// [S-1256] How long the LE scan for signal readings listens. Bounded, and run only while the
+    /// signal column is switched on: a scan keeps the radio busy, and an LE device that advertises
+    /// at all does so several times a second, so a few seconds hear every one that will.
+    /// </summary>
+    private static readonly TimeSpan SignalScan = TimeSpan.FromSeconds(3);
 
     /// <summary>
     /// How long the battery pass may take in total.
@@ -56,7 +72,7 @@ internal static class BluetoothInventory
     private static readonly TimeSpan BatteryBudget = TimeSpan.FromSeconds(8);
 
     /// <summary>Read the paired devices. Returns a named state rather than throwing.</summary>
-    public static async Task<BluetoothSnapshot> ReadAsync(bool withBattery, CancellationToken token)
+    public static async Task<BluetoothSnapshot> ReadAsync(bool withBattery, bool withSignal, CancellationToken token)
     {
         var radio = await RadioStateAsync(token).ConfigureAwait(false);
 
@@ -69,15 +85,22 @@ internal static class BluetoothInventory
         {
             var found = new List<BluetoothDeviceEntry>();
 
-            found.AddRange(await EnumerateAsync(
-                BluetoothDevice.GetDeviceSelectorFromPairingState(true), token).ConfigureAwait(false));
+            var addresses = new Dictionary<int, ulong>();
 
             found.AddRange(await EnumerateAsync(
-                BluetoothLEDevice.GetDeviceSelectorFromPairingState(true), token).ConfigureAwait(false));
+                BluetoothDevice.GetDeviceSelectorFromPairingState(true), withSignal, null, token).ConfigureAwait(false));
+
+            found.AddRange(await EnumerateAsync(
+                BluetoothLEDevice.GetDeviceSelectorFromPairingState(true), withSignal, (found.Count, addresses), token).ConfigureAwait(false));
 
             if (withBattery)
             {
                 await AddBatteryLevelsAsync(found, token).ConfigureAwait(false);
+            }
+
+            if (withSignal && addresses.Count > 0)
+            {
+                await AddAdvertisedSignalAsync(found, addresses, token).ConfigureAwait(false);
             }
 
             return new BluetoothSnapshot(BluetoothStatus.Ok, found);
@@ -140,13 +163,21 @@ internal static class BluetoothInventory
         }
     }
 
-    /// <summary>One selector's worth of devices, with no battery levels yet.</summary>
-    private static async Task<List<BluetoothDeviceEntry>> EnumerateAsync(string selector, CancellationToken token)
+    /// <summary>
+    /// One selector's worth of devices, with no battery levels yet. With <paramref name="le"/>, the
+    /// LE entries' addresses are noted by their index in the combined list (offset by the entries
+    /// already found) for the advertisement scan.
+    /// </summary>
+    private static async Task<List<BluetoothDeviceEntry>> EnumerateAsync(
+        string selector,
+        bool withSignal,
+        (int Offset, Dictionary<int, ulong> Addresses)? le,
+        CancellationToken token)
     {
         var devices = new List<BluetoothDeviceEntry>();
 
         var found = await DeviceInformation
-            .FindAllAsync(selector, RequestedProperties)
+            .FindAllAsync(selector, withSignal ? SignalProperties : RequestedProperties)
             .AsTask(token)
             .ConfigureAwait(false);
 
@@ -158,6 +189,26 @@ internal static class BluetoothInventory
                 && value is bool flag
                 && flag;
 
+            int? signal = null;
+
+            if (withSignal)
+            {
+                // A boxed int when present; anything else is no reading.
+                signal = info.Properties.TryGetValue(SignalProperty, out var raw) && raw is int dbm ? dbm : null;
+
+                if (le is { } target)
+                {
+                    var address = info.Properties.TryGetValue(AddressProperty, out var text) && text is string written
+                        ? BluetoothRules.ParseAddress(written)
+                        : null;
+
+                    if ((address ?? BluetoothRules.AddressFromId(info.Id)) is { } known)
+                    {
+                        target.Addresses[target.Offset + devices.Count] = known;
+                    }
+                }
+            }
+
             // The name is the device's own advertisement, so it is normalised by the display rule
             // and then only ever drawn.
             devices.Add(new BluetoothDeviceEntry(
@@ -165,10 +216,76 @@ internal static class BluetoothInventory
                 info.Id,
                 connected,
                 BluetoothRules.Classify(info.Name),
-                null));
+                null,
+                signal));
         }
 
         return devices;
+    }
+
+    /// <summary>
+    /// [S-1256] Listen to LE advertisements for <see cref="SignalScan"/> and give each paired LE
+    /// device that was heard its strongest reading. Passive: nothing is sent, nothing connects. A
+    /// radio that cannot scan (or refuses this app) leaves the readings as they were.
+    /// </summary>
+    private static async Task AddAdvertisedSignalAsync(List<BluetoothDeviceEntry> devices, Dictionary<int, ulong> addresses, CancellationToken token)
+    {
+        var heard = new Dictionary<ulong, short>();
+        var gate = new object();
+
+        var watcher = new BluetoothLEAdvertisementWatcher { ScanningMode = BluetoothLEScanningMode.Passive };
+
+        void OnReceived(BluetoothLEAdvertisementWatcher sender, BluetoothLEAdvertisementReceivedEventArgs args)
+        {
+            lock (gate)
+            {
+                if (!heard.TryGetValue(args.BluetoothAddress, out var best) || args.RawSignalStrengthInDBm > best)
+                {
+                    heard[args.BluetoothAddress] = args.RawSignalStrengthInDBm;
+                }
+            }
+        }
+
+        watcher.Received += OnReceived;
+
+        try
+        {
+            watcher.Start();
+            await Task.Delay(SignalScan, token).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            Log.Debug(Scope, $"no LE scan for signal readings: {ex.GetType().Name}");
+        }
+        finally
+        {
+            watcher.Received -= OnReceived;
+
+            try
+            {
+                watcher.Stop();
+            }
+            catch (Exception ex)
+            {
+                // ignore: a watcher that never started cannot stop, and nothing is left running.
+                Log.Debug(Scope, $"LE scan stop: {ex.GetType().Name}");
+            }
+        }
+
+        lock (gate)
+        {
+            foreach (var (index, address) in addresses)
+            {
+                if (index < devices.Count && heard.TryGetValue(address, out var dbm))
+                {
+                    devices[index] = devices[index] with { SignalDbm = dbm };
+                }
+            }
+        }
     }
 
     /// <summary>

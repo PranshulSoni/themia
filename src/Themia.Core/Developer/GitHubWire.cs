@@ -33,6 +33,9 @@ public sealed class GhRepo
 
     [JsonPropertyName("default_branch")]
     public string? DefaultBranch { get; set; }
+
+    [JsonPropertyName("description")]
+    public string? Description { get; set; }
 }
 
 /// <summary><c>GET /repos/{owner}/{repo}/actions/runs</c>.</summary>
@@ -66,6 +69,13 @@ public sealed class GhRun
 
     [JsonPropertyName("html_url")]
     public string? HtmlUrl { get; set; }
+
+    /// <summary><c>push</c>, <c>pull_request</c>, <c>schedule</c>, <c>workflow_dispatch</c>…</summary>
+    [JsonPropertyName("event")]
+    public string? Event { get; set; }
+
+    [JsonPropertyName("actor")]
+    public GhUser? Actor { get; set; }
 }
 
 /// <summary>One entry of <c>GET /repos/{owner}/{repo}/commits</c>.</summary>
@@ -79,6 +89,10 @@ public sealed class GhCommit
 
     [JsonPropertyName("commit")]
     public GhCommitDetail? Commit { get; set; }
+
+    /// <summary>The GitHub user the commit is attributed to, when GitHub could match one.</summary>
+    [JsonPropertyName("author")]
+    public GhUser? Author { get; set; }
 }
 
 public sealed class GhCommitDetail
@@ -169,6 +183,22 @@ public sealed class GhIssue
 
     [JsonPropertyName("pull_request")]
     public GhPullMarker? PullRequest { get; set; }
+
+    [JsonPropertyName("comments")]
+    public int? Comments { get; set; }
+
+    [JsonPropertyName("labels")]
+    public List<GhLabel>? Labels { get; set; }
+}
+
+public sealed class GhLabel
+{
+    [JsonPropertyName("name")]
+    public string? Name { get; set; }
+
+    /// <summary>Six hex digits, no <c>#</c>.</summary>
+    [JsonPropertyName("color")]
+    public string? Color { get; set; }
 }
 
 public sealed class GhPullMarker
@@ -185,6 +215,12 @@ public sealed class GhRelease
 
     [JsonPropertyName("html_url")]
     public string? HtmlUrl { get; set; }
+
+    [JsonPropertyName("name")]
+    public string? Name { get; set; }
+
+    [JsonPropertyName("published_at")]
+    public DateTimeOffset? PublishedAt { get; set; }
 }
 
 /// <summary><c>GET /search/issues</c>.</summary>

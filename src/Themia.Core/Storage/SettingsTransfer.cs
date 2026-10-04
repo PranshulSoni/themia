@@ -196,6 +196,10 @@ public static class SettingsTransfer
         target.MonitorViews = incoming.MonitorViews;
         target.Design = incoming.Design;
         target.Design.RunAtStartup = runAtStartup;
+        target.Preferences = incoming.Preferences;
+        target.DefaultViewForNewDisplays = incoming.DefaultViewForNewDisplays;
+        target.DisabledMonitors = incoming.DisabledMonitors;
+        target.MonitorScales = incoming.MonitorScales;
     }
 
     /// <summary>
@@ -223,6 +227,7 @@ public static class SettingsTransfer
         var changes = new List<string>();
         CompareViews(current, incoming, changes);
         CompareDesign(current.Design, incoming.Design, changes);
+        ComparePreferences(current.Preferences, incoming.Preferences, changes);
 
         var notes = new List<string>();
 
@@ -388,6 +393,37 @@ public static class SettingsTransfer
             ms => $"{ms.ToString("0", CultureInfo.InvariantCulture)}ms");
         Line("Gap between widgets", old.WidgetGapPx, @new.WidgetGapPx, Px);
         Line("Snap to grid", old.GridSnap, @new.GridSnap, on => on ? "on" : "off");
+        Line("Header background", old.HeaderBackgroundColor, @new.HeaderBackgroundColor, Colour);
+        Line("Header opacity", old.HeaderOpacity, @new.HeaderOpacity, Percent);
+        Line("View change animation", old.TransitionAnimation, @new.TransitionAnimation, a => a.ToString());
+        Line("View change animation length", old.TransitionAnimationMs, @new.TransitionAnimationMs,
+            ms => $"{ms.ToString("0", CultureInfo.InvariantCulture)}ms");
+        Line("Unlock animation", old.UnlockAnimation, @new.UnlockAnimation, a => a.ToString());
+        Line("Unlock animation length", old.UnlockAnimationMs, @new.UnlockAnimationMs,
+            ms => $"{ms.ToString("0", CultureInfo.InvariantCulture)}ms");
+        Line("Startup sound", old.StartupSound, @new.StartupSound, on => on ? "on" : "off");
+    }
+
+    private static void ComparePreferences(AppPreferences old, AppPreferences @new, List<string> changes)
+    {
+        void Toggle(string label, bool before, bool after)
+        {
+            if (before != after)
+            {
+                changes.Add($"{label}: {(before ? "on" : "off")} → {(after ? "on" : "off")}");
+            }
+        }
+
+        if (old.Language != @new.Language)
+        {
+            changes.Add($"Language: {old.Language} → {@new.Language}");
+        }
+
+        Toggle("Hide widgets in full-screen apps", old.GameModeSuspend, @new.GameModeSuspend);
+        Toggle("Desktop icons", old.DesktopIconsVisible, @new.DesktopIconsVisible);
+        Toggle("Local network access", old.AllowPrivateNetwork, @new.AllowPrivateNetwork);
+        Toggle("Developer mode", old.DevMode, @new.DevMode);
+        Toggle("Verbose logging", old.VerboseLogging, @new.VerboseLogging);
     }
 
     private static string Count(int n, string noun) => $"{n} {noun}{(n == 1 ? string.Empty : "s")}";

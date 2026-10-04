@@ -12,6 +12,12 @@ namespace Themia.Core.Model;
 /// </summary>
 public sealed class GpuConfig : GaugeConfig
 {
+    /// <summary>[S-436] Every two seconds; a minute of history.</summary>
+    public GpuConfig()
+        : base(intervalSeconds: 2, graphSpanSeconds: 60)
+    {
+    }
+
     [JsonIgnore]
     public override WidgetKind Kind => WidgetKind.Gpu;
 
@@ -20,9 +26,6 @@ public sealed class GpuConfig : GaugeConfig
     /// are drawn. Untrusted on read: <see cref="GpuRules.ResolveAdapters"/> is the boundary.
     /// </summary>
     public List<int> Adapters { get; set; } = [0];
-
-    /// <summary>[S-436] Seconds between samples, 1 to 60.</summary>
-    public int IntervalSeconds { get; set; } = 2;
 
     /// <summary>[S-438] The dedicated video memory row.</summary>
     public bool ShowDedicated { get; set; } = true;
@@ -41,16 +44,12 @@ public sealed class GpuConfig : GaugeConfig
 
     public bool ShowVideoEngines { get; set; }
 
-    [JsonIgnore]
-    public override TimeSpan TickInterval => TimeSpan.FromSeconds(Math.Clamp(IntervalSeconds, 1, 60));
-
     public override WidgetConfig Clone()
     {
         var copy = new GpuConfig
         {
             // A new list: two widgets sharing one would follow each other's picker.
             Adapters = [.. Adapters ?? []],
-            IntervalSeconds = IntervalSeconds,
             ShowDedicated = ShowDedicated,
             ShowShared = ShowShared,
             ShowTemperature = ShowTemperature,

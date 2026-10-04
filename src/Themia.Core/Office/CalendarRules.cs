@@ -516,26 +516,6 @@ public static class CalendarRules
         return (top, height);
     }
 
-    /// <summary>
-    /// [S-574] What a view becomes at a size: a month grid, week columns or day timeline that would
-    /// be unreadable in the space given falls back to the agenda list rather than drawing slivers.
-    /// </summary>
-    public static CalendarViewMode Effective(CalendarViewMode wanted, double width, double height)
-    {
-        if (width <= 0 || height <= 0)
-        {
-            return wanted;
-        }
-
-        return wanted switch
-        {
-            CalendarViewMode.Month when width < 7 * 22 || height < 112 => CalendarViewMode.Agenda,
-            CalendarViewMode.Week when width < 7 * 40 || height < 96 => CalendarViewMode.Agenda,
-            CalendarViewMode.Day when width < 140 || height < 112 => CalendarViewMode.Agenda,
-            _ => wanted,
-        };
-    }
-
     /// <summary>[S-572] How a month cell draws its events at a given cell size.</summary>
     public static MonthDensity MonthCellDensity(double cellWidth, double cellHeight)
         => cellWidth >= 40 && cellHeight >= 34 ? MonthDensity.Chips

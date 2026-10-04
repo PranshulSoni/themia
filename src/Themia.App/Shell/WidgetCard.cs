@@ -70,6 +70,9 @@ internal interface IWidgetCardHost
 
     /// <summary>The display these cards are on, for a widget that switches it; null where there is none.</summary>
     IWidgetDisplay? Display { get; }
+
+    /// <summary>[S-1251] True for the gallery's host: its cards are previews and must not act on the machine.</summary>
+    bool IsPreview => false;
 }
 
 /// <summary>
@@ -766,6 +769,8 @@ internal sealed partial class WidgetCard : Grid, IWidgetSurface
 
     /// <inheritdoc />
     IWidgetDisplay? IWidgetSurface.Display => _host.Display;
+
+    bool IWidgetSurface.IsPreview => _host.IsPreview;
 
     /// <inheritdoc />
     void IWidgetSurface.SetHeaderTitle(string? title)

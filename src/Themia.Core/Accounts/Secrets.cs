@@ -13,8 +13,8 @@ public enum EnvelopeKind
     Sealed,
 
     /// <summary>
-    /// Untagged text. Only the classic app ever wrote one (its pre-encryption builds); this app never
-    /// does, so in its own file this is a value that must be re-sealed or refused.
+    /// Untagged text. This app never writes one, so in its own file this is a value that must be
+    /// refused: a hand edit or damage, never a format to accept.
     /// </summary>
     Plaintext,
 
@@ -25,9 +25,8 @@ public enum EnvelopeKind
 /// <summary>
 /// [S-506] The text form of a sealed secret: <c>dpapi:v1:</c> followed by the base64 of the DPAPI blob.
 /// <para>
-/// The same envelope the classic app wrote, byte for byte, which is what lets an imported account be
-/// read here at all: DPAPI with the CurrentUser scope and no extra entropy, so a blob the Tauri app
-/// sealed for this Windows user opens in this process too.
+/// DPAPI with the CurrentUser scope and no extra entropy, so a blob sealed for this Windows user opens
+/// in this process and nowhere else.
 /// </para>
 /// </summary>
 public static class SecretEnvelope
@@ -90,24 +89,6 @@ public static class TokenExpiry
             : DefaultLifetime;
 
         return now + lifetime;
-    }
-
-    /// <summary>The classic app's <c>expires_at</c> (Unix seconds, 0 for none).</summary>
-    public static DateTimeOffset? FromUnixSeconds(long seconds)
-    {
-        if (seconds <= 0)
-        {
-            return null;
-        }
-
-        try
-        {
-            return DateTimeOffset.FromUnixTimeSeconds(seconds);
-        }
-        catch (ArgumentOutOfRangeException)
-        {
-            return null;
-        }
     }
 }
 

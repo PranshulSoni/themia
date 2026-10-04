@@ -25,19 +25,19 @@ public readonly record struct ClipboardEntry(string Text, DateTimeOffset Capture
 public sealed class ClipboardHistory
 {
     /// <summary>The fewest entries a history may keep.</summary>
-    public const int MinCapacity = 5;
+    public const int MinCapacity = 1;
 
     /// <summary>The most entries a history may keep.</summary>
-    public const int MaxCapacity = 100;
+    public const int MaxCapacity = 200;
 
     /// <summary>What a history holds by default.</summary>
-    public const int DefaultCapacity = 25;
+    public const int DefaultCapacity = 50;
 
     /// <summary>
     /// The total characters the history holds before it starts dropping its oldest entries,
     /// whatever the entry count says.
     /// <para>
-    /// A capacity of 25 sounds bounded until somebody copies a 40MB log file twice. This is the
+    /// A capacity of 50 sounds bounded until somebody copies a 40MB log file twice. This is the
     /// bound that actually holds: roughly two megabytes of text, after which the oldest entries go
     /// even if there is room for them by count.
     /// </para>

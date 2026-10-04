@@ -35,13 +35,14 @@ internal sealed class AccountsPage
 
     private static readonly string OpenGlyph = char.ConvertFromUtf32(0xE8A7);
     private static readonly string KeyGlyph = char.ConvertFromUtf32(0xE8D7);
-    private static readonly string ImportGlyph = char.ConvertFromUtf32(0xE8B5);
 
     private readonly AccountService _service;
-    private readonly StackPanel _root = new() { Spacing = Fluent.Space1 };
+    /// <summary>[S-1541] The page; its title goes to the window's breadcrumb.</summary>
+    private readonly SettingsPage _root = new(
+        "Accounts",
+        "Sign in once here. Mail, calendar, contacts, tasks, OneDrive, GitHub and Claude widgets read from these accounts.");
     private readonly StackPanel _list = new() { Spacing = Fluent.Space1 };
     private readonly StackPanel _flow = new() { Spacing = Fluent.Space1 };
-    private readonly StackPanel _import = new() { Spacing = Fluent.Space1 };
 
     private CancellationTokenSource? _flowCancel;
     private bool _subscribed;
@@ -53,10 +54,7 @@ internal sealed class AccountsPage
     {
         if (AppServices.Accounts is not { } service)
         {
-            var empty = new StackPanel { Spacing = Fluent.Space1 };
-            empty.Children.Add(Title());
-            empty.Children.Add(FluentLayout.Note("Accounts are not available right now. See themia.log."));
-            return empty;
+            return new SettingsPage("Accounts").With([FluentLayout.Note("Accounts are not available right now. See themia.log.")]);
         }
 
         return new AccountsPage(service).Compose();
@@ -64,30 +62,20 @@ internal sealed class AccountsPage
 
     private FrameworkElement Compose()
     {
-        _root.Children.Add(Title());
-
-        var subtitle = Fluent.Text(FluentType.Body, "TextFillColorSecondaryBrush");
-        subtitle.Text = "Sign in once here. Mail, calendar, contacts, tasks, OneDrive, GitHub and Claude widgets read from these accounts.";
-        subtitle.TextWrapping = TextWrapping.Wrap;
-        subtitle.Margin = new Thickness(0, 0, 0, Fluent.Space2);
-        _root.Children.Add(subtitle);
-
         if (_service.LoadProblem is { } problem)
         {
             _root.Children.Add(Message(problem, critical: true));
         }
 
-        _root.Children.Add(FluentLayout.Header("Signed in"));
+        _root.With([FluentLayout.Header("Signed in")]);
         _root.Children.Add(_list);
 
         _root.Children.Add(FluentLayout.Header("Add an account"));
         _root.Children.Add(FluentLayout.Row(Glyphs.Add, "Add account", "Choose the service to sign in to", AddMenu()));
         _root.Children.Add(_flow);
 
-        _root.Children.Add(_import);
 
         RebuildList();
-        _ = RefreshImportAsync();
 
 #if DEBUG
         // Lets the debug settings render (--settings-png Accounts) draw a flow as well as the list.
@@ -127,17 +115,9 @@ internal sealed class AccountsPage
         return _root;
     }
 
-    private static TextBlock Title()
-    {
-        var title = Fluent.Text(FluentType.Title);
-        title.Text = "Accounts";
-        return title;
-    }
-
     private void OnAccountsChanged()
     {
         RebuildList();
-        _ = RefreshImportAsync();
     }
 
     // -----------------------------------------------------------------------------------------
@@ -151,7 +131,7 @@ internal sealed class AccountsPage
         var accounts = _service.Accounts;
         if (accounts.Count == 0)
         {
-            _list.Children.Add(FluentLayout.Note("No accounts yet. Add one below, or bring yours over from classic Themia."));
+            _list.Children.Add(FluentLayout.Note("No accounts yet. Add one below."));
             return;
         }
 
@@ -734,87 +714,6 @@ internal sealed class AccountsPage
             Log.Error(Scope, "adding an account failed unexpectedly", ex);
             Fail(ring, line, $"That did not work: {ex.Message}");
             connect.IsEnabled = true;
-        }
-    }
-
-    // -----------------------------------------------------------------------------------------
-    // Import from classic Themia
-    // -----------------------------------------------------------------------------------------
-
-    private async Task RefreshImportAsync()
-    {
-        ClassicPreview? preview;
-        try
-        {
-            preview = await _service.PreviewClassicAsync().ConfigureAwait(true);
-        }
-        catch (Exception ex)
-        {
-            Log.Warn(Scope, "could not look for classic Themia accounts", ex);
-            preview = null;
-        }
-
-        _import.Children.Clear();
-
-        if (preview is null || (preview.New.Count == 0 && preview.Skipped.Count == 0))
-        {
-            return;
-        }
-
-        _import.Children.Add(FluentLayout.Header("Classic Themia"));
-
-        var verdict = Message(string.Empty, critical: false);
-
-        if (preview.New.Count == 0)
-        {
-            _import.Children.Add(FluentLayout.Row(ImportGlyph, "Accounts from classic Themia",
-                preview.AlreadyHere > 0 ? "Everything that can come over is already here." : "Nothing in the previous app's file can come over.",
-                new TextBlock { Text = string.Empty }));
-        }
-        else
-        {
-            var names = string.Join(", ", preview.New.Take(4).Select(a => $"{a.Account.Address} ({a.Account.Provider.Label()})"));
-            var more = preview.New.Count > 4 ? $" and {preview.New.Count - 4} more" : string.Empty;
-
-            var button = new Button
-            {
-                Content = $"Import {preview.New.Count} account{(preview.New.Count == 1 ? string.Empty : "s")}",
-                Style = AccentStyle(),
-            };
-
-            button.Click += (_, _) => _ = ImportAsync(button, verdict);
-
-            _import.Children.Add(FluentLayout.Row(ImportGlyph, "Bring accounts over from classic Themia",
-                $"{names}{more}. Sign-ins come along; the previous app's file is only read, never changed.", button));
-        }
-
-        if (preview.Skipped.Count > 0)
-        {
-            _import.Children.Add(FluentLayout.Note($"Not brought over: {string.Join("; ", preview.Skipped)}."));
-        }
-
-        _import.Children.Add(verdict);
-    }
-
-    private async Task ImportAsync(Button button, TextBlock verdict)
-    {
-        button.IsEnabled = false;
-        try
-        {
-            var outcome = await _service.ImportClassicAsync().ConfigureAwait(true);
-            var notes = outcome.Notes.Count > 0 ? $" {string.Join("; ", outcome.Notes)}." : string.Empty;
-            Say(verdict, $"Imported {outcome.Imported} account{(outcome.Imported == 1 ? string.Empty : "s")}.{notes}", critical: false);
-        }
-        catch (AccountException ex)
-        {
-            Say(verdict, ex.Message, critical: true);
-            button.IsEnabled = true;
-        }
-        catch (Exception ex)
-        {
-            Log.Error(Scope, "importing classic accounts failed unexpectedly", ex);
-            Say(verdict, $"The import failed: {ex.Message}", critical: true);
-            button.IsEnabled = true;
         }
     }
 

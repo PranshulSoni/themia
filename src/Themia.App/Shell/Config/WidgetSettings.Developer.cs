@@ -65,9 +65,12 @@ internal static partial class WidgetSettings
             "owner/name or its web address. Requests go to the account's own GitHub, Enterprise included", address, verdict));
 
         SingleAccountRow(rows, AppServices.GitHub?.Accounts ?? [], "GitHub", config.AccountIds.FirstOrDefault() ?? string.Empty,
-            id => { config.AccountIds = id.Length == 0 ? [] : [id]; save(); }, navigate);
+            id => { config.AccountIds = id.Length == 0 ? [] : [id]; save(); }, navigate, anonymous: true);
 
         rows.Add(FluentLayout.Header("Lists"));
+
+        // [S-740] Filling, a count is on or off: 0 still hides a list, any other number shows as many as fit.
+        rows.Add(FillRow(config, save, "Each list shows as many as fit; a count of 0 still hides it"));
 
         rows.Add(CountRow(Glyphs.Code, "Commits", "The newest commits on the default branch; 0 hides the list",
             config.EffectiveCommitCount, 0, GitHubConfig.MaxListCount, value => { config.CommitCount = value; save(); }));
@@ -121,8 +124,10 @@ internal static partial class WidgetSettings
 
         rows.Add(FluentLayout.Header("Issues"));
 
-        rows.Add(CountRow(Glyphs.Count, "Issues", "The most recently updated, across every account",
-            config.EffectiveCount, GitHubIssuesConfig.MinCount, GitHubIssuesConfig.MaxCount, value => { config.Count = value; save(); }));
+        var count = CountRow(Glyphs.Count, "Issues", "The most recently updated, across every account",
+            config.EffectiveCount, GitHubIssuesConfig.MinCount, GitHubIssuesConfig.MaxCount, value => { config.Count = value; save(); });
+        rows.Add(FillRow(config, save, "As many as fit, newest first", count));
+        rows.Add(count);
 
         rows.Add(FluentLayout.Row(Glyphs.Contact, "Include mentions", "Also open issues that mention you",
             FluentLayout.Toggle(config.IncludeMentioned, value => { config.IncludeMentioned = value; save(); })));
@@ -141,8 +146,10 @@ internal static partial class WidgetSettings
 
         rows.Add(FluentLayout.Header("Pull requests"));
 
-        rows.Add(CountRow(Glyphs.Count, "Pull requests", "The most recently updated, across every account",
-            config.EffectiveCount, GitHubReviewsConfig.MinCount, GitHubReviewsConfig.MaxCount, value => { config.Count = value; save(); }));
+        var count = CountRow(Glyphs.Count, "Pull requests", "The most recently updated, across every account",
+            config.EffectiveCount, GitHubReviewsConfig.MinCount, GitHubReviewsConfig.MaxCount, value => { config.Count = value; save(); });
+        rows.Add(FillRow(config, save, "As many as fit, newest first", count));
+        rows.Add(count);
 
         rows.Add(FluentLayout.Row(Glyphs.Edit, "Include drafts", "A draft is not asking for a review yet",
             FluentLayout.Toggle(config.IncludeDrafts, value => { config.IncludeDrafts = value; save(); })));
@@ -161,8 +168,10 @@ internal static partial class WidgetSettings
 
         rows.Add(FluentLayout.Header("Notifications"));
 
-        rows.Add(CountRow(Glyphs.Count, "Notifications", "The newest, across every account",
-            config.EffectiveCount, GitHubNotificationsConfig.MinCount, GitHubNotificationsConfig.MaxCount, value => { config.Count = value; save(); }));
+        var count = CountRow(Glyphs.Count, "Notifications", "The newest, across every account",
+            config.EffectiveCount, GitHubNotificationsConfig.MinCount, GitHubNotificationsConfig.MaxCount, value => { config.Count = value; save(); });
+        rows.Add(FillRow(config, save, "As many as fit, newest first", count));
+        rows.Add(count);
 
         rows.Add(FluentLayout.Row(Glyphs.MailRead, "Show read", "Also list notifications you have already read",
             FluentLayout.Toggle(config.IncludeRead, value => { config.IncludeRead = value; save(); })));
@@ -197,8 +206,32 @@ internal static partial class WidgetSettings
         rows.Add(FluentLayout.Row(Glyphs.Gauge, "Weekly Sonnet limit", "Its own bar; 0% while the plan sets no separate limit",
             FluentLayout.Toggle(config.ShowSonnet, value => { config.ShowSonnet = value; save(); })));
 
-        FluentLayout.RefreshChoice(rows, config.RefreshMinutes, value => { config.RefreshMinutes = value; save(); });
+        // [S-796] Any five minutes from 5 to 60, as the classic stepper allowed; the preset box would
+        // have snapped a stored 10 or 45 back to 15.
+        rows.Add(FluentLayout.Header("Updating"));
+        rows.Add(FluentLayout.Row(Glyphs.Timer, "Refresh", "How often Anthropic is asked; its limits are strict",
+            FluentLayout.Slider(config.RefreshMinutes, 5, 60, 5, " min",
+                value => { config.RefreshMinutes = ClaudeUsageRules.ClampRefreshMinutes((int)Math.Round(value)); save(); })));
         rows.Add(FluentLayout.Note("Read from the endpoint the Claude CLI uses for its own usage. It is undocumented and may change."));
+    }
+
+    /// <summary>
+    /// [S-740] "Fill the tile": on, the list shows as many as the tile has room for; off, exactly the
+    /// count. The count row, when given, only shows while it decides anything.
+    /// </summary>
+    private static Border FillRow(GitHubAccountsConfig config, Action save, string description, FrameworkElement? count = null)
+    {
+        void ShowCount()
+        {
+            if (count is not null)
+            {
+                count.Visibility = config.FillTile ? Visibility.Collapsed : Visibility.Visible;
+            }
+        }
+
+        ShowCount();
+        return FluentLayout.Row(Glyphs.View, "Fill the tile", description,
+            FluentLayout.Toggle(config.FillTile, on => { config.FillTile = on; save(); ShowCount(); }));
     }
 
     private static Border CountRow(string glyph, string title, string description, int value, int min, int max, Action<int> changed)
@@ -308,12 +341,15 @@ internal static partial class WidgetSettings
         string service,
         string current,
         Action<string> changed,
-        Action<ConfigTarget> navigate)
+        Action<ConfigTarget> navigate,
+        bool anonymous = false)
     {
         var combo = new ComboBox { MinWidth = 260 };
         combo.Items.Add(new ComboBoxItem
         {
-            Content = accounts.Count > 0 ? $"First {service} account ({accounts[0].Label})" : $"First {service} account to sign in",
+            Content = accounts.Count > 0
+                ? $"First {service} account ({accounts[0].Label})"
+                : anonymous ? "No account: public repositories only" : $"First {service} account to sign in",
             Tag = string.Empty,
         });
 
@@ -342,8 +378,11 @@ internal static partial class WidgetSettings
             }
         };
 
+        // [S-746] Optional where public data can be read without one.
         rows.Add(FluentLayout.Row(Glyphs.Contact, "Account",
-            accounts.Count == 0 ? $"No {service} account is signed in" : $"Which {service} account to read with",
+            anonymous
+                ? "Optional: an account reads private repositories and has a far higher rate limit. Without one, Themia asks at most every 15 minutes"
+                : accounts.Count == 0 ? $"No {service} account is signed in" : $"Which {service} account to read with",
             combo));
 
         if (accounts.Count == 0 || accounts.Any(a => a.Problem is not null))

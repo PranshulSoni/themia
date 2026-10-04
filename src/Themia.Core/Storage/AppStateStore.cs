@@ -111,11 +111,18 @@ public sealed class AppStateStore : IAsyncDisposable
 
     public string Path => _path;
 
-    /// <summary>The default on-disk location: %APPDATA%\Themia.WinUI\state.json.</summary>
+    /// <summary>
+    /// The folder name the app keeps its files under, in both %APPDATA% (settings, accounts) and
+    /// %LOCALAPPDATA% (caches, the browser profile). One name for every place, so they cannot drift
+    /// apart again.
+    /// </summary>
+    public const string FolderName = "Themia";
+
+    /// <summary>The default on-disk location: %APPDATA%\Themia\state.json.</summary>
     public static string DefaultPath()
     {
         var root = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
-        return System.IO.Path.Combine(root, "Themia.WinUI", "state.json");
+        return System.IO.Path.Combine(root, FolderName, "state.json");
     }
 
     /// <summary>
@@ -203,6 +210,15 @@ public sealed class AppStateStore : IAsyncDisposable
                 $"state schema v{parsed.SchemaVersion} is newer than this build (v{AppState.CurrentSchemaVersion})");
         }
 
+        // Only the current schema is read: there is no upgrade path, so an older number is a file
+        // this build cannot vouch for, refused like any other that is not a state document.
+        if (parsed.SchemaVersion < AppState.CurrentSchemaVersion)
+        {
+            return ParseResult.Refused(
+                ParseRefusal.NotState,
+                $"state schema v{parsed.SchemaVersion} is not supported (this build reads v{AppState.CurrentSchemaVersion})");
+        }
+
         var repairs = Validate(parsed);
         return new ParseResult(parsed, ParseRefusal.None, null, null, repairs);
     }
@@ -257,6 +273,24 @@ public sealed class AppStateStore : IAsyncDisposable
             design.Theme = Model.AppTheme.System;
         }
 
+        // [S-704] Header fill and the transition/unlock animations, on the same terms as the rest.
+        design.HeaderBackgroundColor = Widgets.HexColor.Normalise(design.HeaderBackgroundColor);
+        design.HeaderOpacity = Math.Clamp(Sanitise(design.HeaderOpacity, 1), 0, 1);
+        design.TransitionAnimationMs = Math.Clamp(Sanitise(design.TransitionAnimationMs, 500), 0, 3000);
+        design.UnlockAnimationMs = Math.Clamp(Sanitise(design.UnlockAnimationMs, 500), 0, 3000);
+
+        if (!Enum.IsDefined(design.TransitionAnimation))
+        {
+            design.TransitionAnimation = Model.IntroAnimation.Scale;
+        }
+
+        if (!Enum.IsDefined(design.UnlockAnimation))
+        {
+            design.UnlockAnimation = Model.IntroAnimation.Scale;
+        }
+
+        repairs.AddRange(ValidatePreferences(state));
+
         if (state.Views.Count == 0)
         {
             state.Views.Add(ViewState.Create("Desktop"));
@@ -279,6 +313,13 @@ public sealed class AppStateStore : IAsyncDisposable
                 repairs.Add("view had no name");
             }
 
+            if (view.Icon is not null && !IsGlyph(view.Icon))
+            {
+                // [S-703] Fall back to initials rather than draw whatever text got onto disk.
+                view.Icon = null;
+                repairs.Add($"view '{view.Id}' had an icon that is not a single glyph");
+            }
+
             view.Widgets ??= [];
             repairs.AddRange(ValidateWidgets(view));
         }
@@ -298,9 +339,91 @@ public sealed class AppStateStore : IAsyncDisposable
             }
         }
 
+        repairs.AddRange(ValidateDisplays(state));
+
         state.SchemaVersion = AppState.CurrentSchemaVersion;
         return repairs;
     }
+
+    /// <summary>[S-702] The behaviour switches: only the language is a closed set that can be out of range.</summary>
+    private static List<string> ValidatePreferences(AppState state)
+    {
+        var repairs = new List<string>();
+
+        if (state.Preferences is null)
+        {
+            // A hand-edited null: repair to the defaults, loudly.
+            state.Preferences = new AppPreferences();
+            repairs.Add("preferences were null; reset to defaults");
+            return repairs;
+        }
+
+        if (!Enum.IsDefined(state.Preferences.Language))
+        {
+            state.Preferences.Language = AppLanguage.System;
+            repairs.Add("unknown language; following Windows");
+        }
+
+        return repairs;
+    }
+
+    /// <summary>
+    /// [S-705] The per-display settings. Runs after the views are repaired, because the default view
+    /// for new displays has to name one that still exists.
+    /// </summary>
+    private static List<string> ValidateDisplays(AppState state)
+    {
+        var repairs = new List<string>();
+
+        if (state.DefaultViewForNewDisplays is not null && state.FindView(state.DefaultViewForNewDisplays) is null)
+        {
+            state.DefaultViewForNewDisplays = null;
+            repairs.Add("the default view for new displays was deleted; new displays show the active view");
+        }
+
+        state.DisabledMonitors ??= [];
+        var disabled = state.DisabledMonitors
+            .Where(id => !string.IsNullOrWhiteSpace(id))
+            .Distinct(StringComparer.Ordinal)
+            .ToList();
+        if (disabled.Count != state.DisabledMonitors.Count)
+        {
+            repairs.Add("the disabled displays held blank or repeated ids");
+        }
+
+        state.DisabledMonitors = disabled;
+
+        state.MonitorScales ??= [];
+        foreach (var monitorId in state.MonitorScales.Keys.ToList())
+        {
+            var scale = state.MonitorScales[monitorId];
+            if (string.IsNullOrWhiteSpace(monitorId) || !double.IsFinite(scale))
+            {
+                state.MonitorScales.Remove(monitorId);
+                repairs.Add("dropped an unreadable display scale");
+                continue;
+            }
+
+            var clamped = Math.Clamp(scale, MinMonitorScale, MaxMonitorScale);
+            if (clamped != scale)
+            {
+                state.MonitorScales[monitorId] = clamped;
+                repairs.Add($"display scale for '{monitorId}' was outside {MinMonitorScale:0.#}–{MaxMonitorScale:0.#}");
+            }
+        }
+
+        return repairs;
+    }
+
+    /// <summary>The per-display scale range, as in the original's display settings (50 % to 200 %).</summary>
+    public const double MinMonitorScale = 0.5;
+
+    public const double MaxMonitorScale = 2.0;
+
+    /// <summary>One visible glyph: a single UTF-16 unit, or one surrogate pair.</summary>
+    private static bool IsGlyph(string text)
+        => text.Length == 1 ? !char.IsWhiteSpace(text[0]) && !char.IsControl(text[0])
+            : text.Length == 2 && char.IsSurrogatePair(text[0], text[1]);
 
     private static List<string> ValidateWidgets(ViewState view)
     {
@@ -337,7 +460,7 @@ public sealed class AppStateStore : IAsyncDisposable
                 repairs.Add($"widget '{widget.Id}' had a missing or mismatched config");
             }
 
-            // The config's own invariants: ranges, and an older shape folded into the current one.
+            // The config's own invariants: ranges and values a hand edit made unusable.
             foreach (var repair in widget.Config.Repair())
             {
                 repairs.Add($"widget '{widget.Id}': {repair}");

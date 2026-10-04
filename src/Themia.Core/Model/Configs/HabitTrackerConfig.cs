@@ -4,48 +4,12 @@ using Themia.Core.Widgets;
 namespace Themia.Core.Model;
 
 /// <summary>
-/// One habit, and the days it was done on.
+/// [S-1420] Which habit list a Habits widget shows, and how.
 /// <para>
-/// The days live <b>inside</b> the habit rather than in a separate id-keyed map beside it. The
-/// original app kept <c>habits</c> and <c>log</c> apart and needed a rule — and a test — saying that
-/// deleting a habit must also delete its log, because otherwise a later habit that happened to reuse
-/// the id inherited a dead streak. Holding the two together makes that rule unnecessary: there is no
-/// way to remove the habit and keep the days, and no orphan to prune.
-/// </para>
-/// </summary>
-public sealed class HabitRecord
-{
-    /// <summary>Stable identity, so renaming a habit keeps its history.</summary>
-    public string Id { get; set; } = string.Empty;
-
-    public string Name { get; set; } = string.Empty;
-
-    /// <summary>
-    /// The local calendar days this habit was completed on, as <c>YYYY-MM-DD</c>. Untrusted on
-    /// read: <see cref="HabitRules.Days"/> is the boundary that parses it.
-    /// </summary>
-    public List<string> Days { get; set; } = [];
-
-    /// <summary>A fresh id for a newly added habit. Opaque; nothing reads anything out of it.</summary>
-    public static string NewId() => Guid.NewGuid().ToString("n");
-
-    public HabitRecord Copy() => new()
-    {
-        Id = Id,
-        Name = Name,
-
-        // A new list, not the same one: a cloned config that shared its day lists would have two
-        // widgets ticking each other's boxes.
-        Days = [.. Days],
-    };
-}
-
-/// <summary>
-/// A short list of habits, a box to tick each day, and how long the run is.
-/// <para>
-/// The data <b>is</b> the config. There is no habit store and no sync, so a habit list travels with
-/// copy and paste, with the view it sits in, and with a backup of the state file — and the widget
-/// writes its own config when a box is ticked, which few widgets here do.
+/// The habits themselves are not here. They live in the device-wide pool beside the state file
+/// (<c>habits.json</c>, <see cref="Themia.Core.Habits.HabitListStore"/>), and this config only
+/// points into it: two widgets can track the same list, a list outlives the widget that made it, and
+/// copying a widget copies the pointer, never a second diverging copy of the history.
 /// </para>
 /// </summary>
 public sealed class HabitTrackerConfig : WidgetConfig
@@ -53,41 +17,69 @@ public sealed class HabitTrackerConfig : WidgetConfig
     [JsonIgnore]
     public override WidgetKind Kind => WidgetKind.HabitTracker;
 
-    public List<HabitRecord> Habits { get; set; } = [];
+    /// <summary>
+    /// The list in the pool, or empty for "not chosen yet" — the widget then takes the device's
+    /// first list, creating one only if there is none. A list that was deleted is not replaced:
+    /// the widget asks for one rather than showing somebody else's habits.
+    /// </summary>
+    public string ListId { get; set; } = string.Empty;
+
+    /// <summary>[S-1422] How often the boxes clear. Per widget, as in the original: the log keeps every cadence's keys.</summary>
+    public HabitPeriod Period { get; set; } = HabitPeriod.Daily;
+
+    /// <summary>[S-1422] The custom window, in minutes (1–1440). Read through <see cref="Cadence"/>, which clamps.</summary>
+    public int CustomMinutes { get; set; } = HabitCadence.DefaultCustomMinutes;
 
     /// <summary>
-    /// How many past days each row shows as squares. Zero removes the strip from the row entirely,
-    /// rather than leaving an empty element still claiming its width — a habit list is allowed to be
-    /// just a list.
+    /// [S-1426] How many past periods each row shows as dots. Zero removes the strip; a narrow tile
+    /// shows fewer, dropping the oldest first.
     /// </summary>
-    public int HistoryDays { get; set; } = 7;
+    public int HistoryDots { get; set; } = 7;
 
     /// <summary>Show the current run beside each habit.</summary>
     public bool ShowStreak { get; set; } = true;
 
     [JsonIgnore]
-    public int EffectiveHistoryDays => Math.Clamp(HistoryDays, 0, HabitRules.MaxHistoryDays);
+    public int EffectiveHistoryDots => Math.Clamp(HistoryDots, 0, HabitRules.MaxHistory);
 
-    /// <summary>
-    /// One wake a minute, and only so the widget rolls over at midnight without being touched: a box
-    /// ticked yesterday has to clear itself when the day does. Nothing else here moves with time.
-    /// </summary>
     [JsonIgnore]
-    public TimeSpan TickInterval => TimeSpan.FromMinutes(1);
+    public HabitCadence Cadence => new(Enum.IsDefined(Period) ? Period : HabitPeriod.Daily, CustomMinutes);
 
-    public override WidgetConfig Clone()
+    /// <summary>[S-1422] 15 s for the short cadences, a minute otherwise: only so a past period's tick clears by itself.</summary>
+    [JsonIgnore]
+    public TimeSpan TickInterval => HabitPeriods.TickInterval(Cadence.Period);
+
+    public override WidgetConfig Clone() => new HabitTrackerConfig
     {
-        var copy = new HabitTrackerConfig
-        {
-            HistoryDays = HistoryDays,
-            ShowStreak = ShowStreak,
-        };
+        ListId = ListId,
+        Period = Period,
+        CustomMinutes = CustomMinutes,
+        HistoryDots = HistoryDots,
+        ShowStreak = ShowStreak,
+    };
 
-        foreach (var habit in Habits)
+    public override IReadOnlyList<string> Repair()
+    {
+        var repairs = new List<string>();
+
+        if (!Enum.IsDefined(Period))
         {
-            copy.Habits.Add(habit.Copy());
+            repairs.Add($"habit period {(int)Period} is unknown; reset to daily");
+            Period = HabitPeriod.Daily;
         }
 
-        return copy;
+        if (CustomMinutes != Cadence.Minutes)
+        {
+            repairs.Add($"habit interval {CustomMinutes} min is out of range; clamped to {Cadence.Minutes}");
+            CustomMinutes = Cadence.Minutes;
+        }
+
+        if (HistoryDots != EffectiveHistoryDots)
+        {
+            repairs.Add($"habit history {HistoryDots} is out of range; clamped to {EffectiveHistoryDots}");
+            HistoryDots = EffectiveHistoryDots;
+        }
+
+        return repairs;
     }
 }
