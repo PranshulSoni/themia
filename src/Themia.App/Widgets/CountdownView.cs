@@ -34,7 +34,7 @@ internal sealed partial class CountdownView : Grid, IWidgetView
 
     private readonly StackPanel _list = new() { Spacing = 0 };
     private readonly ScrollViewer _scroll;
-    private readonly TextBlock _empty = Fluent.Text(FluentType.Body, "TextFillColorTertiaryBrush");
+    private readonly StackPanel _empty;
     private readonly List<Row> _rows = [];
 
     private Ticker? _ticker;
@@ -60,13 +60,13 @@ internal sealed partial class CountdownView : Grid, IWidgetView
 
         Grid.SetRow(_scroll, 0);
 
-        // [C-02] Says what to do about it, rather than just that there is nothing.
-        _empty.Text = "No timers.\nAdd one in this widget's settings.";
-        _empty.TextWrapping = TextWrapping.Wrap;
-        _empty.TextAlignment = TextAlignment.Center;
-        _empty.HorizontalAlignment = HorizontalAlignment.Center;
-        _empty.VerticalAlignment = VerticalAlignment.Center;
-        _empty.Padding = WidgetLayout.SideInset;
+        // [C-02] Says what to do about it, rather than just that there is nothing. [S-642] The
+        // shared empty state — glyph, secondary text, shedding to fit — like every sibling, not a
+        // tertiary-grey text block of its own.
+        _empty = Fluent.EmptyState(
+            WidgetCatalog.Definition(WidgetKind.Countdown).Glyph,
+            new TextBlock { Text = "No timers.\nAdd one in this widget's settings." },
+            out _);
         _empty.Visibility = Visibility.Collapsed;
 
         Grid.SetRow(_empty, 0);

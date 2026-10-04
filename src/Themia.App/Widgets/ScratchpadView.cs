@@ -694,9 +694,44 @@ internal sealed partial class ScratchpadView : Grid, IWidgetView, IWidgetSurface
 
     private void OnSizeChanged(object sender, SizeChangedEventArgs args)
     {
+        ShedTools(args.NewSize.Width);
+
         // The drawing is in pad units, so a resize is a re-plot, not a resample: this is the whole
         // reason the strokes are geometry.
         RenderAll();
+    }
+
+    /// <summary>
+    /// [S-651] The tools ride on the card's header, beside its icon and title, so a narrow tile can
+    /// only hold as many as leave the title a few letters. Three 36px buttons on a 120px tile ran
+    /// past the card edge and pushed the title out entirely. They go in reverse order of use:
+    /// the eraser first, then clear; undo stays, because it is the one that rescues a slip.
+    /// </summary>
+    private void ShedTools(double width)
+    {
+        if (!(width > 0))
+        {
+            return;
+        }
+
+        // The header's insets and icon, and enough title to say what the widget is.
+        const double Taken = (Fluent.Space4 * 2) + Fluent.IconSize + Fluent.Space2 + Fluent.Space6 * 2;
+        const double PerTool = Fluent.Space6 + Fluent.Space3 + Fluent.Space1;
+
+        var room = (int)Math.Floor((width - Taken) / PerTool);
+        var fit = Math.Clamp(room, 1, 3);
+
+        var showClear = fit >= 2;
+        var showEraser = fit >= 3;
+
+        // A hidden eraser must not leave the pad in erase mode with no way out of it.
+        if (!showEraser && _eraser.IsChecked == true)
+        {
+            _eraser.IsChecked = false;
+        }
+
+        _eraser.Visibility = showEraser ? Visibility.Visible : Visibility.Collapsed;
+        _clearButton.Visibility = showClear ? Visibility.Visible : Visibility.Collapsed;
     }
 
     /// <summary>

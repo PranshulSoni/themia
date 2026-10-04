@@ -1,0 +1,522 @@
+using System.Net.Http;
+using System.Text;
+using System.Text.Json;
+using System.Text.Json.Serialization.Metadata;
+using Themia.Core.Accounts;
+using Themia.Core.Diagnostics;
+
+namespace Themia.App.Services.Accounts;
+
+/// <summary>Tokens, and every authorized request. See the summary on <see cref="AccountService"/>.</summary>
+internal sealed partial class AccountService
+{
+    /// <summary>A ceiling on pages followed in one list call, whatever the server keeps offering.</summary>
+    private const int MaxPages = 50;
+
+    // -----------------------------------------------------------------------------------------
+    // Tokens
+    // -----------------------------------------------------------------------------------------
+
+    /// <summary>
+    /// [S-530] A bearer token for an OAuth account (Microsoft, Google, Claude) or GitHub: the stored
+    /// one while it has more than five minutes to live, else a fresh one. Refresh is single-flight per
+    /// account. A password account has no token and is refused.
+    /// </summary>
+    /// <exception cref="AccountException">
+    /// <see cref="AccountError.SignInRequired"/> when only the user can mend it; a network error otherwise.
+    /// </exception>
+    public async Task<string> GetAccessTokenAsync(string accountId, CancellationToken cancellation = default)
+        => (await TokenAsync(Require(accountId), cancellation).ConfigureAwait(false)).Token;
+
+    /// <summary>The token and the sealed form it came from, so a 401 can say which token it rejected.</summary>
+    private async Task<(string Token, string? Sealed)> TokenAsync(Account account, CancellationToken cancellation)
+    {
+        switch (account.Provider.Auth())
+        {
+            case AccountAuth.Password:
+                throw new AccountException(AccountError.Refused, $"{account.Label} signs in with a password, not a token.");
+
+            case AccountAuth.BearerToken:
+                return (OpenOrThrow(account, account.SealedAccessToken, "token"), account.SealedAccessToken);
+        }
+
+        if (TokenExpiry.IsUsable(account.ExpiresAt, Now)
+            && Dpapi.Open(account.SealedAccessToken) is { State: SecretState.Open, Value: { } token })
+        {
+            return (token, account.SealedAccessToken);
+        }
+
+        return await RefreshAsync(account.Id, rejected: null, cancellation).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Renew an account's access token under its own gate. Whoever waited at the gate re-reads the
+    /// account first: if another caller refreshed meanwhile, that token is used and no second
+    /// request is made. <paramref name="rejected"/> is the sealed token a server just answered 401
+    /// to, which forces a refresh even before the stored expiry — but only once, however many
+    /// callers saw that same 401.
+    /// </summary>
+    private async Task<(string Token, string? Sealed)> RefreshAsync(string accountId, string? rejected, CancellationToken cancellation)
+    {
+        var gate = _refreshGates.GetOrAdd(accountId, static _ => new SemaphoreSlim(1, 1));
+        await gate.WaitAsync(cancellation).ConfigureAwait(false);
+
+        try
+        {
+            var account = Require(accountId);
+
+            if (!RefreshRules.ShouldRefresh(account.ExpiresAt, account.SealedAccessToken, rejected, Now)
+                && Dpapi.Open(account.SealedAccessToken) is { State: SecretState.Open, Value: { } held })
+            {
+                return (held, account.SealedAccessToken);
+            }
+
+            var refresh = Dpapi.Open(account.SealedRefreshToken);
+            if (refresh is not { State: SecretState.Open, Value: { } refreshToken })
+            {
+                var problem = refresh.State == SecretState.Absent
+                    ? "The sign-in has run out and there is no way to renew it. Sign in again."
+                    : "The sign-in cannot be read on this PC or by this Windows user. Sign in again.";
+                MarkProblem(accountId, problem);
+                throw new AccountException(AccountError.SignInRequired, problem);
+            }
+
+            var reply = await AccountHttp.SendAsync(RefreshRequest(account, refreshToken), CredentialKind.None, null, cancellation)
+                .ConfigureAwait(false);
+
+            var parsed = Parse(reply.Body, AccountWireContext.Default.TokenReply);
+
+            if (!reply.IsSuccess || parsed?.AccessToken is not { Length: > 0 } accessToken)
+            {
+                throw RefreshFailed(account, reply, parsed);
+            }
+
+            var sealedAccess = Dpapi.Seal(accessToken);
+            var sealedRefresh = parsed.RefreshToken is { Length: > 0 } rotated ? Dpapi.Seal(rotated) : account.SealedRefreshToken;
+            var expires = TokenExpiry.FromExpiresIn(parsed.ExpiresIn, Now);
+
+            await MutateAsync(list =>
+            {
+                // Only the token fields of the account as it is NOW: a rename that landed during the
+                // round trip survives, and an account signed out meanwhile is not brought back.
+                var index = list.FindIndex(a => a.Id == accountId);
+                if (index < 0)
+                {
+                    throw new AccountException(AccountError.UnknownAccount, "The account was signed out while its sign-in was being renewed.");
+                }
+
+                list[index] = list[index] with
+                {
+                    SealedAccessToken = sealedAccess,
+                    SealedRefreshToken = sealedRefresh,
+                    ExpiresAt = expires,
+                };
+            }, userAction: false, cancellation).ConfigureAwait(false);
+
+            ClearProblem(accountId);
+            Log.Info(Scope, $"renewed the sign-in for {account}");
+            return (accessToken, sealedAccess);
+        }
+        finally
+        {
+            gate.Release();
+        }
+    }
+
+    private static RequestTemplate RefreshRequest(Account account, string refreshToken) => account.Provider switch
+    {
+        AccountProvider.Microsoft => RequestTemplate.Form(OAuthClients.Microsoft.TokenUrl,
+        [
+            new("client_id", OAuthClients.Microsoft.ClientId),
+            new("grant_type", "refresh_token"),
+            new("refresh_token", refreshToken),
+            new("scope", OAuthClients.Microsoft.Scope),
+        ]),
+        AccountProvider.Google => RequestTemplate.Form(OAuthClients.Google.TokenUrl,
+        [
+            new("client_id", OAuthClients.Google.ClientId),
+            new("client_secret", GoogleSecretOrThrow()),
+            new("grant_type", "refresh_token"),
+            new("refresh_token", refreshToken),
+        ]),
+        AccountProvider.Claude => RequestTemplate.Form(OAuthClients.Claude.TokenUrl,
+        [
+            new("client_id", OAuthClients.Claude.ClientId),
+            new("grant_type", "refresh_token"),
+            new("refresh_token", refreshToken),
+        ]),
+        _ => throw new AccountException(AccountError.Refused, $"{account.Provider.Label()} has no sign-in to renew."),
+    };
+
+    /// <summary>
+    /// Why a refresh failed. A grant the provider no longer honours (revoked, expired, password
+    /// changed) needs the user and marks the account; anything else — a 5xx, a proxy page — is
+    /// transient and leaves the account alone. Neither ever removes it.
+    /// </summary>
+    private AccountException RefreshFailed(Account account, AccountReply reply, TokenReply? parsed)
+    {
+        var code = parsed?.Error ?? ErrorBody.OAuthCode(reply.Body);
+        var said = parsed?.ErrorDescription is { Length: > 0 } description
+            ? description.Split('\n')[0].Trim()
+            : ErrorBody.Message(reply.Body);
+
+        if (RefreshRules.NeedsUser(reply.Status, code))
+        {
+            var problem = $"{account.Provider.Label()} wants you to sign in again{(said is null ? "." : $": {said}")}";
+            MarkProblem(account.Id, problem);
+            return new AccountException(AccountError.SignInRequired, problem, reply.Status);
+        }
+
+        // A 2xx without a token, or a 401 with an error that is not about the grant, is the
+        // endpoint misbehaving rather than the user's sign-in going bad.
+        var error = AccountException.FromStatus(reply.Status);
+        if (reply.IsSuccess || error == AccountError.SignInRequired)
+        {
+            error = AccountError.BadResponse;
+        }
+
+        return new AccountException(
+            error,
+            $"Renewing the {account.Provider.Label()} sign-in failed: {said ?? $"HTTP {reply.Status}"}",
+            reply.Status);
+    }
+
+    // -----------------------------------------------------------------------------------------
+    // Requests
+    // -----------------------------------------------------------------------------------------
+
+    /// <summary>
+    /// [S-531] Send any request as an account. The provider's proof is added (and re-added after a
+    /// redirect only where it may go), a 401 on an OAuth account is answered with one refresh and one
+    /// retry, and anything but a 2xx throws a typed <see cref="AccountException"/> carrying the
+    /// provider's own message.
+    /// </summary>
+    public async Task<AccountReply> SendAsync(string accountId, RequestTemplate request, CancellationToken cancellation = default)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+
+        var account = Require(accountId);
+        var (kind, token, sealedToken) = await ProofAsync(account, cancellation).ConfigureAwait(false);
+
+        var reply = await AccountHttp.SendAsync(request, kind, r => Authorize(r, account, token), cancellation).ConfigureAwait(false);
+
+        if (reply.Status == 401 && account.Provider.Auth() == AccountAuth.OAuthRefresh)
+        {
+            // Rejected before its stored expiry (revoked, rotated elsewhere): renew once and retry once.
+            var (renewed, _) = await RefreshAsync(account.Id, sealedToken, cancellation).ConfigureAwait(false);
+            reply = await AccountHttp.SendAsync(request, kind, r => Authorize(r, account, renewed), cancellation).ConfigureAwait(false);
+        }
+
+        // A 304 answers the caller's own conditional request: its copy is current. [S-625]
+        if (reply.IsSuccess || reply.IsNotModified)
+        {
+            return reply;
+        }
+
+        var error = AccountException.FromStatus(reply.Status);
+        var said = ErrorBody.Message(reply.Body);
+
+        // [S-625] A spent budget is a throttle with a known end, whatever status carried it —
+        // GitHub sends 403 — and nothing should ask again before that end.
+        var budget = RateLimitRules.Read(reply.Headers, Now);
+        if (RateLimitRules.IsThrottle(reply.Status, budget))
+        {
+            error = AccountError.RateLimited;
+        }
+        var message = said is null
+            ? $"{reply.FinalUrl.Host} answered HTTP {reply.Status}."
+            : $"{reply.FinalUrl.Host} answered HTTP {reply.Status}: {said}";
+
+        if (error == AccountError.SignInRequired)
+        {
+            MarkProblem(account.Id, account.Provider.Auth() == AccountAuth.Password
+                ? "The server refused the user name or password. Sign in again."
+                : $"{account.Provider.Label()} refused the sign-in. Sign in again.");
+        }
+
+        throw new AccountException(error, message, reply.Status)
+        {
+            ProviderMessage = said,
+            RetryAt = error == AccountError.RateLimited ? RateLimitRules.WaitUntil(reply.Status, budget, Now) : null,
+        };
+    }
+
+    /// <summary>An authorized GET; the body as text.</summary>
+    public async Task<string> GetStringAsync(string accountId, Uri url, CancellationToken cancellation = default, params (string Name, string Value)[] headers)
+        => (await SendAsync(accountId, Get(url, headers), cancellation).ConfigureAwait(false)).Body;
+
+    /// <summary>An authorized GET of a JSON document, parsed through a source-generated contract.</summary>
+    /// <exception cref="AccountException"><see cref="AccountError.BadResponse"/> when the body is not that shape.</exception>
+    public async Task<T> GetJsonAsync<T>(
+        string accountId,
+        Uri url,
+        JsonTypeInfo<T> contract,
+        CancellationToken cancellation = default,
+        params (string Name, string Value)[] headers)
+    {
+        var reply = await SendAsync(accountId, Get(url, headers), cancellation).ConfigureAwait(false);
+
+        return Parse(reply.Body, contract)
+            ?? throw new AccountException(AccountError.BadResponse, $"{url.Host} sent something that is not the expected document.", reply.Status);
+    }
+
+    /// <summary>
+    /// A POST, PATCH, PUT or DELETE with an optional JSON body. Not retried on a throttle unless the
+    /// method is repeatable, so a POST that created something never creates it twice.
+    /// </summary>
+    public Task<AccountReply> SendJsonAsync(string accountId, HttpMethod method, Uri url, string? json, CancellationToken cancellation = default)
+    {
+        var template = new RequestTemplate(method, url, json is null ? null : Encoding.UTF8.GetBytes(json), json is null ? null : "application/json");
+        template.Headers.Add(("Accept", "application/json"));
+        return SendAsync(accountId, template, cancellation);
+    }
+
+    /// <summary>
+    /// [S-532] A Microsoft Graph collection: every <c>value</c> item across pages, following
+    /// <c>@odata.nextLink</c>, up to <paramref name="maxItems"/>. A next link to any host other than
+    /// the first page's is not followed (the token would go with it) and is logged.
+    /// </summary>
+    /// <param name="item">The contract for ONE item; register just the item type in your context.</param>
+    /// <param name="headers">Extra headers, e.g. <c>("Prefer", "outlook.timezone=\"UTC\"")</c>.</param>
+    public Task<IReadOnlyList<T>> GetGraphPagesAsync<T>(
+        string accountId,
+        Uri first,
+        JsonTypeInfo<T> item,
+        int maxItems,
+        CancellationToken cancellation = default,
+        params (string Name, string Value)[] headers)
+        => PagesAsync(accountId, first, "value", item, maxItems, headers, cancellation, static (_, root) =>
+            root.TryGetProperty("@odata.nextLink", out var next) && next.ValueKind == JsonValueKind.String
+                && Uri.TryCreate(next.GetString(), UriKind.Absolute, out var url)
+                    ? url
+                    : null);
+
+    /// <summary>
+    /// [S-532] A Google API list: every item under <paramref name="itemsProperty"/> (<c>items</c>,
+    /// <c>messages</c>, <c>connections</c>…) across pages, following <c>nextPageToken</c> by setting
+    /// <c>pageToken</c> on the first URL, up to <paramref name="maxItems"/>.
+    /// </summary>
+    public Task<IReadOnlyList<T>> GetGooglePagesAsync<T>(
+        string accountId,
+        Uri first,
+        string itemsProperty,
+        JsonTypeInfo<T> item,
+        int maxItems,
+        CancellationToken cancellation = default)
+        => PagesAsync(accountId, first, itemsProperty, item, maxItems, [], cancellation, static (firstUrl, root) =>
+            root.TryGetProperty("nextPageToken", out var next) && next.ValueKind == JsonValueKind.String
+                && next.GetString() is { Length: > 0 } pageToken
+                    ? WithQuery(firstUrl, "pageToken", pageToken)
+                    : null);
+
+    /// <summary>
+    /// [S-533] A WebDAV request as a CalDAV / CardDAV account: basic auth, the <c>Depth</c> header,
+    /// redirects followed with the method and body intact. <paramref name="url"/> defaults to the
+    /// account's collection. The reply's <see cref="AccountReply.FinalUrl"/> is the base for hrefs.
+    /// </summary>
+    public Task<AccountReply> DavAsync(
+        string accountId,
+        string method,
+        Uri? url,
+        string? xmlBody,
+        int depth,
+        CancellationToken cancellation = default)
+    {
+        var account = Require(accountId);
+        var target = url
+            ?? (Uri.TryCreate(account.ServerUrl, UriKind.Absolute, out var collection)
+                ? collection
+                : throw new AccountException(AccountError.Refused, $"{account.Label} has no DAV address."));
+
+        return SendAsync(accountId, DavRequest(method, target, xmlBody, depth), cancellation);
+    }
+
+    /// <summary>
+    /// [S-534] Where and as whom an IMAP account signs in, with the password opened. Hold it for one
+    /// session, not longer.
+    /// </summary>
+    public ImapCredentials GetImapCredentials(string accountId)
+    {
+        var account = Require(accountId);
+
+        if (account.Provider != AccountProvider.Imap || account.Host is null || account.Port is not { } port || account.Username is null)
+        {
+            throw new AccountException(AccountError.Refused, $"{account.Label} is not a mail server account.");
+        }
+
+        return new ImapCredentials(account.Host, port, account.Username, OpenOrThrow(account, account.SealedPassword, "password"));
+    }
+
+    /// <summary>Tell the service an IMAP server refused the stored password, so the account says so.</summary>
+    public void ReportImapLoginRefused(string accountId)
+        => MarkProblem(accountId, "The mail server refused the user name or password. Sign in again.");
+
+    // -----------------------------------------------------------------------------------------
+    // Plumbing
+    // -----------------------------------------------------------------------------------------
+
+    private async Task<(CredentialKind Kind, string? Token, string? Sealed)> ProofAsync(Account account, CancellationToken cancellation)
+    {
+        if (account.Provider.Auth() == AccountAuth.Password)
+        {
+            return (CredentialKind.Basic, OpenOrThrow(account, account.SealedPassword, "password"), account.SealedPassword);
+        }
+
+        var (token, sealedToken) = await TokenAsync(account, cancellation).ConfigureAwait(false);
+        return (CredentialKind.Bearer, token, sealedToken);
+    }
+
+    /// <summary>The proof and the provider's own required headers, onto one outgoing request.</summary>
+    private static void Authorize(HttpRequestMessage request, Account account, string? secret)
+    {
+        switch (account.Provider)
+        {
+            case AccountProvider.Imap or AccountProvider.CalDav or AccountProvider.CardDav:
+                var pair = Encoding.UTF8.GetBytes($"{account.Username}:{secret}");
+                request.Headers.Authorization = new("Basic", Convert.ToBase64String(pair));
+                return;
+
+            case AccountProvider.GitHub:
+                if (request.Headers.Accept.Count == 0)
+                {
+                    request.Headers.Accept.ParseAdd("application/vnd.github+json");
+                }
+
+                break;
+
+            case AccountProvider.Claude:
+                request.Headers.UserAgent.Clear();
+                request.Headers.TryAddWithoutValidation("User-Agent", OAuthClients.Claude.UserAgent);
+                request.Headers.TryAddWithoutValidation(OAuthClients.Claude.BetaHeader, OAuthClients.Claude.BetaValue);
+                break;
+        }
+
+        request.Headers.Authorization = new("Bearer", secret);
+    }
+
+    private string OpenOrThrow(Account account, string? sealedSecret, string what)
+    {
+        var opened = Dpapi.Open(sealedSecret);
+        if (opened is { State: SecretState.Open, Value: { } value })
+        {
+            return value;
+        }
+
+        var problem = opened.State == SecretState.Absent
+            ? $"No {what} is stored. Sign in again."
+            : $"The {what} cannot be read on this PC or by this Windows user. Sign in again.";
+        MarkProblem(account.Id, problem);
+        throw new AccountException(AccountError.SignInRequired, problem);
+    }
+
+    private async Task<IReadOnlyList<T>> PagesAsync<T>(
+        string accountId,
+        Uri first,
+        string itemsProperty,
+        JsonTypeInfo<T> item,
+        int maxItems,
+        (string Name, string Value)[] headers,
+        CancellationToken cancellation,
+        Func<Uri, JsonElement, Uri?> nextPage)
+    {
+        var items = new List<T>();
+        Uri? url = first;
+
+        for (var page = 0; url is not null && page < MaxPages && items.Count < maxItems; page++)
+        {
+            var reply = await SendAsync(accountId, Get(url, headers), cancellation).ConfigureAwait(false);
+
+            Uri? next;
+            try
+            {
+                using var document = JsonDocument.Parse(reply.Body);
+                var root = document.RootElement;
+
+                if (root.ValueKind != JsonValueKind.Object)
+                {
+                    throw new AccountException(AccountError.BadResponse, $"{url.Host} sent a page that is not an object.", reply.Status);
+                }
+
+                if (root.TryGetProperty(itemsProperty, out var array) && array.ValueKind == JsonValueKind.Array)
+                {
+                    foreach (var element in array.EnumerateArray())
+                    {
+                        if (element.Deserialize(item) is { } value)
+                        {
+                            items.Add(value);
+                        }
+
+                        if (items.Count >= maxItems)
+                        {
+                            break;
+                        }
+                    }
+                }
+
+                next = nextPage(first, root);
+            }
+            catch (JsonException ex)
+            {
+                throw new AccountException(AccountError.BadResponse, $"{url.Host} sent a page that does not parse: {ex.Message}", reply.Status, ex);
+            }
+
+            if (next is not null && !RedirectRules.IsSafeNextLink(first, next))
+            {
+                Log.Warn(Scope, $"not following a next page on {next.Host}: the token stays on {first.Host}");
+                next = null;
+            }
+
+            url = next;
+        }
+
+        return items;
+    }
+
+    private static RequestTemplate Get(Uri url, (string Name, string Value)[] headers)
+    {
+        var template = new RequestTemplate(HttpMethod.Get, url);
+        template.Headers.AddRange(headers);
+
+        if (!headers.Any(h => string.Equals(h.Name, "Accept", StringComparison.OrdinalIgnoreCase)))
+        {
+            template.Headers.Add(("Accept", "application/json"));
+        }
+
+        return template;
+    }
+
+    private static RequestTemplate DavRequest(string method, Uri url, string? xmlBody, int depth)
+    {
+        var template = new RequestTemplate(
+            new HttpMethod(method),
+            url,
+            xmlBody is null ? null : Encoding.UTF8.GetBytes(xmlBody),
+            xmlBody is null ? null : "application/xml; charset=utf-8");
+
+        template.Headers.Add(("Depth", depth.ToString(System.Globalization.CultureInfo.InvariantCulture)));
+        return template;
+    }
+
+    private static Uri WithQuery(Uri url, string key, string value)
+    {
+        var builder = new UriBuilder(url);
+        var pairs = builder.Query.TrimStart('?')
+            .Split('&', StringSplitOptions.RemoveEmptyEntries)
+            .Where(p => !p.StartsWith(key + "=", StringComparison.Ordinal))
+            .Append($"{key}={Uri.EscapeDataString(value)}");
+        builder.Query = string.Join('&', pairs);
+        return builder.Uri;
+    }
+
+    private static T? Parse<T>(string body, JsonTypeInfo<T> contract)
+    {
+        try
+        {
+            return JsonSerializer.Deserialize(body, contract);
+        }
+        catch (JsonException)
+        {
+            return default;
+        }
+    }
+}

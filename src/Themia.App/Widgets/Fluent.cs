@@ -94,6 +94,12 @@ internal static class Fluent
         title.Foreground = FluentLayout.Themed("TextFillColorSecondaryBrush", Colors.Gray);
         title.VerticalAlignment = VerticalAlignment.Center;
 
+        // [S-640] A title that does not fit ends in an ellipsis. A Grid does not clip a child to
+        // its cell, so an untrimmed title on a narrow tile was cut mid-word ("Countdow") or ran
+        // under the trailing element ("Proc" with "by CPU" drawn over it).
+        title.TextTrimming = TextTrimming.CharacterEllipsis;
+        title.TextWrapping = TextWrapping.NoWrap;
+
         var grid = new Grid
         {
             ColumnDefinitions =
@@ -114,6 +120,17 @@ internal static class Fluent
             trailing.VerticalAlignment = VerticalAlignment.Center;
             Grid.SetColumn(trailing, 2);
             grid.Children.Add(trailing);
+
+            // [S-655] A label that only informs ("Just now", "by CPU") gives way to the title on a
+            // narrow tile; see HeaderFit. Through MaxWidth, never Visibility, which several views
+            // already set on their own label for their own reasons. Commands are left alone: a
+            // button is something the user needs, and the view sheds those itself.
+            if (trailing is TextBlock label)
+            {
+                label.TextTrimming = TextTrimming.CharacterEllipsis;
+                var leading = IconSize + Space2;
+                grid.SizeChanged += (_, args) => label.MaxWidth = HeaderFit.TrailingLabelWidth(args.NewSize.Width, leading);
+            }
         }
 
         return grid;
@@ -223,14 +240,14 @@ internal static class Fluent
         message.Foreground = FluentLayout.Themed("TextFillColorSecondaryBrush", Colors.Gray);
         message.TextAlignment = TextAlignment.Center;
         message.TextWrapping = TextWrapping.Wrap;
-        message.TextTrimming = TextTrimming.None;
 
-        return new StackPanel
+        // [S-642] The panel sheds the glyph, then lines, on a box too short for both; see
+        // EmptyStatePanel. Still a StackPanel to every caller.
+        return new EmptyStatePanel(icon, message)
         {
             VerticalAlignment = VerticalAlignment.Center,
             HorizontalAlignment = HorizontalAlignment.Stretch,
             Padding = new Thickness(Space4, 0, Space4, 0),
-            Children = { icon, message },
         };
     }
 

@@ -47,6 +47,33 @@ public interface IWidgetSurface
     /// </para>
     /// </summary>
     void RequestTextInput(bool wanted);
+
+    /// <summary>
+    /// The display this widget is drawn on, or null where there is none — the gallery has no
+    /// display, and neither does a card that has not been placed. See <see cref="IWidgetDisplay"/>.
+    /// </summary>
+    IWidgetDisplay? Display { get; }
+}
+
+/// <summary>
+/// What a widget may know about, and do to, the display it sits on: the views there are, which one
+/// this display shows, and a way to show another.
+/// <para>
+/// Only the view switcher asks. It is a surface-level fact rather than widget config — the same
+/// widget copied to another screen switches <i>that</i> screen — so it comes from the card host,
+/// which is the one thing that knows which display a card is on.
+/// </para>
+/// </summary>
+public interface IWidgetDisplay
+{
+    /// <summary>Every view, in the user's order.</summary>
+    IReadOnlyList<Themia.Core.Widgets.ViewSummary> Views { get; }
+
+    /// <summary>The view this display is showing now.</summary>
+    string ShownViewId { get; }
+
+    /// <summary>[S-19] Put a view on this display, and only this one.</summary>
+    void ShowView(string viewId);
 }
 
 /// <summary>Implemented by the few views that edit their own config or take typing.</summary>
@@ -134,6 +161,12 @@ internal enum WidgetCategory
     Desk,
     Trackers,
     Layout,
+
+    /// <summary>GitHub and Claude usage: the widgets for people who write code.</summary>
+    Developer,
+
+    /// <summary>About the app itself: the guide and the mark.</summary>
+    App,
 }
 
 /// <summary>
@@ -152,10 +185,13 @@ internal static class WidgetCatalog
         new(WidgetKind.Network, "Network", "Bytes per second across the active adapters", Glyphs.Network, 200, 150, WidgetCategory.System),
         new(WidgetKind.Ping, "Ping", "Round-trip time to a host", Glyphs.Ping, 200, 150, WidgetCategory.System),
         new(WidgetKind.Processes, "Processes", "The busiest processes, ranked", Glyphs.Processes, 320, 240, WidgetCategory.System),
-        new(WidgetKind.Email, "Mail", "Recent messages, via the hearth hub", Glyphs.Mail, 380, 260, WidgetCategory.Accounts),
-        new(WidgetKind.Calendar, "Calendar", "What is coming up, via the hearth hub", Glyphs.Calendar, 340, 260, WidgetCategory.Accounts),
-        new(WidgetKind.Tasks, "Tasks", "Open tasks, via the hearth hub", Glyphs.Task, 320, 240, WidgetCategory.Accounts),
-        new(WidgetKind.Contacts, "Contacts", "People, via the hearth hub", Glyphs.Contact, 320, 260, WidgetCategory.Accounts),
+        new(WidgetKind.Gpu, "GPU", "Graphics load and video memory", Glyphs.Gpu, 220, 220, WidgetCategory.System),
+        new(WidgetKind.Mixer, "Mixer", "Volume for each app that plays sound", Glyphs.Mixer, 300, 260, WidgetCategory.System),
+        new(WidgetKind.ScreenTime, "Screen time", "Which apps you used today, and for how long", Glyphs.ScreenTime, 260, 300, WidgetCategory.System),
+        new(WidgetKind.Email, "Mail", "Recent messages from Outlook, Gmail or any mail server", Glyphs.Mail, 380, 260, WidgetCategory.Accounts),
+        new(WidgetKind.Calendar, "Calendar", "Your Microsoft, Google and CalDAV calendars, with birthdays", Glyphs.Calendar, 340, 260, WidgetCategory.Accounts),
+        new(WidgetKind.Tasks, "Tasks", "Microsoft To Do, Google Tasks, or a list on this PC", Glyphs.Task, 320, 320, WidgetCategory.Accounts),
+        new(WidgetKind.Contacts, "Contacts", "People from your Microsoft, Google and CardDAV address books", Glyphs.Contact, 320, 260, WidgetCategory.Accounts),
         new(WidgetKind.Notes, "Notes", "A note kept on this machine", Glyphs.Note, 300, 220, WidgetCategory.Desk),
         new(WidgetKind.Countdown, "Countdown", "Time left until the dates you care about", Glyphs.Countdown, 300, 200, WidgetCategory.Time),
         new(WidgetKind.Pomodoro, "Pomodoro", "A focus and break timer", Glyphs.Pomodoro, 240, 200, WidgetCategory.Time),
@@ -172,17 +208,28 @@ internal static class WidgetCatalog
         new(WidgetKind.Rss, "Feed", "Headlines from a feed you choose", Glyphs.Rss, 360, 280, WidgetCategory.Information),
         new(WidgetKind.Apps, "Apps", "Launch an installed application", Glyphs.Apps, 320, 240, WidgetCategory.Launch),
         new(WidgetKind.Shortcuts, "Shortcuts", "Links, files and folders you keep to hand", Glyphs.Shortcut, 320, 220, WidgetCategory.Launch),
+        new(WidgetKind.OneDrive, "OneDrive", "Recent files, or a folder, on your OneDrive", Glyphs.OneDrive, 330, 320, WidgetCategory.Launch),
         new(WidgetKind.WebSearch, "Search", "Type a query, open it in your browser", Glyphs.Search, 300, 120, WidgetCategory.Launch),
         new(WidgetKind.Clipboard, "Clipboard", "What you have copied recently", Glyphs.Clipboard, 320, 260, WidgetCategory.Desk),
         new(WidgetKind.Scratchpad, "Scratchpad", "A place to draw", Glyphs.Scratchpad, 300, 260, WidgetCategory.Desk),
         new(WidgetKind.ColorSwatch, "Colours", "A palette you can copy from", Glyphs.Color, 280, 180, WidgetCategory.Desk),
         new(WidgetKind.Quote, "Quote", "A line worth rereading", Glyphs.Quote, 320, 180, WidgetCategory.Desk),
         new(WidgetKind.Gallery, "Gallery", "Pictures from a folder", Glyphs.Gallery, 320, 240, WidgetCategory.Media),
+        new(WidgetKind.VideoStream, "Video stream", "A live camera: MJPEG, a snapshot, MP4 or HLS", Glyphs.Video, 320, 240, WidgetCategory.Media),
+        new(WidgetKind.WebElement, "Web element", "One part of a web page, kept up to date", Glyphs.WebElement, 360, 260, WidgetCategory.Information),
         new(WidgetKind.HabitTracker, "Habits", "Daily check-offs and streaks", Glyphs.Habit, 320, 240, WidgetCategory.Trackers),
         new(WidgetKind.MoodTracker, "Mood", "How you felt, as a heatmap", Glyphs.Mood, 320, 240, WidgetCategory.Trackers),
         new(WidgetKind.Group, "Group", "An area that holds other widgets", Glyphs.Group, 400, 300, WidgetCategory.Layout),
         new(WidgetKind.Stack, "Stack", "Widgets rolled up to their headers", Glyphs.Stack, 360, 320, WidgetCategory.Layout),
         new(WidgetKind.Tabs, "Tabs", "Several widgets, one at a time", Glyphs.Tabs, 360, 320, WidgetCategory.Layout),
+        new(WidgetKind.ViewSwitcher, "View switcher", "Switch the view of the display it is on", Glyphs.View, 320, 56, WidgetCategory.Layout),
+        new(WidgetKind.GitHub, "GitHub", "A repository: stars, CI, commits, pull requests", Glyphs.Code, 320, 320, WidgetCategory.Developer),
+        new(WidgetKind.GitHubIssues, "Assigned issues", "Open GitHub issues assigned to you", Glyphs.Issue, 320, 260, WidgetCategory.Developer),
+        new(WidgetKind.GitHubNotifications, "Notifications", "Your GitHub notifications", Glyphs.Bell, 320, 340, WidgetCategory.Developer),
+        new(WidgetKind.GitHubReviews, "Review requests", "Pull requests waiting for your review", Glyphs.PullRequest, 320, 260, WidgetCategory.Developer),
+        new(WidgetKind.ClaudeUsage, "Claude usage", "Your Claude plan's session and weekly limits", Glyphs.Gauge, 260, 180, WidgetCategory.Developer),
+        new(WidgetKind.Help, "Help", "How Themia works, in four short tabs", Glyphs.Help, 440, 440, WidgetCategory.App),
+        new(WidgetKind.Themia, "Themia", "The Themia mark, name and version", Glyphs.Themia, 120, 120, WidgetCategory.App),
     ];
 
     /// <summary>The heading a picker section is shown under.</summary>
@@ -197,6 +244,8 @@ internal static class WidgetCatalog
         WidgetCategory.Desk => "Desk",
         WidgetCategory.Trackers => "Trackers",
         WidgetCategory.Layout => "Layout",
+        WidgetCategory.Developer => "Developer",
+        WidgetCategory.App => "Themia",
         _ => category.ToString(),
     };
 
@@ -221,6 +270,9 @@ internal static class WidgetCatalog
         WidgetKind.Cpu or WidgetKind.Memory or WidgetKind.Disk
             or WidgetKind.Battery or WidgetKind.Network or WidgetKind.Ping => new MeterView(kind),
         WidgetKind.Processes => new ProcessesView(),
+        WidgetKind.Gpu => new GpuView(),
+        WidgetKind.Mixer => new MixerView(),
+        WidgetKind.ScreenTime => new ScreenTimeView(),
         WidgetKind.Email => new EmailView(),
         WidgetKind.Contacts => new ContactsView(),
         WidgetKind.Calendar => new CalendarView(),
@@ -241,17 +293,27 @@ internal static class WidgetCatalog
         WidgetKind.Rss => new RssView(),
         WidgetKind.Apps => new AppsView(),
         WidgetKind.Shortcuts => new ShortcutsView(),
+        WidgetKind.OneDrive => new OneDriveView(),
         WidgetKind.WebSearch => new WebSearchView(),
         WidgetKind.Clipboard => new ClipboardView(),
         WidgetKind.Scratchpad => new ScratchpadView(),
         WidgetKind.ColorSwatch => new ColorSwatchView(),
         WidgetKind.Quote => new QuoteView(),
         WidgetKind.Gallery => new GalleryView(),
+        WidgetKind.VideoStream => new VideoStreamView(),
+        WidgetKind.WebElement => new WebElementView(),
         WidgetKind.HabitTracker => new HabitTrackerView(),
         WidgetKind.MoodTracker => new MoodTrackerView(),
         WidgetKind.Group => new GroupView(),
         WidgetKind.Stack => new StackView(),
         WidgetKind.Tabs => new TabsView(),
+        WidgetKind.Help => new HelpView(),
+        WidgetKind.Themia => new ThemiaView(),
+        WidgetKind.GitHub => new GitHubView(),
+        WidgetKind.GitHubIssues or WidgetKind.GitHubReviews => new GitHubSearchView(kind),
+        WidgetKind.GitHubNotifications => new GitHubNotificationsView(),
+        WidgetKind.ClaudeUsage => new ClaudeUsageView(),
+        WidgetKind.ViewSwitcher => new ViewSwitcherView(),
         _ => new ClockView(),
     };
 }

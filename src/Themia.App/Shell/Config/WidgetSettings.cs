@@ -1,7 +1,6 @@
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Themia.App.Services;
-using Themia.App.Services.Hearth;
 using Themia.Core.Model;
 using Themia.App.Shell;
 
@@ -101,71 +100,6 @@ internal static partial class WidgetSettings
         rows.Add(FluentLayout.Row(Glyphs.Timer, "Show time remaining",
             "Windows only estimates this while on battery",
             FluentLayout.Toggle(battery.ShowTimeRemaining, value => { battery.ShowTimeRemaining = value; save(); })));
-    }
-
-    public static void Email(List<FrameworkElement> rows, EmailConfig email, Action save)
-    {
-        ArgumentNullException.ThrowIfNull(rows);
-        ArgumentNullException.ThrowIfNull(email);
-        ArgumentNullException.ThrowIfNull(save);
-
-        rows.Add(FluentLayout.Header("Mail"));
-
-        var mail = AppServices.Hub;
-        var collections = mail?.MailCollections ?? [];
-
-        var combo = new ComboBox { MinWidth = 260 };
-        combo.Items.Add(new ComboBoxItem { Content = "All mailboxes", Tag = string.Empty });
-
-        foreach (var collection in collections)
-        {
-            combo.Items.Add(new ComboBoxItem { Content = collection.Name, Tag = collection.Id });
-        }
-
-        var selectedIndex = 0;
-        for (var i = 0; i < collections.Count; i++)
-        {
-            if (collections[i].Id == email.CollectionId)
-            {
-                selectedIndex = i + 1;
-                break;
-            }
-        }
-
-        combo.SelectedIndex = selectedIndex;
-        combo.SelectionChanged += (_, _) =>
-        {
-            if (combo.SelectedItem is ComboBoxItem { Tag: string id })
-            {
-                email.CollectionId = id;
-                save();
-            }
-        };
-
-        // Accounts belong to hearth, so this says where the list comes from rather than offering to
-        // sign anything in.
-        var description = mail?.Status switch
-        {
-            HearthStatus.Ready when collections.Count > 0 => "Granted by hearth",
-            HearthStatus.Ready => "hearth has granted no mailboxes",
-            HearthStatus.NotRunning => "hearth is not running",
-            HearthStatus.Denied => "hearth has not granted access",
-            _ => "Accounts are managed in hearth",
-        };
-
-        rows.Add(FluentLayout.Row(Glyphs.Mail, "Mailbox", description, combo));
-
-        rows.Add(FluentLayout.Row(Glyphs.Unread, "Unread only", null,
-            FluentLayout.Toggle(email.UnreadOnly, value => { email.UnreadOnly = value; save(); })));
-
-        rows.Add(FluentLayout.Row(Glyphs.Preview, "Show preview", "The first line of the message",
-            FluentLayout.Toggle(email.ShowPreview, value => { email.ShowPreview = value; save(); })));
-
-        rows.Add(FluentLayout.Row(Glyphs.Count, "Messages",
-            "How many the list holds; a short widget shows fewer",
-            FluentLayout.Slider(email.EffectiveMaxCount, 1, 50, 1, string.Empty,
-                value => { email.MaxCount = (int)Math.Round(value); save(); })));
-
     }
 
     private static void AddGraphToggle(List<FrameworkElement> rows, GaugeConfig gauge, Action save)

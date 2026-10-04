@@ -53,6 +53,7 @@ internal sealed partial class ColorSwatchView : Grid, IWidgetView
     /// <summary>What the rows were last built for, so a resize that changes neither rebuilds nothing.</summary>
     private int _builtColumns = -1;
     private bool _builtCompact;
+    private bool _builtShowValue;
 
     private bool _detached;
 
@@ -127,7 +128,13 @@ internal sealed partial class ColorSwatchView : Grid, IWidgetView
         var columns = ColumnCount(ActualWidth);
         var compact = ActualHeight < Fluent.CompactBelow;
 
-        if (columns == _builtColumns && compact == _builtCompact && _rows.Count == swatches.Count)
+        // [S-654] Whether the value fits is part of the shape too. Left out of the check below, the
+        // first build — before layout, at a width of 0 — hid the values, and a tile whose first real
+        // size kept the same column count and density never rebuilt: a 320px tile showed names
+        // only while a 200px one, which happened to change density, showed both.
+        var showValue = _config.ShowValues && (ActualWidth / columns) >= ValueHidesBelow;
+
+        if (columns == _builtColumns && compact == _builtCompact && showValue == _builtShowValue && _rows.Count == swatches.Count)
         {
             // Same shape, same palette: the rows already on screen are the right ones.
             return;
@@ -135,6 +142,7 @@ internal sealed partial class ColorSwatchView : Grid, IWidgetView
 
         _builtColumns = columns;
         _builtCompact = compact;
+        _builtShowValue = showValue;
 
         Clear();
 
@@ -152,8 +160,6 @@ internal sealed partial class ColorSwatchView : Grid, IWidgetView
             SetColumn(stacks[column], column);
             _columns.Children.Add(stacks[column]);
         }
-
-        var showValue = _config.ShowValues && (ActualWidth / columns) >= ValueHidesBelow;
 
         for (var i = 0; i < swatches.Count; i++)
         {

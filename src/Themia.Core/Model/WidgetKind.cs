@@ -124,6 +124,48 @@ public enum WidgetKind
 
     /// <summary>Several widgets, one at a time.</summary>
     Tabs = 38,
+
+    /// <summary>A live camera picture: MJPEG, a polled snapshot, or a stream Windows can play.</summary>
+    VideoStream = 42,
+
+    /// <summary>One element of a web page, pinned by selector and re-rendered on an interval.</summary>
+    WebElement = 43,
+
+    /// <summary>Graphics load and video memory, per adapter.</summary>
+    Gpu = 39,
+
+    /// <summary>Per-application volume for the default output device.</summary>
+    Mixer = 40,
+
+    /// <summary>Which apps had the foreground today, and for how long.</summary>
+    ScreenTime = 41,
+
+    /// <summary>How this app works, in four short tabs.</summary>
+    Help = 44,
+
+    /// <summary>The Themia mark, its name and the version.</summary>
+    Themia = 45,
+
+    /// <summary>Switch the view of the display the widget is on.</summary>
+    ViewSwitcher = 46,
+
+    /// <summary>Recent files, or a folder, on a Microsoft account's OneDrive.</summary>
+    OneDrive = 47,
+
+    /// <summary>One repository: its numbers, commits, pull requests, issues and workflow runs.</summary>
+    GitHub = 48,
+
+    /// <summary>Open GitHub issues assigned to you.</summary>
+    GitHubIssues = 49,
+
+    /// <summary>Your GitHub notifications.</summary>
+    GitHubNotifications = 50,
+
+    /// <summary>Pull requests waiting for your review.</summary>
+    GitHubReviews = 51,
+
+    /// <summary>How much of a Claude subscription's limits is used.</summary>
+    ClaudeUsage = 52,
 }
 
 /// <summary>Which column a process list is ranked on.</summary>

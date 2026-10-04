@@ -50,6 +50,14 @@ internal sealed partial class RssView : Grid, IWidgetView, IWidgetHeaderContent,
     private Ticker? _ticker;
     private RssConfig _config = new();
 
+    /// <summary>
+    /// [S-13a] A copy of the settings this view last acted on, which is what a change is measured
+    /// against. Not <c>_config</c>: the settings page edits the live config object in place, so by
+    /// the time a change arrives the "previous" config already holds the new values, and comparing
+    /// the two found no difference — a new address or place stayed unfetched until the next tick.
+    /// </summary>
+    private RssConfig _applied = new();
+
     /// <summary>The card this view draws on, which owns the header it names.</summary>
     private IWidgetSurface? _surface;
     private IDisposable? _subscription;
@@ -106,8 +114,9 @@ internal sealed partial class RssView : Grid, IWidgetView, IWidgetHeaderContent,
     public void ApplyConfig(WidgetConfig config)
     {
         var next = config as RssConfig ?? new RssConfig();
-        var previous = _config;
+        var previous = _applied;
         _config = next;
+        _applied = (RssConfig)next.Clone();
         PublishTitle();
 
         // Only the address and the cap change what comes back. Toggling the preview or the source

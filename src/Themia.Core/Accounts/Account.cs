@@ -1,0 +1,153 @@
+using System.Text.Json.Serialization;
+
+namespace Themia.Core.Accounts;
+
+/// <summary>
+/// One account, validated: every field its provider needs is present and well formed.
+/// <para>
+/// Immutable, so the service can hand the same instance to any thread and replace it whole when
+/// something changes. The three secret fields are <b>sealed</b> — DPAPI envelopes produced by the
+/// app (<see cref="SecretEnvelope"/>) — never the secret itself. Core never opens them; the app does,
+/// at the moment a request needs one, so a plaintext token lives for one request rather than for the
+/// life of the process.
+/// </para>
+/// </summary>
+public sealed record Account
+{
+    /// <summary>
+    /// Stable id. The same scheme as the classic app (<see cref="AccountIds"/>), so signing the same
+    /// account in again replaces it instead of adding a twin, and widget configs written against an
+    /// imported account keep pointing at it.
+    /// </summary>
+    public required string Id { get; init; }
+
+    public required AccountProvider Provider { get; init; }
+
+    /// <summary>What the account is known by: an email address, a login, or "Claude".</summary>
+    public required string Address { get; init; }
+
+    /// <summary>The person's name as the provider gave it; may be empty.</summary>
+    public string DisplayName { get; init; } = string.Empty;
+
+    /// <summary>The user's own name for the account, or null for none.</summary>
+    public string? Nickname { get; init; }
+
+    /// <summary>IMAP server host.</summary>
+    public string? Host { get; init; }
+
+    /// <summary>IMAP server port.</summary>
+    public int? Port { get; init; }
+
+    /// <summary>Login for IMAP and DAV; the GitHub login for GitHub.</summary>
+    public string? Username { get; init; }
+
+    /// <summary>The resolved CalDAV / CardDAV collection URL.</summary>
+    public string? ServerUrl { get; init; }
+
+    /// <summary>The GitHub REST API root, <c>https://api.github.com</c> unless Enterprise.</summary>
+    public string? ApiBaseUrl { get; init; }
+
+    /// <summary>Sealed access token (OAuth providers and GitHub).</summary>
+    public string? SealedAccessToken { get; init; }
+
+    /// <summary>Sealed refresh token (Microsoft, Google, Claude).</summary>
+    public string? SealedRefreshToken { get; init; }
+
+    /// <summary>Sealed password (IMAP, CalDAV, CardDAV).</summary>
+    public string? SealedPassword { get; init; }
+
+    /// <summary>When the access token stops working; null when unknown or when it never expires.</summary>
+    public DateTimeOffset? ExpiresAt { get; init; }
+
+    /// <summary>When the account was first added.</summary>
+    public DateTimeOffset AddedAt { get; init; }
+
+    /// <summary>What a list shows: the nickname, else the person's name, else the address.</summary>
+    public string Label => Nickname ?? (DisplayName.Length > 0 ? DisplayName : Address);
+
+    /// <summary>
+    /// Never prints the sealed fields. A record's generated ToString would, and an account written
+    /// into a log line by accident must not carry even the ciphertext of a token.
+    /// </summary>
+    public override string ToString() => $"{Provider.WireName()} account {Id}";
+}
+
+/// <summary>[S-503] <c>accounts.json</c> as it is written: a schema version and the accounts in order.</summary>
+public sealed class AccountDocument
+{
+    public const int CurrentSchemaVersion = 1;
+
+    public int SchemaVersion { get; set; } = CurrentSchemaVersion;
+
+    public List<StoredAccount?>? Accounts { get; set; } = [];
+}
+
+/// <summary>
+/// One account exactly as the file holds it. Every field is optional and the provider is a string,
+/// because this is the untrusted side of the boundary: <see cref="AccountRules.Validate"/> turns it
+/// into an <see cref="Account"/> or drops it, and nothing else reads it.
+/// </summary>
+public sealed class StoredAccount
+{
+    public string? Id { get; set; }
+
+    public string? Provider { get; set; }
+
+    public string? Address { get; set; }
+
+    public string? DisplayName { get; set; }
+
+    public string? Nickname { get; set; }
+
+    public string? Host { get; set; }
+
+    public int? Port { get; set; }
+
+    public string? Username { get; set; }
+
+    public string? ServerUrl { get; set; }
+
+    public string? ApiBaseUrl { get; set; }
+
+    public string? AccessToken { get; set; }
+
+    public string? RefreshToken { get; set; }
+
+    public string? Password { get; set; }
+
+    public DateTimeOffset? ExpiresAt { get; set; }
+
+    public DateTimeOffset? AddedAt { get; set; }
+
+    public static StoredAccount From(Account account)
+    {
+        ArgumentNullException.ThrowIfNull(account);
+
+        return new StoredAccount
+        {
+            Id = account.Id,
+            Provider = account.Provider.WireName(),
+            Address = account.Address,
+            DisplayName = account.DisplayName,
+            Nickname = account.Nickname,
+            Host = account.Host,
+            Port = account.Port,
+            Username = account.Username,
+            ServerUrl = account.ServerUrl,
+            ApiBaseUrl = account.ApiBaseUrl,
+            AccessToken = account.SealedAccessToken,
+            RefreshToken = account.SealedRefreshToken,
+            Password = account.SealedPassword,
+            ExpiresAt = account.ExpiresAt,
+            AddedAt = account.AddedAt,
+        };
+    }
+}
+
+/// <summary>Source-generated JSON for <c>accounts.json</c>. Native AOT has no reflection serializer.</summary>
+[JsonSourceGenerationOptions(
+    WriteIndented = true,
+    PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase,
+    DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull)]
+[JsonSerializable(typeof(AccountDocument))]
+internal sealed partial class AccountsJsonContext : JsonSerializerContext;

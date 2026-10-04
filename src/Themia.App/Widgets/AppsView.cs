@@ -50,6 +50,14 @@ internal sealed partial class AppsView : Grid, IWidgetView, IWidgetSurfaceAware,
     private IWidgetSurface? _surface;
     private Ticker? _ticker;
     private AppsConfig _config = new();
+
+    /// <summary>
+    /// [S-13a] A copy of the settings this view last acted on, which is what a change is measured
+    /// against. Not <c>_config</c>: the settings page edits the live config object in place, so by
+    /// the time a change arrives the "previous" config already holds the new values, and comparing
+    /// the two found no difference — a new address or place stayed unfetched until the next tick.
+    /// </summary>
+    private AppsConfig _applied = new();
     private IDisposable? _subscription;
     private CancellationTokenSource? _inFlight;
 
@@ -137,9 +145,10 @@ internal sealed partial class AppsView : Grid, IWidgetView, IWidgetSurfaceAware,
     public void ApplyConfig(WidgetConfig config)
     {
         var next = config as AppsConfig ?? new AppsConfig();
-        var previous = _config;
+        var previous = _applied;
 
         _config = next;
+        _applied = (AppsConfig)next.Clone();
 
         // Only a change to what comes back off the disk is worth a re-scan. Dragging the count
         // slider must not fire a Start-menu walk per frame.

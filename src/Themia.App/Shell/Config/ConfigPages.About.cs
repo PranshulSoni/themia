@@ -1,0 +1,377 @@
+using System.Runtime.InteropServices;
+using Microsoft.UI;
+using Microsoft.UI.Xaml;
+using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Media.Imaging;
+using Microsoft.Windows.Storage.Pickers;
+using Themia.App.Services;
+using Themia.App.Widgets;
+using Themia.Core.Diagnostics;
+using Themia.Core.Storage;
+using Themia.Core.Widgets;
+
+namespace Themia.App.Shell.Config;
+
+/// <summary>
+/// The About page. [S-493]
+/// <para>
+/// The same page as karpo's, section for section, so the two apps from the studio read as one
+/// family: the app's own name card (the mark over the name, the version and what it runs on), who
+/// made it, the one thing you can do to the running app — quit it — and the settings file, which
+/// can be exported, imported back with a preview of what changes, and opened.
+/// </para>
+/// </summary>
+internal static partial class ConfigPages
+{
+    /// <summary>The name card's mark, in DIPs. Decoded logically, so it is sharp at any display scale.</summary>
+    private const int AboutLogoSize = 64;
+
+    /// <summary>How many lines of an import preview the dialog lists before it says "and N more".</summary>
+    private const int PreviewLines = 12;
+
+    private static FrameworkElement BuildAbout(AppHost host)
+    {
+        var rows = new List<FrameworkElement> { NameCard() };
+
+        rows.Add(FluentLayout.Header("Made by"));
+
+        var link = new HyperlinkButton
+        {
+            Content = "crazy-rabbit.com",
+            NavigateUri = new Uri("https://www.crazy-rabbit.com/en/"),
+        };
+
+        rows.Add(FluentLayout.Row(CompanyMark(), "Crazy Rabbit Software",
+            "Independent software studio in St. Gallen, Switzerland", link));
+
+        rows.Add(FluentLayout.Header("Themia"));
+
+        var quit = new Button { Content = "Quit" };
+        quit.Click += (_, _) => host.RequestExit();
+        rows.Add(FluentLayout.Row(Glyphs.Power, "Quit Themia", "Closes the widgets on every display", quit));
+
+        rows.Add(FluentLayout.Header("Settings file"));
+
+        var export = new Button { Content = "Export…" };
+        export.Click += (_, _) => _ = ExportAsync(host, export);
+        rows.Add(FluentLayout.Row(Glyphs.Export, "Export settings",
+            "Every view, widget and setting in one file, to keep or to take to another PC", export));
+
+        var stateName = Path.GetFileName(host.StatePath);
+        var import = new Button { Content = "Import…" };
+        import.Click += (_, _) => _ = ImportAsync(host, import);
+        rows.Add(FluentLayout.Row(Glyphs.Import, "Import settings",
+            $"Takes the settings from such a file. It shows what will change first, and keeps what you have now beside {stateName}",
+            import));
+
+        rows.Add(FluentLayout.ClickRow(Glyphs.Code, "Open config file", host.StatePath, () => OpenConfigFile(host)));
+
+        return Page("About", rows);
+    }
+
+    /// <summary>The app's own name card, as Windows Settings starts its About page: the mark over the name and version.</summary>
+    private static StackPanel NameCard()
+    {
+        var logo = new Image
+        {
+            Width = AboutLogoSize,
+            Height = AboutLogoSize,
+            Margin = new Thickness(0, 0, 0, Fluent.Space2),
+            HorizontalAlignment = HorizontalAlignment.Left,
+
+            // Logical decoding: 64 DIPs is 128 pixels at 200%, and WIC is asked for exactly that
+            // rather than for a 256px bitmap scaled down on every frame.
+            Source = new BitmapImage
+            {
+                DecodePixelType = DecodePixelType.Logical,
+                DecodePixelWidth = AboutLogoSize,
+                UriSource = new Uri(Path.Combine(AppContext.BaseDirectory, "Assets", "themia-logo.png")),
+            },
+        };
+
+        Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(logo, "Themia logo");
+
+        var name = new TextBlock { Text = "Themia" };
+        if (Application.Current.Resources.TryGetValue("SubtitleTextBlockStyle", out var subtitle) && subtitle is Style style)
+        {
+            name.Style = style;
+        }
+
+        var version = new TextBlock
+        {
+            Text = $"Version {AppInfo.Version}",
+            Foreground = FluentLayout.Themed("TextFillColorSecondaryBrush", Colors.Gray),
+        };
+
+        var runtime = Fluent.Text(FluentType.Caption, "TextFillColorTertiaryBrush");
+        runtime.Text = RuntimeLine();
+
+        return new StackPanel
+        {
+            Spacing = Fluent.Space1,
+            Margin = new Thickness(0, 0, 0, Fluent.Space4),
+            Children = { logo, name, version, runtime },
+        };
+    }
+
+    /// <summary>".NET 10.0.0 · Windows App SDK 1.8.x": what the build actually runs on.</summary>
+    private static string RuntimeLine()
+    {
+        var runtime = $".NET {Environment.Version.ToString(3)}";
+
+        try
+        {
+            var sdk = Microsoft.Windows.ApplicationModel.WindowsAppRuntime.ReleaseInfo.AsString;
+            return string.IsNullOrWhiteSpace(sdk) ? runtime : $"{runtime} · Windows App SDK {sdk}";
+        }
+        catch (Exception ex) when (ex is COMException or TypeLoadException or DllNotFoundException)
+        {
+            // The release info lives in the runtime DLL; a build that cannot reach it still has a
+            // .NET version worth showing.
+            Log.Warn(Scope, "could not read the Windows App SDK release", ex);
+            return runtime;
+        }
+    }
+
+    /// <summary>The studio's mark, drawn from SVG at the size the row shows it, so it stays sharp at every scale.</summary>
+    private static Image CompanyMark()
+    {
+        const int size = 20;
+
+        var image = new Image
+        {
+            Width = size,
+            Height = size,
+            Source = new SvgImageSource(new Uri(Path.Combine(AppContext.BaseDirectory, "Assets", "crazy-rabbit.svg")))
+            {
+                RasterizePixelWidth = 64,
+                RasterizePixelHeight = 64,
+            },
+        };
+
+        Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(image, "Crazy Rabbit Software logo");
+        return image;
+    }
+
+    // -----------------------------------------------------------------------------------------
+    // The settings file
+    // -----------------------------------------------------------------------------------------
+
+    /// <summary>
+    /// The window the pickers belong to. <c>Microsoft.Windows.Storage.Pickers</c> takes a window id
+    /// rather than an HWND threaded through an initialiser, and works unpackaged.
+    /// </summary>
+    private static WindowId? Owner(FrameworkElement source)
+        => source.XamlRoot?.ContentIslandEnvironment?.AppWindowId;
+
+    /// <summary>[S-494] Save the whole state to a file the user picks.</summary>
+    private static async Task ExportAsync(AppHost host, Button source)
+    {
+        if (Owner(source) is not { } owner)
+        {
+            Log.Warn(Scope, "no window to own the export picker; nothing was exported");
+            return;
+        }
+
+        source.IsEnabled = false;
+        try
+        {
+            var picker = new FileSavePicker(owner)
+            {
+                SuggestedFileName = $"Themia settings {DateTime.Now:yyyy-MM-dd}",
+                DefaultFileExtension = ".json",
+                SuggestedStartLocation = PickerLocationId.DocumentsLibrary,
+            };
+
+            picker.FileTypeChoices.Add("Themia settings", [".json"]);
+
+            if (await picker.PickSaveFileAsync() is not { } picked)
+            {
+                return; // ignore: the user cancelled the picker
+            }
+
+            if (SettingsTransfer.WriteFile(host.State, picked.Path) is { } problem)
+            {
+                await TellAsync(source, "Couldn't export the settings", problem).ConfigureAwait(true);
+                return;
+            }
+
+            Log.Info(Scope, $"exported settings to {picked.Path}");
+        }
+        catch (Exception ex)
+        {
+            // An escaping exception here would be lost on a discarded task. COMException is the
+            // usual one: the picker could not be shown.
+            Log.Error(Scope, "export failed", ex);
+        }
+        finally
+        {
+            source.IsEnabled = true;
+        }
+    }
+
+    /// <summary>
+    /// [S-495..S-497] Pick a file, read it through the store's own validation, show what it would
+    /// change, and only on a yes keep the current settings beside the state file and apply it.
+    /// </summary>
+    private static async Task ImportAsync(AppHost host, Button source)
+    {
+        if (Owner(source) is not { } owner)
+        {
+            Log.Warn(Scope, "no window to own the import picker; nothing was imported");
+            return;
+        }
+
+        source.IsEnabled = false;
+        try
+        {
+            var picker = new FileOpenPicker(owner) { SuggestedStartLocation = PickerLocationId.DocumentsLibrary };
+            picker.FileTypeFilter.Add(".json");
+
+            if (await picker.PickSingleFileAsync() is not { } picked)
+            {
+                return; // ignore: the user cancelled the picker
+            }
+
+            var read = SettingsTransfer.ReadFile(picked.Path);
+            if (read.State is not { } incoming)
+            {
+                await TellAsync(source, "Couldn't import the settings", read.Problem ?? "The file couldn't be read.")
+                    .ConfigureAwait(true);
+                return;
+            }
+
+            var displays = host.Surfaces.Select(s => s.Monitor.DeviceName).ToList();
+            var preview = SettingsTransfer.Compare(host.State, incoming, read.Repairs, displays);
+            var backupName = Path.GetFileName(SettingsTransfer.BackupPath(host.StatePath, DateTime.Now));
+
+            if (!await AskAsync(source, preview, Path.GetFileName(host.StatePath), backupName).ConfigureAwait(true))
+            {
+                return;
+            }
+
+            if (host.ImportState(incoming) is { } problem)
+            {
+                await TellAsync(source, "Couldn't import the settings", problem).ConfigureAwait(true);
+            }
+        }
+        catch (Exception ex)
+        {
+            Log.Error(Scope, "import failed", ex);
+        }
+        finally
+        {
+            source.IsEnabled = true;
+        }
+    }
+
+    private static async Task<bool> AskAsync(FrameworkElement source, ImportPreview preview, string stateName, string backupName)
+    {
+        if (source.XamlRoot is not { } root)
+        {
+            Log.Warn(Scope, "no XamlRoot for the import dialog; nothing was imported");
+            return false;
+        }
+
+        var dialog = new ContentDialog
+        {
+            XamlRoot = root,
+            RequestedTheme = source.ActualTheme,
+            Title = "Import these settings?",
+            Content = DescribeImport(preview, stateName, backupName),
+            PrimaryButtonText = "Import",
+            CloseButtonText = "Cancel",
+            DefaultButton = ContentDialogButton.Close,
+        };
+
+        return await dialog.ShowAsync() == ContentDialogResult.Primary;
+    }
+
+    private static async Task TellAsync(FrameworkElement source, string title, string message)
+    {
+        if (source.XamlRoot is not { } root)
+        {
+            Log.Warn(Scope, $"{title}: {message}");
+            return;
+        }
+
+        var dialog = new ContentDialog
+        {
+            XamlRoot = root,
+            RequestedTheme = source.ActualTheme,
+            Title = title,
+            Content = new TextBlock { Text = message, TextWrapping = TextWrapping.Wrap },
+            CloseButtonText = "OK",
+        };
+
+        await dialog.ShowAsync();
+    }
+
+    /// <summary>[S-496] The import dialog's body: what changes, then what is good to know.</summary>
+    private static ScrollViewer DescribeImport(ImportPreview preview, string stateName, string backupName)
+    {
+        var body = new StackPanel { Spacing = Fluent.Space3, MaxWidth = 480 };
+
+        void Section(string title, IReadOnlyList<string> lines)
+        {
+            if (lines.Count == 0)
+            {
+                return;
+            }
+
+            var section = new StackPanel { Spacing = Fluent.Space1 / 2 };
+            var heading = Fluent.Text(FluentType.BodyStrong, "TextFillColorPrimaryBrush");
+            heading.Text = title;
+            section.Children.Add(heading);
+
+            foreach (var line in lines.Take(PreviewLines))
+            {
+                section.Children.Add(new TextBlock { Text = "• " + line, TextWrapping = TextWrapping.Wrap });
+            }
+
+            if (lines.Count > PreviewLines)
+            {
+                var more = Fluent.Text(FluentType.Body, "TextFillColorSecondaryBrush");
+                more.Text = $"and {lines.Count - PreviewLines} more";
+                section.Children.Add(more);
+            }
+
+            body.Children.Add(section);
+        }
+
+        Section("What changes", preview.Changes.Count > 0 ? preview.Changes : ["Nothing: the settings are the same"]);
+        Section("Good to know", [.. preview.Notes, $"The settings you have now are kept next to {stateName}, as {backupName}."]);
+
+        return new ScrollViewer
+        {
+            Content = body,
+            MaxHeight = 420,
+            VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+        };
+    }
+
+    /// <summary>Open the state file in whatever edits JSON here; its folder when it has not been written yet.</summary>
+    private static void OpenConfigFile(AppHost host)
+    {
+        var path = host.StatePath;
+        var target = File.Exists(path) ? path : Path.GetDirectoryName(path);
+
+        if (string.IsNullOrEmpty(target))
+        {
+            return;
+        }
+
+        try
+        {
+            using var process = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+            {
+                FileName = target,
+                UseShellExecute = true,
+            });
+        }
+        catch (Exception ex)
+        {
+            Log.Error(Scope, $"could not open {target}", ex);
+        }
+    }
+}

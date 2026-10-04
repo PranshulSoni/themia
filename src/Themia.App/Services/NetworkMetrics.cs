@@ -51,6 +51,10 @@ internal static class NetworkMetrics
     // busiest sample seen so far is at least a scale the machine actually reached.
     private static double _peakRate;
 
+    // [S-643] Shared by every Network widget: a second tile in the same tick gets this reading
+    // rather than a rate over a few milliseconds, which read as 0 B/s beside a tile showing 63 KB/s.
+    private static readonly Themia.Core.Widgets.SampleCache<MeterReading> NetworkCache = new();
+
     /// <summary>
     /// Bytes per second across every active non-loopback interface.
     /// <para>
@@ -59,6 +63,19 @@ internal static class NetworkMetrics
     /// </para>
     /// </summary>
     public static MeterReading Network()
+    {
+        var now = Environment.TickCount64;
+        if (NetworkCache.TryReuse(now, out var recent))
+        {
+            return recent;
+        }
+
+        var reading = ReadNetwork();
+        NetworkCache.Store(now, reading);
+        return reading;
+    }
+
+    private static MeterReading ReadNetwork()
     {
         long sent = 0;
         long received = 0;

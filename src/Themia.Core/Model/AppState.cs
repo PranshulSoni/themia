@@ -57,12 +57,22 @@ public sealed class WidgetInstance
     {
         Id = Guid.NewGuid().ToString("n"),
         Kind = kind,
+        Header = DefaultHeader(kind),
         Config = WidgetConfig.CreateDefault(kind),
         X = rect.X,
         Y = rect.Y,
         W = rect.W,
         H = rect.H,
     };
+
+    /// <summary>
+    /// [S-485] Where a new widget's header goes. Top for everything except the two widgets that are
+    /// themselves a piece of chrome: the Themia mark is its own label, and a view switcher is a row
+    /// of buttons whose names already say what it is. A header on either is the same word twice.
+    /// Only the default: the user can still give either one a header.
+    /// </summary>
+    public static HeaderPlacement DefaultHeader(WidgetKind kind)
+        => kind is WidgetKind.Themia or WidgetKind.ViewSwitcher ? HeaderPlacement.Hidden : HeaderPlacement.Top;
 
     public WidgetInstance Clone() => new()
     {

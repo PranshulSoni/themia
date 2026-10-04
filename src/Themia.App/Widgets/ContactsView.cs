@@ -2,446 +2,512 @@ using System.Globalization;
 using Microsoft.UI;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Input;
+using Microsoft.UI.Xaml.Media;
 using Themia.App.Services;
-using Themia.App.Services.Hearth;
+using Themia.App.Services.Office;
 using Themia.App.Shell;
+using Themia.Core.Accounts;
 using Themia.Core.Diagnostics;
 using Themia.Core.Model;
+using Themia.Core.Office;
 using Themia.Core.Widgets;
+using Windows.ApplicationModel.DataTransfer;
 
 namespace Themia.App.Widgets;
 
 /// <summary>
-/// People, read from the hearth hub.
+/// [S-580] People from the user's Microsoft, Google and CardDAV address books, through Themia's own
+/// accounts, merged into one list: as a list, compact rows, a details table or avatar cards
+/// ([S-581]), with a search box ([S-584]) and per-person actions on right-click ([S-587]).
 /// <para>
-/// There is no account, token or provider anywhere in this widget, and no connection of its own
-/// either: hearth owns sign-in, sync and consent, and the app's one connection is reached through
-/// <see cref="AppServices.Data"/>. This lists the address books hearth granted and refreshes when
-/// the hub says something changed.
+/// The view asks the shared <see cref="IOfficeSource"/> ([S-588]) and keeps the merged list it was
+/// given; searching, capping and switching layouts redraw from that list without asking again.
 /// </para>
 /// </summary>
-internal sealed partial class ContactsView : Grid, IWidgetView, IWidgetHeaderContent
+internal sealed partial class ContactsView : Grid, IWidgetView, IWidgetHeaderContent, IWidgetSurfaceAware, IWidgetContextActions
 {
     private const string Scope = "contacts-widget";
 
+    private static readonly TimeSpan Poll = TimeSpan.FromMinutes(15);
+
+    /// <summary>Below this height the search box goes: the list is what the widget is for.</summary>
+    private const double SearchHidesBelow = 150;
+
+    /// <summary>A grid card's width on the 4px grid: a 40px avatar and a name under it.</summary>
+    private const double CardWidth = 96;
+
+    /// <summary>Below this width the avatar and the count give their room to the names.</summary>
+    private const double NarrowBelow = 160;
+
+    private static readonly string ListGlyph = char.ConvertFromUtf32(0xE779);
+    private static readonly string CompactGlyph = char.ConvertFromUtf32(0xE14C);
+    private static readonly string DetailsGlyph = char.ConvertFromUtf32(0xE80A);
+    private static readonly string CardsGlyph = char.ConvertFromUtf32(0xE8A9);
+    private static readonly string PhoneGlyph = char.ConvertFromUtf32(0xE717);
+    private static readonly string MessageGlyph = char.ConvertFromUtf32(0xE8BD);
+
+    private readonly TextBox _search = new();
+    private readonly Grid _columnHeader = new();
+    private readonly ScrollViewer _scroll;
+    private readonly OfficeStatePanel _state = new(Glyphs.Contact);
+    private readonly ProgressRing _busy = new();
+    private readonly FontIcon _warning;
     private readonly TextBlock _badge = new();
     private readonly Border _badgeHost;
-    private readonly ProgressRing _busy = new();
     private readonly StackPanel _trailing;
-    private readonly StackPanel _list = new() { Spacing = 0 };
-    private readonly ScrollViewer _scroll;
-    private readonly FontIcon _emptyIcon;
-    private readonly TextBlock _emptyText = new();
-    private readonly StackPanel _empty;
-
-    // What a resize has to re-fit: the rows themselves, and the avatar, which is sized from the row
-    // height rather than from the tile. Everything else in a row is a step of the ramp or of the
-    // 4px grid, so a resize cannot change it.
-    private readonly List<Border> _avatars = [];
-    private readonly List<Border> _rows = [];
-
-    // One per row, so the hover handlers come off with the row they light. A leaked one keeps the
-    // row alive and re-lights it after teardown.
     private readonly List<IDisposable> _hovers = [];
+    private readonly Dictionary<string, Border> _indicators = new(StringComparer.Ordinal);
 
-    private HearthDataService? _data;
-    private Ticker? _ticker;
-    private IDisposable? _subscription;
-    private TimeSpan _subscribedInterval = TimeSpan.Zero;
+    private IWidgetSurface? _surface;
+    private IOfficeSource? _source;
+    private IDisposable? _poll;
     private ContactsConfig _config = new();
-    private IReadOnlyList<ContactRecord> _records = [];
+    private string _query = string.Empty;
+    private string? _appliedDefaultSearch;
+    private string? _selectedId;
+    private IReadOnlyList<Contact> _contacts = [];
+    private Screen _screen = Screen.Loading;
+    private string _problemText = string.Empty;
+    private bool _problemOffersAccounts;
+    private string? _warningText;
+    private bool _warningOpensAccounts;
+    private string _requestKey = string.Empty;
     private bool _refreshing;
-    private bool _requeryWanted;
-    private bool _loaded;
+    private bool _again;
+    private bool _againForced;
     private bool _detached;
 
     public ContactsView()
     {
+        RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
-
-        // The count is Fluent's InfoBadge shape, which the design system owns.
-        _badgeHost = Fluent.Badge(_badge);
-        _badgeHost.Visibility = Visibility.Collapsed;
 
         _busy.Width = Fluent.IconSize;
         _busy.Height = Fluent.IconSize;
         _busy.IsActive = false;
         _busy.Visibility = Visibility.Collapsed;
 
-        // The busy ring and the count ride on the card's header. The card reads this once when
-        // it builds the header, so it exists from construction rather than on first use.
+        _warning = Fluent.Icon(Glyphs.Warning, "SystemFillColorCautionBrush");
+        _warning.Visibility = Visibility.Collapsed;
+        _warning.Tapped += OnWarningTapped;
+
+        _badgeHost = Fluent.Badge(_badge);
+        _badgeHost.Visibility = Visibility.Collapsed;
+
         _trailing = new StackPanel
         {
             Orientation = Orientation.Horizontal,
             Spacing = Fluent.Space2,
             VerticalAlignment = VerticalAlignment.Center,
+            Children = { _warning, _busy, _badgeHost },
         };
 
-        _trailing.Children.Add(_busy);
-        _trailing.Children.Add(_badgeHost);
+        // [S-584] The stock Windows search box, so it has the system's caret, clear button and menu.
+        _search.PlaceholderText = "Search contacts";
+        _search.IsSpellCheckEnabled = false;
+        _search.IsTextPredictionEnabled = false;
+        _search.CornerRadius = new CornerRadius(Fluent.ControlRadius);
+        _search.Margin = new Thickness(Fluent.Space3, 0, Fluent.Space3, Fluent.Space2);
+        _search.TextChanged += OnSearchChanged;
+        _search.GotFocus += OnSearchFocus;
+        _search.LostFocus += OnSearchBlur;
+        _search.KeyDown += OnSearchKeyDown;
+        SetRow(_search, 0);
+
+        _columnHeader.Padding = new Thickness(Fluent.Space4, 0, Fluent.Space4, Fluent.Space1);
+        _columnHeader.Visibility = Visibility.Collapsed;
+        SetRow(_columnHeader, 1);
 
         _scroll = new ScrollViewer
         {
-            // Nothing either side, so a row reaches both edges of the card and its highlight with
-            // it. The gap above the first row is the card header's; this keeps the last one off
-            // the edge.
             Padding = Fluent.ListPadding,
-            Content = _list,
             HorizontalScrollMode = ScrollMode.Disabled,
             HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
             VerticalScrollBarVisibility = ScrollBarVisibility.Hidden,
         };
+        SetRow(_scroll, 2);
 
-        Grid.SetRow(_scroll, 0);
+        SetRow(_state, 0);
+        SetRowSpan(_state, 3);
 
-        // A Windows empty state: an icon over a line of body text in the secondary colour, centred.
-        // Not a shrunken caption, which reads as an error the app is embarrassed about.
-        _empty = Fluent.EmptyState(Glyphs.Contact, _emptyText, out _emptyIcon);
-        _empty.Visibility = Visibility.Collapsed;
-        Grid.SetRow(_empty, 0);
-
+        Children.Add(_search);
+        Children.Add(_columnHeader);
         Children.Add(_scroll);
-        Children.Add(_empty);
+        Children.Add(_state);
 
-        SizeChanged += (_, _) => ApplyDensity();
+        // [S-580] Clicking the background clears the selection, as the classic widget did.
+        Tapped += OnBackgroundTapped;
+        SizeChanged += OnSizeChanged;
+    }
+
+    private enum Screen
+    {
+        Loading,
+        NoAccounts,
+        AccountsGone,
+        Problem,
+        Ready,
     }
 
     /// <inheritdoc />
     public FrameworkElement? HeaderTrailing => _trailing;
 
-    /// <summary>
-    /// Whether the tile takes the compact row. Fluent has two list-row heights and a tile shorter
-    /// than five standard rows reads better with the shorter one: this is a density switch between
-    /// two fixed heights, not a row that grows with the tile.
-    /// </summary>
-    private bool Compact => ActualHeight > 0 && ActualHeight < Fluent.CompactBelow;
+    public void Bind(IWidgetSurface surface) => _surface = surface;
 
     public void Attach(Ticker ticker, WidgetConfig config)
     {
-        _ticker = ticker;
-        _data = AppServices.Data;
+        _detached = false;
+        ApplyDefaultSearch(config as ContactsConfig ?? new ContactsConfig());
+        _source = OfficeSources.Current;
 
-        if (_data is not null)
+        if (_source is not null)
         {
-            _data.Changed += OnHubChanged;
+            _source.Changed += OnAccountsChanged;
         }
 
-        ApplyConfig(config);
+        _poll = ticker.Subscribe(Poll, () => _ = RefreshAsync(force: false));
     }
 
     public void ApplyConfig(WidgetConfig config)
     {
-        var next = config as ContactsConfig ?? new ContactsConfig();
+        ApplyDefaultSearch(config as ContactsConfig ?? new ContactsConfig());
 
-        // Only the fields that change what the hub is asked for warrant a round trip. Without this
-        // check, dragging an unrelated settings slider fired a query per frame.
-        var needsQuery = _config.CollectionId != next.CollectionId
-            || _config.EffectiveMaxCount != next.EffectiveMaxCount;
+        if (RequestKey() != _requestKey)
+        {
+            _ = RefreshAsync(force: false);
+        }
 
-        // These two change only how the records already in hand are drawn, so they re-render.
-        var redraws = _config.ShowDetail != next.ShowDetail || _config.ShowAvatar != next.ShowAvatar;
+        Render();
+    }
 
+    /// <summary>
+    /// [S-584] The configured search is where the box starts, and where it goes back to when the
+    /// setting changes; what the user types in between is theirs until then.
+    /// </summary>
+    private void ApplyDefaultSearch(ContactsConfig next)
+    {
         _config = next;
-        Resubscribe();
 
-        if (needsQuery || !_loaded)
+        if (_appliedDefaultSearch != next.DefaultSearch)
         {
-            _ = RefreshAsync();
-        }
-        else if (redraws)
-        {
-            Render(_records);
+            _appliedDefaultSearch = next.DefaultSearch;
+            _query = next.DefaultSearch;
+            _search.Text = next.DefaultSearch;
         }
     }
 
-    private void OnHubChanged() => _ = RefreshAsync();
+    /// <inheritdoc />
+    public IReadOnlyList<WidgetAction> ContextActions
+    {
+        get
+        {
+            // [S-581] The classic menu: refresh, then the four layouts with the current one checked.
+            var actions = new List<WidgetAction> { new(Glyphs.Refresh, "Refresh", () => _ = RefreshAsync(force: true)) };
 
-    /// <summary>
-    /// Re-subscribe only when the cadence actually changed. Dropping and remaking the subscription
-    /// on every config touch made dragging a settings slider stutter, because each frame tore down
-    /// the timer subscription for every widget on the desktop and built it again.
-    /// </summary>
-    private void Resubscribe()
+            foreach (var (layout, label, glyph) in new[]
+            {
+                (ContactsLayout.List, "List", ListGlyph),
+                (ContactsLayout.Compact, "Compact", CompactGlyph),
+                (ContactsLayout.Details, "Details", DetailsGlyph),
+                (ContactsLayout.Grid, "Grid", CardsGlyph),
+            })
+            {
+                actions.Add(new(_config.EffectiveLayout == layout ? Glyphs.Done : glyph, label, () => SetLayout(layout)));
+            }
+
+            return actions;
+        }
+    }
+
+    public void Detach()
     {
         if (_detached)
         {
             return;
         }
 
-        var interval = _config.TickInterval;
+        _detached = true;
+        _poll?.Dispose();
+        _poll = null;
 
-        if (_subscription is not null && interval == _subscribedInterval)
+        if (_source is not null)
         {
-            return;
+            _source.Changed -= OnAccountsChanged;
+            _source = null;
         }
 
-        _subscription?.Dispose();
-        _subscribedInterval = interval;
-        _subscription = _ticker?.Subscribe(interval, OnTick);
+        _surface?.RequestTextInput(false);
+        _search.TextChanged -= OnSearchChanged;
+        _search.GotFocus -= OnSearchFocus;
+        _search.LostFocus -= OnSearchBlur;
+        _search.KeyDown -= OnSearchKeyDown;
+        _warning.Tapped -= OnWarningTapped;
+        Tapped -= OnBackgroundTapped;
+        SizeChanged -= OnSizeChanged;
+        _state.Detach();
+        ClearRows();
     }
 
-    /// <summary>
-    /// The hub pushes changes, so this is a backstop with one job worth having: a hub that was not
-    /// running when the desktop started is noticed within a tick of being started, rather than
-    /// leaving the widget saying so until something else happens to poke it.
-    /// </summary>
-    private void OnTick() => _ = RefreshAsync();
+    // -----------------------------------------------------------------------------------------
+    // Data
+    // -----------------------------------------------------------------------------------------
 
-    private async Task RefreshAsync()
+    private void OnAccountsChanged() => _ = RefreshAsync(force: false);
+
+    private string RequestKey() => $"{string.Join(",", _config.AccountIds)}|{ContactRules.FetchSize(_config.EffectiveCount)}";
+
+    private async Task RefreshAsync(bool force)
     {
         if (_detached)
         {
             return;
         }
 
-        // The host builds the connection before any surface exists, so this is only reachable in a
-        // teardown race - but a widget that finds no service must still say so rather than sit
-        // blank with no explanation.
-        if (_data is null)
-        {
-            ShowMessage(EmptyMessage());
-            return;
-        }
-
-        // A second request while one is in flight is not dropped: the settings window can change
-        // the collection mid-query, and swallowing that would leave the list showing the old one.
         if (_refreshing)
         {
-            _requeryWanted = true;
+            _again = true;
+            _againForced |= force;
             return;
         }
 
-        _refreshing = true;
-        _busy.IsActive = true;
-        _busy.Visibility = Visibility.Visible;
+        var source = _source;
+        var accounts = source?.Accounts(AccountFeatures.Contacts) ?? [];
+        _requestKey = RequestKey();
 
-        if (!_loaded)
+        if (source is null || accounts.Count == 0)
         {
-            ShowMessage("Loading…");
+            _screen = Screen.NoAccounts;
+            Render();
+            return;
         }
+
+        var selected = CalendarRules.SelectAccounts(_config.AccountIds, [.. accounts.Select(a => a.Id)]);
+        if (selected.Count == 0)
+        {
+            _screen = Screen.AccountsGone;
+            Render();
+            return;
+        }
+
+        var labels = accounts.ToDictionary(a => a.Id, a => a.Label, StringComparer.Ordinal);
+        var size = ContactRules.FetchSize(_config.EffectiveCount);
+
+        _refreshing = true;
+        SetBusy(true);
 
         try
         {
-            var contacts = await _data.ContactsAsync(
-                _config.CollectionId,
-                null,
-                _config.EffectiveMaxCount).ConfigureAwait(true);
+            var tasks = selected.Select(a => source.ContactsAsync(a, size, force, CancellationToken.None)).ToList();
+            await Task.WhenAll(tasks).ConfigureAwait(true);
 
             if (_detached)
             {
                 return;
             }
 
-            _loaded = true;
-            _records = contacts;
-            Render(contacts);
+            var results = tasks.Select(t => t.Result).ToList();
+            var problems = results.Select((r, i) => (Account: selected[i], r.Problem)).Where(p => p.Problem != SyncProblem.None).ToList();
+            var anyData = results.Any(r => r.Value is not null);
+
+            _contacts = ContactRules.Merge(results.Select(r => r.Value ?? []));
+
+            if (!anyData && problems.Count > 0)
+            {
+                var worst = problems.OrderByDescending(p => SyncProblems.NeedsUser(p.Problem)).First();
+                _screen = Screen.Problem;
+                _problemText = SyncProblems.Message(worst.Problem, "contacts");
+                _problemOffersAccounts = SyncProblems.NeedsUser(worst.Problem);
+                _warningText = null;
+            }
+            else
+            {
+                _screen = Screen.Ready;
+                _warningText = problems.Count == 0
+                    ? null
+                    : string.Join(Environment.NewLine, problems.Select(p =>
+                        $"{(labels.TryGetValue(p.Account, out var label) ? label : p.Account)}: {SyncProblems.Message(p.Problem, "contacts")}"));
+                _warningOpensAccounts = problems.Any(p => SyncProblems.NeedsUser(p.Problem));
+            }
         }
         catch (Exception ex)
         {
-            // Never let a hub problem take the surface down; say so in the widget instead.
             Log.Error(Scope, "could not refresh the contact list", ex);
-            ShowMessage("Could not read contacts. See themia.log.");
+            _screen = Screen.Problem;
+            _problemText = "Could not read contacts. See themia.log.";
+            _problemOffersAccounts = false;
         }
         finally
         {
             _refreshing = false;
-            _busy.IsActive = false;
-            _busy.Visibility = Visibility.Collapsed;
+            SetBusy(false);
+        }
 
-            if (_requeryWanted && !_detached)
-            {
-                _requeryWanted = false;
-                _ = RefreshAsync();
-            }
+        Render();
+
+        if (_again && !_detached)
+        {
+            var forced = _againForced;
+            _again = false;
+            _againForced = false;
+            await RefreshAsync(forced).ConfigureAwait(true);
         }
     }
 
-    private void Render(IReadOnlyList<ContactRecord> contacts)
+    private void SetBusy(bool busy)
     {
-        ClearRows();
+        _busy.IsActive = busy;
+        _busy.Visibility = busy ? Visibility.Visible : Visibility.Collapsed;
+    }
 
-        if (contacts.Count == 0)
+    private void SetLayout(ContactsLayout layout)
+    {
+        _config.Layout = layout;
+        _surface?.RequestSave();
+        Render();
+    }
+
+    // -----------------------------------------------------------------------------------------
+    // Input
+    // -----------------------------------------------------------------------------------------
+
+    /// <summary>[S-585] The list follows the box as it is typed in.</summary>
+    private void OnSearchChanged(object sender, TextChangedEventArgs args)
+    {
+        if (_query == _search.Text)
         {
-            ShowMessage(EmptyMessage());
             return;
         }
 
-        _empty.Visibility = Visibility.Collapsed;
-        _scroll.Visibility = Visibility.Visible;
-
-        var compact = Compact;
-
-        foreach (var contact in contacts)
-        {
-            var row = BuildRow(contact, compact);
-            _rows.Add(row);
-            _list.Children.Add(row);
-        }
-
-        _badge.Text = contacts.Count.ToString(CultureInfo.InvariantCulture);
-        _badgeHost.Visibility = Visibility.Visible;
-
-        // The avatars have no size until this runs, and a first render need not be followed by a
-        // resize, so it is called here rather than left to SizeChanged alone.
-        ApplyDensity();
+        _query = _search.Text;
+        Render();
     }
 
-    private Border BuildRow(ContactRecord contact, bool compact)
+    // The surface takes no keystrokes unless asked: the box asks while it has focus ([S-584]).
+    private void OnSearchFocus(object sender, RoutedEventArgs args) => _surface?.RequestTextInput(true);
+
+    private void OnSearchBlur(object sender, RoutedEventArgs args) => _surface?.RequestTextInput(false);
+
+    private void OnSearchKeyDown(object sender, KeyRoutedEventArgs args)
     {
-        var name = Fluent.Text(FluentType.BodyStrong);
-        name.Text = contact.Who;
-        name.VerticalAlignment = VerticalAlignment.Center;
-
-        // No spacing between the lines of a row: each one already carries the line height Fluent
-        // pairs with its size, and a gap on top of that is the web app's look.
-        var text = new StackPanel { Spacing = 0, VerticalAlignment = VerticalAlignment.Center };
-        text.Children.Add(name);
-
-        var detail = _config.ShowDetail ? DetailLine(contact) : string.Empty;
-        if (detail.Length != 0)
+        if (args.Key == Windows.System.VirtualKey.Escape)
         {
-            var line = Fluent.Text(FluentType.Caption, "TextFillColorTertiaryBrush");
-            line.Text = detail;
-            text.Children.Add(line);
+            args.Handled = true;
+            _search.Text = string.Empty;
         }
-
-        var body = new Grid
-        {
-            ColumnDefinitions =
-            {
-                new ColumnDefinition { Width = GridLength.Auto },
-                new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) },
-            },
-        };
-
-        if (_config.ShowAvatar)
-        {
-            var monogram = Fluent.Text(FluentType.Caption, "TextFillColorSecondaryBrush");
-            monogram.Text = Monogram(contact.Who);
-            monogram.HorizontalAlignment = HorizontalAlignment.Center;
-            monogram.VerticalAlignment = VerticalAlignment.Center;
-
-            // A circle, sized in ApplyDensity from the row height - never from the tile, which is
-            // what made it a different size on every widget on the desktop.
-            var avatar = new Border
-            {
-                Child = monogram,
-                Background = FluentLayout.Themed("ControlAltFillColorSecondaryBrush", Colors.Gray),
-                VerticalAlignment = VerticalAlignment.Center,
-                Margin = new Thickness(0, 0, Fluent.Space3, 0),
-            };
-
-            _avatars.Add(avatar);
-
-            Grid.SetColumn(avatar, 0);
-            body.Children.Add(avatar);
-        }
-
-        Grid.SetColumn(text, 1);
-        body.Children.Add(text);
-
-        var row = Fluent.Row(body, compact);
-        _hovers.Add(Fluent.Hover(row));
-
-        ToolTipService.SetToolTip(row, Tooltip(contact));
-        return row;
     }
 
-    /// <summary>
-    /// The row's second line: the address, then the number, then the job or employer - or nothing
-    /// at all, so a contact with none of the three gets one line rather than an empty second one.
-    /// <para>
-    /// The address leads because a contact is usually reached at one of the two, and leading with
-    /// the job title would answer a question the row did not ask.
-    /// </para>
-    /// </summary>
-    private static string DetailLine(ContactRecord contact)
+    private void OnBackgroundTapped(object sender, TappedRoutedEventArgs args)
     {
-        if (!string.IsNullOrWhiteSpace(contact.PrimaryEmail))
+        if (!args.Handled && _selectedId is not null)
         {
-            return contact.PrimaryEmail;
+            Select(null);
         }
-
-        return !string.IsNullOrWhiteSpace(contact.PrimaryPhone) ? contact.PrimaryPhone : contact.Detail;
     }
 
-    /// <summary>Everything the row had to trim, on hover.</summary>
-    private static string Tooltip(ContactRecord contact)
+    private void OnWarningTapped(object sender, TappedRoutedEventArgs args)
     {
-        var lines = new List<string> { contact.Who };
-
-        foreach (var line in new[] { contact.PrimaryEmail, contact.PrimaryPhone, contact.Detail })
+        if (_warningOpensAccounts)
         {
-            if (!string.IsNullOrWhiteSpace(line) && !lines.Contains(line, StringComparer.Ordinal))
-            {
-                lines.Add(line);
-            }
+            args.Handled = true;
+            OfficeStatePanel.OpenAccounts();
         }
-
-        return string.Join(Environment.NewLine, lines);
     }
 
-    private static string Monogram(string who) => Formatting.Monogram(who);
-
-    /// <summary>
-    /// Re-fit what is already drawn to the tile: the row height, the avatar that is sized from it,
-    /// and whether the empty state has room for its icon. No query, and no font size derived from
-    /// the tile — every size in a row is a step of the ramp or of the 4px grid.
-    /// </summary>
-    private void ApplyDensity()
+    private void OnSizeChanged(object sender, SizeChangedEventArgs args)
     {
-        var compact = Compact;
-        var height = compact ? Fluent.RowHeightCompact : Fluent.RowHeight;
-
-        // The circle leaves one step of the 4px grid above and below it inside the row: 32 on the
-        // standard row, 24 on the compact one, which is the pair of sizes Fluent's own person
-        // picture uses. Sized from the row, never from the tile.
-        var avatarSize = height - Fluent.Space2;
-
-        foreach (var row in _rows)
+        // The search box and the layout fallback both follow the size, so the list is re-laid.
+        if (Math.Abs(args.NewSize.Width - args.PreviousSize.Width) > 0.5 || Math.Abs(args.NewSize.Height - args.PreviousSize.Height) > 0.5)
         {
-            Fluent.SetDensity(row, compact);
+            Render();
         }
-
-        foreach (var avatar in _avatars)
-        {
-            avatar.Width = avatarSize;
-            avatar.Height = avatarSize;
-            avatar.CornerRadius = new CornerRadius(avatarSize / 2);
-        }
-
-        _emptyIcon.Visibility = compact ? Visibility.Collapsed : Visibility.Visible;
     }
 
-    /// <summary>Say what is actually true, because every one of these needs a different action.</summary>
-    private string EmptyMessage()
-    {
-        var granted = _data?.ContactCollections.Count ?? 0;
+    // -----------------------------------------------------------------------------------------
+    // Drawing
+    // -----------------------------------------------------------------------------------------
 
-        return _data?.Status switch
+    private void Render()
+    {
+        if (_detached)
         {
-            null => "Themia is still starting.",
-            HearthStatus.NotRunning => "hearth is not running.\nStart it to see your contacts here.",
-            HearthStatus.Denied => "hearth has not granted Themia access to any address book.",
-            HearthStatus.Failed => "Could not read from hearth. See themia.log.",
-            HearthStatus.Connecting or HearthStatus.Idle => "Connecting to hearth…",
-            _ when granted == 0 => "hearth has granted no address books.",
-            _ => "No contacts.",
-        };
-    }
+            return;
+        }
 
-    private void ShowMessage(string text)
-    {
-        _emptyText.Text = text;
-        _empty.Visibility = Visibility.Visible;
-        _scroll.Visibility = Visibility.Collapsed;
+        ClearRows();
+
+        var ready = _screen == Screen.Ready;
+        _warning.Visibility = ready && _warningText is not null ? Visibility.Visible : Visibility.Collapsed;
+        ToolTipService.SetToolTip(_warning, _warningText);
         _badgeHost.Visibility = Visibility.Collapsed;
+
+        var showSearch = ready && ActualHeight >= SearchHidesBelow;
+        _search.Visibility = showSearch ? Visibility.Visible : Visibility.Collapsed;
+
+        switch (_screen)
+        {
+            case Screen.Loading:
+                _state.Show("Loading…", offerAccounts: false);
+                return;
+
+            case Screen.NoAccounts:
+                _state.Show("No contacts account yet", offerAccounts: true);
+                return;
+
+            case Screen.AccountsGone:
+                _state.Show(SyncProblems.Message(SyncProblem.NoAccount, "contacts"), offerAccounts: true);
+                return;
+
+            case Screen.Problem:
+                _state.Show(_problemText, _problemOffersAccounts);
+                return;
+        }
+
+        // A search typed into a box that has since been hidden still filters; the box shows the
+        // query again as soon as there is room for it.
+        var visible = ContactRules.Visible(_contacts, _query, _config.EffectiveCount);
+
+        if (visible.Count == 0)
+        {
+            _state.Show(_contacts.Count == 0 ? "No contacts" : "No contacts found", offerAccounts: false);
+
+            // The box stays, so a search that matched nothing can be changed.
+            if (showSearch)
+            {
+                _state.Margin = new Thickness(0, 40, 0, 0);
+            }
+
+            return;
+        }
+
+        _state.Margin = new Thickness(0);
+        _state.Hide();
+
+        _badge.Text = visible.Count.ToString(CultureInfo.InvariantCulture);
+        // The count gives way to the title on a tile too narrow for both.
+        _badgeHost.Visibility = ActualWidth is > 0 and < NarrowBelow ? Visibility.Collapsed : Visibility.Visible;
+
+        var width = ActualWidth;
+        var compactRows = ActualHeight > 0 && ActualHeight < Fluent.CompactBelow;
+        var layout = ContactRules.Effective(_config.EffectiveLayout, width, _config.EffectiveColumns.Count);
+
+        switch (layout)
+        {
+            case ContactsLayout.Details:
+                DrawDetails(visible);
+                break;
+
+            case ContactsLayout.Grid:
+                DrawCards(visible, width);
+                break;
+
+            default:
+                DrawList(visible, layout == ContactsLayout.Compact || compactRows, layout == ContactsLayout.Compact);
+                break;
+        }
     }
 
-    /// <summary>
-    /// Drop the rows and, with them, their hover handlers: a handler left hooked keeps the row it
-    /// lights alive and re-lights it after the list has moved on.
-    /// </summary>
     private void ClearRows()
     {
         foreach (var hover in _hovers)
@@ -450,27 +516,367 @@ internal sealed partial class ContactsView : Grid, IWidgetView, IWidgetHeaderCon
         }
 
         _hovers.Clear();
-        _list.Children.Clear();
-        _rows.Clear();
-        _avatars.Clear();
+        _indicators.Clear();
+        _scroll.Content = null;
+        _columnHeader.Children.Clear();
+        _columnHeader.ColumnDefinitions.Clear();
+        _columnHeader.Visibility = Visibility.Collapsed;
     }
 
-    public void Detach()
+    /// <summary>
+    /// [S-581] List: avatar, name, then "title · company" and the address or number. Compact: a
+    /// small avatar, the name and one secondary field.
+    /// </summary>
+    private void DrawList(IReadOnlyList<Contact> contacts, bool compactRows, bool compactLayout)
     {
-        _detached = true;
+        var list = new StackPanel { Spacing = 0 };
+        var avatarSize = compactRows ? Fluent.RowHeightCompact - Fluent.Space2 : Fluent.RowHeight - Fluent.Space2;
 
-        _subscription?.Dispose();
-        _subscription = null;
-        _subscribedInterval = TimeSpan.Zero;
-
-        if (_data is not null)
+        foreach (var contact in contacts)
         {
-            _data.Changed -= OnHubChanged;
-            _data = null;
+            var text = new StackPanel { Spacing = 0, VerticalAlignment = VerticalAlignment.Center };
+            var name = Fluent.Text(FluentType.BodyStrong);
+            name.Text = contact.Name;
+            text.Children.Add(name);
+
+            var detail = compactLayout
+                ? ContactRules.CompactDetail(contact)
+                : FirstNonEmpty(ContactRules.Role(contact), contact.Email, contact.Phone);
+
+            if (detail.Length > 0)
+            {
+                var line = Fluent.Text(FluentType.Caption, "TextFillColorTertiaryBrush");
+                line.Text = detail;
+                text.Children.Add(line);
+            }
+
+            // The list layout gives the address or number its own line when the role took the first.
+            if (!compactLayout && !compactRows && ContactRules.Role(contact).Length > 0 && FirstNonEmpty(contact.Email, contact.Phone) is { Length: > 0 } reach)
+            {
+                var line = Fluent.Text(FluentType.Caption, "TextFillColorTertiaryBrush");
+                line.Text = reach;
+                text.Children.Add(line);
+            }
+
+            // A narrow tile gives the avatar's width to the name.
+            var avatar = ActualWidth is > 0 and < NarrowBelow ? null : Avatar(contact, compactLayout ? Math.Min(avatarSize, 24) : avatarSize);
+            var body = RowBody(contact, avatar, text);
+            var row = Fluent.Row(body, compactRows);
+            row.Padding = new Thickness(Fluent.Space4 - Fluent.Space2, Fluent.Space1, Fluent.Space4, Fluent.Space1);
+            Wire(row, contact);
+            list.Children.Add(row);
         }
 
-        _ticker = null;
-        _records = [];
-        ClearRows();
+        _scroll.Content = list;
+    }
+
+    /// <summary>[S-582] Details: a table of the chosen columns, in canonical order, under a header row.</summary>
+    private void DrawDetails(IReadOnlyList<Contact> contacts)
+    {
+        var columns = _config.EffectiveColumns;
+
+        _columnHeader.Visibility = Visibility.Visible;
+        AddColumns(_columnHeader, columns);
+        for (var c = 0; c < columns.Count; c++)
+        {
+            var title = Fluent.Text(FluentType.Caption, "TextFillColorTertiaryBrush");
+            title.Text = ContactRules.ColumnTitle(columns[c]);
+            title.Margin = new Thickness(0, 0, Fluent.Space2, 0);
+            SetColumn(title, c);
+            _columnHeader.Children.Add(title);
+        }
+
+        var list = new StackPanel { Spacing = 0 };
+
+        foreach (var contact in contacts)
+        {
+            var cells = new Grid();
+            AddColumns(cells, columns);
+
+            for (var c = 0; c < columns.Count; c++)
+            {
+                var cell = Fluent.Text(c == 0 ? FluentType.BodyStrong : FluentType.Body, c == 0 ? "TextFillColorPrimaryBrush" : "TextFillColorSecondaryBrush");
+                cell.Text = ContactRules.Cell(contact, columns[c]);
+                cell.Margin = new Thickness(0, 0, Fluent.Space2, 0);
+                SetColumn(cell, c);
+                cells.Children.Add(cell);
+            }
+
+            var body = RowBody(contact, null, cells);
+            var row = Fluent.Row(body, compact: true);
+            row.Padding = new Thickness(Fluent.Space4 - Fluent.Space2, 0, Fluent.Space4, 0);
+            Wire(row, contact);
+            list.Children.Add(row);
+        }
+
+        _scroll.Content = list;
+    }
+
+    /// <summary>The classic widths: the phone a fixed column, the email a little wider than the rest.</summary>
+    private static void AddColumns(Grid grid, IReadOnlyList<ContactColumn> columns)
+    {
+        foreach (var column in columns)
+        {
+            grid.ColumnDefinitions.Add(new ColumnDefinition
+            {
+                Width = column switch
+                {
+                    ContactColumn.Phone => new GridLength(124),
+                    ContactColumn.Email => new GridLength(1.2, GridUnitType.Star),
+                    _ => new GridLength(1, GridUnitType.Star),
+                },
+            });
+        }
+    }
+
+    /// <summary>[S-581] Grid: avatar cards with the name and the company (or job title).</summary>
+    private void DrawCards(IReadOnlyList<Contact> contacts, double width)
+    {
+        var perRow = Math.Max(2, (int)Math.Floor((width - Fluent.Space2) / CardWidth));
+        var grid = new Grid { Padding = new Thickness(Fluent.Space1, 0, Fluent.Space1, 0) };
+
+        for (var c = 0; c < perRow; c++)
+        {
+            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        }
+
+        for (var i = 0; i < contacts.Count; i++)
+        {
+            if (i % perRow == 0)
+            {
+                grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+            }
+
+            var contact = contacts[i];
+            var stack = new StackPanel { Spacing = 2, HorizontalAlignment = HorizontalAlignment.Stretch };
+
+            var avatar = Avatar(contact, 40);
+            avatar.HorizontalAlignment = HorizontalAlignment.Center;
+            avatar.Margin = new Thickness(0);
+            stack.Children.Add(avatar);
+
+            var name = Fluent.Text(FluentType.Caption);
+            name.FontWeight = Microsoft.UI.Text.FontWeights.SemiBold;
+            name.Text = contact.Name;
+            name.HorizontalAlignment = HorizontalAlignment.Center;
+            stack.Children.Add(name);
+
+            if (ContactRules.CardDetail(contact) is { Length: > 0 } detail)
+            {
+                var line = Fluent.Text(FluentType.Caption, "TextFillColorTertiaryBrush");
+                line.Text = detail;
+                line.HorizontalAlignment = HorizontalAlignment.Center;
+                stack.Children.Add(line);
+            }
+
+            var card = new Border
+            {
+                Child = stack,
+                Padding = new Thickness(Fluent.Space1, Fluent.Space2, Fluent.Space1, Fluent.Space2),
+                Margin = new Thickness(2),
+                CornerRadius = new CornerRadius(Fluent.ControlRadius),
+                Background = Fluent.RowRest(),
+            };
+
+            Wire(card, contact);
+            SetRow(card, i / perRow);
+            SetColumn(card, i % perRow);
+            grid.Children.Add(card);
+        }
+
+        _scroll.Content = grid;
+    }
+
+    /// <summary>A row's content: the selection mark, the avatar when there is one, and the text.</summary>
+    private Grid RowBody(Contact contact, FrameworkElement? avatar, FrameworkElement text)
+    {
+        var body = new Grid
+        {
+            ColumnDefinitions =
+            {
+                new ColumnDefinition { Width = new GridLength(Fluent.Space2) },
+                new ColumnDefinition { Width = GridLength.Auto },
+                new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) },
+            },
+        };
+
+        // [S-580] Selection is the accent pill Windows lists use, so it never fights the hover fill.
+        var indicator = new Border
+        {
+            Width = 3,
+            Height = Fluent.IconSize,
+            CornerRadius = new CornerRadius(1.5),
+            Background = FluentLayout.Themed("AccentFillColorDefaultBrush", Colors.DodgerBlue),
+            HorizontalAlignment = HorizontalAlignment.Left,
+            VerticalAlignment = VerticalAlignment.Center,
+            Visibility = contact.Id == _selectedId ? Visibility.Visible : Visibility.Collapsed,
+        };
+        _indicators[contact.Id] = indicator;
+        body.Children.Add(indicator);
+
+        if (avatar is not null)
+        {
+            SetColumn(avatar, 1);
+            body.Children.Add(avatar);
+        }
+
+        SetColumn(text, 2);
+        body.Children.Add(text);
+        return body;
+    }
+
+    /// <summary>[S-586] Initials on a colour hashed from the name, so a person keeps their colour.</summary>
+    private static Border Avatar(Contact contact, double size)
+    {
+        var initials = Fluent.Text(size >= 40 ? FluentType.BodyStrong : FluentType.Caption);
+
+        // The fill is always dark (34% lightness, the classic hsl), so the initials are always white,
+        // in either theme; a theme brush would put black on it in the dark theme.
+        initials.Foreground = new SolidColorBrush(Colors.White);
+        initials.Text = Formatting.Monogram(contact.Name);
+        initials.HorizontalAlignment = HorizontalAlignment.Center;
+        initials.VerticalAlignment = VerticalAlignment.Center;
+        initials.TextTrimming = TextTrimming.None;
+
+        return new Border
+        {
+            Child = initials,
+            Width = size,
+            Height = size,
+            CornerRadius = new CornerRadius(size / 2),
+            Background = new SolidColorBrush(FromHsl(ContactRules.AvatarHue(contact.Name), 0.38, 0.34)),
+            VerticalAlignment = VerticalAlignment.Center,
+            Margin = new Thickness(0, 0, Fluent.Space3, 0),
+        };
+    }
+
+    /// <summary>Hover, select on click, and the per-person menu on right-click.</summary>
+    private void Wire(Border row, Contact contact)
+    {
+        _hovers.Add(Fluent.Hover(row));
+        ToolTipService.SetToolTip(row, Tooltip(contact));
+
+        row.Tapped += (_, args) =>
+        {
+            // Handled, so the background tap that clears the selection does not also see it.
+            args.Handled = true;
+            Select(_selectedId == contact.Id ? null : contact.Id);
+        };
+
+        row.RightTapped += (_, args) =>
+        {
+            args.Handled = true;
+            Select(contact.Id);
+            BuildMenu(contact).ShowAt(row, args.GetPosition(row));
+        };
+    }
+
+    private void Select(string? id)
+    {
+        if (_selectedId is { } old && _indicators.TryGetValue(old, out var previous))
+        {
+            previous.Visibility = Visibility.Collapsed;
+        }
+
+        _selectedId = id;
+
+        if (id is not null && _indicators.TryGetValue(id, out var current))
+        {
+            current.Visibility = Visibility.Visible;
+        }
+    }
+
+    /// <summary>
+    /// [S-587] The classic contact menu: the name and role as a header, then write and copy the
+    /// address, call, message and copy the number, copy the name, and refresh.
+    /// </summary>
+    private MenuFlyout BuildMenu(Contact contact)
+    {
+        var menu = new MenuFlyout();
+
+        var header = new MenuFlyoutItem { Text = string.IsNullOrEmpty(ContactRules.Role(contact)) ? contact.Name : $"{contact.Name} · {ContactRules.Role(contact)}", IsEnabled = false };
+        menu.Items.Add(header);
+        menu.Items.Add(new MenuFlyoutSeparator());
+
+        if (ContactLinks.Build(ContactLinkKind.Email, contact.Email) is not null)
+        {
+            menu.Items.Add(Item("Send email", Glyphs.Mail, () => ShellLauncher.OpenContactLink(ContactLinkKind.Email, contact.Email)));
+            menu.Items.Add(Item("Copy email", Glyphs.Copy, () => Copy(contact.Email!)));
+        }
+
+        if (ContactLinks.Build(ContactLinkKind.Call, contact.Phone) is not null)
+        {
+            menu.Items.Add(Item("Call", PhoneGlyph, () => ShellLauncher.OpenContactLink(ContactLinkKind.Call, contact.Phone)));
+            menu.Items.Add(Item("Message", MessageGlyph, () => ShellLauncher.OpenContactLink(ContactLinkKind.Message, contact.Phone)));
+        }
+
+        if (!string.IsNullOrWhiteSpace(contact.Phone))
+        {
+            menu.Items.Add(Item("Copy phone", Glyphs.Copy, () => Copy(contact.Phone!)));
+        }
+
+        menu.Items.Add(Item("Copy name", Glyphs.Copy, () => Copy(contact.Name)));
+        menu.Items.Add(new MenuFlyoutSeparator());
+        menu.Items.Add(Item("Refresh", Glyphs.Refresh, () => _ = RefreshAsync(force: true)));
+        return menu;
+
+        static MenuFlyoutItem Item(string text, string glyph, Action action)
+        {
+            var item = new MenuFlyoutItem { Text = text, Icon = new FontIcon { Glyph = glyph } };
+            item.Click += (_, _) => action();
+            return item;
+        }
+    }
+
+    private static void Copy(string text)
+    {
+        try
+        {
+            var package = new DataPackage { RequestedOperation = DataPackageOperation.Copy };
+            package.SetText(text);
+            Clipboard.SetContent(package);
+        }
+        catch (Exception ex)
+        {
+            // Another process can hold the clipboard open; Windows fails the call rather than wait.
+            Log.Error(Scope, "could not copy to the clipboard", ex);
+        }
+    }
+
+    private static string Tooltip(Contact contact)
+    {
+        var lines = new List<string> { contact.Name };
+        foreach (var line in new[] { ContactRules.Role(contact), contact.Email, contact.Phone })
+        {
+            if (!string.IsNullOrWhiteSpace(line))
+            {
+                lines.Add(line);
+            }
+        }
+
+        return string.Join(Environment.NewLine, lines);
+    }
+
+    private static string FirstNonEmpty(params string?[] values)
+        => values.FirstOrDefault(v => !string.IsNullOrWhiteSpace(v))?.Trim() ?? string.Empty;
+
+    /// <summary>The classic <c>hsl(h, 38%, 34%)</c>, as a colour.</summary>
+    private static Windows.UI.Color FromHsl(int hue, double saturation, double lightness)
+    {
+        var c = (1 - Math.Abs((2 * lightness) - 1)) * saturation;
+        var x = c * (1 - Math.Abs((hue / 60.0 % 2) - 1));
+        var m = lightness - (c / 2);
+
+        var (r, g, b) = (hue / 60) switch
+        {
+            0 => (c, x, 0.0),
+            1 => (x, c, 0.0),
+            2 => (0.0, c, x),
+            3 => (0.0, x, c),
+            4 => (x, 0.0, c),
+            _ => (c, 0.0, x),
+        };
+
+        return Windows.UI.Color.FromArgb(255, (byte)Math.Round((r + m) * 255), (byte)Math.Round((g + m) * 255), (byte)Math.Round((b + m) * 255));
     }
 }

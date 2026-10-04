@@ -1,532 +1,513 @@
-using System.Globalization;
+using Microsoft.UI;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Input;
+using Microsoft.UI.Xaml.Media;
 using Themia.App.Services;
-using Themia.App.Services.Hearth;
+using Themia.App.Services.Accounts;
+using Themia.App.Services.Office;
 using Themia.App.Shell;
+using Themia.Core.Accounts;
 using Themia.Core.Diagnostics;
 using Themia.Core.Model;
+using Themia.Core.Office;
 using Themia.Core.Widgets;
 
 namespace Themia.App.Widgets;
 
 /// <summary>
-/// What is coming up, read from the hearth hub.
+/// [S-560] Events from the user's Microsoft, Google and CalDAV calendars, through Themia's own
+/// accounts, as a month grid, a week, a day timeline or an agenda ([S-561]) — the classic
+/// Calendar widget, with contacts' birthdays beside the events ([S-575]).
 /// <para>
-/// No account, token or provider, and no connection of its own: hearth owns sign-in, sync and
-/// consent, and the app's one connection is reached through <see cref="AppServices.Data"/>. This
-/// lists the calendars hearth granted and refreshes when the hub says something changed.
+/// The view owns no connection and no cache: it asks the shared <see cref="IOfficeSource"/>, which
+/// answers every widget from one request per calendar and holds failures sensibly ([S-588]). What
+/// it keeps is the anchor day being looked at, and the events and birthdays of the range it last
+/// asked for. Polls every five minutes; a context-menu Refresh asks past every cache.
 /// </para>
 /// <para>
-/// Times are shown on a 24-hour clock. The app builds with <c>InvariantGlobalization</c>, so there
-/// is no culture to read a 12-hour preference from and no setting that offers one; 24-hour is the
-/// form that cannot be misread for the other one.
+/// Times are on a 24-hour clock and names are written out ([S-187]): the app builds with
+/// <c>InvariantGlobalization</c>, so there is no culture to read either from.
 /// </para>
 /// </summary>
-internal sealed partial class CalendarView : Grid, IWidgetView, IWidgetHeaderContent
+internal sealed partial class CalendarView : Grid, IWidgetView, IWidgetHeaderContent, IWidgetSurfaceAware, IWidgetContextActions
 {
     private const string Scope = "calendar-widget";
 
-    /// <summary>
-    /// The time column's width: thirteen steps of the 4px grid, which is what "All day" — the
-    /// longest thing the column ever holds — needs at the caption step. Fixed rather than derived
-    /// from the tile, so every row's title starts in the same place whatever size the widget is.
-    /// </summary>
-    private const double TimeColumn = 52;
+    private static readonly TimeSpan Poll = TimeSpan.FromMinutes(5);
 
-    // Written out rather than read from a culture: the app builds with InvariantGlobalization, and
-    // Formatting.Ago only looks backwards, so a calendar that looks forwards needs its own names.
-    private static readonly string[] DayNames = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+    private static readonly string ChevronLeft = char.ConvertFromUtf32(0xE76B);
+    private static readonly string ChevronRight = char.ConvertFromUtf32(0xE76C);
+    private static readonly string GiftGlyph = char.ConvertFromUtf32(0xF133);
+    private static readonly string WeekGlyph = char.ConvertFromUtf32(0xE8C0);
+    private static readonly string DayGlyph = char.ConvertFromUtf32(0xE8BF);
+    private static readonly string AgendaGlyph = char.ConvertFromUtf32(0xE8FD);
 
-    private static readonly string[] MonthNames =
-        ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-
-    private readonly TextBlock _badge = new();
-    private readonly Border _badgeHost;
+    private readonly Grid _content = new();
+    private readonly OfficeStatePanel _state = new(Glyphs.Calendar);
     private readonly ProgressRing _busy = new();
+    private readonly FontIcon _warning;
+    private readonly Button _back;
+    private readonly Button _forward;
+    private readonly Button _todayButton;
     private readonly StackPanel _trailing;
-    private readonly StackPanel _list = new() { Spacing = 0 };
-    private readonly ScrollViewer _scroll;
-    private readonly FontIcon _emptyIcon;
-    private readonly TextBlock _emptyText = new();
-    private readonly StackPanel _empty;
-
-    // The rows on screen, so a resize can switch them between the two row heights Fluent defines
-    // without asking the hub for the same records again. Nothing else needs holding: every size in
-    // a row is a ramp step or a grid step, so a resize cannot change it.
-    private readonly List<Border> _rows = [];
-
-    // One per row, so the hover handlers come off with the row they light. A leaked one keeps the
-    // row alive and re-lights it after teardown.
     private readonly List<IDisposable> _hovers = [];
+    private readonly Dictionary<string, Brush> _colorBrushes = new(StringComparer.Ordinal);
 
-    private HearthDataService? _data;
-    private Ticker? _ticker;
-    private IDisposable? _subscription;
-    private TimeSpan _subscribedInterval = TimeSpan.Zero;
+    private IWidgetSurface? _surface;
+    private IOfficeSource? _source;
+    private IDisposable? _poll;
     private CalendarConfig _config = new();
-    private IReadOnlyList<EventRecord> _records = [];
+    private DateOnly _anchor = Today;
+    private bool _followToday = true;
+    private Screen _screen = Screen.Loading;
+    private string _problemText = string.Empty;
+    private bool _problemOffersAccounts;
+    private string? _warningText;
+    private bool _warningOpensAccounts;
+    private IReadOnlyList<CalendarEvent> _events = [];
+    private IReadOnlyList<Birthday> _birthdays = [];
+    private IReadOnlyList<CalendarTarget> _targets = [];
+    private (DateOnly First, DateOnly Last)? _fetched;
+    private string _requestKey = string.Empty;
     private bool _refreshing;
-    private bool _requeryWanted;
-    private bool _loaded;
+    private bool _again;
+    private bool _againForced;
     private bool _detached;
 
     public CalendarView()
     {
-        RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
-
-        // The count is Fluent's InfoBadge shape, which the design system owns.
-        _badgeHost = Fluent.Badge(_badge);
-        _badgeHost.Visibility = Visibility.Collapsed;
-
         _busy.Width = Fluent.IconSize;
         _busy.Height = Fluent.IconSize;
         _busy.IsActive = false;
         _busy.Visibility = Visibility.Collapsed;
 
-        // The busy ring and the count ride on the card's header. The card reads this once when it
-        // builds the header, so it exists from construction rather than on first use.
+        _warning = Fluent.Icon(Glyphs.Warning, "SystemFillColorCautionBrush");
+        _warning.Visibility = Visibility.Collapsed;
+        _warning.Tapped += OnWarningTapped;
+
+        // [S-569] Back, forward and today ride on the card's header, as the classic widget's did.
+        _back = NavButton(ChevronLeft, "Previous", () => Navigate(-1));
+        _forward = NavButton(ChevronRight, "Next", () => Navigate(1));
+        _todayButton = NavButton(Glyphs.Calendar, "Today", GoToday);
+
         _trailing = new StackPanel
         {
             Orientation = Orientation.Horizontal,
-            Spacing = Fluent.Space2,
+            Spacing = 0,
             VerticalAlignment = VerticalAlignment.Center,
+            Children = { _warning, _busy, _back, _forward, _todayButton },
         };
+        _busy.Margin = new Thickness(Fluent.Space1, 0, Fluent.Space1, 0);
+        _warning.Margin = new Thickness(0, 0, Fluent.Space1, 0);
 
-        _trailing.Children.Add(_busy);
-        _trailing.Children.Add(_badgeHost);
+        Children.Add(_content);
+        Children.Add(_state);
 
-        _scroll = new ScrollViewer
-        {
-            // Nothing either side, so a row reaches both edges of the card and its highlight with
-            // it. The gap above the first row is the card header's; this keeps the last one off the
-            // edge.
-            Padding = Fluent.ListPadding,
-            Content = _list,
-            HorizontalScrollMode = ScrollMode.Disabled,
-            HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
-            VerticalScrollBarVisibility = ScrollBarVisibility.Hidden,
-        };
-
-        Grid.SetRow(_scroll, 0);
-
-        // A Windows empty state: an icon over a line of body text in the secondary colour, centred.
-        // Not a shrunken caption, which reads as an error the app is embarrassed about.
-        _empty = Fluent.EmptyState(Glyphs.Calendar, _emptyText, out _emptyIcon);
-        _empty.Visibility = Visibility.Collapsed;
-        Grid.SetRow(_empty, 0);
-
-        Children.Add(_scroll);
-        Children.Add(_empty);
-
-        SizeChanged += (_, _) => ApplyDensity();
+        SizeChanged += OnSizeChanged;
     }
+
+    /// <summary>Which of the widget's states is on screen. Each one needs something different of the user.</summary>
+    private enum Screen
+    {
+        Loading,
+        NoAccounts,
+        AccountsGone,
+        Problem,
+        Ready,
+    }
+
+    private static DateOnly Today => DateOnly.FromDateTime(DateTime.Now);
 
     /// <inheritdoc />
     public FrameworkElement? HeaderTrailing => _trailing;
 
-    /// <summary>
-    /// Whether the tile takes the compact row. Fluent has two list-row heights and a tile shorter
-    /// than five standard rows reads better with the shorter one: this is a density switch between
-    /// two fixed heights, not a row that grows with the tile.
-    /// </summary>
-    private bool Compact => ActualHeight > 0 && ActualHeight < Fluent.CompactBelow;
+    public void Bind(IWidgetSurface surface)
+    {
+        _surface = surface;
+        Render();
+    }
 
     public void Attach(Ticker ticker, WidgetConfig config)
     {
-        _ticker = ticker;
-        _data = AppServices.Data;
+        _detached = false;
+        _config = config as CalendarConfig ?? new CalendarConfig();
+        _source = OfficeSources.Current;
 
-        if (_data is not null)
+        if (_source is not null)
         {
-            _data.Changed += OnHubChanged;
+            _source.Changed += OnAccountsChanged;
         }
 
-        ApplyConfig(config);
+        // [S-588] The ticker fires once on subscribing, which is the first load.
+        _poll = ticker.Subscribe(Poll, () => _ = RefreshAsync(force: false));
     }
 
     public void ApplyConfig(WidgetConfig config)
     {
-        var next = config as CalendarConfig ?? new CalendarConfig();
+        _config = config as CalendarConfig ?? new CalendarConfig();
 
-        // Only the fields that change what the hub is asked for warrant a round trip. Without this
-        // check, dragging an unrelated settings slider fired a query per frame.
-        var needsQuery = _config.CollectionId != next.CollectionId
-            || _config.EffectiveMaxCount != next.EffectiveMaxCount
-            || _config.EffectiveDaysAhead != next.EffectiveDaysAhead;
-
-        // These two change only how the records already in hand are drawn - all-day events are
-        // filtered out of the reply, not out of the query - so they re-render instead.
-        var redraws = _config.ShowLocation != next.ShowLocation
-            || _config.ShowAllDay != next.ShowAllDay;
-
-        _config = next;
-        Resubscribe();
-
-        if (needsQuery || !_loaded)
+        // Only a change to what is asked for is worth a round trip; a colour or the agenda count
+        // re-draws what is in hand.
+        if (RequestKey() != _requestKey)
         {
-            _ = RefreshAsync();
+            _ = RefreshAsync(force: false);
         }
-        else if (redraws)
+
+        Render();
+    }
+
+    /// <inheritdoc />
+    public IReadOnlyList<WidgetAction> ContextActions
+    {
+        get
         {
-            Render(_records);
+            // [S-561] The classic menu: refresh, then the four views with the current one checked.
+            var actions = new List<WidgetAction> { new(Glyphs.Refresh, "Refresh", () => _ = RefreshAsync(force: true)) };
+
+            foreach (var (mode, label, glyph) in new[]
+            {
+                (CalendarViewMode.Month, "Month", Glyphs.Calendar),
+                (CalendarViewMode.Week, "Week", WeekGlyph),
+                (CalendarViewMode.Day, "Day", DayGlyph),
+                (CalendarViewMode.Agenda, "Agenda", AgendaGlyph),
+            })
+            {
+                actions.Add(new(_config.EffectiveView == mode ? Glyphs.Done : glyph, label, () => SetView(mode)));
+            }
+
+            return actions;
         }
     }
 
-    private void OnHubChanged() => _ = RefreshAsync();
-
-    /// <summary>
-    /// Re-subscribe only when the cadence actually changed. Dropping and remaking the subscription
-    /// on every config touch made dragging a settings slider stutter, because each frame tore down
-    /// the timer subscription for every widget on the desktop and built it again.
-    /// </summary>
-    private void Resubscribe()
+    public void Detach()
     {
         if (_detached)
         {
             return;
         }
 
-        var interval = _config.TickInterval;
+        _detached = true;
+        _poll?.Dispose();
+        _poll = null;
 
-        if (_subscription is not null && interval == _subscribedInterval)
+        if (_source is not null)
         {
-            return;
+            _source.Changed -= OnAccountsChanged;
+            _source = null;
         }
 
-        _subscription?.Dispose();
-        _subscribedInterval = interval;
-        _subscription = _ticker?.Subscribe(interval, OnTick);
+        SizeChanged -= OnSizeChanged;
+        _warning.Tapped -= OnWarningTapped;
+        _state.Detach();
+        ClearDrawing();
+    }
+
+    // -----------------------------------------------------------------------------------------
+    // Data
+    // -----------------------------------------------------------------------------------------
+
+    private void OnAccountsChanged() => _ = RefreshAsync(force: false);
+
+    /// <summary>Everything that changes what is asked: accounts, calendars, birthdays and the range.</summary>
+    private string RequestKey()
+    {
+        var range = CalendarRules.ViewRange(EffectiveView(), _anchor, Today, _config.EffectiveWeekStart);
+        var calendars = string.Join(";", _config.Calendars.OrderBy(kv => kv.Key, StringComparer.Ordinal).Select(kv => $"{kv.Key}={string.Join(",", kv.Value)}"));
+        return $"{string.Join(",", _config.AccountIds)}|{calendars}|{_config.ShowBirthdays}|{range.First}|{range.Last}";
     }
 
     /// <summary>
-    /// The hub pushes changes, but a calendar goes stale on its own: the window starts at "now", a
-    /// meeting becomes "Now" and then past, and "Today" becomes yesterday at midnight. None of that
-    /// is a change the hub would report, so the tick re-asks.
+    /// Ask for the range on screen. One at a time: a request arriving while one is out is
+    /// remembered and run after it, so the widget can never settle on a range it has moved away from.
     /// </summary>
-    private void OnTick() => _ = RefreshAsync();
-
-    private async Task RefreshAsync()
+    private async Task RefreshAsync(bool force)
     {
         if (_detached)
         {
             return;
         }
 
-        // The host builds the connection before any surface exists, so this is only reachable in a
-        // teardown race - but a widget that finds no service must still say so rather than sit
-        // blank with no explanation.
-        if (_data is null)
-        {
-            ShowMessage(EmptyMessage());
-            return;
-        }
-
-        // A second request while one is in flight is not dropped: the settings window can change
-        // the window or the calendar mid-query, and swallowing that would leave the old one shown.
         if (_refreshing)
         {
-            _requeryWanted = true;
+            _again = true;
+            _againForced |= force;
             return;
         }
 
-        _refreshing = true;
-        _busy.IsActive = true;
-        _busy.Visibility = Visibility.Visible;
-
-        if (!_loaded)
+        // [S-569] Until the user pages away, the widget stays on today, across midnight too.
+        if (_followToday)
         {
-            ShowMessage("Loading…");
+            _anchor = Today;
         }
+
+        var source = _source;
+        var accounts = source?.Accounts(AccountFeatures.Calendar) ?? [];
+        _requestKey = RequestKey();
+
+        if (source is null || accounts.Count == 0)
+        {
+            _screen = Screen.NoAccounts;
+            Render();
+            return;
+        }
+
+        var selected = CalendarRules.SelectAccounts(_config.AccountIds, [.. accounts.Select(a => a.Id)]);
+        if (selected.Count == 0)
+        {
+            _screen = Screen.AccountsGone;
+            Render();
+            return;
+        }
+
+        var labels = accounts.ToDictionary(a => a.Id, a => a.Label, StringComparer.Ordinal);
+        var targets = CalendarRules.Targets(selected, _config.Calendars);
+        var range = CalendarRules.ViewRange(EffectiveView(), _anchor, Today, _config.EffectiveWeekStart);
+        var (from, to) = CalendarRules.FetchWindow(range.First, range.Last, TimeZoneInfo.Local);
+
+        _refreshing = true;
+        SetBusy(true);
 
         try
         {
-            // Hearth's limit counts the records it returns, before this drops the cancelled ones
-            // and - when they are not wanted - the all-day ones. Asking for a little more keeps a
-            // full list full; the service caps the page itself, so this cannot ask for the world.
-            var request = Math.Min(100, _config.EffectiveMaxCount * 2);
+            var eventTasks = targets.Select(t => source.EventsAsync(t, from, to, force, CancellationToken.None)).ToList();
+            var birthdayTasks = _config.ShowBirthdays
+                ? selected.Select(a => source.BirthdaysAsync(a, force, CancellationToken.None)).ToList()
+                : [];
 
-            var events = await _data.UpcomingAsync(
-                _config.CollectionId,
-                DateTimeOffset.Now,
-                TimeSpan.FromDays(_config.EffectiveDaysAhead),
-                request).ConfigureAwait(true);
+            await Task.WhenAll(eventTasks.Cast<Task>().Concat(birthdayTasks)).ConfigureAwait(true);
 
             if (_detached)
             {
                 return;
             }
 
-            _loaded = true;
-            _records = events;
-            Render(events);
+            var events = new List<CalendarEvent>();
+            var problems = new List<(string Account, SyncProblem Problem)>();
+            var anyData = false;
+
+            for (var i = 0; i < targets.Count; i++)
+            {
+                var result = eventTasks[i].Result;
+                if (result.Value is { } list)
+                {
+                    anyData = true;
+                    events.AddRange(list.Select(e => e with { AccountId = targets[i].AccountId, CalendarId = targets[i].CalendarId, SourceIndex = i }));
+                }
+
+                if (result.Problem != SyncProblem.None)
+                {
+                    problems.Add((targets[i].AccountId, result.Problem));
+                }
+            }
+
+            var birthdays = new List<Birthday>();
+            for (var i = 0; i < birthdayTasks.Count; i++)
+            {
+                var result = birthdayTasks[i].Result;
+                birthdays.AddRange(result.Value ?? []);
+
+                // [S-575] A refused address book costs the birthdays, never the calendar: it is a
+                // warning on the header, not an error over the events.
+                if (result.Problem != SyncProblem.None)
+                {
+                    problems.Add((selected[i], result.Problem));
+                }
+            }
+
+            _events = events;
+            _birthdays = BirthdayRules.Distinct(birthdays);
+            _targets = targets;
+            _fetched = range;
+
+            var worst = problems.OrderByDescending(p => SyncProblems.NeedsUser(p.Problem)).Select(p => (p.Account, p.Problem)).FirstOrDefault();
+
+            if (!anyData && problems.Count > 0)
+            {
+                _screen = Screen.Problem;
+                _problemText = SyncProblems.Message(worst.Problem, "calendar");
+                _problemOffersAccounts = SyncProblems.NeedsUser(worst.Problem);
+                _warningText = null;
+            }
+            else
+            {
+                _screen = Screen.Ready;
+                _warningText = problems.Count == 0
+                    ? null
+                    : string.Join(Environment.NewLine, problems.Distinct().Select(p =>
+                        $"{(labels.TryGetValue(p.Account, out var label) ? label : p.Account)}: {SyncProblems.Message(p.Problem, "calendar")}"));
+                _warningOpensAccounts = problems.Any(p => SyncProblems.NeedsUser(p.Problem));
+            }
         }
         catch (Exception ex)
         {
-            // Never let a hub problem take the surface down; say so in the widget instead.
+            // Reached from a ticker callback and a menu click: nothing above may see an exception.
             Log.Error(Scope, "could not refresh the calendar", ex);
-            ShowMessage("Could not read the calendar. See themia.log.");
+            _screen = Screen.Problem;
+            _problemText = "Could not read the calendar. See themia.log.";
+            _problemOffersAccounts = false;
         }
         finally
         {
             _refreshing = false;
-            _busy.IsActive = false;
-            _busy.Visibility = Visibility.Collapsed;
+            SetBusy(false);
+        }
 
-            if (_requeryWanted && !_detached)
-            {
-                _requeryWanted = false;
-                _ = RefreshAsync();
-            }
+        Render();
+
+        if (_again && !_detached)
+        {
+            var forced = _againForced;
+            _again = false;
+            _againForced = false;
+            await RefreshAsync(forced).ConfigureAwait(true);
         }
     }
 
-    private void Render(IReadOnlyList<EventRecord> events)
+    private void SetBusy(bool busy)
     {
-        ClearRows();
+        _busy.IsActive = busy;
+        _busy.Visibility = busy ? Visibility.Visible : Visibility.Collapsed;
+    }
 
-        var now = DateTimeOffset.Now;
-        var today = DateOnly.FromDateTime(now.LocalDateTime);
-        var shown = Visible(events);
+    // -----------------------------------------------------------------------------------------
+    // Navigation and views
+    // -----------------------------------------------------------------------------------------
 
-        if (shown.Count == 0)
+    /// <summary>The configured view, or the agenda when the tile is too small to draw it ([S-574]).</summary>
+    private CalendarViewMode EffectiveView() => CalendarRules.Effective(_config.EffectiveView, ActualWidth, ActualHeight);
+
+    private void Navigate(int direction)
+    {
+        _anchor = CalendarRules.Step(EffectiveView(), _anchor, direction);
+
+        // Paging back to the period holding today picks following it up again.
+        _followToday = InView(EffectiveView(), Today);
+        Render();
+        _ = RefreshAsync(force: false);
+    }
+
+    private void GoToday()
+    {
+        _anchor = Today;
+        _followToday = true;
+        Render();
+        _ = RefreshAsync(force: false);
+    }
+
+    /// <summary>[S-561] Switch the view from the context menu; it is the config, so it is saved.</summary>
+    private void SetView(CalendarViewMode mode)
+    {
+        _config.View = mode;
+        _surface?.RequestSave();
+        Render();
+        _ = RefreshAsync(force: false);
+    }
+
+    private void OnSizeChanged(object sender, SizeChangedEventArgs args)
+    {
+        Render();
+
+        // A resize can turn the month into the agenda ([S-574]), which covers other days.
+        if (_screen == Screen.Ready && RequestKey() != _requestKey)
         {
-            ShowMessage(EmptyMessage());
+            _ = RefreshAsync(force: false);
+        }
+    }
+
+    private void OnWarningTapped(object sender, TappedRoutedEventArgs args)
+    {
+        if (_warningOpensAccounts)
+        {
+            args.Handled = true;
+            OfficeStatePanel.OpenAccounts();
+        }
+    }
+
+    // -----------------------------------------------------------------------------------------
+    // Drawing
+    // -----------------------------------------------------------------------------------------
+
+    private void Render()
+    {
+        if (_detached)
+        {
             return;
         }
 
-        _empty.Visibility = Visibility.Collapsed;
-        _scroll.Visibility = Visibility.Visible;
+        ClearDrawing();
 
-        // A day heading only when the day changes, so a list of four meetings on one afternoon is
-        // not four headings deep. Grouped in order because the query sorted by start.
-        DateOnly? heading = null;
-        var compact = Compact;
+        var view = EffectiveView();
+        var ready = _screen == Screen.Ready;
+        var paged = ready && view != CalendarViewMode.Agenda;
 
-        foreach (var item in shown)
+        _back.Visibility = paged ? Visibility.Visible : Visibility.Collapsed;
+        _forward.Visibility = paged ? Visibility.Visible : Visibility.Collapsed;
+        _todayButton.Visibility = paged && !InView(view, Today) ? Visibility.Visible : Visibility.Collapsed;
+
+        _warning.Visibility = ready && _warningText is not null ? Visibility.Visible : Visibility.Collapsed;
+        ToolTipService.SetToolTip(_warning, _warningText);
+
+        // [S-568] The period is the header's title while paging; the agenda is just "Calendar".
+        _surface?.SetHeaderTitle(paged ? CalendarRules.Title(view, _anchor, _config.EffectiveWeekStart) : null);
+
+        switch (_screen)
         {
-            var day = DayOf(item, today);
+            case Screen.Loading:
+                _state.Show("Loading…", offerAccounts: false);
+                return;
 
-            if (heading != day)
-            {
-                heading = day;
-                _list.Children.Add(BuildDayHeading(DayLabel(day, today)));
-            }
+            case Screen.NoAccounts:
+                _state.Show("No calendar account yet", offerAccounts: true);
+                return;
 
-            var row = BuildRow(item, now, compact);
-            _rows.Add(row);
-            _list.Children.Add(row);
+            case Screen.AccountsGone:
+                _state.Show(SyncProblems.Message(SyncProblem.NoAccount, "calendar"), offerAccounts: true);
+                return;
+
+            case Screen.Problem:
+                _state.Show(_problemText, _problemOffersAccounts);
+                return;
         }
 
-        _badge.Text = shown.Count.ToString(CultureInfo.InvariantCulture);
-        _badgeHost.Visibility = Visibility.Visible;
-    }
+        _state.Hide();
 
-    /// <summary>
-    /// What the list actually shows: never a cancelled occurrence, which is a record like any other
-    /// and would otherwise read as a meeting that is happening, and all-day events only when they
-    /// were asked for.
-    /// </summary>
-    private List<EventRecord> Visible(IReadOnlyList<EventRecord> events)
-    {
-        var shown = new List<EventRecord>(Math.Min(events.Count, _config.EffectiveMaxCount));
+        var width = ActualWidth;
+        var height = ActualHeight;
 
-        foreach (var item in events)
+        switch (view)
         {
-            if (item.Cancelled || (item.AllDay && !_config.ShowAllDay))
-            {
-                continue;
-            }
-
-            shown.Add(item);
-
-            if (shown.Count == _config.EffectiveMaxCount)
-            {
+            case CalendarViewMode.Month:
+                DrawMonth(width, height);
                 break;
-            }
+
+            case CalendarViewMode.Week:
+                DrawWeek(width, height);
+                break;
+
+            case CalendarViewMode.Day:
+                DrawDay(width, height);
+                break;
+
+            default:
+                DrawAgenda(width, height);
+                break;
+        }
+    }
+
+    /// <summary>Whether a day is in the period on screen, so the today button can hide when it would do nothing.</summary>
+    private bool InView(CalendarViewMode view, DateOnly day)
+    {
+        if (view == CalendarViewMode.Month)
+        {
+            return day.Year == _anchor.Year && day.Month == _anchor.Month;
         }
 
-        return shown;
+        var (first, last) = CalendarRules.ViewRange(view, _anchor, Today, _config.EffectiveWeekStart);
+        return day >= first && day <= last;
     }
 
-    /// <summary>
-    /// A day heading is a label, not a row: it keeps the inset the rows give up, so it lines up with
-    /// the widget's own title above it rather than with the rows' text.
-    /// </summary>
-    private static Border BuildDayHeading(string label)
-    {
-        var text = Fluent.Text(FluentType.BodyStrong, "TextFillColorSecondaryBrush");
-        text.Text = label;
-
-        return new Border
-        {
-            Child = text,
-            Padding = new Thickness(Fluent.Space4, Fluent.Space2, Fluent.Space4, Fluent.Space1),
-        };
-    }
-
-    private Border BuildRow(EventRecord item, DateTimeOffset now, bool compact)
-    {
-        // A fixed column, so the titles line up instead of each starting wherever its own time
-        // happened to end. An event under way says "Now" in the strong step of the same line.
-        var running = InProgress(item, now);
-        var when = Fluent.Text(
-            running ? FluentType.BodyStrong : FluentType.Body,
-            "TextFillColorSecondaryBrush");
-
-        when.Text = TimeLabel(item, now);
-        when.Width = TimeColumn;
-        when.VerticalAlignment = VerticalAlignment.Top;
-        when.Margin = new Thickness(0, 0, Fluent.Space2, 0);
-
-        var title = Fluent.Text(FluentType.BodyStrong);
-        title.Text = string.IsNullOrWhiteSpace(item.Title) ? "(no title)" : item.Title;
-
-        // No spacing between the lines of a row: each one already carries the line height Fluent
-        // pairs with its size, and a gap on top of that is the web app's look.
-        var text = new StackPanel { Spacing = 0 };
-        text.Children.Add(title);
-
-        if (_config.ShowLocation && !string.IsNullOrWhiteSpace(item.Location))
-        {
-            var place = Fluent.Text(FluentType.Caption, "TextFillColorTertiaryBrush");
-            place.Text = item.Location;
-            text.Children.Add(place);
-        }
-
-        Grid.SetColumn(when, 0);
-        Grid.SetColumn(text, 1);
-
-        var body = new Grid
-        {
-            ColumnDefinitions =
-            {
-                new ColumnDefinition { Width = GridLength.Auto },
-                new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) },
-            },
-            Children = { when, text },
-        };
-
-        var row = Fluent.Row(body, compact);
-        _hovers.Add(Fluent.Hover(row));
-
-        ToolTipService.SetToolTip(row, Tooltip(item, now));
-        return row;
-    }
-
-    private static string Tooltip(EventRecord item, DateTimeOffset now)
-    {
-        var lines = new List<string>
-        {
-            string.IsNullOrWhiteSpace(item.Title) ? "(no title)" : item.Title,
-            Span(item, now),
-        };
-
-        if (!string.IsNullOrWhiteSpace(item.Location))
-        {
-            lines.Add(item.Location);
-        }
-
-        return string.Join(Environment.NewLine, lines);
-    }
-
-    /// <summary>The full span, for the tooltip: what the row's one-line time label had to leave out.</summary>
-    private static string Span(EventRecord item, DateTimeOffset now)
-    {
-        var today = DateOnly.FromDateTime(now.LocalDateTime);
-        var day = DayLabel(DayOf(item, today), today);
-
-        if (item.AllDay || item.StartsAt is not { } start)
-        {
-            return $"{day} · All day";
-        }
-
-        return item.EndsAt is { } end && end > start
-            ? $"{day} · {Clock(start)}–{Clock(end)} ({Formatting.Duration(end - start)})"
-            : $"{day} · {Clock(start)}";
-    }
-
-    /// <summary>The day a row is filed under. See <see cref="AgendaRules.FiledUnder"/>.</summary>
-    private static DateOnly DayOf(EventRecord item, DateOnly today)
-        => item.StartsAt is { } start
-            ? AgendaRules.FiledUnder(DateOnly.FromDateTime(start.LocalDateTime), today)
-            : today;
-
-    private static string DayLabel(DateOnly day, DateOnly today) => Formatting.DayHeading(day, today);
-
-    /// <summary>
-    /// The row's time: "All day", "Now" for one already under way, or the start on a 24-hour clock.
-    /// </summary>
-    private static string TimeLabel(EventRecord item, DateTimeOffset now)
-    {
-        if (item.AllDay)
-        {
-            return "All day";
-        }
-
-        if (item.StartsAt is not { } start)
-        {
-            return "--:--";
-        }
-
-        return InProgress(item, now) ? "Now" : Clock(start);
-    }
-
-    private static bool InProgress(EventRecord item, DateTimeOffset now)
-        => AgendaRules.IsInProgress(item.AllDay, item.StartsAt, item.EndsAt, now);
-
-    private static string Clock(DateTimeOffset moment) => Formatting.Clock24(moment);
-
-    /// <summary>
-    /// Re-fit what is already drawn to the tile: the row height, and whether the empty state has
-    /// room for its icon. No query, and no font size derived from the tile — every size in a row is
-    /// a step of the ramp or of the 4px grid, so a resize has nothing else to change.
-    /// </summary>
-    private void ApplyDensity()
-    {
-        var compact = Compact;
-
-        foreach (var row in _rows)
-        {
-            Fluent.SetDensity(row, compact);
-        }
-
-        _emptyIcon.Visibility = compact ? Visibility.Collapsed : Visibility.Visible;
-    }
-
-    /// <summary>Say what is actually true, because every one of these needs a different action.</summary>
-    private string EmptyMessage()
-    {
-        var granted = _data?.CalendarCollections.Count ?? 0;
-        var days = _config.EffectiveDaysAhead;
-        var window = days == 1 ? "the next day" : $"the next {days} days";
-
-        return _data?.Status switch
-        {
-            null => "Themia is still starting.",
-            HearthStatus.NotRunning => "hearth is not running.\nStart it to see your calendar here.",
-            HearthStatus.Denied => "hearth has not granted Themia access to any calendar.",
-            HearthStatus.Failed => "Could not read from hearth. See themia.log.",
-            HearthStatus.Connecting or HearthStatus.Idle => "Connecting to hearth…",
-            _ when granted == 0 => "hearth has granted no calendars.",
-            _ when _records.Count > 0 && !_config.ShowAllDay => $"Nothing but all-day events in {window}.",
-            _ => $"Nothing in {window}.",
-        };
-    }
-
-    private void ShowMessage(string text)
-    {
-        _emptyText.Text = text;
-        _empty.Visibility = Visibility.Visible;
-        _scroll.Visibility = Visibility.Collapsed;
-        _badgeHost.Visibility = Visibility.Collapsed;
-    }
-
-    /// <summary>
-    /// Drop the rows and, with them, their hover handlers: a handler left hooked keeps the row it
-    /// lights alive and re-lights it after the list has moved on.
-    /// </summary>
-    private void ClearRows()
+    private void ClearDrawing()
     {
         foreach (var hover in _hovers)
         {
@@ -534,26 +515,109 @@ internal sealed partial class CalendarView : Grid, IWidgetView, IWidgetHeaderCon
         }
 
         _hovers.Clear();
-        _list.Children.Clear();
-        _rows.Clear();
+        _content.Children.Clear();
+        _content.RowDefinitions.Clear();
+        _content.ColumnDefinitions.Clear();
     }
 
-    public void Detach()
+    // ---- shared pieces ------------------------------------------------------------------------
+
+    private bool ShowColors => CalendarRules.ShowColors(_targets, _config.CalendarColors);
+
+    /// <summary>[S-566] An event's calendar colour, resolved at draw time so a settings change repaints at once.</summary>
+    private Brush ColorOf(CalendarEvent item)
     {
-        _detached = true;
+        var hex = CalendarRules.ResolveColor(CalendarRules.ColorKey(item.AccountId, item.CalendarId), item.SourceIndex, _config.CalendarColors);
 
-        _subscription?.Dispose();
-        _subscription = null;
-        _subscribedInterval = TimeSpan.Zero;
-
-        if (_data is not null)
+        if (!_colorBrushes.TryGetValue(hex, out var brush))
         {
-            _data.Changed -= OnHubChanged;
-            _data = null;
+            brush = HexColor.TryParse(hex, out var r, out var g, out var b)
+                ? new SolidColorBrush(Windows.UI.Color.FromArgb(255, r, g, b))
+                : FluentLayout.Themed("AccentFillColorDefaultBrush", Colors.DodgerBlue);
+            _colorBrushes[hex] = brush;
         }
 
-        _ticker = null;
-        _records = [];
-        ClearRows();
+        return brush;
+    }
+
+    private static Brush Accent() => FluentLayout.Themed("AccentFillColorDefaultBrush", Colors.DodgerBlue);
+
+    private static Brush BirthdayBrush() => FluentLayout.Themed("SystemFillColorCautionBrush", Colors.Goldenrod);
+
+    /// <summary>[S-560] Open an event in its provider's own page; CalDAV has none, so it only has its tooltip.</summary>
+    private static void Open(CalendarEvent item)
+    {
+        if (item.WebLink is { } link)
+        {
+            ShellLauncher.Open(link);
+        }
+    }
+
+    private void MakeOpenable(FrameworkElement element, CalendarEvent item)
+    {
+        ToolTipService.SetToolTip(element, Describe(item));
+
+        if (item.WebLink is not null)
+        {
+            // Not handled: the card's double-click into edit mode still has to reach it.
+            element.Tapped += (_, _) => Open(item);
+        }
+    }
+
+    /// <summary>Everything a chip had to leave out, on hover.</summary>
+    private static string Describe(CalendarEvent item)
+    {
+        var lines = new List<string> { Title(item) };
+
+        if (item.AllDay)
+        {
+            var days = item.EndDay.DayNumber - item.FirstDay.DayNumber;
+            lines.Add(days > 1
+                ? $"All day · {Formatting.ShortDate(item.FirstDay)} – {Formatting.ShortDate(item.EndDay.AddDays(-1))}"
+                : $"All day · {Formatting.ShortDate(item.FirstDay)}");
+        }
+        else
+        {
+            var start = item.Start.ToLocalTime();
+            var span = item.End > item.Start
+                ? $"{Clock(item.Start)}–{Clock(item.End)} ({Formatting.Duration(item.End - item.Start)})"
+                : Clock(item.Start);
+            lines.Add($"{Formatting.ShortDate(DateOnly.FromDateTime(start.DateTime))} · {span}");
+        }
+
+        if (item.Location is { } place)
+        {
+            lines.Add(place);
+        }
+
+        if (item.Organizer is { } who)
+        {
+            lines.Add(who);
+        }
+
+        return string.Join(Environment.NewLine, lines);
+    }
+
+    private static string Title(CalendarEvent item) => string.IsNullOrWhiteSpace(item.Subject) ? "(no title)" : item.Subject;
+
+    private static string Clock(DateTimeOffset moment) => Formatting.Clock24(moment);
+
+    private static Button NavButton(string glyph, string tooltip, Action click)
+    {
+        var button = new Button
+        {
+            Content = new FontIcon { Glyph = glyph, FontSize = FluentType.Caption.FontSize },
+            Padding = new Thickness(Fluent.Space1 + 2, Fluent.Space1, Fluent.Space1 + 2, Fluent.Space1),
+            MinWidth = 0,
+            MinHeight = 0,
+            Background = FluentLayout.Themed("SubtleFillColorTransparentBrush", Colors.Transparent),
+            BorderThickness = new Thickness(0),
+            CornerRadius = new CornerRadius(Fluent.ControlRadius),
+            VerticalAlignment = VerticalAlignment.Center,
+        };
+
+        ToolTipService.SetToolTip(button, tooltip);
+        button.Click += (_, _) => click();
+        return button;
     }
 }

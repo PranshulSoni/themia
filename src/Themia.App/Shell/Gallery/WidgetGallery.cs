@@ -79,10 +79,18 @@ internal sealed class WidgetGallery : IDisposable
     {
         _ticker = new Ticker(dispatcher);
         _host = new GalleryCardHost(_ticker);
+        GalleryFixtures.Prepare();
 
         foreach (var definition in WidgetCatalog.All)
         {
             _picker.Items.Add(new ComboBoxItem { Content = definition.Label, Tag = definition.Kind });
+
+            // A widget whose default is an empty state is listed twice: as it starts, and with
+            // something in it.
+            if (GalleryFixtures.Has(definition.Kind))
+            {
+                _picker.Items.Add(new ComboBoxItem { Content = $"{definition.Label} (sample)", Tag = new GalleryEntry(definition.Kind, true) });
+            }
         }
 
         _picker.SelectionChanged += (_, _) =>
@@ -90,6 +98,10 @@ internal sealed class WidgetGallery : IDisposable
             if (_picker.SelectedItem is ComboBoxItem { Tag: WidgetKind kind })
             {
                 Show(kind);
+            }
+            else if (_picker.SelectedItem is ComboBoxItem { Tag: GalleryEntry entry })
+            {
+                Show(entry.Kind, entry.Fixture);
             }
         };
 
@@ -197,19 +209,32 @@ internal sealed class WidgetGallery : IDisposable
         var outDir = args[at + 2];
         var wait = at + 3 < args.Length && int.TryParse(args[at + 3], out var ms) ? ms : 3500;
 
-        List<WidgetKind> kinds;
+        List<GalleryEntry> kinds;
         if (string.Equals(which, "all", StringComparison.OrdinalIgnoreCase))
         {
-            kinds = [.. WidgetCatalog.All.Select(d => d.Kind)];
+            kinds = [];
+            foreach (var definition in WidgetCatalog.All)
+            {
+                kinds.Add(new GalleryEntry(definition.Kind, false));
+
+                if (GalleryFixtures.Has(definition.Kind))
+                {
+                    kinds.Add(new GalleryEntry(definition.Kind, true));
+                }
+            }
         }
         else
         {
             kinds = [];
             foreach (var part in which.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
             {
-                if (Enum.TryParse<WidgetKind>(part, true, out var kind))
+                // "Kind+fixture" asks for the widget populated by its debug fixture.
+                var fixture = part.EndsWith(GalleryFixtures.Suffix, StringComparison.OrdinalIgnoreCase);
+                var name = fixture ? part[..^GalleryFixtures.Suffix.Length] : part;
+
+                if (Enum.TryParse<WidgetKind>(name, true, out var kind))
                 {
-                    kinds.Add(kind);
+                    kinds.Add(new GalleryEntry(kind, fixture));
                 }
                 else
                 {
@@ -236,21 +261,21 @@ internal sealed class WidgetGallery : IDisposable
         return true;
     }
 
-    private async Task RenderAllAsync(Application app, IReadOnlyList<WidgetKind> kinds, string outDir, int waitMs)
+    private async Task RenderAllAsync(Application app, IReadOnlyList<GalleryEntry> kinds, string outDir, int waitMs)
     {
         try
         {
             Directory.CreateDirectory(outDir);
 
-            foreach (var kind in kinds)
+            foreach (var (kind, fixture) in kinds)
             {
-                Show(kind);
+                Show(kind, fixture);
 
                 // Long enough for a meter's first sample and a network fetch to land; a widget
                 // still loading after this is itself something worth seeing.
                 await Task.Delay(waitMs).ConfigureAwait(true);
 
-                var path = System.IO.Path.Combine(outDir, $"{kind}.png");
+                var path = System.IO.Path.Combine(outDir, fixture ? $"{kind}{GalleryFixtures.Suffix}.png" : $"{kind}.png");
                 await SavePngAsync(_frame, path).ConfigureAwait(true);
                 Console.WriteLine($"gallery: wrote {path}");
             }
@@ -279,9 +304,10 @@ internal sealed class WidgetGallery : IDisposable
     }
 
     /// <summary>Replace the page with one widget at every size. The old cards are detached first.</summary>
-    private void Show(WidgetKind kind)
+    private void Show(WidgetKind kind, bool fixture = false)
     {
         ClearCards();
+        GalleryFixtures.Reset();
         _window.Title = $"Themia widget gallery - {WidgetCatalog.Definition(kind).Label}";
 
         var x = new[] { Gap, Gap };
@@ -299,6 +325,11 @@ internal sealed class WidgetGallery : IDisposable
             _page.Children.Add(label);
 
             var model = WidgetInstance.Create(kind, new FracRect(0, 0, 0.1, 0.1));
+
+            if (fixture && GalleryFixtures.Create(kind) is { } populated)
+            {
+                model.Config = populated;
+            }
             var card = new WidgetCard(_host, model)
             {
                 Width = width,
@@ -348,7 +379,8 @@ internal sealed class WidgetGallery : IDisposable
         return (width, height);
     }
 
-    private static async Task SavePngAsync(UIElement element, string path)
+    /// <summary>Render an element in a live window to a PNG. Shared with the settings render.</summary>
+    internal static async Task SavePngAsync(UIElement element, string path)
     {
         var bitmap = new RenderTargetBitmap();
         await bitmap.RenderAsync(element);
@@ -481,6 +513,27 @@ internal sealed class WidgetGallery : IDisposable
         {
             // ignore: the gallery window is an ordinary window and takes the keyboard by itself
         }
+
+        /// <summary>A pretend display with a few views, so the view switcher shows a real row.</summary>
+        public IWidgetDisplay? Display { get; } = new GalleryDisplay();
+    }
+
+    /// <summary>
+    /// A display with three views and nothing behind them. Switching only moves the highlight: the
+    /// gallery has no surface for a view to appear on.
+    /// </summary>
+    private sealed class GalleryDisplay : IWidgetDisplay
+    {
+        public IReadOnlyList<ViewSummary> Views { get; } =
+        [
+            new("gallery-work", "Work"),
+            new("gallery-home", "Home office"),
+            new("gallery-play", "Gaming"),
+        ];
+
+        public string ShownViewId { get; private set; } = "gallery-work";
+
+        public void ShowView(string viewId) => ShownViewId = viewId;
     }
 }
 #endif

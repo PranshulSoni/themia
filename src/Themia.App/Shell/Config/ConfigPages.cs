@@ -4,7 +4,6 @@ using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
 using Themia.App.Services;
-using Themia.App.Services.Hearth;
 using Themia.App.Widgets;
 using Themia.Core.Diagnostics;
 using Themia.Core.Model;
@@ -21,7 +20,7 @@ namespace Themia.App.Shell.Config;
 /// see <see cref="BuildWidget"/>.
 /// </para>
 /// </summary>
-internal static class ConfigPages
+internal static partial class ConfigPages
 {
     private const string Scope = "config";
 
@@ -30,6 +29,7 @@ internal static class ConfigPages
         ConfigTarget.App { Page: AppPage.General } => BuildGeneral(host),
         ConfigTarget.App { Page: AppPage.Appearance } => BuildAppearance(host),
         ConfigTarget.App { Page: AppPage.Layout } => BuildLayout(host),
+        ConfigTarget.App { Page: AppPage.Accounts } => AccountsPage.Build(),
         ConfigTarget.App { Page: AppPage.About } => BuildAbout(host),
         ConfigTarget.View view => BuildView(host, view.ViewId, navigate),
         ConfigTarget.Display display => BuildDisplay(host, display.MonitorId),
@@ -176,26 +176,6 @@ internal static class ConfigPages
         };
 
         return Page("Layout", rows);
-    }
-
-    private static FrameworkElement BuildAbout(AppHost host)
-    {
-        var openFolder = new HyperlinkButton { Content = "Open data folder" };
-        openFolder.Click += (_, _) => OpenDataFolder();
-
-        var rows = new List<FrameworkElement>
-        {
-            FluentLayout.Row(Glyphs.Info, "Themia for WinUI",
-                "A minimal native rebuild: WinUI 3 on .NET, compiled ahead of time.", openFolder),
-
-            FluentLayout.Row(Glyphs.View, "Widgets", $"{WidgetCatalog.All.Count} available",
-                new TextBlock { Text = string.Empty }),
-
-            FluentLayout.Row(Glyphs.View, "Views", $"{host.State.Views.Count} configured",
-                new TextBlock { Text = string.Empty }),
-        };
-
-        return Page("About", rows);
     }
 
     private static void OpenDataFolder()
@@ -397,16 +377,29 @@ internal static class ConfigPages
                 WidgetSettings.Ping(rows, ping, Save);
                 break;
 
+            // Also before GaugeConfig, for the same reason.
+            case GpuConfig gpu:
+                WidgetSettings.Gpu(rows, gpu, Save);
+                break;
+
             case GaugeConfig gauge:
                 WidgetSettings.Gauge(rows, gauge, Save);
                 break;
 
             case EmailConfig email:
-                WidgetSettings.Email(rows, email, Save);
+                WidgetSettings.Email(rows, email, Save, navigate);
                 break;
 
             case ProcessesConfig processes:
                 WidgetSettings.Processes(rows, processes, Save);
+                break;
+
+            case MixerConfig mixer:
+                WidgetSettings.Mixer(rows, mixer, Save);
+                break;
+
+            case ScreenTimeConfig screenTime:
+                WidgetSettings.ScreenTime(rows, screenTime, Save);
                 break;
 
             case ContactsConfig contacts:
@@ -418,7 +411,31 @@ internal static class ConfigPages
                 break;
 
             case TasksConfig tasks:
-                WidgetSettings.Tasks(rows, tasks, Save);
+                WidgetSettings.Tasks(rows, tasks, Save, navigate);
+                break;
+
+            case OneDriveConfig oneDrive:
+                WidgetSettings.OneDrive(rows, oneDrive, Save, navigate);
+                break;
+
+            case GitHubConfig gitHub:
+                WidgetSettings.GitHub(rows, gitHub, Save, navigate);
+                break;
+
+            case GitHubIssuesConfig gitHubIssues:
+                WidgetSettings.GitHubIssues(rows, gitHubIssues, Save, navigate);
+                break;
+
+            case GitHubReviewsConfig gitHubReviews:
+                WidgetSettings.GitHubReviews(rows, gitHubReviews, Save, navigate);
+                break;
+
+            case GitHubNotificationsConfig gitHubNotifications:
+                WidgetSettings.GitHubNotifications(rows, gitHubNotifications, Save, navigate);
+                break;
+
+            case ClaudeUsageConfig claudeUsage:
+                WidgetSettings.ClaudeUsage(rows, claudeUsage, Save, navigate);
                 break;
 
             case NotesConfig notes:
@@ -477,6 +494,14 @@ internal static class ConfigPages
                 WidgetSettings.Rss(rows, rss, Save);
                 break;
 
+            case VideoStreamConfig videoStream:
+                WidgetSettings.VideoStream(rows, videoStream, Save);
+                break;
+
+            case WebElementConfig webElement:
+                WidgetSettings.WebElement(rows, webElement, Save);
+                break;
+
             case AppsConfig apps:
                 WidgetSettings.Apps(rows, apps, Save);
                 break;
@@ -528,6 +553,16 @@ internal static class ConfigPages
             case TabsConfig tabs:
                 WidgetSettings.Tabs(rows, tabs, Save);
                 break;
+
+            case ViewSwitcherConfig viewSwitcher:
+                WidgetSettings.ViewSwitcher(
+                    rows,
+                    viewSwitcher,
+                    [.. host.State.Views.Select(v => new ViewSummary(v.Id, v.Name))],
+                    Save);
+                break;
+
+            // Help and Themia have nothing to set: their pages carry the shared appearance rows only.
 
             default:
                 break;

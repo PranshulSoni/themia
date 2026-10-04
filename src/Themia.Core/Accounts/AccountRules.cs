@@ -1,0 +1,229 @@
+namespace Themia.Core.Accounts;
+
+/// <summary>
+/// [S-504] The boundary between <c>accounts.json</c> and the app: a stored entry becomes a whole
+/// <see cref="Account"/> or nothing.
+/// <para>
+/// What is repaired and what is dropped follows one rule. A field the account can live without — a
+/// nickname of spaces, a missing IMAP port, a missing GitHub API root — is repaired to the value the
+/// provider would have used. A field that names <i>where</i> the account is — the IMAP host, the DAV
+/// collection, the provider itself — cannot be guessed, and an account without it is dropped. Either
+/// way it is said out loud in the repair list, never silently.
+/// </para>
+/// <para>
+/// A missing secret is neither: an OAuth account without a refresh token is a real state ("sign in
+/// again"), so it is kept, and the service reports it.
+/// </para>
+/// </summary>
+public static class AccountRules
+{
+    /// <summary>The IMAP port the classic app assumed: implicit TLS.</summary>
+    public const int DefaultImapPort = 993;
+
+    /// <summary>What a Claude account is listed as: it has no address of its own.</summary>
+    public const string ClaudeAddress = "Claude Code";
+
+    /// <summary>Validate a whole document, dropping and repairing per entry.</summary>
+    public static IReadOnlyList<Account> Validate(AccountDocument document, DateTimeOffset now, List<string> repairs)
+    {
+        ArgumentNullException.ThrowIfNull(document);
+        ArgumentNullException.ThrowIfNull(repairs);
+
+        var accounts = new List<Account>();
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+
+        foreach (var stored in document.Accounts ?? [])
+        {
+            if (stored is null)
+            {
+                repairs.Add("dropped an empty account entry");
+                continue;
+            }
+
+            if (Validate(stored, now, repairs) is not { } account)
+            {
+                continue;
+            }
+
+            if (!seen.Add(account.Id))
+            {
+                // The first one wins: it is the one that was there longest, and two entries with one
+                // id cannot both be addressed by a widget that names the id.
+                repairs.Add($"dropped a second account with id '{account.Id}'");
+                continue;
+            }
+
+            accounts.Add(account);
+        }
+
+        return accounts;
+    }
+
+    /// <summary>One entry, or null with the reason added to <paramref name="repairs"/>.</summary>
+    public static Account? Validate(StoredAccount stored, DateTimeOffset now, List<string> repairs)
+    {
+        ArgumentNullException.ThrowIfNull(stored);
+        ArgumentNullException.ThrowIfNull(repairs);
+
+        var id = Clean(stored.Id);
+        if (id is null)
+        {
+            repairs.Add("dropped an account with no id");
+            return null;
+        }
+
+        if (AccountProviders.TryParse(stored.Provider) is not { } provider)
+        {
+            repairs.Add($"dropped account '{id}': unknown provider '{stored.Provider}'");
+            return null;
+        }
+
+        var address = Clean(stored.Address) ?? Clean(stored.Username);
+        if (address is null)
+        {
+            if (provider != AccountProvider.Claude)
+            {
+                repairs.Add($"dropped account '{id}': no address");
+                return null;
+            }
+
+            // A Claude account is one per machine and has no address of its own; the classic app
+            // wrote a fixed label here, so a missing one is a label to restore, not a lost account.
+            address = ClaudeAddress;
+            repairs.Add($"account '{id}' had no address; named it {ClaudeAddress}");
+        }
+
+        var account = new Account
+        {
+            Id = id,
+            Provider = provider,
+            Address = address,
+            DisplayName = Clean(stored.DisplayName) ?? string.Empty,
+            Nickname = Clean(stored.Nickname),
+            SealedAccessToken = Clean(stored.AccessToken),
+            SealedRefreshToken = Clean(stored.RefreshToken),
+            SealedPassword = Clean(stored.Password),
+            ExpiresAt = stored.ExpiresAt,
+            AddedAt = stored.AddedAt ?? now,
+        };
+
+        switch (provider)
+        {
+            case AccountProvider.Imap:
+            {
+                var host = Clean(stored.Host);
+                var user = Clean(stored.Username);
+                if (host is null || user is null)
+                {
+                    repairs.Add($"dropped IMAP account '{id}': no {(host is null ? "server" : "user name")}");
+                    return null;
+                }
+
+                var port = stored.Port ?? 0;
+                if (port is < 1 or > 65535)
+                {
+                    repairs.Add($"IMAP account '{id}' had port {stored.Port?.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? "none"}; using {DefaultImapPort}");
+                    port = DefaultImapPort;
+                }
+
+                return account with { Host = host, Port = port, Username = user };
+            }
+
+            case AccountProvider.CalDav:
+            case AccountProvider.CardDav:
+            {
+                var url = Clean(stored.ServerUrl);
+                var user = Clean(stored.Username);
+                if (!IsHttpUrl(url) || user is null)
+                {
+                    repairs.Add($"dropped {provider.Label()} account '{id}': no {(user is null ? "user name" : "usable server address")}");
+                    return null;
+                }
+
+                return account with { ServerUrl = url, Username = user };
+            }
+
+            case AccountProvider.GitHub:
+            {
+                var raw = Clean(stored.ApiBaseUrl);
+                if (OAuthClients.GitHub.NormaliseApiBase(raw) is not { } api)
+                {
+                    // Pointing an Enterprise token at github.com would send it to the wrong company.
+                    repairs.Add($"dropped GitHub account '{id}': API address '{raw}' is not an https URL");
+                    return null;
+                }
+
+                if (raw is null)
+                {
+                    repairs.Add($"GitHub account '{id}' had no API address; using {api}");
+                }
+
+                return account with { ApiBaseUrl = api, Username = Clean(stored.Username) };
+            }
+
+            default:
+                return account;
+        }
+    }
+
+    /// <summary>The document for a list of accounts, ready to serialise.</summary>
+    public static AccountDocument ToDocument(IEnumerable<Account> accounts)
+    {
+        ArgumentNullException.ThrowIfNull(accounts);
+
+        return new AccountDocument
+        {
+            SchemaVersion = AccountDocument.CurrentSchemaVersion,
+            Accounts = [.. accounts.Select(StoredAccount.From)],
+        };
+    }
+
+    /// <summary>A nickname as the user typed it: trimmed, and nothing at all for whitespace.</summary>
+    public static string? CleanNickname(string? nickname) => Clean(nickname);
+
+    private static string? Clean(string? value)
+    {
+        var trimmed = value?.Trim();
+        return string.IsNullOrEmpty(trimmed) ? null : trimmed;
+    }
+
+    private static bool IsHttpUrl(string? value)
+        => Uri.TryCreate(value, UriKind.Absolute, out var uri)
+            && (uri.Scheme == Uri.UriSchemeHttps || uri.Scheme == Uri.UriSchemeHttp)
+            && uri.Host.Length > 0;
+}
+
+/// <summary>
+/// [S-505] Account ids, built exactly as the classic app built them. Signing in to the same account
+/// again yields the same id, so it replaces the old entry (keeping its nickname) instead of adding a
+/// second one; and an imported account keeps the id its widget configs already name.
+/// </summary>
+public static class AccountIds
+{
+    /// <summary>Microsoft: the Graph user id, verbatim.</summary>
+    public static string Microsoft(string graphUserId) => graphUserId;
+
+    public static string Google(string subject) => $"google:{subject}";
+
+    public static string Imap(string username, string host) => $"imap:{username}@{host}";
+
+    public static string Dav(AccountProvider provider, string username, Uri collection)
+    {
+        ArgumentNullException.ThrowIfNull(collection);
+        return provider switch
+        {
+            AccountProvider.CalDav => $"caldav:{username}@{collection.Authority}",
+            AccountProvider.CardDav => $"carddav:{username}@{collection.Authority}",
+            _ => throw new ArgumentOutOfRangeException(nameof(provider), provider, "not a DAV provider"),
+        };
+    }
+
+    public static string GitHub(string login, Uri apiBase)
+    {
+        ArgumentNullException.ThrowIfNull(apiBase);
+        return $"github:{login}@{apiBase.Authority}";
+    }
+
+    /// <summary>One Claude account per machine, as in the classic app.</summary>
+    public const string Claude = "claude:default";
+}

@@ -70,6 +70,14 @@ internal sealed partial class BluetoothView : Grid, IWidgetView, IWidgetHeaderCo
 
     private Ticker? _ticker;
     private BluetoothConfig _config = new();
+
+    /// <summary>
+    /// [S-13a] A copy of the settings this view last acted on, which is what a change is measured
+    /// against. Not <c>_config</c>: the settings page edits the live config object in place, so by
+    /// the time a change arrives the "previous" config already holds the new values, and comparing
+    /// the two found no difference — a new address or place stayed unfetched until the next tick.
+    /// </summary>
+    private BluetoothConfig _applied = new();
     private IDisposable? _subscription;
     private TimeSpan _subscribedInterval = TimeSpan.Zero;
     private CancellationTokenSource? _inFlight;
@@ -149,8 +157,9 @@ internal sealed partial class BluetoothView : Grid, IWidgetView, IWidgetHeaderCo
     public void ApplyConfig(WidgetConfig config)
     {
         var next = config as BluetoothConfig ?? new BluetoothConfig();
-        var previous = _config;
+        var previous = _applied;
         _config = next;
+        _applied = (BluetoothConfig)next.Clone();
 
         // Only the one field that changes what comes off the radio is worth a re-enumeration.
         // Everything else redraws what is already in hand: dragging the row-count slider must not

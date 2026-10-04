@@ -66,6 +66,9 @@ internal interface IWidgetCardHost
     /// is what makes typing into a widget reach it at all.
     /// </summary>
     void RequestTextInput(WidgetCard card, bool wanted);
+
+    /// <summary>The display these cards are on, for a widget that switches it; null where there is none.</summary>
+    IWidgetDisplay? Display { get; }
 }
 
 /// <summary>
@@ -650,6 +653,16 @@ internal sealed partial class WidgetCard : Grid, IWidgetSurface
             var menu = new MenuFlyout { Placement = FlyoutPlacementMode.BottomEdgeAlignedLeft };
 
             menu.Items.Add(Item("", "Configure…", () => _host.RequestConfigure(this)));
+            // The view's own commands — pause a camera, refresh a page — sit under Configure,
+            // read fresh each time so their text can follow the state they toggle.
+            if (_view is IWidgetContextActions { ContextActions: { Count: > 0 } actions })
+            {
+                foreach (var action in actions)
+                {
+                    menu.Items.Add(Item(action.Glyph, action.Text, action.Invoke));
+                }
+            }
+
             menu.Items.Add(new MenuFlyoutSeparator());
 
             var move = BuildMoveMenu();
@@ -733,6 +746,9 @@ internal sealed partial class WidgetCard : Grid, IWidgetSurface
 
     /// <inheritdoc />
     void IWidgetSurface.RequestTextInput(bool wanted) => _host.RequestTextInput(this, wanted);
+
+    /// <inheritdoc />
+    IWidgetDisplay? IWidgetSurface.Display => _host.Display;
 
     /// <inheritdoc />
     void IWidgetSurface.SetHeaderTitle(string? title)

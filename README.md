@@ -103,12 +103,12 @@ contain the actual CPU hogs; it shows them at `--` and ranks the rest. It now ta
 `NtQuerySystemInformation` snapshot instead, which has no blind spot and costs ~4.5 ms a sample
 (`[S-100]`).
 
-**Mail, calendar, tasks and contacts come from [hearth](../hearth-app), and this app contains no
-provider code at all** - no account, no token, no Graph, no IMAP, no sync. Hearth owns all of that
-behind one local pipe with per-app consent; the widgets ask for the scopes they need, list what they
-are granted, and re-query when the hub pushes a change. The wire types are declared here with a
-source-generated JSON context rather than by referencing `Hearth.Client`, because the SDK serialises
-reflectively and would not survive AOT (`[S-93]`).
+**Mail, calendar, contacts, tasks, OneDrive, GitHub and Claude usage are synced by Themia itself.**
+Accounts (Microsoft, Google, IMAP, CalDAV/CardDAV, GitHub, Claude) are signed in from Settings ›
+Accounts and stored beside the state file with every secret protected by DPAPI for the current user.
+Each kind of data has one shared sync service, so ten widgets on one account still mean one fetch,
+one cache and one rate-limit budget. Accounts from the classic Tauri app can be imported in one
+click (`[S-500]`..`[S-539]`).
 
 ### The three ideas worth knowing
 
@@ -141,15 +141,14 @@ are excluded, which they must be, because Show Desktop cannot hide one anyway (`
 
 These are choices or known platform limits, not oversights:
 
-- **No account-backed widgets** beyond what the hearth hub already provides. Nothing here asks for a
-  token, and nothing stores a credential.
+- **Google sign-in needs a build secret.** Google requires its client secret even for desktop apps,
+  so official builds read it from `THEMIA_GOOGLE_CLIENT_SECRET` at build time; a build without it
+  refuses Google sign-in up front rather than failing halfway through.
 - **Notes is the plain-text core of the original**, not the whole widget: one note, stored in the
   widget's own config. No markdown, no multi-note store, no sync.
 - **Pomodoro has one alarm cue**, not the original's twelve ringtones and a volume slider.
 - **Sun &amp; moon takes coordinates directly**, because there is no geocoding service here and widgets
   make no network calls of their own.
-- **The hearth widgets are read-only** and need the hub running. They ask for read scopes alone, and
-  show an empty state naming what is missing when they cannot read.
 - **Mixed-DPI multi-monitor is untested.** Placement uses each monitor's physical work area and
   layout uses the window's own rasterization scale, so it should be correct, but this machine runs
   both displays at 150% and I could not exercise the mixed case.

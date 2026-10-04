@@ -39,17 +39,25 @@ internal sealed partial class StocksView : Grid, IWidgetView, IWidgetHeaderConte
     /// <summary>The share of the tile the chart takes between those two bounds.</summary>
     private const double SparklineShare = 0.34;
 
-    /// <summary>The widest price this widget prints, in characters — "123,456.7890".</summary>
-    private const double ReadingCharacters = 12;
-
     private readonly TextBlock _freshness = Fluent.Text(FluentType.Caption, "TextFillColorTertiaryBrush");
     private readonly TextBlock _price = Fluent.Text(FluentType.Subtitle);
     private readonly TextBlock _change = Fluent.Text(FluentType.Body);
     private readonly TextBlock _currency = Fluent.Text(FluentType.Caption, "TextFillColorTertiaryBrush");
     private readonly TextBlock _phase = Fluent.Text(FluentType.Caption, "TextFillColorTertiaryBrush");
     private readonly FontIcon _phaseIcon = Fluent.Icon(Glyphs.Moon, "TextFillColorTertiaryBrush", 12);
-    private readonly StackPanel _phaseBadge = new() { Orientation = Orientation.Horizontal, Spacing = Fluent.Space1 };
+    // A Grid, not a horizontal StackPanel: the label has to learn its width to end in an ellipsis
+    // rather than be cut mid-word ("Market c") at the edge of a narrow tile. [S-657]
+    private readonly Grid _phaseBadge = new()
+    {
+        ColumnSpacing = Fluent.Space1,
+        ColumnDefinitions =
+        {
+            new ColumnDefinition { Width = GridLength.Auto },
+            new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) },
+        },
+    };
     private readonly Grid _readout = new();
+    private readonly Grid _extras = new();
     private readonly Grid _sparkHost = new();
     private readonly Polyline _sparkLine = new();
     private readonly Polygon _sparkFill = new();
@@ -66,6 +74,14 @@ internal sealed partial class StocksView : Grid, IWidgetView, IWidgetHeaderConte
 
     private Ticker? _ticker;
     private StocksConfig _config = new();
+
+    /// <summary>
+    /// [S-13a] A copy of the settings this view last acted on, which is what a change is measured
+    /// against. Not <c>_config</c>: the settings page edits the live config object in place, so by
+    /// the time a change arrives the "previous" config already holds the new values, and comparing
+    /// the two found no difference — a new address or place stayed unfetched until the next tick.
+    /// </summary>
+    private StocksConfig _applied = new();
 
     /// <summary>The card this view draws on, which owns the header it names.</summary>
     private IWidgetSurface? _surface;
@@ -121,27 +137,40 @@ internal sealed partial class StocksView : Grid, IWidgetView, IWidgetHeaderConte
         _phaseBadge.VerticalAlignment = VerticalAlignment.Bottom;
         _phaseBadge.Margin = new Thickness(Fluent.Space3, 0, 0, Fluent.Space1);
         _phaseBadge.Visibility = Visibility.Collapsed;
+        SetColumn(_phaseIcon, 0);
+        SetColumn(_phase, 1);
         _phaseBadge.Children.Add(_phaseIcon);
         _phaseBadge.Children.Add(_phase);
 
-        // A Grid rather than a horizontal StackPanel, for the reason MeterView gives: a StackPanel
+        // Grids rather than horizontal StackPanels, for the reason MeterView gives: a StackPanel
         // measures its children with unbounded width, so nothing beside the price ever learns how
         // much room is left and its trimming never fires.
-        _readout.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-        _readout.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        //
+        // The change, the currency and the session badge travel together, so they are one block:
+        // beside the price where they fit, on their own line under it where they do not ([S-657]).
+        _extras.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        _extras.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        _extras.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        _extras.VerticalAlignment = VerticalAlignment.Bottom;
+
+        SetColumn(_change, 0);
+        SetColumn(_currency, 1);
+        SetColumn(_phaseBadge, 2);
+        _extras.Children.Add(_change);
+        _extras.Children.Add(_currency);
+        _extras.Children.Add(_phaseBadge);
+
         _readout.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         _readout.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        _readout.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        _readout.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         _readout.Margin = WidgetLayout.SideInset;
         _readout.VerticalAlignment = VerticalAlignment.Center;
 
         SetColumn(_price, 0);
-        SetColumn(_change, 1);
-        SetColumn(_currency, 2);
-        SetColumn(_phaseBadge, 3);
+        SetColumn(_extras, 1);
         _readout.Children.Add(_price);
-        _readout.Children.Add(_change);
-        _readout.Children.Add(_currency);
-        _readout.Children.Add(_phaseBadge);
+        _readout.Children.Add(_extras);
     }
 
     /// <summary>
@@ -186,8 +215,9 @@ internal sealed partial class StocksView : Grid, IWidgetView, IWidgetHeaderConte
     public void ApplyConfig(WidgetConfig config)
     {
         var next = config as StocksConfig ?? new StocksConfig();
-        var previous = _config;
+        var previous = _applied;
         _config = next;
+        _applied = (StocksConfig)next.Clone();
         PublishTitle();
 
         var needsFetch = previous.EffectiveSymbol != next.EffectiveSymbol
@@ -352,16 +382,37 @@ internal sealed partial class StocksView : Grid, IWidgetView, IWidgetHeaderConte
         _sparkHost.Height = _sparkHost.Visibility == Visibility.Visible ? band : 0;
 
         var reserved = _sparkHost.Visibility == Visibility.Visible ? band : 0;
+        var room = Math.Max(height - reserved, 0);
+
+        // [S-657] Fitted to this symbol's own price, not to the widest price any symbol could
+        // have: sized for "123,456.7890", a 517.53 sat at body size in a tile with room for twice
+        // that. Never under seven characters, so crossing 99.99 → 100.01 does not change the step.
+        var characters = Math.Max(MinimumReadingCharacters, _price.Text.Length);
 
         // The change and the currency share the line with the price, so the price gets at most
         // two thirds of it. Letting the number take the whole line is how a narrow tile ends up
         // with a 68px price and a change trimmed to a single ellipsis.
-        var step = FluentType.Fit(
-            width * 0.66,
-            Math.Max(height - reserved, 0),
-            ReadingCharacters,
-            FluentType.Subtitle,
-            FluentType.Display);
+        var beside = FluentType.Fit(width * 0.66, room, characters, FluentType.Subtitle, FluentType.Display);
+
+        // [S-657] And where they do not fit beside it even then ("+0.9" cut mid-number), or
+        // where a line of their own leaves the price larger, they go under it.
+        var under = FluentType.Fit(width, room - FluentType.BodyLarge.LineHeight - Fluent.Space1, characters, FluentType.Subtitle, FluentType.Display);
+        var extras = _change.Text.Length + 1 + _currency.Text.Length;
+
+        var stacked = extras > 1 && (under.FontSize > beside.FontSize || !ReadoutLayout.CaptionFitsBeside(
+            width,
+            beside,
+            characters,
+            ChangeStep(beside),
+            extras,
+            Fluent.Space2));
+
+        var step = stacked ? under : beside;
+
+        SetRow(_extras, stacked ? 1 : 0);
+        SetColumn(_extras, stacked ? 0 : 1);
+        SetColumnSpan(_extras, stacked ? 2 : 1);
+        _change.Margin = new Thickness(stacked ? 0 : Fluent.Space2, 0, 0, stacked ? 0 : Fluent.Space1);
 
         if (step == _heroStep)
         {
@@ -370,11 +421,18 @@ internal sealed partial class StocksView : Grid, IWidgetView, IWidgetHeaderConte
 
         _heroStep = step;
         _price.Apply(step);
-
-        // The change steps once, with the price, rather than sliding: next to a 28px number a 12px
-        // caption is right, next to a 68px one it is a footnote.
-        _change.Apply(step.FontSize >= FluentType.Title.FontSize ? FluentType.BodyLarge : FluentType.Body);
+        _change.Apply(ChangeStep(step));
     }
+
+    /// <summary>The least the price is fitted for, in characters. [S-657]</summary>
+    private const double MinimumReadingCharacters = 7;
+
+    /// <summary>
+    /// The change steps once, with the price, rather than sliding: next to a 28px number a 12px
+    /// caption is right, next to a 68px one it is a footnote.
+    /// </summary>
+    private static TypeStep ChangeStep(TypeStep price)
+        => price.FontSize >= FluentType.Title.FontSize ? FluentType.BodyLarge : FluentType.Body;
 
     private void Render()
     {

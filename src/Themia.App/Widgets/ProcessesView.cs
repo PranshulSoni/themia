@@ -189,10 +189,50 @@ internal sealed partial class ProcessesView : Grid, IWidgetView, IWidgetHeaderCo
 
         Resize(count);
 
+        var columns = Columns();
+        var narrow = InnerWidth() < NarrowBelow;
+
         for (var i = 0; i < count; i++)
         {
-            _rows[i].Show(_latest[i], _config.ShowMemory);
+            _rows[i].Show(_latest[i], columns, narrow);
         }
+    }
+
+    /// <summary>
+    /// The width the name and the numbers share: the tile less the row's own inset. An unmeasured
+    /// list is treated as wide, which is the layout it had before it knew its size.
+    /// </summary>
+    private double InnerWidth()
+    {
+        var width = _list.ActualWidth;
+        return double.IsFinite(width) && width > 0 ? width - (Fluent.Space4 * 2) : double.MaxValue;
+    }
+
+    /// <summary>Below this, the numeric columns stop holding open their full width.</summary>
+    private const double NarrowBelow = 160;
+
+    /// <summary>Both numeric columns need this much, with a name still long enough to read.</summary>
+    private const double BothColumnsFrom = 232;
+
+    /// <summary>
+    /// [S-648] Which numbers a row shows. Both when there is room; otherwise only the one the list
+    /// is ranked by, because that is the column the ranking is about. Three columns in a 200px tile
+    /// left the name four letters ("VB…", "bra…"), and in a 120px one squeezed it out entirely, so
+    /// the tile was a column of percentages belonging to nothing.
+    /// </summary>
+    private ProcessColumns Columns()
+    {
+        if (!_config.ShowMemory)
+        {
+            return ProcessColumns.Cpu;
+        }
+
+        if (InnerWidth() >= BothColumnsFrom)
+        {
+            return ProcessColumns.Both;
+        }
+
+        return _config.Sort == ProcessSort.Memory ? ProcessColumns.Memory : ProcessColumns.Cpu;
     }
 
     /// <summary>
@@ -227,10 +267,14 @@ internal sealed partial class ProcessesView : Grid, IWidgetView, IWidgetHeaderCo
             return;
         }
 
+        // On a tile too narrow for the title and the ranking label both, the label goes: the
+        // single column of numbers left on such a tile is the ranking, so it says itself.
+        _caption.Visibility = ActualWidth > 0 && ActualWidth < NarrowBelow ? Visibility.Collapsed : Visibility.Visible;
+
         // A shorter tile holds fewer rows, so a resize can change what the list should contain and
-        // not just how big it is. Redrawn from the sample already in hand; the next tick refills it
-        // if the tile grew.
-        if (_latest.Count > Capacity())
+        // not just how big it is; a narrower one can change which columns it has room for.
+        // Redrawn from the sample already in hand; the next tick refills it if the tile grew.
+        if (_latest.Count > 0)
         {
             Render();
         }
@@ -324,7 +368,7 @@ internal sealed partial class ProcessesView : Grid, IWidgetView, IWidgetHeaderCo
         public void Detach() => _hover.Dispose();
 
         /// <summary>Rewrite this row in place.</summary>
-        public void Show(ProcessUsage usage, bool showMemory)
+        public void Show(ProcessUsage usage, ProcessColumns columns, bool narrow)
         {
             _name.Text = usage.Name;
             _cpu.Text = usage.CpuText;
@@ -333,7 +377,16 @@ internal sealed partial class ProcessesView : Grid, IWidgetView, IWidgetHeaderCo
             // "not available" rather than as a column the eye should be comparing.
             _cpu.Foreground = usage.CpuKnown ? KnownBrush : UnknownBrush;
 
+            var showCpu = columns != ProcessColumns.Memory;
+            var showMemory = columns != ProcessColumns.Cpu;
+
+            _cpu.Visibility = showCpu ? Visibility.Visible : Visibility.Collapsed;
             _memory.Visibility = showMemory ? Visibility.Visible : Visibility.Collapsed;
+
+            // On a narrow tile a column holding open its widest value takes the name's room for a
+            // digit it may never show; the value's own width is enough there.
+            _cpu.MinWidth = narrow ? 0 : CpuWidth;
+            _memory.MinWidth = narrow ? 0 : MemoryWidth;
 
             if (showMemory)
             {
@@ -343,4 +396,12 @@ internal sealed partial class ProcessesView : Grid, IWidgetView, IWidgetHeaderCo
             ToolTipService.SetToolTip(Host, $"{usage.Name} (pid {usage.Pid})");
         }
     }
+}
+
+/// <summary>Which numeric columns a process row has room for. [S-648]</summary>
+internal enum ProcessColumns
+{
+    Both,
+    Cpu,
+    Memory,
 }

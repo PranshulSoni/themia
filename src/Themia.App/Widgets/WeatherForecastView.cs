@@ -55,6 +55,14 @@ internal sealed partial class WeatherForecastView : Grid, IWidgetView, IWidgetHe
     private Ticker? _ticker;
     private WeatherForecastConfig _config = new();
 
+    /// <summary>
+    /// [S-13a] A copy of the settings this view last acted on, which is what a change is measured
+    /// against. Not <c>_config</c>: the settings page edits the live config object in place, so by
+    /// the time a change arrives the "previous" config already holds the new values, and comparing
+    /// the two found no difference — a new address or place stayed unfetched until the next tick.
+    /// </summary>
+    private WeatherForecastConfig _applied = new();
+
     /// <summary>The card this view draws on, which owns the header it names.</summary>
     private IWidgetSurface? _surface;
     private IDisposable? _subscription;
@@ -64,6 +72,11 @@ internal sealed partial class WeatherForecastView : Grid, IWidgetView, IWidgetHe
 
     private Fetched<Forecast>? _forecast;
     private bool _showBar = true;
+
+    /// <summary>Narrower than this, a row is the day and its high only. [S-658]</summary>
+    private const double DetailNeedsWidth = 160;
+
+    private bool _narrow;
     private bool _showPrecipitation = true;
     private bool _compact;
     private bool _detached;
@@ -113,8 +126,9 @@ internal sealed partial class WeatherForecastView : Grid, IWidgetView, IWidgetHe
     public void ApplyConfig(WidgetConfig config)
     {
         var next = config as WeatherForecastConfig ?? new WeatherForecastConfig();
-        var previous = _config;
+        var previous = _applied;
         _config = next;
+        _applied = (WeatherForecastConfig)next.Clone();
         PublishTitle();
 
         // Only the fields that change what comes back are worth a re-read. Toggling the
@@ -260,8 +274,9 @@ internal sealed partial class WeatherForecastView : Grid, IWidgetView, IWidgetHe
         var bar = e.NewSize.Width >= BarNeedsWidth;
         var precipitation = e.NewSize.Width >= PrecipitationNeedsWidth;
         var compact = e.NewSize.Height < Fluent.CompactBelow;
+        var narrow = e.NewSize.Width > 0 && e.NewSize.Width < DetailNeedsWidth;
 
-        if (bar == _showBar && precipitation == _showPrecipitation && compact == _compact)
+        if (bar == _showBar && precipitation == _showPrecipitation && compact == _compact && narrow == _narrow)
         {
             return;
         }
@@ -269,6 +284,7 @@ internal sealed partial class WeatherForecastView : Grid, IWidgetView, IWidgetHe
         _showBar = bar;
         _showPrecipitation = precipitation;
         _compact = compact;
+        _narrow = narrow;
         Render();
     }
 
@@ -394,9 +410,16 @@ internal sealed partial class WeatherForecastView : Grid, IWidgetView, IWidgetHe
         SetColumn(low, 3);
         SetColumn(high, 4);
         grid.Children.Add(label);
-        grid.Children.Add(icon);
-        grid.Children.Add(low);
         grid.Children.Add(high);
+
+        // [S-658] A narrow tile keeps the day and its high, which is the forecast; the icon and the
+        // low go first. With all four in 88px the numbers were pushed off the card entirely and
+        // the row was a day name and a cloud.
+        if (!_narrow)
+        {
+            grid.Children.Add(icon);
+            grid.Children.Add(low);
+        }
 
         if (_showBar && day.Low is { } lowValue && day.High is { } highValue)
         {
@@ -485,13 +508,8 @@ internal sealed partial class WeatherForecastView : Grid, IWidgetView, IWidgetHe
         return block;
     }
 
-    /// <summary>See <see cref="WeatherNowView"/>: three glyphs, because that is what <c>Glyphs</c> has.</summary>
-    private static string LookGlyph(WeatherLook look) => look switch
-    {
-        WeatherLook.Clear => Glyphs.Sun,
-        WeatherLook.Drizzle or WeatherLook.Rain or WeatherLook.Snow or WeatherLook.Thunderstorm => Glyphs.Forecast,
-        _ => Glyphs.Weather,
-    };
+    /// <summary>The same glyph the current-conditions widget draws for a condition. [S-652]</summary>
+    private static string LookGlyph(WeatherLook look) => WeatherNowView.LookGlyph(look);
 
     /// <summary>
     /// Drop the rows and, with them, their hover handlers: a handler left hooked keeps the row it

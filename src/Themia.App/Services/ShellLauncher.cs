@@ -116,6 +116,41 @@ internal static class ShellLauncher
     }
 
     /// <summary>
+    /// [S-547] Open a mail link: a provider's https web link, an <c>ms-outlook://emails/…</c> deep
+    /// link or a <c>mailto:</c>. A second allow list beside <see cref="LaunchTargets"/> rather than a
+    /// widening of it: these two schemes are right for a message and wrong for a shortcut, so they
+    /// are accepted here and nowhere else. <see cref="Themia.Core.Mail.MailLinks.IsLaunchable"/> is
+    /// checked on the literal string about to be launched.
+    /// </summary>
+    public static LaunchOutcome OpenMailLink(string? link)
+    {
+        if (!Themia.Core.Mail.MailLinks.IsLaunchable(link))
+        {
+            Log.Warn(Scope, $"refused to open mail link '{Excerpt(link)}'");
+            return LaunchOutcome.Refused;
+        }
+
+        return Launch(link!);
+    }
+
+    /// <summary>
+    /// [S-587] Write to, call or message a contact: a <c>mailto:</c>, <c>tel:</c> or <c>sms:</c> built
+    /// by <see cref="Themia.Core.Office.ContactLinks"/> from the contact's own address or number, which
+    /// refuses anything but a plain one. Like mail links, a separate allow list rather than a widening
+    /// of <see cref="LaunchTargets"/>: right for a person, wrong for a shortcut.
+    /// </summary>
+    public static LaunchOutcome OpenContactLink(Themia.Core.Office.ContactLinkKind kind, string? value)
+    {
+        if (Themia.Core.Office.ContactLinks.Build(kind, value) is not { } link)
+        {
+            Log.Warn(Scope, $"refused to open a {kind} link for '{Excerpt(value)}'");
+            return LaunchOutcome.Refused;
+        }
+
+        return Launch(link);
+    }
+
+    /// <summary>
     /// The shell call itself, and the only one in the app.
     /// </summary>
     private static LaunchOutcome Launch(string value)

@@ -52,6 +52,38 @@
   </ItemGroup>
 
   <!--
+    Google's Desktop OAuth client secret, compiled in from the build environment ([S-536]).
+
+    Google requires it even with PKCE and treats it as non-confidential for installed apps, so it
+    ships in the binary - but it is never in source: official builds set THEMIA_GOOGLE_CLIENT_SECRET
+    (the release script loads it from .env), exactly as the classic app read it with option_env!.
+    Without it the constant is empty and Google sign-in refuses up front. A generated constant
+    rather than an assembly attribute, because Native AOT does not promise to keep attribute
+    metadata a runtime lookup would need.
+  -->
+  <Target Name="ThemiaBuildSecrets" BeforeTargets="BeforeBuild">
+    <PropertyGroup>
+      <_ThemiaGoogleSecret>$(THEMIA_GOOGLE_CLIENT_SECRET)</_ThemiaGoogleSecret>
+      <_ThemiaBuildSecretsFile>$(IntermediateOutputPath)BuildSecrets.g.cs</_ThemiaBuildSecretsFile>
+    </PropertyGroup>
+    <Error Condition="'$(_ThemiaGoogleSecret)' != '' and !$([System.Text.RegularExpressions.Regex]::IsMatch('$(_ThemiaGoogleSecret)', '^[A-Za-z0-9_-]+$'))"
+           Text="THEMIA_GOOGLE_CLIENT_SECRET holds characters a Google client secret does not have." />
+    <ItemGroup>
+      <_ThemiaSecretLine Include="// Generated at build time from THEMIA_GOOGLE_CLIENT_SECRET. Never committed." />
+      <_ThemiaSecretLine Include="namespace Themia.App.Services.Accounts%3B" />
+      <_ThemiaSecretLine Include="internal static class BuildSecrets" />
+      <_ThemiaSecretLine Include="{" />
+      <_ThemiaSecretLine Include="    internal const string GoogleClientSecret = &quot;$(_ThemiaGoogleSecret)&quot;%3B" />
+      <_ThemiaSecretLine Include="}" />
+    </ItemGroup>
+    <WriteLinesToFile File="$(_ThemiaBuildSecretsFile)" Lines="@(_ThemiaSecretLine)" Overwrite="true" WriteOnlyWhenDifferent="true" />
+    <ItemGroup>
+      <Compile Include="$(_ThemiaBuildSecretsFile)" />
+      <FileWrites Include="$(_ThemiaBuildSecretsFile)" />
+    </ItemGroup>
+  </Target>
+
+  <!--
     Publish the compiled XAML.
 
     The XAML compiler emits .xbf (compiled XAML) and resources.pri into the BUILD output but never

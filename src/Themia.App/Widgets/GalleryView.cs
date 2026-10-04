@@ -60,6 +60,14 @@ internal sealed partial class GalleryView : Grid, IWidgetView, IWidgetHeaderCont
     private Ticker? _ticker;
     private GalleryConfig _config = new();
 
+    /// <summary>
+    /// [S-13a] A copy of the settings this view last acted on, which is what a change is measured
+    /// against. Not <c>_config</c>: the settings page edits the live config object in place, so by
+    /// the time a change arrives the "previous" config already holds the new values, and comparing
+    /// the two found no difference — a new address or place stayed unfetched until the next tick.
+    /// </summary>
+    private GalleryConfig _applied = new();
+
     /// <summary>The card this view draws on, which owns the header it names.</summary>
     private IWidgetSurface? _surface;
     private FolderPathResult _resolved;
@@ -168,9 +176,10 @@ internal sealed partial class GalleryView : Grid, IWidgetView, IWidgetHeaderCont
     public void ApplyConfig(WidgetConfig config)
     {
         var next = config as GalleryConfig ?? new GalleryConfig();
-        var previous = _config;
+        var previous = _applied;
         var previouslyResolved = _resolved;
         _config = next;
+        _applied = (GalleryConfig)next.Clone();
         PublishTitle();
 
         // [S-300] The trust boundary, before anything opens a handle. An empty path is not an error

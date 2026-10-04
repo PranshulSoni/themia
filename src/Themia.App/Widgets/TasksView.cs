@@ -1,72 +1,92 @@
 using System.Globalization;
-using Microsoft.UI;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Themia.App.Services;
-using Themia.App.Services.Hearth;
+using Themia.App.Services.Tasks;
 using Themia.App.Shell;
+using Themia.Core.Accounts;
 using Themia.Core.Diagnostics;
 using Themia.Core.Model;
+using Themia.Core.Tasks;
 using Themia.Core.Widgets;
 
 namespace Themia.App.Widgets;
 
 /// <summary>
-/// Open tasks, read from the hearth hub.
+/// [S-590] A task list: Microsoft To Do or Google Tasks through Themia's own accounts, or a list kept
+/// on this PC — read, ticked off, added to, renamed, reordered and deleted from the widget itself.
 /// <para>
-/// No account, token or provider, and no connection of its own: hearth owns sign-in, sync and
-/// consent, and the app's one connection is reached through <see cref="AppServices.Data"/>. This
-/// lists the task lists hearth granted and refreshes when the hub says something changed.
+/// No connection of its own. The one <see cref="TaskService"/> owns the requests, the refresh
+/// cadence and the optimistic writes, and two widgets on the same list share one feed. This view
+/// decides only <i>which</i> list it shows and how a row looks.
 /// </para>
 /// <para>
-/// Read-only, like every hearth widget here: the marker beside a task says what its state is, and
-/// clicking it does nothing, because the scope asked for cannot write one back.
+/// Every state that is not a list says which it is and what to do about it ([S-181]): no account,
+/// an account that needs signing in again, an account gone, no lists, loading, offline, and a
+/// provider error each have their own sentence, and the ones the Accounts page can mend link to it.
+/// A list on this PC needs no account at all.
 /// </para>
 /// </summary>
-internal sealed partial class TasksView : Grid, IWidgetView, IWidgetHeaderContent
+internal sealed partial class TasksView : Grid, IWidgetView, IWidgetHeaderContent, IWidgetSurfaceAware, IWidgetContextActions
 {
     private const string Scope = "tasks-widget";
 
-    // Written out rather than read from a culture: the app builds with InvariantGlobalization, and
-    // Formatting.Ago only looks backwards, while a due date mostly looks forwards.
-    private static readonly string[] MonthNames =
-        ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+    /// <summary>Below this the link under an empty state is dropped; the sentence is worth more.</summary>
+    private const double LinkNeedsHeight = 140;
+
+    /// <summary>Below this the second link is dropped too.</summary>
+    private const double SecondLinkNeedsHeight = 200;
+
+    /// <summary>Below this the add row is dropped: on a tile this small every row is a task.</summary>
+    private const double AddRowNeedsHeight = 170;
 
     private readonly TextBlock _badge = new();
     private readonly Border _badgeHost;
     private readonly ProgressRing _busy = new();
+    private readonly FontIcon _warning;
     private readonly StackPanel _trailing;
     private readonly StackPanel _list = new() { Spacing = 0 };
     private readonly ScrollViewer _scroll;
-    private readonly FontIcon _emptyIcon;
-    private readonly TextBlock _emptyText = new();
+    private readonly Grid _emptyHost = new();
     private readonly StackPanel _empty;
+    private readonly TextBlock _emptyText = new();
+    private readonly HyperlinkButton _emptyAction;
 
-    // What a resize has to re-fit: the rows themselves, and the state marker, which is sized from
-    // the row height rather than from the tile. Everything else in a row is a step of the ramp or
-    // of the 4px grid, so a resize cannot change it.
-    private readonly List<Border> _markers = [];
-    private readonly List<FontIcon> _markerIcons = [];
-    private readonly List<Border> _rows = [];
+    /// <summary>The second way out of the no-account state: a list on this PC needs no account.</summary>
+    private readonly HyperlinkButton _emptyLocal;
 
-    // One per row, so the hover handlers come off with the row they light. A leaked one keeps the
-    // row alive and re-lights it after teardown.
-    private readonly List<IDisposable> _hovers = [];
-
-    private HearthDataService? _data;
+    private TaskService? _service;
     private Ticker? _ticker;
+    private IWidgetSurface? _surface;
     private IDisposable? _subscription;
-    private TimeSpan _subscribedInterval = TimeSpan.Zero;
+    private TimeSpan _subscribedInterval;
     private TasksConfig _config = new();
-    private IReadOnlyList<TaskRecord> _records = [];
-    private bool _refreshing;
-    private bool _requeryWanted;
-    private bool _loaded;
+
+    /// <summary>The account feed this widget holds, or null for a list on this PC or no list at all.</summary>
+    private TaskFeed? _feed;
+
+    /// <summary>The list on this PC this widget shows, or null.</summary>
+    private string? _localListId;
+
+    /// <summary>The account the widget resolved to, for the empty states that name it.</summary>
+    private TaskAccount? _account;
+
+    /// <summary>The default list's name, once the lists are known: the header title for an unnamed choice.</summary>
+    private string? _resolvedListName;
+
+    /// <summary>Why the lists could not be read, when resolving the default list failed.</summary>
+    private AccountException? _listsFailure;
+
+    private Screen _screen = Screen.Starting;
+    private bool _offerLocal;
+    private BindKey? _bound;
+    private int _bindGeneration;
     private bool _detached;
 
     public TasksView()
     {
         RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
+        RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
 
         // The open count is Fluent's InfoBadge shape, which the design system owns.
         _badgeHost = Fluent.Badge(_badge);
@@ -77,23 +97,22 @@ internal sealed partial class TasksView : Grid, IWidgetView, IWidgetHeaderConten
         _busy.IsActive = false;
         _busy.Visibility = Visibility.Collapsed;
 
-        // The busy ring and the open count ride on the card's header. The card reads this once when
-        // it builds the header, so it exists from construction rather than on first use.
+        // A change the provider refused, or a refresh that failed with tasks still on screen: the
+        // list stays, and this says it may be out of date and why.
+        _warning = Fluent.Icon(Glyphs.Warning, "SystemFillColorCautionBrush");
+        _warning.Visibility = Visibility.Collapsed;
+
         _trailing = new StackPanel
         {
             Orientation = Orientation.Horizontal,
             Spacing = Fluent.Space2,
             VerticalAlignment = VerticalAlignment.Center,
+            Children = { _warning, _busy, _badgeHost },
         };
-
-        _trailing.Children.Add(_busy);
-        _trailing.Children.Add(_badgeHost);
 
         _scroll = new ScrollViewer
         {
-            // Nothing either side, so a row reaches both edges of the card and its highlight with
-            // it. The gap above the first row is the card header's; this keeps the last one off
-            // the edge.
+            // Nothing either side, so a row and its hover reach both card edges.
             Padding = Fluent.ListPadding,
             Content = _list,
             HorizontalScrollMode = ScrollMode.Disabled,
@@ -101,76 +120,305 @@ internal sealed partial class TasksView : Grid, IWidgetView, IWidgetHeaderConten
             VerticalScrollBarVisibility = ScrollBarVisibility.Hidden,
         };
 
-        Grid.SetRow(_scroll, 0);
+        _empty = Fluent.EmptyState(Glyphs.Task, _emptyText, out _);
 
-        // A Windows empty state: an icon over a line of body text in the secondary colour, centred.
-        // Not a shrunken caption, which reads as an error the app is embarrassed about.
-        _empty = Fluent.EmptyState(Glyphs.Task, _emptyText, out _emptyIcon);
-        _empty.Visibility = Visibility.Collapsed;
-        Grid.SetRow(_empty, 0);
+        _emptyAction = new HyperlinkButton
+        {
+            HorizontalAlignment = HorizontalAlignment.Center,
+            Padding = new Thickness(Fluent.Space2, Fluent.Space1, Fluent.Space2, Fluent.Space1),
+            Visibility = Visibility.Collapsed,
+        };
+        _emptyAction.Click += OnEmptyActionClicked;
+
+        _emptyLocal = new HyperlinkButton
+        {
+            Content = "Keep a list on this PC",
+            HorizontalAlignment = HorizontalAlignment.Center,
+            Padding = new Thickness(Fluent.Space2, 0, Fluent.Space2, Fluent.Space1),
+            Visibility = Visibility.Collapsed,
+            Tag = EmptyAction.StartLocalList,
+        };
+        _emptyLocal.Click += OnEmptyActionClicked;
+
+        // The sentence and its links, centred together.
+        _emptyHost.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
+        _emptyHost.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        _emptyHost.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        _emptyHost.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        _emptyHost.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
+        Grid.SetRow(_empty, 1);
+        Grid.SetRow(_emptyAction, 2);
+        Grid.SetRow(_emptyLocal, 3);
+        _emptyHost.Children.Add(_empty);
+        _emptyHost.Children.Add(_emptyAction);
+        _emptyHost.Children.Add(_emptyLocal);
+        _emptyHost.Visibility = Visibility.Collapsed;
+
+        _addRow = BuildAddRow();
+        Grid.SetRow(_addRow, 1);
 
         Children.Add(_scroll);
-        Children.Add(_empty);
+        Children.Add(_emptyHost);
+        Children.Add(_addRow);
 
-        SizeChanged += (_, _) => ApplyDensity();
+        SizeChanged += OnSizeChanged;
+    }
+
+    /// <summary>What the widget is showing instead of, or as well as, a list.</summary>
+    private enum Screen
+    {
+        Starting,
+        NoAccount,
+        AccountGone,
+        NeedsSignIn,
+        NoLists,
+        ListsFailed,
+        NoLocalList,
+        Loading,
+        Failed,
+        Ready,
     }
 
     /// <inheritdoc />
     public FrameworkElement? HeaderTrailing => _trailing;
 
-    /// <summary>
-    /// Whether the tile takes the compact row. Fluent has two list-row heights and a tile shorter
-    /// than five standard rows reads better with the shorter one: this is a density switch between
-    /// two fixed heights, not a row that grows with the tile.
-    /// </summary>
+    /// <summary>Fluent's two row heights: a tile shorter than five standard rows takes the compact one.</summary>
     private bool Compact => ActualHeight > 0 && ActualHeight < Fluent.CompactBelow;
+
+    private bool IsLocal => _config.Source == TaskSource.Local;
+
+    public void Bind(IWidgetSurface surface)
+    {
+        _surface = surface;
+        PublishTitle();
+    }
 
     public void Attach(Ticker ticker, WidgetConfig config)
     {
+        _detached = false;
         _ticker = ticker;
-        _data = AppServices.Data;
+        _service = AppServices.Tasks;
 
-        if (_data is not null)
+        if (_service is not null)
         {
-            _data.Changed += OnHubChanged;
+            _service.AccountsChanged += OnAccountsChanged;
+            _service.Local.Changed += OnLocalChanged;
         }
 
-        ApplyConfig(config);
+        _config = config as TasksConfig ?? new TasksConfig();
+        Resubscribe();
+        Rebind();
     }
 
     public void ApplyConfig(WidgetConfig config)
     {
-        var next = config as TasksConfig ?? new TasksConfig();
-
-        // Only the fields that change what the hub is asked for warrant a round trip. Without this
-        // check, dragging an unrelated settings slider fired a query per frame. Completed tasks are
-        // a filter on the query - hearth would not have sent them - so that one does re-ask.
-        var needsQuery = _config.CollectionId != next.CollectionId
-            || _config.EffectiveMaxCount != next.EffectiveMaxCount
-            || _config.ShowCompleted != next.ShowCompleted;
-
-        // The due date changes only how the records already in hand are drawn, so it re-renders.
-        var redraws = _config.ShowDueDate != next.ShowDueDate;
-
-        _config = next;
+        _config = config as TasksConfig ?? new TasksConfig();
         Resubscribe();
 
-        if (needsQuery || !_loaded)
+        // [S-183] Only what changes the request re-binds; the rest redraws what is in hand. The
+        // settings page edits this very config object in place, so the comparison is against what
+        // the widget last bound to, never against "the previous config".
+        if (BindKey.Of(_config) != _bound)
         {
-            _ = RefreshAsync();
+            Rebind();
         }
-        else if (redraws)
+        else
         {
-            Render(_records);
+            Render();
         }
     }
 
-    private void OnHubChanged() => _ = RefreshAsync();
+    /// <summary>The settings that decide which list is asked for, as they were when it was bound.</summary>
+    private readonly record struct BindKey(TaskSource Source, string? AccountId, string? ListId, string? LocalListId, bool ShowCompleted)
+    {
+        public static BindKey Of(TasksConfig config)
+            => new(config.Source, config.AccountId, config.ListId, config.LocalListId, config.ShowCompleted);
+    }
+
+    /// <summary>The card's menu: refresh, the layout, and completed tasks shown or hidden.</summary>
+    public IReadOnlyList<WidgetAction> ContextActions
+    {
+        get
+        {
+            var actions = new List<WidgetAction>();
+
+            if (!IsLocal && _feed is not null)
+            {
+                actions.Add(new WidgetAction(Glyphs.Refresh, "Refresh", Refresh));
+            }
+
+            actions.Add(_config.ViewMode == TaskViewMode.Compact
+                ? new WidgetAction(Glyphs.Preview, "List view", () => SetViewMode(TaskViewMode.List))
+                : new WidgetAction(Glyphs.Count, "Compact view", () => SetViewMode(TaskViewMode.Compact)));
+
+            actions.Add(new WidgetAction(
+                Glyphs.Done,
+                _config.ShowCompleted ? "Hide completed" : "Show completed",
+                () =>
+                {
+                    _config.ShowCompleted = !_config.ShowCompleted;
+                    _surface?.RequestSave();
+                    Rebind();
+                }));
+
+            return actions;
+        }
+    }
+
+    // ---- which list --------------------------------------------------------------------------------
 
     /// <summary>
-    /// Re-subscribe only when the cadence actually changed. Dropping and remaking the subscription
-    /// on every config touch made dragging a settings slider stutter, because each frame tore down
-    /// the timer subscription for every widget on the desktop and built it again.
+    /// Work out which list the config means and take hold of it. Re-run when anything that changes
+    /// the request changes: the config's source, account, list or filter, or the accounts themselves.
+    /// </summary>
+    private void Rebind()
+    {
+        if (_detached)
+        {
+            return;
+        }
+
+        var generation = ++_bindGeneration;
+        _bound = BindKey.Of(_config);
+        ReleaseFeed();
+        _localListId = null;
+        _account = null;
+        _resolvedListName = null;
+        _listsFailure = null;
+
+        if (_service is null)
+        {
+            // Only reachable in a teardown race; a widget with no service still says so.
+            Show(Screen.Starting);
+            return;
+        }
+
+        if (IsLocal)
+        {
+            _localListId = _service.Local.Find(_config.LocalListId)?.Id;
+            PublishTitle();
+            Render();
+            return;
+        }
+
+        var accounts = _service.Accounts;
+        var named = !string.IsNullOrEmpty(_config.AccountId);
+        _account = named ? _service.Find(_config.AccountId) : accounts.FirstOrDefault();
+
+        if (_account is null)
+        {
+            // A named account that has gone is not quietly swapped for another one: the widget
+            // would start showing somebody else's tasks without being asked.
+            PublishTitle();
+            Show(named && accounts.Count > 0 ? Screen.AccountGone : Screen.NoAccount);
+            return;
+        }
+
+        if (_account.Problem is not null)
+        {
+            PublishTitle();
+            Show(Screen.NeedsSignIn);
+            return;
+        }
+
+        if (string.IsNullOrEmpty(_config.ListId))
+        {
+            Show(Screen.Loading);
+            _ = ResolveDefaultListAsync(_account, generation);
+            return;
+        }
+
+        Hold(_account.Id, _config.ListId);
+
+        if (!TaskRules.IsToday(_config.ListId))
+        {
+            // The name may have changed at the provider since it was picked; the lists are cached.
+            _ = RefreshListNameAsync(_account.Id, _config.ListId, generation);
+        }
+    }
+
+    private async Task ResolveDefaultListAsync(TaskAccount account, int generation)
+    {
+        try
+        {
+            var lists = await _service!.ListsAsync(account.Id).ConfigureAwait(true);
+
+            if (_detached || generation != _bindGeneration)
+            {
+                return;
+            }
+
+            if (TaskRules.DefaultList(lists) is not { } list)
+            {
+                Show(Screen.NoLists);
+                return;
+            }
+
+            _resolvedListName = list.Name;
+            Hold(account.Id, list.Id);
+        }
+        catch (AccountException ex)
+        {
+            if (_detached || generation != _bindGeneration)
+            {
+                return;
+            }
+
+            Log.Warn(Scope, $"could not read the task lists of {account.Id}", ex);
+            _listsFailure = ex;
+            Show(ex.Error == AccountError.SignInRequired ? Screen.NeedsSignIn : Screen.ListsFailed);
+        }
+    }
+
+    private async Task RefreshListNameAsync(string accountId, string listId, int generation)
+    {
+        try
+        {
+            var lists = await _service!.ListsAsync(accountId).ConfigureAwait(true);
+
+            if (!_detached && generation == _bindGeneration && lists.FirstOrDefault(l => l.Id == listId) is { } list)
+            {
+                _resolvedListName = list.Name;
+                PublishTitle();
+            }
+        }
+        catch (AccountException ex)
+        {
+            // The title keeps the name the list had when it was picked; the feed reports the failure.
+            Log.Debug(Scope, $"could not refresh the list name: {ex.Message}");
+        }
+    }
+
+    private void Hold(string accountId, string listId)
+    {
+        _feed = _service!.Acquire(accountId, listId, _config.ShowCompleted);
+        _feed.Changed += OnFeedChanged;
+        PublishTitle();
+
+        // A feed another widget already filled is drawn as it is; its own tick keeps it fresh.
+        if (!_feed.Loaded)
+        {
+            _service.Refresh(_feed, _config.RefreshInterval, force: true);
+        }
+
+        Render();
+    }
+
+    private void ReleaseFeed()
+    {
+        if (_feed is null)
+        {
+            return;
+        }
+
+        _feed.Changed -= OnFeedChanged;
+        _service?.Release(_feed);
+        _feed = null;
+    }
+
+    /// <summary>
+    /// The ticker drives refreshes of an account list (the service skips one that is not due) and
+    /// keeps "Today" and "Overdue" honest across midnight. A list on this PC has no clock in it.
     /// </summary>
     private void Resubscribe()
     {
@@ -179,359 +427,379 @@ internal sealed partial class TasksView : Grid, IWidgetView, IWidgetHeaderConten
             return;
         }
 
-        var interval = _config.TickInterval;
+        var interval = IsLocal ? TimeSpan.Zero : _config.RefreshInterval;
 
-        if (_subscription is not null && interval == _subscribedInterval)
+        if (interval == _subscribedInterval && (_subscription is not null || interval == TimeSpan.Zero))
         {
             return;
         }
 
         _subscription?.Dispose();
+        _subscription = null;
         _subscribedInterval = interval;
-        _subscription = _ticker?.Subscribe(interval, OnTick);
+
+        if (interval > TimeSpan.Zero)
+        {
+            _subscription = _ticker?.Subscribe(interval, OnTick);
+        }
     }
 
-    /// <summary>
-    /// The hub pushes changes, but "overdue" and "Today" are answers about the current date, not
-    /// about the record, and nothing in the store changes at midnight. So the tick re-renders.
-    /// </summary>
-    private void OnTick() => _ = RefreshAsync();
-
-    private async Task RefreshAsync()
+    private void OnTick()
     {
         if (_detached)
         {
             return;
         }
 
-        // The host builds the connection before any surface exists, so this is only reachable in a
-        // teardown race - but a widget that finds no service must still say so rather than sit
-        // blank with no explanation.
-        if (_data is null)
+        if (_feed is not null)
         {
-            ShowMessage(EmptyMessage());
-            return;
+            _service?.Refresh(_feed, _config.RefreshInterval, force: false);
         }
 
-        // A second request while one is in flight is not dropped: the settings window can change
-        // the list mid-query, and swallowing that would leave the old one shown.
-        if (_refreshing)
+        Render();
+    }
+
+    private void Refresh()
+    {
+        if (_feed is not null)
         {
-            _requeryWanted = true;
-            return;
+            _service?.Refresh(_feed, _config.RefreshInterval, force: true);
         }
-
-        _refreshing = true;
-        _busy.IsActive = true;
-        _busy.Visibility = Visibility.Visible;
-
-        if (!_loaded)
+        else
         {
-            ShowMessage("Loading…");
-        }
-
-        try
-        {
-            var tasks = await _data.TasksAsync(
-                _config.CollectionId,
-                _config.ShowCompleted,
-                null,
-                _config.EffectiveMaxCount).ConfigureAwait(true);
-
-            if (_detached)
-            {
-                return;
-            }
-
-            _loaded = true;
-            _records = tasks;
-            Render(tasks);
-        }
-        catch (Exception ex)
-        {
-            // Never let a hub problem take the surface down; say so in the widget instead.
-            Log.Error(Scope, "could not refresh the task list", ex);
-            ShowMessage("Could not read tasks. See themia.log.");
-        }
-        finally
-        {
-            _refreshing = false;
-            _busy.IsActive = false;
-            _busy.Visibility = Visibility.Collapsed;
-
-            if (_requeryWanted && !_detached)
-            {
-                _requeryWanted = false;
-                _ = RefreshAsync();
-            }
+            Rebind();
         }
     }
 
-    private void Render(IReadOnlyList<TaskRecord> tasks)
-    {
-        ClearRows();
+    private void OnFeedChanged() => Render();
 
-        if (tasks.Count == 0)
+    private void OnAccountsChanged() => Rebind();
+
+    private void OnLocalChanged()
+    {
+        if (IsLocal)
         {
-            ShowMessage(EmptyMessage());
+            // A list deleted, created or renamed from settings or another widget.
+            _localListId = _service?.Local.Find(_config.LocalListId)?.Id;
+            PublishTitle();
+            Render();
+        }
+    }
+
+    private void SetViewMode(TaskViewMode mode)
+    {
+        _config.ViewMode = mode;
+        _surface?.RequestSave();
+        Render();
+    }
+
+    /// <summary>[S-403] The list's name as the title; the user's own label still wins in the card.</summary>
+    private void PublishTitle()
+    {
+        string? title = null;
+
+        if (IsLocal)
+        {
+            if (_service?.Local.Find(_localListId) is { } list)
+            {
+                title = string.IsNullOrWhiteSpace(list.Name) ? "Untitled list" : list.Name;
+            }
+        }
+        else if (TaskRules.IsToday(_config.ListId))
+        {
+            title = "Today";
+        }
+        else
+        {
+            title = _resolvedListName is { Length: > 0 } resolved ? resolved
+                : _config.ListName is { Length: > 0 } picked ? picked
+                : null;
+        }
+
+        _surface?.SetHeaderTitle(title);
+    }
+
+    // ---- what to draw --------------------------------------------------------------------------------
+
+    /// <summary>The rows to draw, in the order to draw them, or null when there is no list to draw.</summary>
+    private IReadOnlyList<TaskItem>? Rows(DateOnly today)
+    {
+        if (IsLocal)
+        {
+            if (_service?.Local.Find(_localListId) is not { } list)
+            {
+                return null;
+            }
+
+            // A list on this PC is its own order.
+            var items = list.Tasks.Select(t => LocalTaskLists.ToItem(t, list.Id)).ToList();
+            return TaskRules.Visible(items, _config.ShowCompleted);
+        }
+
+        if (_feed is not { Loaded: true } feed)
+        {
+            return null;
+        }
+
+        var tasks = feed.Tasks;
+
+        if (feed.IsToday)
+        {
+            tasks = TaskRules.Today(tasks, today, TimeZoneInfo.Local);
+        }
+
+        tasks = TaskRules.Visible(tasks, _config.ShowCompleted);
+        return TaskRules.ApplyOrder(tasks, TaskRules.CleanOrder(_config.TaskOrder), t => t.Id);
+    }
+
+    private void Render()
+    {
+        if (_detached)
+        {
             return;
         }
 
-        _empty.Visibility = Visibility.Collapsed;
-        _scroll.Visibility = Visibility.Visible;
+        UpdateHeader();
 
-        // One "today" for the whole render rather than one per row, so a list drawn across midnight
-        // cannot call the same date overdue on one row and due today on the next.
+        // One "today" per render, so a list drawn across midnight cannot disagree with itself.
         var today = DateOnly.FromDateTime(DateTime.Now);
-        var compact = Compact;
-        var open = 0;
+        var rows = Rows(today);
 
-        foreach (var task in tasks)
+        if (rows is null)
         {
-            if (!task.Completed)
-            {
-                open++;
-            }
-
-            var row = BuildRow(task, today, compact);
-            _rows.Add(row);
-            _list.Children.Add(row);
+            Show(IsLocal
+                ? Screen.NoLocalList
+                : _feed is { Failure: not null } ? Screen.Failed
+                : _feed is not null ? Screen.Loading
+                : _screen);
+            return;
         }
 
-        // The open count, not the row count: with completed tasks shown, "how much is left" is the
-        // number worth putting in the header, and it is the one the list is otherwise silent about.
-        _badge.Text = open.ToString(CultureInfo.InvariantCulture);
-        _badgeHost.Visibility = open > 0 ? Visibility.Visible : Visibility.Collapsed;
+        _screen = Screen.Ready;
+        _displayed = rows;
+        BuildRows(rows, today);
 
-        // The markers have no size until this runs, and a first render need not be followed by a
-        // resize, so it is called here rather than left to SizeChanged alone.
-        ApplyDensity();
+        _badge.Text = TaskRules.OpenCount(rows).ToString(CultureInfo.InvariantCulture);
+        _badgeHost.Visibility = TaskRules.OpenCount(rows) > 0 ? Visibility.Visible : Visibility.Collapsed;
+
+        if (rows.Count == 0)
+        {
+            ShowEmpty(EmptyListText(), action: null);
+        }
+        else
+        {
+            _emptyHost.Visibility = Visibility.Collapsed;
+            _scroll.Visibility = Visibility.Visible;
+        }
+
+        FitAddRow();
     }
 
-    private Border BuildRow(TaskRecord task, DateOnly today, bool compact)
+    /// <summary>The busy ring and the warning, which ride on the card's header.</summary>
+    private void UpdateHeader()
     {
-        var marker = BuildMarker(task);
+        var busy = _feed?.Busy == true || _screen == Screen.Loading;
+        _busy.IsActive = busy;
+        _busy.Visibility = busy ? Visibility.Visible : Visibility.Collapsed;
 
-        // Hearth's "high" is the only priority worth marking, and weight marks it the way an unread
-        // message is marked - no extra glyph, no legend. Both steps are the same 14/20 line, so
-        // nothing moves when a task is important.
-        var title = Fluent.Text(
-            task.Important && !task.Completed ? FluentType.BodyStrong : FluentType.Body,
-            task.Completed ? "TextFillColorTertiaryBrush" : "TextFillColorPrimaryBrush");
+        var warning = IsLocal ? _service?.Local.Problem
+            : _feed?.WriteProblem
+            ?? (_feed is { Loaded: true, Failure: { } failure }
+                ? $"Could not refresh: {FetchState.Message(failure.ToFetchStatus())}. Showing the tasks from {FetchState.Freshness(_feed.FetchedAt ?? DateTimeOffset.Now, DateTimeOffset.Now).ToLowerInvariant()}."
+                : null);
 
-        title.Text = string.IsNullOrWhiteSpace(task.Title) ? "(untitled task)" : task.Title;
-
-        // A finished task is struck through and dimmed, not merely dimmed: strike-through is the
-        // one mark that says "done" without a legend and without relying on colour.
-        title.TextDecorations = task.Completed
-            ? Windows.UI.Text.TextDecorations.Strikethrough
-            : Windows.UI.Text.TextDecorations.None;
-
-        title.VerticalAlignment = VerticalAlignment.Center;
-
-        var body = new Grid
-        {
-            ColumnDefinitions =
-            {
-                new ColumnDefinition { Width = GridLength.Auto },
-                new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) },
-                new ColumnDefinition { Width = GridLength.Auto },
-            },
-        };
-
-        Grid.SetColumn(marker, 0);
-        Grid.SetColumn(title, 1);
-        body.Children.Add(marker);
-        body.Children.Add(title);
-
-        if (_config.ShowDueDate && task.DueDate is { } due)
-        {
-            var overdue = task.IsOverdue(today);
-
-            // Overdue says so in words as well as in colour: a red date alone is invisible to
-            // anyone who cannot see the red. The critical colour is a named Fluent brush, so it
-            // tracks the theme rather than being a red this widget chose. Both states take the same
-            // ramp step, so the column does not change width when one task falls behind.
-            var when = Fluent.Text(
-                FluentType.Caption,
-                overdue ? "SystemFillColorCriticalBrush" : "TextFillColorTertiaryBrush");
-
-            when.Text = DueLabel(due, today, overdue);
-            when.VerticalAlignment = VerticalAlignment.Center;
-            when.Margin = new Thickness(Fluent.Space2, 0, 0, 0);
-
-            Grid.SetColumn(when, 2);
-            body.Children.Add(when);
-        }
-
-        var row = Fluent.Row(body, compact);
-        _hovers.Add(Fluent.Hover(row));
-
-        ToolTipService.SetToolTip(row, Tooltip(task, today));
-        return row;
+        _warning.Visibility = warning is null ? Visibility.Collapsed : Visibility.Visible;
+        ToolTipService.SetToolTip(_warning, warning);
     }
 
-    /// <summary>
-    /// The state marker: an empty ring for open work, a filled tick for finished. Drawn rather than
-    /// taken from the icon font because there is no hollow-circle glyph in the set, and an outline
-    /// next to a filled tick is what makes the two states tell apart at a glance.
-    /// <para>
-    /// Sized in <see cref="ApplyDensity"/> from the row height, which is fixed, rather than from the
-    /// tile: a checkbox that grows with the window is a web control.
-    /// </para>
-    /// </summary>
-    private Border BuildMarker(TaskRecord task)
+    private string EmptyListText()
     {
-        var marker = new Border
+        if (_feed?.IsToday == true)
         {
-            VerticalAlignment = VerticalAlignment.Center,
-            Margin = new Thickness(0, 0, Fluent.Space3, 0),
-            BorderBrush = FluentLayout.Themed("ControlStrongStrokeColorDefaultBrush", Colors.Gray),
-            BorderThickness = new Thickness(task.Completed ? 0 : 1),
-            Background = task.Completed
-                ? FluentLayout.Themed("AccentFillColorDefaultBrush", Colors.DodgerBlue)
-                : Fluent.RowRest(),
-        };
-
-        if (task.Completed)
-        {
-            var tick = new FontIcon
-            {
-                Glyph = Glyphs.Done,
-                Foreground = FluentLayout.Themed("TextOnAccentFillColorPrimaryBrush", Colors.White),
-                HorizontalAlignment = HorizontalAlignment.Center,
-                VerticalAlignment = VerticalAlignment.Center,
-            };
-
-            _markerIcons.Add(tick);
-            marker.Child = tick;
+            return "Nothing due today.";
         }
 
-        _markers.Add(marker);
-        return marker;
+        return _config.ShowCompleted ? "No tasks on this list yet." : "Nothing open. All done.";
     }
 
-    private static string Tooltip(TaskRecord task, DateOnly today)
+    /// <summary>Say what is actually true, because every one of these needs a different action ([S-181]).</summary>
+    private void Show(Screen screen)
     {
-        var lines = new List<string>
-        {
-            string.IsNullOrWhiteSpace(task.Title) ? "(untitled task)" : task.Title,
-            task.Completed ? "Completed" : "Open",
-        };
+        _screen = screen;
 
-        if (task.DueDate is { } due)
-        {
-            lines.Add($"Due {DueLabel(due, today, task.IsOverdue(today))}");
-        }
-
-        if (task.Important)
-        {
-            lines.Add("High priority");
-        }
-
-        return string.Join(Environment.NewLine, lines);
-    }
-
-    private static string DueLabel(DateOnly due, DateOnly today, bool overdue)
-        => Formatting.DueDate(due, today, overdue);
-
-    private static string ShortDate(DateOnly day) => Formatting.ShortDate(day);
-
-    /// <summary>
-    /// Re-fit what is already drawn to the tile: the row height, the marker that is sized from it,
-    /// and whether the empty state has room for its icon. No query, and no font size derived from
-    /// the tile — every size in a row is a step of the ramp or of the 4px grid.
-    /// </summary>
-    private void ApplyDensity()
-    {
-        var compact = Compact;
-
-        // Fluent's own checkbox is 20 square on a 40 row; the compact row takes the 16 an inline
-        // icon uses. Both come from the row, not from the tile.
-        var markerSize = compact ? Fluent.IconSize : Fluent.Space5;
-
-        foreach (var row in _rows)
-        {
-            Fluent.SetDensity(row, compact);
-        }
-
-        foreach (var marker in _markers)
-        {
-            marker.Width = markerSize;
-            marker.Height = markerSize;
-            marker.CornerRadius = new CornerRadius(markerSize / 2);
-        }
-
-        foreach (var tick in _markerIcons)
-        {
-            // The tick sits inside the ring, so it is a fraction of the marker - which is itself a
-            // fixed size - and never of the tile.
-            tick.FontSize = Math.Round(markerSize * 0.6);
-        }
-
-        _emptyIcon.Visibility = compact ? Visibility.Collapsed : Visibility.Visible;
-    }
-
-    /// <summary>Say what is actually true, because every one of these needs a different action.</summary>
-    private string EmptyMessage()
-    {
-        var granted = _data?.TaskCollections.Count ?? 0;
-
-        return _data?.Status switch
-        {
-            null => "Themia is still starting.",
-            HearthStatus.NotRunning => "hearth is not running.\nStart it to see your tasks here.",
-            HearthStatus.Denied => "hearth has not granted Themia access to any task list.",
-            HearthStatus.Failed => "Could not read from hearth. See themia.log.",
-            HearthStatus.Connecting or HearthStatus.Idle => "Connecting to hearth…",
-            _ when granted == 0 => "hearth has granted no task lists.",
-            _ when _config.ShowCompleted => "Nothing on the list.",
-            _ => "Nothing open. All done.",
-        };
-    }
-
-    private void ShowMessage(string text)
-    {
-        _emptyText.Text = text;
-        _empty.Visibility = Visibility.Visible;
-        _scroll.Visibility = Visibility.Collapsed;
+        // No list, so nothing to rename or add to.
+        CancelEdit();
+        ClearRows();
+        _displayed = [];
         _badgeHost.Visibility = Visibility.Collapsed;
-    }
+        UpdateHeader();
 
-    /// <summary>
-    /// Drop the rows and, with them, their hover handlers: a handler left hooked keeps the row it
-    /// lights alive and re-lights it after the list has moved on.
-    /// </summary>
-    private void ClearRows()
-    {
-        foreach (var hover in _hovers)
+        var who = _account?.Label;
+
+        switch (screen)
         {
-            hover.Dispose();
+            case Screen.Starting:
+                ShowEmpty("Themia is still starting.", null);
+                break;
+
+            case Screen.NoAccount:
+                ShowEmpty("Sign in to see your tasks, or keep a list on this PC.", EmptyAction.Accounts, offerLocal: true);
+                break;
+
+            case Screen.AccountGone:
+                ShowEmpty("The account this widget showed is no longer signed in.", EmptyAction.Accounts);
+                break;
+
+            case Screen.NeedsSignIn:
+                ShowEmpty($"{who ?? "This account"} needs you to sign in again.", EmptyAction.Accounts);
+                break;
+
+            case Screen.NoLists:
+                ShowEmpty($"{who ?? "This account"} has no task lists.", null);
+                break;
+
+            case Screen.ListsFailed:
+                ShowEmpty(Explain(_listsFailure), EmptyAction.Retry);
+                break;
+
+            case Screen.NoLocalList:
+                ShowEmpty("Pick or start a list kept on this PC.", EmptyAction.StartLocalList);
+                break;
+
+            case Screen.Loading:
+                ShowEmpty("Loading tasks…", null);
+                break;
+
+            case Screen.Failed:
+                ShowEmpty(Explain(_feed?.Failure), _feed?.Failure?.Error is AccountError.SignInRequired or AccountError.UnknownAccount
+                    ? EmptyAction.Accounts
+                    : EmptyAction.Retry);
+                break;
         }
 
-        _hovers.Clear();
-        _list.Children.Clear();
-        _rows.Clear();
-        _markers.Clear();
-        _markerIcons.Clear();
+        FitAddRow();
+    }
+
+    /// <summary>A failure in the user's words: the network state, else what the provider said.</summary>
+    private static string Explain(AccountException? failure) => failure?.Error switch
+    {
+        null => "Could not read the tasks.",
+        AccountError.SignInRequired => "This account needs you to sign in again.",
+        AccountError.Forbidden => "This account does not allow Themia to read its tasks. Sign in again to grant it.",
+        AccountError.NotFound => "That task list is not there any more. Pick another in this widget's settings.",
+        AccountError.UnknownAccount => "The account this widget showed is no longer signed in.",
+        _ => FetchState.Message(failure.ToFetchStatus()) is { Length: > 0 } message ? $"{message}." : "Could not read the tasks.",
+    };
+
+    private enum EmptyAction
+    {
+        Accounts,
+        Retry,
+        StartLocalList,
+    }
+
+    private void ShowEmpty(string text, EmptyAction? action, bool offerLocal = false)
+    {
+        _offerLocal = offerLocal;
+        _emptyText.Text = text;
+        _emptyHost.Visibility = Visibility.Visible;
+        _scroll.Visibility = _displayed.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
+
+        _emptyAction.Tag = action;
+        _emptyAction.Content = action switch
+        {
+            EmptyAction.Accounts => "Open Accounts settings",
+            EmptyAction.Retry => "Try again",
+            EmptyAction.StartLocalList => "Start a list",
+            _ => null,
+        };
+
+        FitEmptyState();
+    }
+
+    private void OnEmptyActionClicked(object sender, RoutedEventArgs args)
+    {
+        switch ((sender as FrameworkElement)?.Tag)
+        {
+            case EmptyAction.Accounts when AppServices.ShowAccounts is { } show:
+                show();
+                break;
+
+            case EmptyAction.Accounts:
+                Log.Info(Scope, "no settings window here to show the Accounts page in");
+                break;
+
+            case EmptyAction.Retry:
+                Refresh();
+                break;
+
+            case EmptyAction.StartLocalList when _service is not null:
+                // [S-604] The list it had if that still exists, else the first, else a new one.
+                _config.Source = TaskSource.Local;
+                _config.LocalListId = _service.Local.Ensure(_config.LocalListId, "My tasks");
+                _surface?.RequestSave();
+                Resubscribe();
+                Rebind();
+                break;
+        }
+    }
+
+    private void OnSizeChanged(object sender, SizeChangedEventArgs args)
+    {
+        FitEmptyState();
+        FitAddRow();
+
+        // The density switch is between two fixed row heights; crossing it redraws, nothing more.
+        // Compared with what was drawn, not with the previous size: the first rows can be drawn
+        // before the tile has any size at all.
+        if (_screen == Screen.Ready && _drawnDensity != Density())
+        {
+            Render();
+        }
+    }
+
+    /// <summary>The links show when there are any and room for them; the sentence gets the rest.</summary>
+    private void FitEmptyState()
+    {
+        var height = ActualHeight;
+        var link = _emptyAction.Tag is EmptyAction && (height <= 0 || height >= LinkNeedsHeight);
+        var local = link && _offerLocal && (height <= 0 || height >= SecondLinkNeedsHeight);
+        _emptyAction.Visibility = link ? Visibility.Visible : Visibility.Collapsed;
+        _emptyLocal.Visibility = local ? Visibility.Visible : Visibility.Collapsed;
+        _empty.MaxHeight = height > 0 ? Math.Max(0, height - (link ? 36 : 0) - (local ? 32 : 0)) : double.PositiveInfinity;
     }
 
     public void Detach()
     {
+        if (_detached)
+        {
+            return;
+        }
+
+        CancelEdit();
         _detached = true;
+        _bindGeneration++;
+
+        SizeChanged -= OnSizeChanged;
+        _emptyAction.Click -= OnEmptyActionClicked;
+        _emptyLocal.Click -= OnEmptyActionClicked;
 
         _subscription?.Dispose();
         _subscription = null;
         _subscribedInterval = TimeSpan.Zero;
 
-        if (_data is not null)
+        ReleaseFeed();
+
+        if (_service is not null)
         {
-            _data.Changed -= OnHubChanged;
-            _data = null;
+            _service.AccountsChanged -= OnAccountsChanged;
+            _service.Local.Changed -= OnLocalChanged;
+            _service = null;
         }
 
+        DetachAddRow();
         _ticker = null;
-        _records = [];
         ClearRows();
+        _surface?.RequestTextInput(false);
     }
 }

@@ -42,8 +42,12 @@ public sealed partial class ClockView : UserControl, IWidgetView
     {
         InitializeComponent();
 
-        // The card no longer pads its content; the clock carries its own inset.
-        Root.Padding = WidgetLayout.Inset;
+        // The card no longer pads its content; the clock carries its own inset. [S-645] The full
+        // inset either side, but only half of it above and below: the readout is centred and sized
+        // to its line height, which already carries its own leading, and the card's header leaves
+        // a gap under itself. A full 16px top and bottom cost a wide strip a third of the height
+        // the digits could have had.
+        Root.Padding = new Thickness(WidgetLayout.ContentInset, Fluent.Space2, WidgetLayout.ContentInset, Fluent.Space2);
         TimeRow.Spacing = Fluent.Space1;
         DateText.Margin = new Thickness(0, Fluent.Space1, 0, 0);
 
@@ -99,8 +103,8 @@ public sealed partial class ClockView : UserControl, IWidgetView
     /// </summary>
     private void ApplyTypeScale()
     {
-        var width = Root.ActualWidth - (WidgetLayout.ContentInset * 2);
-        var height = Root.ActualHeight - (WidgetLayout.ContentInset * 2);
+        var width = Root.ActualWidth - Root.Padding.Left - Root.Padding.Right;
+        var height = Root.ActualHeight - Root.Padding.Top - Root.Padding.Bottom;
 
         // "12:34:56" plus " PM" — the meridiem sits on the same line, so it counts towards the width
         // the time has to fit in.

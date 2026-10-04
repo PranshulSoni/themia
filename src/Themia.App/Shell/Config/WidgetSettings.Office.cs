@@ -1,0 +1,211 @@
+using Microsoft.UI.Xaml;
+using Microsoft.UI.Xaml.Controls;
+using Themia.App.Services.Accounts;
+using Themia.App.Services.Office;
+using Themia.App.Widgets;
+using Themia.Core.Accounts;
+using Themia.Core.Model;
+using Themia.Core.Office;
+
+namespace Themia.App.Shell.Config;
+
+/// <summary>
+/// The account rows the calendar and contacts settings share, and the contacts page itself.
+/// <para>
+/// Accounts are signed in on the Accounts page, not here ([S-537] of the classic widgets): this
+/// lists the accounts already signed in that can feed the widget, and links there — so there is one
+/// place an account comes into being, and the page is not filtered by widget.
+/// </para>
+/// </summary>
+internal static partial class WidgetSettings
+{
+    /// <summary>[S-580] The contacts widget: accounts, layout, the details table's columns, count and search.</summary>
+    public static void Contacts(List<FrameworkElement> rows, ContactsConfig config, Action save)
+    {
+        ArgumentNullException.ThrowIfNull(rows);
+        ArgumentNullException.ThrowIfNull(config);
+        ArgumentNullException.ThrowIfNull(save);
+
+        rows.Add(FluentLayout.Header("Accounts"));
+        OfficeAccountRows(rows, AccountFeatures.Contacts, Glyphs.Contact, "contacts",
+            "Sign in to Microsoft, Google or a CardDAV address book on the Accounts page",
+            () => config.AccountIds, ids => config.AccountIds = ids, save, perAccount: null);
+
+        rows.Add(FluentLayout.Header("Display"));
+
+        var columnRows = new List<FrameworkElement>();
+
+        void ShowColumns()
+        {
+            foreach (var row in columnRows)
+            {
+                row.Visibility = config.EffectiveLayout == ContactsLayout.Details ? Visibility.Visible : Visibility.Collapsed;
+            }
+        }
+
+        rows.Add(FluentLayout.Row(Glyphs.View, "Layout",
+            "List, compact rows, a table, or cards; a narrow widget falls back to the list",
+            FluentLayout.Choice<ContactsLayout>(
+                [(ContactsLayout.List, "List"), (ContactsLayout.Compact, "Compact"), (ContactsLayout.Details, "Details"), (ContactsLayout.Grid, "Grid")],
+                config.EffectiveLayout,
+                value => { config.Layout = value; save(); ShowColumns(); })));
+
+        // [S-582] The table's columns: canonical order, and the last one cannot be turned off.
+        var toggles = new Dictionary<ContactColumn, ToggleSwitch>();
+        var quiet = false;
+
+        foreach (var column in ContactsConfig.AllColumns)
+        {
+            var toggle = FluentLayout.Toggle(config.EffectiveColumns.Contains(column), on =>
+            {
+                if (quiet)
+                {
+                    return;
+                }
+
+                config.Columns = ContactRules.ToggleColumn(config.EffectiveColumns, column);
+                save();
+
+                quiet = true;
+                foreach (var (c, t) in toggles)
+                {
+                    t.IsOn = config.EffectiveColumns.Contains(c);
+                }
+
+                quiet = false;
+            });
+
+            toggles[column] = toggle;
+            var row = FluentLayout.Row(Glyphs.Grid, $"{ContactRules.ColumnTitle(column)} column", null, toggle);
+            columnRows.Add(row);
+            rows.Add(row);
+        }
+
+        rows.Add(FluentLayout.Row(Glyphs.Count, "People",
+            "How many to list, in steps of five; a short widget shows fewer",
+            FluentLayout.Slider(config.EffectiveCount, 5, 500, 5, string.Empty,
+                value => { config.Count = (int)Math.Round(value); save(); })));
+
+        // [S-584] Saved as the user stops typing would be nicer, but each keystroke is one cheap save
+        // and the widget only re-filters what it holds.
+        var search = new TextBox { Text = config.DefaultSearch, PlaceholderText = "Nothing", MinWidth = 220 };
+        search.TextChanged += (_, _) => { config.DefaultSearch = search.Text; save(); };
+        rows.Add(FluentLayout.Row(Glyphs.Search, "Start with a search",
+            "What the search box holds when the widget starts", search));
+
+        ShowColumns();
+    }
+
+    /// <summary>
+    /// "Every account", or a choice of them — the Mail widget's pattern, so the three account
+    /// widgets read alike. Every is the default and means accounts added later join too; turning it
+    /// off starts from the accounts there are now, so nothing disappears; the last chosen account
+    /// cannot be turned off, because an empty list means "every".
+    /// </summary>
+    /// <param name="perAccount">Rows to show under an account while it is chosen (the calendar picker).</param>
+    private static void OfficeAccountRows(
+        List<FrameworkElement> rows,
+        AccountFeatures feature,
+        string glyph,
+        string noun,
+        string addHint,
+        Func<List<string>> getIds,
+        Action<List<string>> setIds,
+        Action save,
+        Func<AccountInfo, FrameworkElement>? perAccount)
+    {
+        var accounts = OfficeSources.Current?.Accounts(feature) ?? [];
+
+        var manage = new Button { Content = accounts.Count == 0 ? "Add an account" : "Manage accounts" };
+        manage.Click += (_, _) => OfficeStatePanel.OpenAccounts();
+
+        if (accounts.Count == 0)
+        {
+            rows.Add(FluentLayout.Row(glyph, $"No {noun} account yet", addHint, manage));
+            return;
+        }
+
+        var toggles = new List<ToggleSwitch>();
+        var chosenRows = new List<FrameworkElement>();
+        var extras = new List<(AccountInfo Account, FrameworkElement Element)>();
+        var quiet = false;
+
+        bool Chosen(AccountInfo account) => getIds().Count == 0 || getIds().Contains(account.Id);
+
+        void ShowChoice()
+        {
+            foreach (var row in chosenRows)
+            {
+                row.Visibility = getIds().Count == 0 ? Visibility.Collapsed : Visibility.Visible;
+            }
+
+            foreach (var (account, element) in extras)
+            {
+                element.Visibility = Chosen(account) ? Visibility.Visible : Visibility.Collapsed;
+            }
+        }
+
+        rows.Add(FluentLayout.Row(glyph, $"Every {noun} account", "Accounts you add later are included too",
+            FluentLayout.Toggle(getIds().Count == 0, on =>
+            {
+                setIds(on ? [] : [.. accounts.Select(a => a.Id)]);
+
+                quiet = true;
+                foreach (var toggle in toggles)
+                {
+                    toggle.IsOn = true;
+                }
+
+                quiet = false;
+                save();
+                ShowChoice();
+            })));
+
+        foreach (var account in accounts)
+        {
+            var index = toggles.Count;
+            var toggle = FluentLayout.Toggle(Chosen(account), on =>
+            {
+                if (quiet)
+                {
+                    return;
+                }
+
+                var ids = (getIds().Count == 0 ? accounts.Select(a => a.Id) : getIds()).ToList();
+                ids.Remove(account.Id);
+                if (on)
+                {
+                    ids.Add(account.Id);
+                }
+
+                if (ids.Count == 0)
+                {
+                    quiet = true;
+                    toggles[index].IsOn = true;
+                    quiet = false;
+                    return;
+                }
+
+                setIds([.. accounts.Select(a => a.Id).Where(ids.Contains)]);
+                save();
+                ShowChoice();
+            });
+
+            toggles.Add(toggle);
+
+            var description = account.Problem ?? $"{account.Provider.Label()} · {account.Address}";
+            var row = FluentLayout.Row(glyph, account.Label, description, toggle);
+            chosenRows.Add(row);
+            rows.Add(row);
+
+            if (perAccount?.Invoke(account) is { } extra)
+            {
+                extras.Add((account, extra));
+                rows.Add(extra);
+            }
+        }
+
+        rows.Add(FluentLayout.Row(Glyphs.Contact, "Accounts", "Sign in, sign out and rename on the Accounts page", manage));
+        ShowChoice();
+    }
+}

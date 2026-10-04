@@ -127,6 +127,11 @@ internal sealed partial class MeterView : Grid, IWidgetView
         _reading.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         _reading.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
 
+        // A second row for the caption when the tile is too narrow to keep it beside the reading
+        // ([S-646]); empty, and so of no height, otherwise.
+        _reading.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        _reading.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+
         Grid.SetColumn(_primary, 0);
         Grid.SetColumn(_secondary, 1);
         _reading.Children.Add(_primary);
@@ -250,23 +255,38 @@ internal sealed partial class MeterView : Grid, IWidgetView
         // The caption shares the line with the reading, so the reading gets at most half of it.
         // Letting the number take the whole line is how a tall narrow tile ended up with a 68px
         // reading and a caption trimmed to a single ellipsis.
-        var readingWidth = _secondary.Visibility == Visibility.Visible ? width / 2 : width;
+        var hasCaption = _secondary.Visibility == Visibility.Visible;
+        var readingWidth = hasCaption ? width / 2 : width;
+        var readingHeight = Math.Min(height - reserved, FluentType.Display.LineHeight);
+        var characters = ReadingCharacters(_kind);
 
-        var hero = FluentType.Hero(
-            readingWidth,
-            Math.Min(height - reserved, FluentType.Display.LineHeight),
-            ReadingCharacters(_kind));
+        var hero = Reading(readingWidth, readingHeight, characters);
 
-        // Never below Subtitle: the reading is the point of the tile and must not end up smaller
-        // than the card's own header label.
-        if (hero.FontSize < FluentType.Subtitle.FontSize)
+        // [S-646] And when even half the line leaves the caption too little, the caption moves
+        // under the reading and the reading has the whole width — rather than "30 G…". It moves
+        // there too when that simply draws the reading larger, which is what a tall, narrow tile
+        // with height to spare wants.
+        var under = Reading(width, readingHeight - FluentType.Body.LineHeight, characters);
+        var stacked = hasCaption && (under.FontSize > hero.FontSize || !ReadoutLayout.CaptionFitsBeside(
+            width,
+            hero,
+            characters,
+            CaptionFor(hero),
+            CaptionCharacters(),
+            Fluent.Space2));
+
+        if (stacked)
         {
-            hero = FluentType.Subtitle;
+            hero = under;
         }
 
-        // The caption steps once, with the reading, rather than sliding: next to a 28px number a
-        // 12px caption is right, next to a 68px one it is a footnote.
-        var caption = hero.FontSize >= FluentType.Title.FontSize ? FluentType.Body : FluentType.Caption;
+        var caption = CaptionFor(hero);
+
+        Grid.SetRow(_secondary, stacked ? 1 : 0);
+        Grid.SetColumn(_secondary, stacked ? 0 : 1);
+        Grid.SetColumnSpan(_secondary, stacked ? 2 : 1);
+        _secondary.VerticalAlignment = stacked ? VerticalAlignment.Top : VerticalAlignment.Bottom;
+        _secondary.Margin = stacked ? new Thickness(0) : new Thickness(0, 0, 0, Fluent.Space1);
 
         if (hero != _heroStep)
         {
@@ -295,6 +315,32 @@ internal sealed partial class MeterView : Grid, IWidgetView
         WidgetKind.Ping => 6,     // "999 ms"
         _ => 4,                   // "100%"
     };
+
+    /// <summary>
+    /// The reading's step for a box. Never below Subtitle: the reading is the point of the tile and
+    /// must not end up smaller than the card's own header label.
+    /// </summary>
+    private static TypeStep Reading(double width, double height, double characters)
+    {
+        var hero = FluentType.Hero(width, height, characters);
+        return hero.FontSize < FluentType.Subtitle.FontSize ? FluentType.Subtitle : hero;
+    }
+
+    /// <summary>
+    /// The caption steps once, with the reading, rather than sliding: next to a 28px number a 12px
+    /// caption is right, next to a 68px one it is a footnote.
+    /// </summary>
+    private static TypeStep CaptionFor(TypeStep reading)
+        => reading.FontSize >= FluentType.Title.FontSize ? FluentType.Body : FluentType.Caption;
+
+    /// <summary>
+    /// How long the caption is, for deciding where it goes. The throughput caption is the one that
+    /// changes length from second to second ("up 0 B/s", "up 105 KB/s"), so it is held at its
+    /// worst case — otherwise the caption would hop between beside and under on every sample.
+    /// </summary>
+    private double CaptionCharacters() => _kind == WidgetKind.Network
+        ? Math.Max(11, _secondary.Text.Length)
+        : _secondary.Text.Length;
 
     public void Attach(Ticker ticker, WidgetConfig config)
     {

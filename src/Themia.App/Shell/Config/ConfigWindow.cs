@@ -5,7 +5,6 @@ using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
 using Themia.App.Interop;
 using Themia.App.Services;
-using Themia.App.Services.Hearth;
 using Themia.Core.Diagnostics;
 using Themia.Core.Model;
 using Windows.Graphics;
@@ -200,24 +199,6 @@ internal sealed class ConfigWindow
             parts.Add("editing");
         }
 
-        // Hearth is worth a word here because it is the one thing that depends on another program
-        // running, and an empty mail, calendar, contacts or tasks widget is otherwise ambiguous.
-        // One connection serves all four, so one line reports for all four.
-        var hearth = AppServices.Hub?.Status switch
-        {
-            HearthStatus.Ready => "hearth connected",
-            HearthStatus.NotRunning => "hearth not running",
-            HearthStatus.Denied => "hearth access not granted",
-            HearthStatus.Connecting => "connecting to hearth",
-            HearthStatus.Failed => "hearth unavailable",
-            _ => null,
-        };
-
-        if (hearth is not null)
-        {
-            parts.Add(hearth);
-        }
-
         _statusLeft.Text = string.Join("  ·  ", parts);
         _statusRight.Text = $"Themia {AppInfo.Version}  ·  {AppInfo.Runtime}";
 
@@ -359,7 +340,7 @@ internal sealed class ConfigWindow
             _nav.MenuItems.Add(Item("General", Glyphs.Settings, new ConfigTarget.App(AppPage.General)));
             _nav.MenuItems.Add(Item("Appearance", Glyphs.Palette, new ConfigTarget.App(AppPage.Appearance)));
             _nav.MenuItems.Add(Item("Layout", Glyphs.Grid, new ConfigTarget.App(AppPage.Layout)));
-            _nav.MenuItems.Add(Item("About", Glyphs.Info, new ConfigTarget.App(AppPage.About)));
+            _nav.MenuItems.Add(Item("Accounts", Glyphs.Contact, new ConfigTarget.App(AppPage.Accounts)));
 
             _nav.MenuItems.Add(new NavigationViewItemSeparator());
             _nav.MenuItems.Add(Header("Views"));
@@ -398,6 +379,11 @@ internal sealed class ConfigWindow
             }
 
             _nav.FooterMenuItems.Clear();
+
+            // [S-493] About is the very last entry, pinned to the foot of the menu under everything
+            // else, as in karpo and Windows Settings. Anything else that wants the footer goes
+            // ABOVE this line, never after it.
+            _nav.FooterMenuItems.Add(Item("About", Glyphs.Info, new ConfigTarget.App(AppPage.About)));
 
             SelectForTarget();
         }

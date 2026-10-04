@@ -1,6 +1,5 @@
 using Microsoft.UI.Dispatching;
 using Themia.App.Interop;
-using Themia.App.Services.Hearth;
 using Themia.App.Shell;
 using Themia.App.Shell.Config;
 using Themia.Core.Diagnostics;
@@ -24,7 +23,13 @@ internal sealed class AppHost : IDisposable
     private readonly List<DesktopWindow> _windows = [];
     private readonly CommandWindow _command = new();
 
+    /// <summary>[S-458] The screen-time tracker, from <see cref="Start"/> to <see cref="Dispose"/>.</summary>
+    private ScreenTimeService? _screenTime;
+
     private ConfigWindow? _config;
+    private readonly Mail.MailService _mail;
+    private readonly Developer.GitHubService _gitHub;
+    private readonly Developer.ClaudeUsageService _claudeUsage;
     private bool _editMode;
     private bool _disposed;
 
@@ -34,17 +39,37 @@ internal sealed class AppHost : IDisposable
         _store = store;
         State = state;
         Ticker = new Ticker(dispatcher);
-        Hub = new HearthHub(dispatcher);
-        AppServices.Hub = Hub;
-        AppServices.Data = new HearthDataService(Hub);
+
+        // Beside the state file, so a portable or test state path takes its accounts with it.
+        Accounts = new Accounts.AccountService(dispatcher, Themia.Core.Accounts.AccountStore.PathBeside(store.Path));
+        AppServices.Accounts = Accounts;
+
+        // [S-546] One mail service for every Mail widget, on the shared ticker.
+        _mail = new Mail.MailService(Accounts, Ticker);
+        AppServices.Mail = _mail;
+        AppServices.ShowAccounts = () => ShowConfig(new ConfigTarget.App(AppPage.Accounts));
+
+        // [S-591]/[S-607] One task service and one drive service for every widget. The task lists
+        // kept on this PC live beside the state file, as the accounts do.
+        AppServices.Tasks = new Tasks.TaskService(
+            new Tasks.AccountTaskRemote(Accounts),
+            new Tasks.LocalTaskPool(new Themia.Core.Tasks.LocalTaskStore(Themia.Core.Tasks.LocalTaskStore.PathBeside(store.Path))));
+        AppServices.Drive = new Files.DriveService(new Files.AccountDriveRemote(Accounts));
+
+        // [S-624] One GitHub client (one cache, one rate-limit gate per account) and one Claude
+        // usage reader for every developer widget, on the shared ticker.
+        _gitHub = new Developer.GitHubService(Accounts, Ticker);
+        AppServices.GitHub = _gitHub;
+        _claudeUsage = new Developer.ClaudeUsageService(Accounts, Ticker);
+        AppServices.ClaudeUsage = _claudeUsage;
     }
 
     public AppState State { get; }
 
     public Ticker Ticker { get; }
 
-    /// <summary>The app's one connection to the hearth hub, shared by every widget that reads from it.</summary>
-    public HearthHub Hub { get; }
+    /// <summary>Themia's own accounts, shared by every widget that reads from one.</summary>
+    public Accounts.AccountService Accounts { get; }
 
     /// <summary>Raised when anything that affects rendering changed. Windows re-read <see cref="State"/>.</summary>
     public event Action? StateChanged;
@@ -206,6 +231,13 @@ internal sealed class AppHost : IDisposable
         // one moment the user asked to see their desktop.
         DesktopZOrder.Start(_dispatcher);
 
+        // [S-459] Screen time is recorded whether or not a screen-time widget is on the desktop, so
+        // the history is there the day one is added. Only the app starts it — never the gallery.
+        _screenTime = ScreenTimeService.Start(
+            _dispatcher,
+            Path.Combine(Path.GetDirectoryName(_store.Path) ?? string.Empty, Themia.Core.Storage.ScreenTimeStore.FileName));
+        AppServices.ScreenTime = _screenTime;
+
         RebuildWindows();
 
         // Seed the file on a fresh profile so the starting layout survives a restart even if the
@@ -315,6 +347,46 @@ internal sealed class AppHost : IDisposable
     /// <summary>[S-19] Show a view on one display. See <see cref="AppState.ShowViewOn"/>.</summary>
     public void ShowView(string monitorId, string viewId)
         => Mutate(state => state.ShowViewOn(monitorId, viewId));
+
+    /// <summary>Where the state file lives, for the About page to show and open.</summary>
+    public string StatePath => _store.Path;
+
+    /// <summary>
+    /// [S-497] Replace the whole state with an imported one, keeping what is there now beside the
+    /// state file first. Returns null on success, otherwise why nothing was changed.
+    /// <para>
+    /// The backup is the in-memory state, not a copy of the file: a debounced save may not have
+    /// landed yet, and "what you have now" is what is on screen. If the backup cannot be written the
+    /// import does not happen — replacing the user's layout with nothing to go back to is exactly the
+    /// loss the backup exists to prevent.
+    /// </para>
+    /// </summary>
+    public string? ImportState(AppState incoming)
+    {
+        ArgumentNullException.ThrowIfNull(incoming);
+
+        var backup = SettingsTransfer.BackupPath(_store.Path, DateTime.Now);
+        if (SettingsTransfer.WriteFile(State, backup) is { } problem)
+        {
+            Log.Error(Scope, $"import cancelled: could not keep the current settings at {backup}");
+            return $"The settings you have now couldn't be kept, so nothing was imported. {problem}";
+        }
+
+        Select(null);
+        Clipboard.Clear();
+
+        Mutate(state =>
+        {
+            SettingsTransfer.Apply(state, incoming);
+
+            // Displays named in the file that are not connected keep their assignment ([S-18]);
+            // the ones that are connected and unnamed get a view of their own, as at startup.
+            state.EnsureViewPerDisplay([.. _windows.Select(w => w.Monitor.DeviceName)]);
+        });
+
+        Log.Info(Scope, $"imported settings; the previous ones are at {backup}");
+        return null;
+    }
 
     /// <summary>
     /// Open the settings window on a particular page, reusing the one window if it is already up.
@@ -504,6 +576,12 @@ internal sealed class AppHost : IDisposable
             try
             {
                 await _store.FlushAsync().ConfigureAwait(true);
+
+                // [S-603] A task ticked on a list kept on this PC a moment before exit.
+                if (AppServices.Tasks is { } tasks)
+                {
+                    await tasks.Local.FlushAsync().ConfigureAwait(true);
+                }
             }
             catch (Exception ex)
             {
@@ -537,9 +615,24 @@ internal sealed class AppHost : IDisposable
         _disposed = true;
         DesktopZOrder.Stop();
         Clipboard.Clear();
-        AppServices.Data = null;
-        AppServices.Hub = null;
-        _ = Hub.DisposeAsync();
+        AppServices.Mail = null;
+        AppServices.ShowAccounts = null;
+        _mail.Dispose();
+        AppServices.Tasks?.Dispose();
+        AppServices.Tasks = null;
+        AppServices.Drive?.Dispose();
+        AppServices.Drive = null;
+        AppServices.GitHub = null;
+        _gitHub.Dispose();
+        AppServices.ClaudeUsage = null;
+        _claudeUsage.Dispose();
+        AppServices.Accounts = null;
+        Accounts.Dispose();
+
+        // [S-459] Accrues up to now and writes the history synchronously: the process is ending.
+        AppServices.ScreenTime = null;
+        _screenTime?.Dispose();
+        _screenTime = null;
 
         CloseSurfaces();
 

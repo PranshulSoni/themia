@@ -30,6 +30,12 @@ public partial class App : Application
         {
             return;
         }
+
+        // The same for one settings page: built over a demo state that is never saved.
+        if (Shell.Gallery.SettingsRender.TryRunFromCommandLine(this, Environment.GetCommandLineArgs()))
+        {
+            return;
+        }
 #endif
 
         // Themia has no tray entry and no window in the taskbar, so launching it again is the

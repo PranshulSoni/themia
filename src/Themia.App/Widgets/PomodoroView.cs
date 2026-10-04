@@ -74,6 +74,11 @@ internal sealed partial class PomodoroView : Grid, IWidgetView
         RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });                     // progress
         RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });                     // controls
 
+        // A second column only a short, wide tile uses: the controls beside the countdown rather
+        // than under it ([S-644]). Every other row spans both.
+        ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
         // The phase reads as a Fluent badge line — a 16px icon and one Body Strong word in the
         // phase's own theme colour — rather than as a pill this file drew for itself.
         _phase = Fluent.Text(FluentType.BodyStrong);
@@ -152,6 +157,11 @@ internal sealed partial class PomodoroView : Grid, IWidgetView
         };
 
         Grid.SetRow(_controls, 3);
+
+        Grid.SetColumnSpan(_phaseRow, 2);
+        Grid.SetColumnSpan(_clockHost, 2);
+        Grid.SetColumnSpan(_progress, 2);
+        Grid.SetColumnSpan(_controls, 2);
 
         Children.Add(_phaseRow);
         Children.Add(_clockHost);
@@ -300,9 +310,34 @@ internal sealed partial class PomodoroView : Grid, IWidgetView
 
         var roomy = height >= 140;
 
+        // [S-644] On a short tile the countdown is what has to survive. A wide one moves the
+        // controls beside it, so the digits get the whole height; a narrow one drops the bar,
+        // which says only what the digits already do. Stacked as on a tall tile, a 120px tile had
+        // no room left for the digits at all and a 480px strip drew them at body size.
+        var beside = !roomy && ActualWidth >= 300;
+        var dropBar = !roomy && !beside;
+
+        // The card's header already leaves a gap under itself, so a short tile does not add a
+        // second full inset on top of it.
+        var padding = roomy ? WidgetLayout.Inset : new Thickness(Fluent.Space4, Fluent.Space1, Fluent.Space4, Fluent.Space3);
+        if (Padding != padding)
+        {
+            Padding = padding;
+        }
+
+        Grid.SetRow(_controls, beside ? 1 : 3);
+        Grid.SetColumn(_controls, beside ? 1 : 0);
+        Grid.SetColumnSpan(_controls, beside ? 1 : 2);
+        Grid.SetColumnSpan(_clockHost, beside ? 1 : 2);
+        _controls.VerticalAlignment = VerticalAlignment.Center;
+
+        _progress.Visibility = dropBar ? Visibility.Collapsed : Visibility.Visible;
+
         _phaseRow.Margin = new Thickness(0, 0, 0, Fluent.Space1);
-        _progress.Margin = new Thickness(0, roomy ? Fluent.Space3 : Fluent.Space2, 0, roomy ? Fluent.Space3 : Fluent.Space2);
-        _controls.Margin = new Thickness(0, roomy ? Fluent.Space1 : 0, 0, 0);
+        _progress.Margin = new Thickness(0, roomy ? Fluent.Space3 : Fluent.Space2, 0, roomy ? Fluent.Space3 : Fluent.Space1);
+        _controls.Margin = beside
+            ? new Thickness(Fluent.Space3, 0, 0, 0)
+            : new Thickness(0, Fluent.Space1, 0, 0);
 
         // The standard Windows control height, and its compact variant on a small tile. Square,
         // because the content is one 16px glyph.

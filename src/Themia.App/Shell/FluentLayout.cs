@@ -41,6 +41,65 @@ internal static class FluentLayout
 
     /// <summary>A settings row: icon, title, optional description, and a control on the right.</summary>
     public static Border Row(string glyph, string title, string? description, FrameworkElement control)
+        => Card(RowContent(GlyphIcon(glyph), title, description, control));
+
+    /// <summary>
+    /// A settings row whose icon is a picture rather than a glyph — a company's mark on the About
+    /// page. The picture takes the glyph's place and size, so the row lines up with its neighbours.
+    /// </summary>
+    public static Border Row(FrameworkElement icon, string title, string? description, FrameworkElement control)
+    {
+        ArgumentNullException.ThrowIfNull(icon);
+        icon.VerticalAlignment = VerticalAlignment.Center;
+        icon.Margin = new Thickness(0, 0, Fluent.Space4, 0);
+        return Card(RowContent(icon, title, description, control));
+    }
+
+    /// <summary>
+    /// A row that is itself the button — "open the config file" — with an arrow on the right saying
+    /// that it leaves this window, the shape Windows Settings uses for a link to elsewhere.
+    /// </summary>
+    public static Button ClickRow(string glyph, string title, string? description, Action onClick)
+    {
+        ArgumentNullException.ThrowIfNull(onClick);
+
+        var arrow = new FontIcon { Glyph = Glyphs.OpenExternal, FontSize = Fluent.IconSize - 4 };
+
+        var button = new Button
+        {
+            Content = RowContent(GlyphIcon(glyph), title, description, arrow),
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+            HorizontalContentAlignment = HorizontalAlignment.Stretch,
+            Padding = new Thickness(Fluent.Space4, Fluent.Space3, Fluent.Space4, Fluent.Space3),
+            CornerRadius = new CornerRadius(Fluent.ControlRadius),
+            BorderThickness = new Thickness(Fluent.Hairline),
+        };
+
+        // The stock button, re-filled as a settings card: the same fill and stroke as every row
+        // around it at rest, and a control's hover fill under the pointer.
+        void Set(string key, string brush, Windows.UI.Color fallback) => button.Resources[key] = Themed(brush, fallback);
+        Set("ButtonBackground", "CardBackgroundFillColorDefaultBrush", Colors.Transparent);
+        Set("ButtonBackgroundPointerOver", "ControlFillColorSecondaryBrush", Colors.Transparent);
+        Set("ButtonBackgroundPressed", "ControlFillColorTertiaryBrush", Colors.Transparent);
+        Set("ButtonBorderBrush", "CardStrokeColorDefaultBrush", Colors.Gray);
+        Set("ButtonBorderBrushPointerOver", "CardStrokeColorDefaultBrush", Colors.Gray);
+        Set("ButtonBorderBrushPressed", "CardStrokeColorDefaultBrush", Colors.Gray);
+
+        button.Click += (_, _) => onClick();
+        Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(button, title);
+        return button;
+    }
+
+    private static FontIcon GlyphIcon(string glyph) => new()
+    {
+        Glyph = glyph,
+        FontSize = Fluent.IconSize,
+        VerticalAlignment = VerticalAlignment.Center,
+        Margin = new Thickness(0, 0, Fluent.Space4, 0),
+    };
+
+    /// <summary>The inside of a row: icon, the title over its description, and the control.</summary>
+    private static Grid RowContent(FrameworkElement icon, string title, string? description, FrameworkElement control)
     {
         var text = new StackPanel { VerticalAlignment = VerticalAlignment.Center, Spacing = 2 };
         text.Children.Add(new TextBlock { Text = title, TextWrapping = TextWrapping.Wrap });
@@ -57,15 +116,6 @@ internal static class FluentLayout
         }
 
         Grid.SetColumn(text, 1);
-
-        var icon = new FontIcon
-        {
-            Glyph = glyph,
-            FontSize = Fluent.IconSize,
-            VerticalAlignment = VerticalAlignment.Center,
-            Margin = new Thickness(0, 0, Fluent.Space4, 0),
-        };
-
         Grid.SetColumn(icon, 0);
 
         control.HorizontalAlignment = HorizontalAlignment.Right;
@@ -84,7 +134,7 @@ internal static class FluentLayout
             Children = { icon, text, control },
         };
 
-        return Card(grid);
+        return grid;
     }
 
     /// <summary>

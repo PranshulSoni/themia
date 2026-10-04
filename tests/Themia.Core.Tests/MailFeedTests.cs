@@ -1,0 +1,415 @@
+using System.Globalization;
+using System.Text.Json;
+using System.Text.Json.Nodes;
+using Themia.Core.Accounts;
+using Themia.Core.Geometry;
+using Themia.Core.Mail;
+using Themia.Core.Model;
+using Themia.Core.Storage;
+using Themia.Core.Widgets;
+using Xunit;
+
+namespace Themia.Core.Tests;
+
+/// <summary>Provider mapping, merging, the refresh rule, the screens, the links and the config.</summary>
+public class MailFeedTests
+{
+    private static readonly DateTimeOffset Now = new(2026, 10, 4, 12, 0, 0, TimeSpan.Zero);
+
+    private static MailMessage Message(string account, string id, DateTimeOffset? at, bool read = true)
+        => new(account, AccountProvider.Microsoft, MailFolder.Inbox, id, "Subject " + id, "Sender", "s@x.com", at, read, string.Empty, string.Empty);
+
+    [Fact]
+    public void S545_graph_message_maps_every_field()
+    {
+        const string json = """
+            {"id":"AAMkAD=","subject":"Quarterly numbers","from":{"emailAddress":{"name":"Dana Ruiz","address":"dana@contoso.com"}},
+             "receivedDateTime":"2026-10-04T09:30:00Z","isRead":false,"bodyPreview":"Hi all,\r\n  attached are the numbers.","webLink":"https://outlook.office365.com/owa/?ItemID=AAMkAD%3D"}
+            """;
+
+        var graph = JsonSerializer.Deserialize(json, MailWireContext.Default.GraphMailMessage)!;
+        var message = MailWire.FromGraph(graph, "acc-1", MailFolder.Inbox)!;
+
+        Assert.Equal("AAMkAD=", message.RawId);
+        Assert.Equal("Quarterly numbers", message.Subject);
+        Assert.Equal("Dana Ruiz", message.FromName);
+        Assert.Equal("dana@contoso.com", message.FromAddress);
+        Assert.Equal(new DateTimeOffset(2026, 10, 4, 9, 30, 0, TimeSpan.Zero), message.Received);
+        Assert.False(message.IsRead);
+        Assert.Equal("Hi all, attached are the numbers.", message.Preview);
+        Assert.Equal(AccountProvider.Microsoft, message.Provider);
+
+        Assert.Null(MailWire.FromGraph(new GraphMailMessage(), "acc-1", MailFolder.Inbox));
+        Assert.Equal("(no subject)", MailWire.FromGraph(new GraphMailMessage { Id = "x" }, "a", MailFolder.Inbox)!.SubjectLine);
+    }
+
+    [Fact]
+    public void S545_gmail_message_maps_headers_labels_and_link()
+    {
+        const string json = """
+            {"id":"18f0","threadId":"18ef","labelIds":["INBOX","UNREAD"],"snippet":"It&#39;s ready &amp; waiting","internalDate":"1790000000000",
+             "payload":{"headers":[{"name":"Subject","value":"Your order"},{"name":"From","value":"\"Shop Team\" <team@shop.example>"}]}}
+            """;
+
+        var gmail = JsonSerializer.Deserialize(json, MailWireContext.Default.GmailMessage)!;
+        var message = MailWire.FromGmail(gmail, "google:1", "me@gmail.com", MailFolder.Inbox)!;
+
+        Assert.Equal("Your order", message.Subject);
+        Assert.Equal("Shop Team", message.FromName);
+        Assert.Equal("team@shop.example", message.FromAddress);
+        Assert.False(message.IsRead);
+        Assert.Equal("It's ready & waiting", message.Preview);
+        Assert.Equal(DateTimeOffset.FromUnixTimeMilliseconds(1_790_000_000_000), message.Received);
+        Assert.Equal("https://mail.google.com/mail/?authuser=me%40gmail.com#all/18ef", message.WebLink);
+
+        var read = MailWire.FromGmail(new GmailMessage { Id = "1", InternalDate = "garbage" }, "g", "a@b", MailFolder.Inbox)!;
+        Assert.True(read.IsRead);
+        Assert.Null(read.Received);
+        Assert.Equal(string.Empty, read.WebLink);
+    }
+
+    [Fact]
+    public void S545_request_addresses()
+    {
+        Assert.Equal(
+            "https://graph.microsoft.com/v1.0/me/mailFolders/junkemail/messages?$top=10&$select=id,subject,from,receivedDateTime,isRead,bodyPreview,webLink&$orderby=receivedDateTime%20desc",
+            MailWire.GraphMessages(MailFolder.Junk, 10).OriginalString);
+        Assert.Equal("https://gmail.googleapis.com/gmail/v1/users/me/messages?labelIds=SENT&maxResults=5", MailWire.GmailList(MailFolder.Sent, 5).OriginalString);
+        Assert.Equal("https://gmail.googleapis.com/gmail/v1/users/me/labels/TRASH", MailWire.GmailLabelCounts(MailFolder.Deleted).OriginalString);
+        Assert.Equal("{\"destinationId\":\"archive\"}", MailWire.GraphMoveBody(MailFolder.Archive));
+    }
+
+    [Fact]
+    public void S548_merge_takes_the_newest_n_then_orders_them()
+    {
+        var a = new[] { Message("a", "a1", Now.AddMinutes(-1)), Message("a", "a2", Now.AddHours(-5)) };
+        var b = new[] { Message("b", "b1", Now.AddMinutes(-30)), Message("b", "b2", null), Message("b", "b3", Now.AddDays(-3)) };
+
+        var newest = MailList.Merge([a, b], 3, MailSortOrder.NewestFirst);
+        Assert.Equal(["a1", "b1", "a2"], newest.Select(m => m.RawId));
+
+        // Oldest first is the same three, turned round — not the three oldest in the mailbox.
+        var oldest = MailList.Merge([a, b], 3, MailSortOrder.OldestFirst);
+        Assert.Equal(["a2", "b1", "a1"], oldest.Select(m => m.RawId));
+
+        // Undated sorts last.
+        Assert.Equal("b2", MailList.Merge([a, b], 10, MailSortOrder.NewestFirst)[^1].RawId);
+        Assert.Empty(MailList.Merge([a, b], 0, MailSortOrder.NewestFirst));
+    }
+
+    [Fact]
+    public void S548_unread_count()
+        => Assert.Equal(2, MailList.Unread([Message("a", "1", Now, read: false), Message("a", "2", Now), Message("a", "3", Now, read: false)]));
+
+    [Fact]
+    public void S546_fetch_only_when_the_counts_move_or_the_list_is_old()
+    {
+        var counts = new MailFolderStatus(100, 3);
+
+        Assert.True(MailRefresh.NeedsFetch(null, counts, null, Now));
+        Assert.True(MailRefresh.NeedsFetch(counts, counts, null, Now));
+        Assert.False(MailRefresh.NeedsFetch(counts, counts, Now.AddMinutes(-5), Now));
+        Assert.True(MailRefresh.NeedsFetch(counts, new MailFolderStatus(101, 4), Now.AddMinutes(-5), Now));
+        Assert.True(MailRefresh.NeedsFetch(counts, new MailFolderStatus(100, 2), Now.AddMinutes(-5), Now));
+        Assert.True(MailRefresh.NeedsFetch(counts, counts, Now - MailRefresh.FullRefreshAfter, Now));
+
+        // A clock that went backwards: fetch rather than trust a list "from the future".
+        Assert.True(MailRefresh.NeedsFetch(counts, counts, Now.AddMinutes(5), Now));
+    }
+
+    private static readonly MailAccount Work = new("w", AccountProvider.Microsoft, "Work", "me@contoso.com", null);
+    private static readonly MailAccount Home = new("h", AccountProvider.Imap, "Home", "me@fastmail.com", null);
+
+    private static MailAccountOutcome Ok(string id) => new(id, MailAccountState.Ok, FetchStatus.Ok, null);
+
+    private static MailAccountOutcome Failed(string id, FetchStatus status) => new(id, MailAccountState.Failed, status, "detail");
+
+    [Fact]
+    public void S549_no_account_at_all_offers_the_accounts_page()
+    {
+        var screen = MailScreens.Decide([], [], [], 0, MailFolder.Inbox);
+        Assert.Equal(MailScreenKind.NoAccounts, screen.Kind);
+        Assert.True(screen.OffersAccounts);
+    }
+
+    [Fact]
+    public void S549_an_empty_choice_reads_every_account_and_a_named_one_only_that()
+    {
+        Assert.Equal([Work, Home], MailScreens.Targets([Work, Home], []));
+        Assert.Equal([Home], MailScreens.Targets([Work, Home], ["h", "gone"]));
+
+        var gone = MailScreens.Decide([Work], ["gone"], [], 0, MailFolder.Inbox);
+        Assert.Equal(MailScreenKind.AccountsGone, gone.Kind);
+        Assert.True(gone.OffersAccounts);
+    }
+
+    [Fact]
+    public void S549_needs_sign_in_names_the_account()
+    {
+        var screen = MailScreens.Decide([Work with { Problem = "revoked" }], [], [], 0, MailFolder.Inbox);
+        Assert.Equal(MailScreenKind.SignInRequired, screen.Kind);
+        Assert.Equal("Work needs you to sign in again.", screen.Text);
+        Assert.True(screen.OffersAccounts);
+
+        // One broken, one fine and listing: the list shows, with a warning naming the broken one.
+        var partial = MailScreens.Decide([Work with { Problem = "revoked" }, Home], [], [Ok("h")], 4, MailFolder.Inbox);
+        Assert.Equal(MailScreenKind.Messages, partial.Kind);
+        Assert.Equal("Work needs you to sign in again.", partial.Warning);
+    }
+
+    [Fact]
+    public void S549_loading_offline_rate_limited_and_empty()
+    {
+        Assert.Equal(MailScreenKind.Loading, MailScreens.Decide([Work], [], [], 0, MailFolder.Inbox).Kind);
+
+        var offline = MailScreens.Decide([Work], [], [Failed("w", FetchStatus.Offline)], 0, MailFolder.Inbox);
+        Assert.Equal(MailScreenKind.Failed, offline.Kind);
+        Assert.StartsWith("No network.", offline.Text, StringComparison.Ordinal);
+        Assert.False(offline.OffersAccounts);
+
+        var limited = MailScreens.Decide([Work], [], [Failed("w", FetchStatus.RateLimited)], 0, MailFolder.Inbox);
+        Assert.Contains("slow down", limited.Text, StringComparison.Ordinal);
+
+        var signIn = MailScreens.Decide([Work], [], [Failed("w", FetchStatus.NotConfigured)], 0, MailFolder.Inbox);
+        Assert.Equal(MailScreenKind.SignInRequired, signIn.Kind);
+
+        var empty = MailScreens.Decide([Work], [], [Ok("w")], 0, MailFolder.Junk);
+        Assert.Equal(MailScreenKind.Empty, empty.Kind);
+        Assert.Equal("No messages in Junk.", empty.Text);
+
+        // One account still loading while the other is empty: still loading, not "empty".
+        Assert.Equal(MailScreenKind.Loading, MailScreens.Decide([Work, Home], [], [Ok("w")], 0, MailFolder.Inbox).Kind);
+    }
+
+    [Fact]
+    public void S549_a_failed_account_beside_a_working_one_warns_over_the_list()
+    {
+        var screen = MailScreens.Decide([Work, Home], [], [Ok("w"), Failed("h", FetchStatus.Unreachable)], 3, MailFolder.Inbox);
+        Assert.Equal(MailScreenKind.Messages, screen.Kind);
+        Assert.Equal("Could not refresh Home: can't reach the mail server.", screen.Warning);
+    }
+
+    [Fact]
+    public void S548_relative_times()
+    {
+        var us = CultureInfo.InvariantCulture;
+
+        Assert.Equal(string.Empty, MailTime.Short(null, Now, us));
+        Assert.Equal("now", MailTime.Short(Now.AddSeconds(-20), Now, us));
+        Assert.Equal("now", MailTime.Short(Now.AddMinutes(3), Now, us));
+        Assert.Equal("5m", MailTime.Short(Now.AddMinutes(-5), Now, us));
+        Assert.Equal("3h", MailTime.Short(Now.AddHours(-3), Now, us));
+        Assert.Equal("2d", MailTime.Short(Now.AddDays(-2), Now, us));
+        Assert.Equal("Sep 20", MailTime.Short(new DateTimeOffset(2026, 9, 20, 8, 0, 0, TimeSpan.Zero), Now, us));
+
+        Assert.Equal("09:05", MailTime.Full(new DateTimeOffset(2026, 10, 4, 9, 5, 0, TimeSpan.Zero), Now, us));
+        Assert.Equal("Fri", MailTime.Full(new DateTimeOffset(2026, 10, 2, 9, 5, 0, TimeSpan.Zero), Now, us));
+        Assert.Equal("Sep 20", MailTime.Full(new DateTimeOffset(2026, 9, 20, 9, 5, 0, TimeSpan.Zero), Now, us));
+    }
+
+    [Fact]
+    public void S547_open_and_reply_links()
+    {
+        var graph = Message("w", "AAMk/AD=", Now) with { WebLink = "https://outlook.office365.com/owa/?ItemID=1" };
+
+        Assert.Equal("ms-outlook://emails/AAMk%2FAD%3D", MailLinks.Open(graph, outlookInstalled: true));
+        Assert.Equal("https://outlook.office365.com/owa/?ItemID=1", MailLinks.Open(graph, outlookInstalled: false));
+        Assert.Equal("ms-outlook://emails/AAMk%2FAD%3D/reply", MailLinks.Reply(graph, outlookInstalled: true));
+
+        // issue #45a: IMAP has no web view — nothing to open, never an empty shell call.
+        var imap = graph with { Provider = AccountProvider.Imap, WebLink = string.Empty, Subject = "Lunch?" };
+        Assert.Null(MailLinks.Open(imap, outlookInstalled: true));
+        Assert.Equal("mailto:s@x.com?subject=Re%3A%20Lunch%3F", MailLinks.Reply(imap, outlookInstalled: true));
+        Assert.Equal("mailto:s@x.com?subject=RE%3A%20x", MailLinks.Reply(imap with { Subject = "RE: x" }, false));
+
+        // A sender address that could smuggle URL syntax gets no reply link at all.
+        Assert.Null(MailLinks.Reply(imap with { FromAddress = "a@b.com?cc=evil@x" }, false));
+        Assert.Null(MailLinks.Open(imap with { WebLink = "javascript:alert(1)" }, false));
+    }
+
+    [Theory]
+    [InlineData("https://mail.google.com/mail/#all/1", true)]
+    [InlineData("ms-outlook://emails/AAMk%2FAD%3D", true)]
+    [InlineData("ms-outlook://emails/AAMk%2FAD%3D/reply", true)]
+    [InlineData("mailto:a@b.com?subject=Re%3A%20hi", true)]
+    [InlineData("ms-outlook://emails/a b", false)]
+    [InlineData("ms-outlook://settings", false)]
+    [InlineData("mailto:a@b.com?subject=x&cc=evil@x", false)]
+    [InlineData("http://example.com", false)]
+    [InlineData("file:///C:/Windows/notepad.exe", false)]
+    [InlineData("C:\\Windows\\notepad.exe", false)]
+    [InlineData("", false)]
+    public void S547_only_the_three_link_shapes_are_launchable(string link, bool expected)
+        => Assert.Equal(expected, MailLinks.IsLaunchable(link));
+
+    [Fact]
+    public void S543_list_fields_gate_by_view()
+    {
+        var config = new EmailConfig();
+        Assert.True(config.Shows(MailListField.Subject));
+        Assert.True(config.Shows(MailListField.Preview));
+        Assert.True(config.Shows(MailListField.Account));
+
+        config.ViewMode = MailViewMode.Compact;
+        Assert.False(config.Shows(MailListField.Preview));
+        Assert.True(config.Shows(MailListField.Account));
+
+        config.ViewMode = MailViewMode.List;
+        config.ListFields = [MailListField.Subject];
+        Assert.False(config.Shows(MailListField.Account));
+        Assert.Equal(EmailConfig.DefaultColumns, config.EffectiveColumns);
+    }
+
+    /// <summary>A state document holding one Mail widget whose config is <paramref name="configJson"/>, plus a clock.</summary>
+    private static JsonNode StateWithMail(string configJson)
+    {
+        var state = AppState.CreateDefault();
+        state.Views[0].Widgets.Add(WidgetInstance.Create(WidgetKind.Email, new FracRect(0.1, 0.1, 0.2, 0.2)));
+        state.Views[0].Widgets.Add(WidgetInstance.Create(WidgetKind.Clock, new FracRect(0.5, 0.1, 0.2, 0.2)));
+
+        var document = JsonNode.Parse(SettingsTransfer.Serialize(state))!;
+        var mail = document["views"]![0]!["widgets"]!.AsArray().First(w => w!["kind"]!.GetValue<string>() == nameof(WidgetKind.Email))!;
+        mail["config"] = JsonNode.Parse(configJson);
+        return document;
+    }
+
+    private static EmailConfig MailOf(AppState state)
+        => Assert.IsType<EmailConfig>(state.Views[0].Widgets.First(w => w.Kind == WidgetKind.Email).Config);
+
+    [Fact]
+    public void S540_config_round_trips_under_the_classic_wire_names()
+    {
+        var state = AppState.CreateDefault();
+        var widget = WidgetInstance.Create(WidgetKind.Email, new FracRect(0.1, 0.1, 0.2, 0.2));
+        widget.Config = new EmailConfig
+        {
+            AccountIds = ["w"],
+            Folder = MailFolder.Junk,
+            MaxCount = 25,
+            ViewMode = MailViewMode.Row,
+            SortOrder = MailSortOrder.OldestFirst,
+            ListFields = [MailListField.Preview],
+            RowColumns = [MailColumn.Date, MailColumn.From],
+        };
+        state.Views[0].Widgets.Add(widget);
+
+        var json = SettingsTransfer.Serialize(state);
+
+        Assert.Contains("\"folder\": \"junkemail\"", json, StringComparison.Ordinal);
+        Assert.Contains("\"viewMode\": \"row\"", json, StringComparison.Ordinal);
+        Assert.Contains("\"sortOrder\": \"asc\"", json, StringComparison.Ordinal);
+        Assert.DoesNotContain("collectionId", json, StringComparison.Ordinal);
+
+        var parsed = AppStateStore.Parse(json);
+        var back = MailOf(parsed.State!);
+        Assert.Equal(MailFolder.Junk, back.Folder);
+        Assert.Equal([MailColumn.Date, MailColumn.From], back.RowColumns);
+        Assert.Equal([MailListField.Preview], back.ListFields);
+        Assert.Equal(["w"], back.AccountIds);
+        Assert.Equal(25, back.MaxCount);
+        Assert.DoesNotContain(parsed.Repairs, r => r.Contains("mail", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void S540_unknown_values_fall_back_instead_of_refusing_the_file()
+    {
+        var document = StateWithMail("""
+            {"kind":"email","accountIds":"not-a-list","folder":"nonsense","viewMode":7,"sortOrder":"sideways",
+             "listFields":["subject","bogus"],"rowColumns":[],"maxCount":500,"previewLines":0}
+            """);
+
+        var parsed = AppStateStore.Parse(document.ToJsonString());
+
+        Assert.NotNull(parsed.State);
+        Assert.Equal(AppState.CreateDefault().Views[0].Widgets.Count + 2, parsed.State!.Views[0].Widgets.Count);
+        var config = MailOf(parsed.State);
+        Assert.Equal(MailFolder.Inbox, config.Folder);
+        Assert.Equal(MailViewMode.List, config.ViewMode);
+        Assert.Equal(MailSortOrder.NewestFirst, config.SortOrder);
+        Assert.Equal([MailListField.Subject], config.ListFields);
+        Assert.Null(config.RowColumns);
+        Assert.Empty(config.AccountIds!);
+        Assert.Equal(50, config.MaxCount);
+        Assert.Equal(1, config.PreviewLines);
+        Assert.Contains(parsed.Repairs, r => r.Contains("mail", StringComparison.Ordinal));
+    }
+
+    /// <summary>
+    /// The user's saved state holds a Mail widget in the hearth-era shape. It must load — the whole
+    /// desktop with it — with the count kept, the hearth fields folded in, and the change logged.
+    /// </summary>
+    [Fact]
+    public void S540_hearth_era_mail_widget_migrates_on_load()
+    {
+        var document = StateWithMail("""{"kind":"email","collectionId":"hearth:mail:42","unreadOnly":false,"maxCount":17,"showPreview":false}""");
+
+        var parsed = AppStateStore.Parse(document.ToJsonString());
+
+        Assert.NotNull(parsed.State);
+        Assert.Equal(AppState.CreateDefault().Views[0].Widgets.Count + 2, parsed.State!.Views[0].Widgets.Count);
+        var config = MailOf(parsed.State);
+        Assert.Equal(17, config.MaxCount);
+        Assert.Empty(config.EffectiveAccountIds);
+        Assert.False(config.Shows(MailListField.Preview));
+        Assert.Null(config.LegacyCollectionId);
+        Assert.Null(config.LegacyShowPreview);
+        Assert.Contains(parsed.Repairs, r => r.Contains("hearth", StringComparison.Ordinal));
+
+        // Saved again, the hearth fields are gone.
+        var saved = SettingsTransfer.Serialize(parsed.State);
+        Assert.DoesNotContain("collectionId", saved, StringComparison.Ordinal);
+        Assert.DoesNotContain("unreadOnly", saved, StringComparison.Ordinal);
+
+        // A second load has nothing left to repair in that widget.
+        Assert.DoesNotContain(AppStateStore.Parse(saved).Repairs, r => r.Contains("mail", StringComparison.Ordinal));
+    }
+}
+
+/// <summary>[S-556] Shedding detail to fit the tile.</summary>
+public class MailLayoutTests
+{
+    [Fact]
+    public void S556_rows_shed_account_then_preview_on_a_small_tile()
+    {
+        var config = new EmailConfig { PreviewLines = 3 };
+
+        var large = MailLayout.Rows(config, 560, 380);
+        Assert.Equal(new MailRowLayout(true, true, 3, true, true), large);
+
+        // Narrow: the account tag goes, the rest stays.
+        Assert.False(MailLayout.Rows(config, 200, 380).Account);
+        Assert.True(MailLayout.Rows(config, 200, 380).Preview);
+
+        // Short: one preview line, then none.
+        Assert.Equal(1, MailLayout.Rows(config, 480, 120).PreviewLines);
+        Assert.False(MailLayout.Rows(config, 120, 80).Preview);
+
+        // Too narrow for a time beside the sender.
+        Assert.False(MailLayout.Rows(config, 100, 80).Time);
+
+        // Compact view never previews.
+        config.ViewMode = MailViewMode.Compact;
+        Assert.False(MailLayout.Rows(config, 560, 380).Preview);
+    }
+
+    [Fact]
+    public void S556_row_view_drops_the_least_essential_columns_first()
+    {
+        MailColumn[] all = [MailColumn.From, MailColumn.Subject, MailColumn.Date, MailColumn.Preview, MailColumn.Account];
+
+        Assert.Equal(all, MailLayout.Columns(all, 600, 8).Select(c => c.Column));
+        Assert.Equal([MailColumn.From, MailColumn.Subject, MailColumn.Date], MailLayout.Columns(all, 260, 8).Select(c => c.Column));
+        Assert.Equal([MailColumn.From], MailLayout.Columns(all, 50, 8).Select(c => c.Column));
+
+        // Too narrow for a subject: the date still fits beside the sender, so it stays.
+        Assert.Equal([MailColumn.From, MailColumn.Date], MailLayout.Columns(all, 168, 8).Select(c => c.Column));
+
+        // The user's order is kept; the flexible column takes the slack.
+        var fits = MailLayout.Columns([MailColumn.Date, MailColumn.Subject], 300, 8);
+        Assert.Equal([MailColumn.Date, MailColumn.Subject], fits.Select(c => c.Column));
+        Assert.Equal(1, fits[1].Star);
+
+        // With no flexible column the first one stretches so the row still fills.
+        Assert.Equal(1, MailLayout.Columns([MailColumn.Date, MailColumn.Account], 400, 8)[0].Star);
+    }
+}

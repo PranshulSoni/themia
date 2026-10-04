@@ -253,7 +253,8 @@ internal sealed partial class QuoteView : Grid, IWidgetView, IWidgetHeaderConten
     {
         var width = ActualWidth - (WidgetLayout.ContentInset * 2);
 
-        var authorHeight = _author.Visibility == Visibility.Visible ? FluentType.Body.LineHeight + Fluent.Space2 : 0;
+        var wantAuthor = _config.ShowAuthor && _author.Text.Length > 0;
+        var authorHeight = wantAuthor ? FluentType.Body.LineHeight + Fluent.Space2 : 0;
         var height = ActualHeight - authorHeight - WidgetLayout.ContentInset;
 
         if (!double.IsFinite(width) || !double.IsFinite(height))
@@ -261,8 +262,29 @@ internal sealed partial class QuoteView : Grid, IWidgetView, IWidgetHeaderConten
             return;
         }
 
-        var step = QuoteLayout.Fit(width, height, _text.Text.Length, FluentType.Caption, FluentType.Title);
+        // [S-653] Up to TitleLarge: a large tile set the quote at Title in two lines across the
+        // middle of an otherwise empty card.
+        var characters = _text.Text.Length;
+        var step = QuoteLayout.Fit(width, height, characters, FluentType.Caption, FluentType.TitleLarge);
+
+        // [S-653] On a tile where the quote does not fit even at the floor, the attribution gives
+        // its line back to the quote: the words are the widget, the name is a footnote to them.
+        var showAuthor = wantAuthor;
+        if (wantAuthor && QuoteLayout.Capacity(step, width, height) < characters)
+        {
+            showAuthor = false;
+            height += authorHeight;
+            step = QuoteLayout.Fit(width, height, characters, FluentType.Caption, FluentType.TitleLarge);
+        }
+
+        _author.Visibility = showAuthor ? Visibility.Visible : Visibility.Collapsed;
         _text.Apply(step);
+
+        // [S-653] A quote too long for the box even at the floor step ends in an ellipsis on the
+        // last line that fits, instead of being centred and running off the top and the bottom
+        // of the card at once.
+        var lines = (int)Math.Floor(height / step.LineHeight);
+        _text.MaxLines = Math.Max(1, lines);
 
         // The attribution sits one step down, never above Body: it is a name, not the quote.
         _author.Apply(step.FontSize > FluentType.Body.FontSize ? FluentType.Body : FluentType.Caption);

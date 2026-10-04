@@ -588,7 +588,7 @@ internal sealed partial class HabitTrackerView : Grid, IWidgetView, IWidgetSurfa
 
             _streak.Text = _streakDays == 0
                 ? string.Empty
-                : _streakSpelled ? $"{count} days" : count;
+                : _streakSpelled ? (_streakDays == 1 ? "1 day" : $"{count} days") : count;
 
             var words = _streakDays switch
             {

@@ -55,6 +55,14 @@ internal sealed partial class WeatherNowView : Grid, IWidgetView, IWidgetHeaderC
     private Ticker? _ticker;
     private WeatherNowConfig _config = new();
 
+    /// <summary>
+    /// [S-13a] A copy of the settings this view last acted on, which is what a change is measured
+    /// against. Not <c>_config</c>: the settings page edits the live config object in place, so by
+    /// the time a change arrives the "previous" config already holds the new values, and comparing
+    /// the two found no difference — a new address or place stayed unfetched until the next tick.
+    /// </summary>
+    private WeatherNowConfig _applied = new();
+
     /// <summary>The card this view draws on, which owns the header it names.</summary>
     private IWidgetSurface? _surface;
     private IDisposable? _subscription;
@@ -88,6 +96,12 @@ internal sealed partial class WeatherNowView : Grid, IWidgetView, IWidgetHeaderC
         _readout.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         _readout.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         _readout.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+
+        // The condition's own line, for a tile too narrow to keep it beside the number ([S-656]).
+        _readout.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        _readout.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        SetRowSpan(_look, 2);
+        _look.VerticalAlignment = VerticalAlignment.Center;
         _readout.Margin = WidgetLayout.SideInset;
         _readout.VerticalAlignment = VerticalAlignment.Center;
 
@@ -139,8 +153,9 @@ internal sealed partial class WeatherNowView : Grid, IWidgetView, IWidgetHeaderC
     public void ApplyConfig(WidgetConfig config)
     {
         var next = config as WeatherNowConfig ?? new WeatherNowConfig();
-        var previous = _config;
+        var previous = _applied;
         _config = next;
+        _applied = (WeatherNowConfig)next.Clone();
         PublishTitle();
 
         var placeChanged = previous.Latitude != next.Latitude
@@ -296,8 +311,8 @@ internal sealed partial class WeatherNowView : Grid, IWidgetView, IWidgetHeaderC
 
     private void OnSizeChanged(object sender, SizeChangedEventArgs e)
     {
-        ApplyTypeScale();
         UpdateDetailVisibility();
+        ApplyTypeScale();
     }
 
     /// <summary>
@@ -310,10 +325,52 @@ internal sealed partial class WeatherNowView : Grid, IWidgetView, IWidgetHeaderC
     /// </summary>
     private void ApplyTypeScale()
     {
-        var width = ActualWidth - (Fluent.Space4 * 2) - Fluent.Space6 - Fluent.Space3;
-        var height = _readout.ActualHeight > 0 ? _readout.ActualHeight : ActualHeight / 2;
+        // [S-656] Sized against the room the reading really has — the tile less its insets and
+        // the detail line — rather than against the readout's own height, which is only ever the
+        // height of the step already chosen: a tall tile kept the first, smallest step for good.
+        var width = ActualWidth - (Fluent.Space4 * 2);
+        var height = ActualHeight - DetailBlock();
 
-        var step = FluentType.Fit(width, height, ReadingCharacters, FluentType.Subtitle, FluentType.Display);
+        if (!(width > 0) || !(height > 0))
+        {
+            return;
+        }
+
+        // The icon is the first thing to go: on a tile that cannot hold it beside even the
+        // smallest reading, "19°C" matters and the cloud beside it does not.
+        var showIcon = width >= IconFor(FluentType.Subtitle) + Fluent.Space3 + FluentType.EstimateWidth(FluentType.Subtitle, ReadingCharacters);
+        _look.Visibility = showIcon ? Visibility.Visible : Visibility.Collapsed;
+
+        TypeStep Pick(double h)
+        {
+            var first = FluentType.Fit(width, h, ReadingCharacters, FluentType.Subtitle, FluentType.Display);
+            var room = showIcon ? width - IconFor(first) - Fluent.Space3 : width;
+            return FluentType.Fit(room, h, ReadingCharacters, FluentType.Subtitle, FluentType.Display);
+        }
+
+        var step = Pick(height);
+        var readingRoom = showIcon ? width - IconFor(step) - Fluent.Space3 : width;
+
+        // The condition moves under the temperature when it would be trimmed beside it ("Ove…"),
+        // and on a tile with no room for it even there it is left to its ellipsis.
+        var stacked = _condition.Text.Length > 0 && !ReadoutLayout.CaptionFitsBeside(
+            readingRoom,
+            step,
+            ReadingCharacters,
+            FluentType.Body,
+            _condition.Text.Length,
+            Fluent.Space2);
+
+        if (stacked)
+        {
+            step = Pick(height - FluentType.Body.LineHeight - Fluent.Space1);
+        }
+
+        SetRow(_condition, stacked ? 1 : 0);
+        SetColumn(_condition, stacked ? 1 : 2);
+        SetColumnSpan(_condition, stacked ? 2 : 1);
+        _condition.VerticalAlignment = stacked ? VerticalAlignment.Top : VerticalAlignment.Bottom;
+        _condition.Margin = stacked ? new Thickness(0) : new Thickness(Fluent.Space2, 0, 0, Fluent.Space1);
 
         if (step == _heroStep)
         {
@@ -325,8 +382,16 @@ internal sealed partial class WeatherNowView : Grid, IWidgetView, IWidgetHeaderC
 
         // The icon grows with the number it sits beside; a 16px glyph next to a 68px reading reads
         // as a bullet point rather than as the condition.
-        _look.FontSize = Math.Clamp(step.FontSize * 0.8, Fluent.Space6, 72);
+        _look.FontSize = IconFor(step);
     }
+
+    private static double IconFor(TypeStep step) => Math.Clamp(step.FontSize * 0.8, Fluent.Space6, 72);
+
+    /// <summary>What the detail line under the reading takes, when it is showing.</summary>
+    private double DetailBlock()
+        => _detailHost.Visibility == Visibility.Visible
+            ? FluentType.Caption.LineHeight + Fluent.Space4 + Fluent.Space2
+            : Fluent.Space2;
 
     private void UpdateDetailVisibility()
     {
@@ -396,22 +461,28 @@ internal sealed partial class WeatherNowView : Grid, IWidgetView, IWidgetHeaderC
                 ? $"{FetchState.Message(held.Status)}. Showing the reading from {FetchState.Freshness(held.At, now).ToLowerInvariant()}."
                 : $"Updated {FetchState.Freshness(held.At, now).ToLowerInvariant()}");
 
-        ApplyTypeScale();
+        // Detail first: whether it shows decides how much height the reading has.
         UpdateDetailVisibility();
+        ApplyTypeScale();
     }
 
     /// <summary>
-    /// The Segoe glyph for a condition.
+    /// The Segoe glyph for a condition. Shared with the forecast, so a day reads the same in both.
     /// <para>
-    /// Three glyphs for nine conditions, because <c>Glyphs</c> carries three weather code points
-    /// and this widget may not add to it. A full set — cloud, fog, drizzle, snow, thunderstorm —
-    /// would be five more constants there.
+    /// [S-652] One glyph per kind of weather. This used to fold rain, snow and thunder into the
+    /// thermometer — the forecast widget's own icon — because the weather code points in
+    /// <c>Glyphs</c> were not in the font and drew as boxes; they are fixed, so each condition has
+    /// its own shape again.
     /// </para>
     /// </summary>
-    private static string LookGlyph(WeatherLook look) => look switch
+    internal static string LookGlyph(WeatherLook look) => look switch
     {
         WeatherLook.Clear => Glyphs.Sun,
-        WeatherLook.Drizzle or WeatherLook.Rain or WeatherLook.Snow or WeatherLook.Thunderstorm => Glyphs.Forecast,
+        WeatherLook.PartlyCloudy or WeatherLook.Overcast => Glyphs.Cloudy,
+        WeatherLook.Fog => Glyphs.Fog,
+        WeatherLook.Drizzle or WeatherLook.Rain => Glyphs.Rain,
+        WeatherLook.Snow => Glyphs.Snow,
+        WeatherLook.Thunderstorm => Glyphs.Thunderstorm,
         _ => Glyphs.Weather,
     };
 

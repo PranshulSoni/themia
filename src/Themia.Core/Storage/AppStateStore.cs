@@ -24,6 +24,43 @@ public enum LoadOutcome
 public readonly record struct LoadResult(AppState State, LoadOutcome Outcome, string? Detail);
 
 /// <summary>
+/// A document read through <see cref="AppStateStore.Parse"/>: a validated state with the repairs it
+/// needed, or no state and the reason it was refused. Never a half-built state.
+/// </summary>
+public readonly record struct ParseResult(
+    AppState? State,
+    ParseRefusal Refusal,
+    string? Problem,
+    Exception? Error,
+    IReadOnlyList<string> Repairs)
+{
+    public static ParseResult Refused(ParseRefusal refusal, string problem, Exception? error = null)
+        => new(null, refusal, problem, error, []);
+}
+
+/// <summary>Why a document was refused. A closed set, so a caller can say it in its own words.</summary>
+public enum ParseRefusal
+{
+    /// <summary>Not refused.</summary>
+    None = 0,
+
+    /// <summary>Empty or whitespace — corrupt, not absent.</summary>
+    Empty = 1,
+
+    /// <summary>Not JSON at all.</summary>
+    NotJson = 2,
+
+    /// <summary>JSON, but not the shape of a state document.</summary>
+    NotState = 3,
+
+    /// <summary>Written by a newer build than this one.</summary>
+    NewerSchema = 4,
+
+    /// <summary>The file itself could not be read.</summary>
+    Unreadable = 5,
+}
+
+/// <summary>
 /// Single-writer, atomic persistence for <see cref="AppState"/>.
 /// <para>
 /// Writes go to a sibling temp file and are then moved over the target, so a crash mid-write can
@@ -44,12 +81,33 @@ public sealed class AppStateStore : IAsyncDisposable
     private CancellationTokenSource? _debounceCts;
     private bool _disposed;
 
+    /// <summary>False for a <see cref="Detached"/> store, which accepts saves and writes nothing.</summary>
+    private readonly bool _persists;
+
     public AppStateStore(string path, TimeSpan? debounce = null)
+        : this(path, debounce, persists: true)
+    {
+    }
+
+    private AppStateStore(string path, TimeSpan? debounce, bool persists)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(path);
         _path = path;
         _debounce = debounce ?? TimeSpan.FromMilliseconds(400);
+        _persists = persists;
     }
+
+    /// <summary>
+    /// A store that names <paramref name="path"/> but never writes to it: saves are accepted and
+    /// dropped.
+    /// <para>
+    /// For a host built only to be looked at — the debug settings render — where the pages must be
+    /// able to call the ordinary save path without the render ever touching the user's real state
+    /// file. A flag on the store rather than a second host, so the pages run exactly the code they
+    /// run in the app.
+    /// </para>
+    /// </summary>
+    public static AppStateStore Detached(string path) => new(path, TimeSpan.Zero, persists: false);
 
     public string Path => _path;
 
@@ -86,11 +144,37 @@ public sealed class AppStateStore : IAsyncDisposable
             return Recover("state file could not be read", ex, setAside: false);
         }
 
+        var parsed = Parse(json);
+        if (parsed.State is not { } state)
+        {
+            return Recover(parsed.Problem ?? "state file could not be read", parsed.Error, setAside: true);
+        }
+
+        if (parsed.Repairs.Count > 0)
+        {
+            Log.Warn(Scope, $"state loaded with {parsed.Repairs.Count} repair(s): {string.Join("; ", parsed.Repairs)}");
+        }
+
+        return new LoadResult(state, LoadOutcome.Loaded, parsed.Repairs.Count > 0 ? string.Join("; ", parsed.Repairs) : null);
+    }
+
+    /// <summary>
+    /// Turn a document into a validated state, or say why it cannot be one. The one trust boundary
+    /// for a state document, whether it is the app's own file at startup or a file the user picked
+    /// to import: both are read the same way, so an import can never accept something a restart
+    /// would then refuse.
+    /// <para>
+    /// Empty, unparseable, null and newer-schema documents are refused with a reason. Anything else
+    /// is repaired back inside its invariants (<see cref="Validate"/>) and the repairs are listed.
+    /// </para>
+    /// </summary>
+    public static ParseResult Parse(string? json)
+    {
         if (string.IsNullOrWhiteSpace(json))
         {
             // A zero-byte file is the classic result of a crash during a non-atomic write. It is
             // corrupt, not absent.
-            return Recover("state file is empty", null, setAside: true);
+            return ParseResult.Refused(ParseRefusal.Empty, "state file is empty");
         }
 
         AppState? parsed;
@@ -100,33 +184,27 @@ public sealed class AppStateStore : IAsyncDisposable
         }
         catch (JsonException ex)
         {
-            return Recover("state file is not valid JSON", ex, setAside: true);
+            return ParseResult.Refused(ParseRefusal.NotJson, "state file is not valid JSON", ex);
         }
         catch (NotSupportedException ex)
         {
-            return Recover("state file holds an unsupported shape", ex, setAside: true);
+            return ParseResult.Refused(ParseRefusal.NotState, "state file holds an unsupported shape", ex);
         }
 
         if (parsed is null)
         {
-            return Recover("state file deserialised to null", null, setAside: true);
+            return ParseResult.Refused(ParseRefusal.NotState, "state file deserialised to null");
         }
 
         if (parsed.SchemaVersion > AppState.CurrentSchemaVersion)
         {
-            return Recover(
-                $"state schema v{parsed.SchemaVersion} is newer than this build (v{AppState.CurrentSchemaVersion})",
-                null,
-                setAside: true);
+            return ParseResult.Refused(
+                ParseRefusal.NewerSchema,
+                $"state schema v{parsed.SchemaVersion} is newer than this build (v{AppState.CurrentSchemaVersion})");
         }
 
         var repairs = Validate(parsed);
-        if (repairs.Count > 0)
-        {
-            Log.Warn(Scope, $"state loaded with {repairs.Count} repair(s): {string.Join("; ", repairs)}");
-        }
-
-        return new LoadResult(parsed, LoadOutcome.Loaded, repairs.Count > 0 ? string.Join("; ", repairs) : null);
+        return new ParseResult(parsed, ParseRefusal.None, null, null, repairs);
     }
 
     /// <summary>
@@ -259,6 +337,12 @@ public sealed class AppStateStore : IAsyncDisposable
                 repairs.Add($"widget '{widget.Id}' had a missing or mismatched config");
             }
 
+            // The config's own invariants: ranges, and an older shape folded into the current one.
+            foreach (var repair in widget.Config.Repair())
+            {
+                repairs.Add($"widget '{widget.Id}': {repair}");
+            }
+
             if (!Enum.IsDefined(widget.Surface))
             {
                 widget.Surface = WidgetSurface.Card;
@@ -388,7 +472,7 @@ public sealed class AppStateStore : IAsyncDisposable
                 _pending = null;
             }
 
-            if (snapshot is null)
+            if (snapshot is null || !_persists)
             {
                 return;
             }

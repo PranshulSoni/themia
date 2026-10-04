@@ -192,6 +192,11 @@ internal sealed class DesktopWindow : IWidgetCardHost
     /// <summary>The id of the view this surface is currently showing.</summary>
     public string CurrentViewId => ViewForThisMonitor(_host.State).Id;
 
+    /// <summary>This display, as the view switcher sees it. Built on first ask.</summary>
+    public IWidgetDisplay? Display => _closed ? null : (_display ??= new SurfaceDisplay(_host, this));
+
+    private SurfaceDisplay? _display;
+
     public bool IsUnderCursor
     {
         get

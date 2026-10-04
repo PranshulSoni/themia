@@ -53,6 +53,27 @@ internal sealed partial class MusicView : Grid, IWidgetView
     /// <summary>The share of the tile's height the art takes between those two bounds.</summary>
     private const double ArtShare = 0.5;
 
+    /// <summary>From this height a tile too narrow for art beside the title stacks instead. [S-650]</summary>
+    private const double PortraitMinimumHeight = 300;
+
+    /// <summary>The share of a portrait tile's height the art on top may take.</summary>
+    private const double PortraitArtShare = 0.4;
+
+    /// <summary>Narrower than this, the title and artist cannot be read beside the transport.</summary>
+    private const double LinesMinimumWidth = 120;
+
+    /// <summary>A transport row under the lines: a button's height and the gap above it.</summary>
+    private const double TransportRowHeight = Fluent.RowHeightCompact + Fluent.Space2;
+
+    /// <summary>What the art leaves of the tile's height when the transport sits under it.</summary>
+    private const double TransportBelowReserve = 120;
+
+    /// <summary>
+    /// Three icon buttons and the gaps between them, until the transport has been measured once.
+    /// Its real width is used from then on.
+    /// </summary>
+    private const double TransportEstimate = 112;
+
     // Segoe Fluent Icons code points this view needs beyond the shared table.
     private static readonly string PreviousGlyph = From(0xE892);
     private static readonly string NextGlyph = From(0xE893);
@@ -75,7 +96,11 @@ internal sealed partial class MusicView : Grid, IWidgetView
     private readonly StackPanel _transport;
 
     private readonly Grid _body = new();
+    private readonly StackPanel _lines = new();
     private readonly StackPanel _empty;
+
+    /// <summary>The arrangement the last layout pass chose, so a pass that changes nothing moves nothing.</summary>
+    private MusicArrangement _arrangement = MusicArrangement.Row;
     private readonly TextBlock _emptyMessage = new();
 
     private Ticker? _ticker;
@@ -113,12 +138,17 @@ internal sealed partial class MusicView : Grid, IWidgetView
         _track.TextTrimming = TextTrimming.CharacterEllipsis;
         _subtitle.TextTrimming = TextTrimming.CharacterEllipsis;
 
-        var lines = new StackPanel
-        {
-            Spacing = Fluent.Space1,
-            VerticalAlignment = VerticalAlignment.Center,
-            Children = { _track, _subtitle },
-        };
+        var lines = _lines;
+        lines.Spacing = Fluent.Space1;
+        lines.VerticalAlignment = VerticalAlignment.Center;
+        lines.Children.Add(_track);
+        lines.Children.Add(_subtitle);
+
+        // Rows for the two arrangements that stack ([S-650]); in the side-by-side one everything
+        // sits in the first and the others are empty, so they take no height.
+        _body.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        _body.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        _body.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
 
         // Art on the left, the two lines taking the slack, the transport on the right at its
         // natural width. A Grid rather than a horizontal StackPanel: a StackPanel measures with
@@ -612,21 +642,57 @@ internal sealed partial class MusicView : Grid, IWidgetView
         var width = ActualWidth;
         var height = ActualHeight;
 
-        var showArt = _config.ShowAlbumArt && (width <= 0 || width >= ArtMinimumWidth);
+        var showTransport = _config.ShowTransport
+            && _now.HasTrack
+            && (height <= 0 || height >= TransportMinimumHeight);
+
+        // [S-650] A tall, narrow tile stacks: the art on top, the lines under it, the transport
+        // under those — the shape every media flyout has. Side by side, a 200px column gave the
+        // title the 26px left between the transport and the edge ("LA…").
+        var portrait = _config.ShowAlbumArt && height >= PortraitMinimumHeight && width > 0 && width < ArtMinimumWidth;
+
+        var showArt = _config.ShowAlbumArt && (portrait || width <= 0 || width >= ArtMinimumWidth);
         _artHost.Visibility = showArt ? Visibility.Visible : Visibility.Collapsed;
 
+        var side = ArtMinimum;
         if (showArt && height > 0)
         {
             // A square between a readable floor and a ceiling, rather than whatever is left over.
             // Left over is how a thumbnail ends up taller than the title it belongs to.
-            var side = Math.Clamp(height * ArtShare, ArtMinimum, ArtMaximum);
+            side = portrait
+                ? Math.Clamp(Math.Min(width - (Fluent.Space4 * 2), height * PortraitArtShare), ArtMinimum, ArtMaximum)
+                : Math.Clamp(height * ArtShare, ArtMinimum, ArtMaximum);
+        }
+
+        // [S-650] And when the transport beside the lines would leave them too little to read, it
+        // moves under them; the art stays beside, where it is the same height as the two lines.
+        var arrangement = MusicArrangement.Row;
+        if (portrait)
+        {
+            arrangement = MusicArrangement.Portrait;
+        }
+        else if (showTransport && width > 0)
+        {
+            var lines = width - (Fluent.Space4 * 2)
+                - (showArt ? side + Fluent.Space3 : 0)
+                - TransportWidth() - Fluent.Space3;
+
+            if (lines < LinesMinimumWidth)
+            {
+                arrangement = MusicArrangement.TransportBelow;
+
+                // The transport row now shares the height with the art, so the art gives some back.
+                side = Math.Clamp(Math.Min(side, height - TransportBelowReserve), ArtMinimum, ArtMaximum);
+            }
+        }
+
+        if (showArt)
+        {
             _artHost.Width = side;
             _artHost.Height = side;
         }
 
-        var showTransport = _config.ShowTransport
-            && _now.HasTrack
-            && (height <= 0 || height >= TransportMinimumHeight);
+        PlaceParts(arrangement);
 
         _transport.Visibility = showTransport ? Visibility.Visible : Visibility.Collapsed;
 
@@ -647,15 +713,18 @@ internal sealed partial class MusicView : Grid, IWidgetView
     private void ApplyTypeScale()
     {
         var width = ActualWidth - (Fluent.Space4 * 2);
+        var art = _artHost.Visibility == Visibility.Visible;
+        var transport = _transport.Visibility == Visibility.Visible;
 
-        if (_artHost.Visibility == Visibility.Visible)
+        // Only what shares the lines' row takes width from them.
+        if (art && _arrangement != MusicArrangement.Portrait)
         {
             width -= _artHost.Width + Fluent.Space3;
         }
 
-        if (_transport.Visibility == Visibility.Visible)
+        if (transport && _arrangement == MusicArrangement.Row)
         {
-            width -= _transport.ActualWidth + Fluent.Space3;
+            width -= TransportWidth() + Fluent.Space3;
         }
 
         // A title is long and is allowed to ellipsise, so the step is chosen against the height it
@@ -665,6 +734,16 @@ internal sealed partial class MusicView : Grid, IWidgetView
             - Fluent.Space4
             - (_progress.Visibility == Visibility.Visible ? Fluent.Space4 : 0)
             - (_times.Visibility == Visibility.Visible ? FluentType.Caption.LineHeight + Fluent.Space2 : 0);
+
+        // Stacked parts take their height out of the lines' share.
+        if (_arrangement == MusicArrangement.Portrait)
+        {
+            room -= (art ? _artHost.Height + Fluent.Space3 : 0) + (transport ? TransportRowHeight : 0);
+        }
+        else if (_arrangement == MusicArrangement.TransportBelow && transport)
+        {
+            room -= TransportRowHeight;
+        }
 
         var step = FluentType.Fit(
             Math.Max(1, width),
@@ -691,6 +770,37 @@ internal sealed partial class MusicView : Grid, IWidgetView
             _subtitleStep = subtitleStep;
             _subtitle.Apply(subtitleStep);
         }
+    }
+
+    private double TransportWidth() => _transport.ActualWidth > 0 ? _transport.ActualWidth : TransportEstimate;
+
+    /// <summary>Put the art, the lines and the transport where an arrangement wants them. [S-650]</summary>
+    private void PlaceParts(MusicArrangement arrangement)
+    {
+        _arrangement = arrangement;
+
+        var portrait = arrangement == MusicArrangement.Portrait;
+        var below = arrangement != MusicArrangement.Row;
+
+        SetRow(_artHost, 0);
+        SetColumn(_artHost, 0);
+        SetColumnSpan(_artHost, portrait ? 3 : 1);
+
+        SetRow(_lines, portrait ? 1 : 0);
+        SetColumn(_lines, portrait ? 0 : 1);
+        SetColumnSpan(_lines, portrait ? 3 : 1);
+        _lines.Margin = portrait ? new Thickness(0, Fluent.Space3, 0, 0) : new Thickness(0);
+
+        SetRow(_transport, portrait ? 2 : below ? 1 : 0);
+        SetColumn(_transport, below ? 0 : 2);
+        SetColumnSpan(_transport, below ? 3 : 1);
+        _transport.HorizontalAlignment = below ? HorizontalAlignment.Center : HorizontalAlignment.Stretch;
+        _transport.Margin = below ? new Thickness(0, Fluent.Space2, 0, 0) : new Thickness(0);
+
+        // Stacked lines are centred under the art, the way a media flyout sets them.
+        var alignment = portrait ? TextAlignment.Center : TextAlignment.Left;
+        _track.TextAlignment = alignment;
+        _subtitle.TextAlignment = alignment;
     }
 
     private void OnPlayPause(object sender, RoutedEventArgs args) => Press(MediaTransport.PlayPause);
@@ -765,4 +875,17 @@ internal sealed partial class MusicView : Grid, IWidgetView
     }
 
     private static string From(int codePoint) => char.ConvertFromUtf32(codePoint);
+}
+
+/// <summary>How the now-playing tile sets out its parts at a given size. [S-650]</summary>
+internal enum MusicArrangement
+{
+    /// <summary>Art, lines and transport side by side.</summary>
+    Row,
+
+    /// <summary>Art and lines side by side, the transport centred under them.</summary>
+    TransportBelow,
+
+    /// <summary>Art on top, the lines under it, the transport under those.</summary>
+    Portrait,
 }

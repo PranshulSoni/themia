@@ -21,7 +21,7 @@ internal sealed partial class TabsView : Grid, IWidgetView, IWidgetContainerView
     private readonly StackPanel _strip = new();
     private readonly ScrollViewer _stripScroll;
     private readonly Grid _body = new();
-    private readonly TextBlock _empty;
+    private readonly StackPanel _empty;
     private readonly List<IDisposable> _hovers = [];
     private readonly List<FrameworkElement> _children = [];
 
@@ -43,13 +43,12 @@ internal sealed partial class TabsView : Grid, IWidgetView, IWidgetContainerView
             VerticalScrollBarVisibility = ScrollBarVisibility.Disabled,
         };
 
-        _empty = Fluent.Text(FluentType.Body, "TextFillColorSecondaryBrush");
-        _empty.Text = "Nothing in here yet. Drag a widget onto it in edit mode.";
-        _empty.TextWrapping = TextWrapping.Wrap;
-        _empty.TextTrimming = TextTrimming.None;
-        _empty.TextAlignment = TextAlignment.Center;
-        _empty.VerticalAlignment = VerticalAlignment.Center;
-        _empty.Padding = new Thickness(Fluent.Space4, 0, Fluent.Space4, 0);
+        // [S-642] The shared empty state rather than a bare text block of its own, so it sheds to
+        // fit a small tile like every other one instead of running off the top and bottom of it.
+        _empty = Fluent.EmptyState(
+            WidgetCatalog.Definition(WidgetKind.Tabs).Glyph,
+            new TextBlock { Text = "Nothing in here yet. Drag a widget onto it in edit mode." },
+            out _);
 
         RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });

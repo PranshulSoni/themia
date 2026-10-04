@@ -85,6 +85,10 @@ internal sealed partial class PowerView : Grid, IWidgetView
         _reading.ColumnSpacing = Fluent.Space2;
         _reading.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         _reading.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+
+        // The caption's own line, used only when it cannot sit beside the readout ([S-646]).
+        _reading.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        _reading.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         _reading.Margin = WidgetLayout.SideInset;
         _reading.VerticalAlignment = VerticalAlignment.Center;
 
@@ -333,24 +337,40 @@ internal sealed partial class PowerView : Grid, IWidgetView
             + rowsHeight
             + Fluent.Space4;
 
-        var readingWidth = _caption.Visibility == Visibility.Visible ? width / 2 : width;
+        var hasCaption = !string.IsNullOrEmpty(_caption.Text);
+        var readingWidth = hasCaption ? width / 2 : width;
+        var readingHeight = Math.Min(ActualHeight - chrome, FluentType.Display.LineHeight);
 
         // The worst case this readout can hold, not the string currently in it: fitting to the live
         // text would make "9%" and "Plugged in" pick different steps and the headline would jump
         // size when the charger came out.
         var characters = _snapshot.HasBattery ? 4 : 10;
 
-        var hero = FluentType.Hero(
-            readingWidth,
-            Math.Min(ActualHeight - chrome, FluentType.Display.LineHeight),
-            characters);
+        var hero = Readout(readingWidth, readingHeight, characters);
 
-        if (hero.FontSize < FluentType.Subtitle.FontSize)
+        // [S-646] A caption that would be trimmed beside the readout goes under it instead, and so
+        // does one whose place beside it only makes the readout smaller.
+        var under = Readout(width, readingHeight - FluentType.Body.LineHeight, characters);
+        var stacked = hasCaption && (under.FontSize > hero.FontSize || !ReadoutLayout.CaptionFitsBeside(
+            width,
+            hero,
+            characters,
+            CaptionFor(hero),
+            _caption.Text.Length,
+            Fluent.Space2));
+
+        if (stacked)
         {
-            hero = FluentType.Subtitle;
+            hero = under;
         }
 
-        var caption = hero.FontSize >= FluentType.Title.FontSize ? FluentType.Body : FluentType.Caption;
+        var caption = CaptionFor(hero);
+
+        SetRow(_caption, stacked ? 1 : 0);
+        SetColumn(_caption, stacked ? 0 : 1);
+        SetColumnSpan(_caption, stacked ? 2 : 1);
+        _caption.VerticalAlignment = stacked ? VerticalAlignment.Top : VerticalAlignment.Bottom;
+        _caption.Margin = stacked ? new Thickness(0) : new Thickness(0, 0, 0, Fluent.Space1);
 
         if (hero != _heroStep)
         {
@@ -364,6 +384,31 @@ internal sealed partial class PowerView : Grid, IWidgetView
             _caption.Apply(caption);
         }
     }
+
+    /// <summary>
+    /// The headline's step for a box. Subtitle is its floor wherever Subtitle fits across the box —
+    /// the headline must not end up smaller than the card's own header label — but never past it:
+    /// a floor wider than the tile is how "Plugged in" was cut to "Plugged i" on a small one
+    /// ([S-647]). There the widest step that fits takes over, down to Body.
+    /// </summary>
+    private static TypeStep Readout(double width, double height, double characters)
+    {
+        var hero = FluentType.Hero(width, height, characters);
+
+        if (hero.FontSize >= FluentType.Subtitle.FontSize)
+        {
+            return hero;
+        }
+
+        // Strong, because a headline that drops to body size must still read as the headline.
+        return FluentType.EstimateWidth(FluentType.Subtitle, characters) <= width
+            ? FluentType.Subtitle
+            : FluentType.Strong(FluentType.Fit(width, FluentType.Subtitle.LineHeight, characters, FluentType.Body, FluentType.Subtitle));
+    }
+
+    /// <summary>The caption steps once with the headline: Body beside a Title or larger, Caption below.</summary>
+    private static TypeStep CaptionFor(TypeStep readout)
+        => readout.FontSize >= FluentType.Title.FontSize ? FluentType.Body : FluentType.Caption;
 
     public void Detach()
     {

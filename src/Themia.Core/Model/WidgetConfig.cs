@@ -47,6 +47,20 @@ namespace Themia.Core.Model;
 [JsonDerivedType(typeof(GroupConfig), typeDiscriminator: "group")]
 [JsonDerivedType(typeof(StackConfig), typeDiscriminator: "stack")]
 [JsonDerivedType(typeof(TabsConfig), typeDiscriminator: "tabs")]
+[JsonDerivedType(typeof(VideoStreamConfig), typeDiscriminator: "videoStream")]
+[JsonDerivedType(typeof(WebElementConfig), typeDiscriminator: "webElement")]
+[JsonDerivedType(typeof(GpuConfig), typeDiscriminator: "gpu")]
+[JsonDerivedType(typeof(MixerConfig), typeDiscriminator: "mixer")]
+[JsonDerivedType(typeof(ScreenTimeConfig), typeDiscriminator: "screenTime")]
+[JsonDerivedType(typeof(HelpConfig), typeDiscriminator: "help")]
+[JsonDerivedType(typeof(ThemiaConfig), typeDiscriminator: "themia")]
+[JsonDerivedType(typeof(ViewSwitcherConfig), typeDiscriminator: "viewSwitcher")]
+[JsonDerivedType(typeof(OneDriveConfig), typeDiscriminator: "oneDrive")]
+[JsonDerivedType(typeof(GitHubConfig), typeDiscriminator: "gitHub")]
+[JsonDerivedType(typeof(GitHubIssuesConfig), typeDiscriminator: "gitHubIssues")]
+[JsonDerivedType(typeof(GitHubNotificationsConfig), typeDiscriminator: "gitHubNotifications")]
+[JsonDerivedType(typeof(GitHubReviewsConfig), typeDiscriminator: "gitHubReviews")]
+[JsonDerivedType(typeof(ClaudeUsageConfig), typeDiscriminator: "claudeUsage")]
 public abstract class WidgetConfig
 {
     /// <summary>The kind this config belongs to. Used to detect a config/kind mismatch on load.</summary>
@@ -95,10 +109,32 @@ public abstract class WidgetConfig
         WidgetKind.Group => new GroupConfig(),
         WidgetKind.Stack => new StackConfig(),
         WidgetKind.Tabs => new TabsConfig(),
+        WidgetKind.VideoStream => new VideoStreamConfig(),
+        WidgetKind.WebElement => new WebElementConfig(),
+        WidgetKind.Gpu => new GpuConfig(),
+        WidgetKind.Mixer => new MixerConfig(),
+        WidgetKind.ScreenTime => new ScreenTimeConfig(),
+        WidgetKind.Help => new HelpConfig(),
+        WidgetKind.Themia => new ThemiaConfig(),
+        WidgetKind.ViewSwitcher => new ViewSwitcherConfig(),
+        WidgetKind.OneDrive => new OneDriveConfig(),
+        WidgetKind.GitHub => new GitHubConfig(),
+        WidgetKind.GitHubIssues => new GitHubIssuesConfig(),
+        WidgetKind.GitHubNotifications => new GitHubNotificationsConfig(),
+        WidgetKind.GitHubReviews => new GitHubReviewsConfig(),
+        WidgetKind.ClaudeUsage => new ClaudeUsageConfig(),
         _ => new ClockConfig(),
     };
 
     public abstract WidgetConfig Clone();
+
+    /// <summary>
+    /// Bring a config read from disk back inside its own invariants — clamp ranges, fold an older
+    /// shape into the current one — and say what had to change. Run once at load by
+    /// <c>AppStateStore.Validate</c>, so the repairs are logged with the rest. Most configs have
+    /// nothing to repair.
+    /// </summary>
+    public virtual IReadOnlyList<string> Repair() => [];
 }
 
 public sealed class ClockConfig : WidgetConfig
@@ -249,44 +285,4 @@ public sealed class BatteryConfig : GaugeConfig
         CopyTo(copy);
         return copy;
     }
-}
-
-/// <summary>
-/// Recent mail. No account settings of its own: the hearth hub owns the accounts, the sync and the
-/// consent, so this only says which of the collections hearth has granted to show.
-/// </summary>
-public sealed class EmailConfig : WidgetConfig
-{
-    [JsonIgnore]
-    public override WidgetKind Kind => WidgetKind.Email;
-
-    /// <summary>Hearth collection id, or empty for every collection the app may read.</summary>
-    public string CollectionId { get; set; } = string.Empty;
-
-    /// <summary>Hide messages that have already been read.</summary>
-    public bool UnreadOnly { get; set; }
-
-    /// <summary>How many messages to list, 1 to 50.</summary>
-    public int MaxCount { get; set; } = 10;
-
-    /// <summary>Show the one-line preview hearth derives from the body.</summary>
-    public bool ShowPreview { get; set; } = true;
-
-    /// <summary>
-    /// The list is refreshed by hearth's change events, not by polling, so the timer is only a
-    /// backstop that keeps the relative timestamps ("4m", "3h") honest.
-    /// </summary>
-    [JsonIgnore]
-    public TimeSpan TickInterval => TimeSpan.FromMinutes(1);
-
-    public override WidgetConfig Clone() => new EmailConfig
-    {
-        CollectionId = CollectionId,
-        UnreadOnly = UnreadOnly,
-        MaxCount = MaxCount,
-        ShowPreview = ShowPreview,
-    };
-
-    /// <summary>Clamp the count into the supported range; a persisted zero would show an empty widget.</summary>
-    public int EffectiveMaxCount => Math.Clamp(MaxCount, 1, 50);
 }

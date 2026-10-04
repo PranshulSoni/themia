@@ -66,7 +66,7 @@ internal static class Glyphs
     public static readonly string Stop = From(0xE71A);
     public static readonly string Sound = From(0xE767);
     public static readonly string Link = From(0xE71B);
-    public static readonly string Wrap = From(0xE7A3);
+    public static readonly string Wrap = From(0xE751); // [S-652] E7A3 is not in the font: a return arrow
     public static readonly string Clear = From(0xE894);
     public static readonly string MoveUp = From(0xE74A);
     public static readonly string MoveDown = From(0xE74B);
@@ -101,12 +101,15 @@ internal static class Glyphs
 
     // The weather set. These code points are the least certain in this file: a wrong one renders
     // as a hollow box rather than failing, so they are checked against a screenshot rather than
-    // trusted.
-    public static readonly string Cloudy = From(0xE9BF);
-    public static readonly string Fog = From(0xE9CB);
-    public static readonly string Rain = From(0xE9C4);
-    public static readonly string Snow = From(0xE9C8);
-    public static readonly string Thunderstorm = From(0xE9C6);
+    // trusted. [S-652] The earlier E9BF/E9CB/E9C4/E9C8/E9C6 are in neither Segoe Fluent Icons nor
+    // MDL2 (checked against the font's cmap) and drew as boxes. Segoe Fluent has no dedicated
+    // weather set, so these are its nearest shapes, each checked on a rendered sheet: a cloud,
+    // wind lines, a cloud with falling drops, a snowflake, a bolt.
+    public static readonly string Cloudy = From(0xE753);
+    public static readonly string Fog = From(0xE7BC);
+    public static readonly string Rain = From(0xEA91);
+    public static readonly string Snow = From(0xEA38);
+    public static readonly string Thunderstorm = From(0xE945);
     public static readonly string Stocks = From(0xEB05);
     public static readonly string Rss = From(0xE8F1);
     public static readonly string Apps = From(0xE71D);
@@ -114,7 +117,7 @@ internal static class Glyphs
     public static readonly string Clipboard = From(0xE77F);
     public static readonly string Scratchpad = From(0xE70F);
     public static readonly string Color = From(0xE790);
-    public static readonly string Quote = From(0xE9E5);
+    public static readonly string Quote = From(0xE9B2); // [S-652] E9E5 is not in the font: an opening quote mark
     public static readonly string Gallery = From(0xE91B);
     public static readonly string Habit = From(0xE73E);
     public static readonly string Mood = From(0xE76E);
@@ -122,6 +125,55 @@ internal static class Glyphs
     public static readonly string Group = From(0xF168);
     public static readonly string Stack = From(0xE81E);
     public static readonly string Tabs = From(0xE737);
+
+    // The system widgets: mixer and screen time (the GPU glyph sits with the other meters).
+    public static readonly string Mixer = From(0xE9E9);
+    public static readonly string ScreenTime = From(0xEC92);
+    public static readonly string Bell = From(0xEA8F);
+    public static readonly string Hide = From(0xED1A);
+
+    // The web widgets.
+    public static readonly string Video = From(0xE714);
+    public static readonly string WebElement = From(0xE774);
+    public static readonly string Rotate = From(0xE7AD);
+    public static readonly string Refresh = From(0xE72C);
+    public static readonly string Pick = From(0xE7C9);
+    public static readonly string Fit = From(0xE9A6);
+
+    // The app widgets and the About page.
+    public static readonly string Help = From(0xE897);
+    public static readonly string Themia = From(0xE8A9);
+    public static readonly string Home = From(0xE80F);
+    public static readonly string Export = From(0xEDE1);
+    public static readonly string Import = From(0xE8B5);
+    public static readonly string Code = From(0xE943);
+    public static readonly string OpenExternal = From(0xE8A7);
+
+    // The Mail widget's message commands and folders.
+    public static readonly string MailRead = From(0xE8C3);
+    public static readonly string MailReply = From(0xE8CA);
+    public static readonly string Archive = From(0xE7B8);
+    public static readonly string Junk = From(0xE8F8);
+    public static readonly string Send = From(0xE724);
+
+    // The Tasks and OneDrive widgets.
+    public static readonly string OneDrive = From(0xE753);
+    public static readonly string Back = From(0xE72B);
+    public static readonly string Today = From(0xE8BF);
+    public static readonly string Important = From(0xE8C9);
+    public static readonly string Document = From(0xE8A5);
+    public static readonly string Spreadsheet = From(0xE80A);
+    public static readonly string Presentation = From(0xE7F4);
+    public static readonly string Audio = From(0xE8D6);
+
+    // The developer widgets (GitHub, Claude usage). Checked against SegoeIcons.ttf's cmap and a
+    // rendered sheet: three joined nodes (a branch), a circled "!", a star, a gauge, a tag.
+    public static readonly string PullRequest = From(0xF003);
+    public static readonly string Issue = From(0xE783);
+    public static readonly string Star = From(0xE734);
+    public static readonly string Gauge = From(0xEC4A);
+    public static readonly string Tag = From(0xE8EC);
+    public static readonly string Dot = From(0xE91F);
 
     private static string From(int codePoint) => char.ConvertFromUtf32(codePoint);
 }

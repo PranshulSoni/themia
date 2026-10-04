@@ -1,0 +1,283 @@
+using System.Globalization;
+
+namespace Themia.Core.Widgets;
+
+/// <summary>How hard a reading is pressing against its limit. The view maps it to a theme colour.</summary>
+public enum GpuPressure
+{
+    Normal = 0,
+    High = 1,
+    Critical = 2,
+}
+
+/// <summary>One adapter's figures for one sample. Every optional field is null when nothing answered it.</summary>
+/// <param name="Name">What the driver calls the adapter.</param>
+/// <param name="Utilization">0..100: the busiest engine.</param>
+/// <param name="DedicatedUsed">Bytes of dedicated video memory in use.</param>
+/// <param name="DedicatedTotal">Bytes of dedicated video memory, or 0 when unknown.</param>
+/// <param name="SharedUsed">Bytes of shared system memory the adapter is using.</param>
+/// <param name="SharedTotal">The shared budget Windows gives the adapter, in bytes.</param>
+public sealed record GpuReading(
+    string Name,
+    double Utilization,
+    ulong DedicatedUsed,
+    ulong DedicatedTotal,
+    ulong SharedUsed,
+    ulong SharedTotal)
+{
+    /// <summary>
+    /// False while the load is not yet a real figure: the counters are a rate and need a second
+    /// reading. The driver's own figure is real at once.
+    /// </summary>
+    public bool HasLoad { get; init; } = true;
+
+    public double? TemperatureC { get; init; }
+
+    public double? PowerWatts { get; init; }
+
+    public int? FanPercent { get; init; }
+
+    public int? CoreClockMhz { get; init; }
+
+    public int? MemoryClockMhz { get; init; }
+
+    public double? EncoderPercent { get; init; }
+
+    public double? DecoderPercent { get; init; }
+}
+
+/// <summary>
+/// The decisions behind the GPU meter that do not need a GPU to test: which adapters a config
+/// means, how a performance-counter instance name maps onto an adapter, how one load figure is
+/// made out of a few hundred engine counters, and which memory rows are honest enough to draw.
+/// </summary>
+public static class GpuRules
+{
+    /// <summary>[S-430] Samples the sparkline holds, the same window the other meters keep.</summary>
+    public const int HistoryLength = 60;
+
+    /// <summary>
+    /// [S-433] The adapters a widget shows. Negative and repeated entries are dropped, order is kept,
+    /// and an empty or absent list means the primary adapter — a widget never draws nothing because
+    /// its selection was emptied.
+    /// </summary>
+    public static List<int> ResolveAdapters(IReadOnlyList<int>? raw)
+    {
+        var selected = SelectedAdapters(raw);
+        return selected.Count > 0 ? selected : [0];
+    }
+
+    /// <summary>
+    /// [S-433] The selection the settings picker ticks: the same clean-up, but no primary-adapter
+    /// default. Unticking the last adapter has to leave the picker empty, not tick adapter 0 again
+    /// behind the user's back — the default is a drawing concern, not a picker one.
+    /// </summary>
+    public static List<int> SelectedAdapters(IReadOnlyList<int>? raw)
+    {
+        var result = new List<int>();
+
+        if (raw is null)
+        {
+            return result;
+        }
+
+        foreach (var index in raw)
+        {
+            if (index >= 0 && !result.Contains(index))
+            {
+                result.Add(index);
+            }
+        }
+
+        return result;
+    }
+
+    /// <summary>[S-433] Two or more adapters stack as panels; one fills the widget.</summary>
+    public static bool Stacked(int count) => count >= 2;
+
+    /// <summary>The token an adapter's counters are filed under: <c>luid_0x{high}_0x{low}</c>, lower case.</summary>
+    public static string LuidKey(uint high, uint low)
+        => string.Create(CultureInfo.InvariantCulture, $"luid_0x{high:x8}_0x{low:x8}");
+
+    /// <summary>
+    /// [S-434] The adapter a counter instance belongs to.
+    /// <para>
+    /// Engine instances read <c>pid_1234_luid_0x0_0xabcd_phys_0_eng_3_engtype_3D</c> and memory
+    /// instances <c>luid_0x0_0xabcd_phys_0</c>. The original matched with "starts with the LUID",
+    /// which is never true of the <c>pid_</c>-prefixed engine names, so load collapsed to zero the
+    /// moment an adapter was chosen. The token is found wherever it sits instead.
+    /// </para>
+    /// </summary>
+    /// <returns>The lower-case LUID token, or null when the name carries none.</returns>
+    public static string? LuidOf(string instance)
+    {
+        if (string.IsNullOrEmpty(instance))
+        {
+            return null;
+        }
+
+        var start = instance.IndexOf("luid_", StringComparison.OrdinalIgnoreCase);
+        if (start < 0)
+        {
+            return null;
+        }
+
+        var rest = instance[start..];
+        var end = rest.IndexOf("_phys_", StringComparison.OrdinalIgnoreCase);
+        var token = end < 0 ? rest : rest[..end];
+
+        return token.ToLowerInvariant();
+    }
+
+    /// <summary>
+    /// The engine a counter instance measures, within its adapter — <c>phys_0_eng_3</c> — so the
+    /// per-process instances of one engine can be added up. Null when the name has no engine part.
+    /// </summary>
+    public static string? EngineOf(string instance)
+    {
+        if (string.IsNullOrEmpty(instance))
+        {
+            return null;
+        }
+
+        var start = instance.IndexOf("phys_", StringComparison.OrdinalIgnoreCase);
+        if (start < 0)
+        {
+            return null;
+        }
+
+        var rest = instance[start..];
+        var end = rest.IndexOf("_engtype_", StringComparison.OrdinalIgnoreCase);
+        var token = end < 0 ? rest : rest[..end];
+
+        return token.Contains("_eng_", StringComparison.OrdinalIgnoreCase) ? token.ToLowerInvariant() : null;
+    }
+
+    /// <summary>
+    /// [S-434] One load figure for an adapter, from its engine counters.
+    /// <para>
+    /// The counters are per process <i>and</i> per engine, so each engine's share is the sum across
+    /// processes, and the adapter's load is its busiest engine — the figure Task Manager shows. The
+    /// original summed only the 3D engine, which reads near zero while the card decodes video or
+    /// runs compute. Junk readings (negative, not finite) count as nothing; the result is 0..100.
+    /// </para>
+    /// </summary>
+    public static double Utilization(IEnumerable<(string Instance, double Percent)> engines, string luid)
+    {
+        ArgumentNullException.ThrowIfNull(engines);
+
+        var perEngine = new Dictionary<string, double>(StringComparer.Ordinal);
+
+        foreach (var (instance, percent) in engines)
+        {
+            if (!double.IsFinite(percent) || percent <= 0)
+            {
+                continue;
+            }
+
+            if (!string.Equals(LuidOf(instance), luid, StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            var engine = EngineOf(instance) ?? string.Empty;
+            perEngine[engine] = perEngine.GetValueOrDefault(engine) + percent;
+        }
+
+        var busiest = 0.0;
+        foreach (var value in perEngine.Values)
+        {
+            busiest = Math.Max(busiest, value);
+        }
+
+        return Math.Clamp(busiest, 0, 100);
+    }
+
+    /// <summary>[S-434] Bytes an adapter's memory counter instances add up to. Negative readings are dropped.</summary>
+    public static ulong Bytes(IEnumerable<(string Instance, long Bytes)> items, string luid)
+    {
+        ArgumentNullException.ThrowIfNull(items);
+
+        ulong total = 0;
+        foreach (var (instance, bytes) in items)
+        {
+            if (bytes <= 0 || !string.Equals(LuidOf(instance), luid, StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            total += (ulong)bytes;
+        }
+
+        return total;
+    }
+
+    /// <summary>
+    /// [S-435] The load the meter reports: the driver's own figure when the driver gives one, the
+    /// counters otherwise, clamped to 0..100.
+    /// <para>
+    /// On NVIDIA cards the driver's figure wins because the counters under-report a game running in
+    /// borderless full-screen — a pegged card read as 4%. Elsewhere there is only the counter.
+    /// </para>
+    /// </summary>
+    public static double ChooseUtilization(double? driver, double counters)
+    {
+        var value = driver is { } d && double.IsFinite(d) ? d : counters;
+        return double.IsFinite(value) ? Math.Clamp(value, 0, 100) : 0;
+    }
+
+    /// <summary>[S-432] Load pressure: high from 70%, critical from 90%.</summary>
+    public static GpuPressure LoadPressure(double percent) => percent switch
+    {
+        >= 90 => GpuPressure.Critical,
+        >= 70 => GpuPressure.High,
+        _ => GpuPressure.Normal,
+    };
+
+    /// <summary>[S-437] Memory pressure: high from 80% full, critical from 90%.</summary>
+    public static GpuPressure MemoryPressure(double fraction) => fraction switch
+    {
+        >= 0.9 => GpuPressure.Critical,
+        >= 0.8 => GpuPressure.High,
+        _ => GpuPressure.Normal,
+    };
+
+    /// <summary>
+    /// [S-437] Whether the dedicated-memory row says something true. An integrated adapter reports a
+    /// small carve-out as its total and then "uses" far more than it; a row claiming 3 GB of 128 MB
+    /// is worse than no row, so it is dropped. Unknown total with real use still shows the use.
+    /// </summary>
+    public static bool ShowsDedicated(ulong used, ulong total) => used > 0 && (total == 0 || used <= total);
+
+    /// <summary>[S-437] The shared row needs both a figure and a budget to be a bar.</summary>
+    public static bool ShowsShared(ulong used, ulong total) => used > 0 && total > 0;
+
+    /// <summary>
+    /// [S-430] The adapter's name as a card title: the model, without the vendor and trademark noise
+    /// the driver reports — "NVIDIA GeForce RTX 4060 Ti" is "RTX 4060 Ti", "Intel(R) UHD Graphics
+    /// 770" is "UHD Graphics 770". A name that would be left empty is kept whole.
+    /// </summary>
+    public static string ShortName(string name)
+    {
+        if (string.IsNullOrWhiteSpace(name))
+        {
+            return "GPU";
+        }
+
+        var cleaned = name
+            .Replace("(R)", string.Empty, StringComparison.OrdinalIgnoreCase)
+            .Replace("(TM)", string.Empty, StringComparison.OrdinalIgnoreCase)
+            .Replace("®", string.Empty, StringComparison.Ordinal)
+            .Replace("™", string.Empty, StringComparison.Ordinal);
+
+        string[] noise = ["NVIDIA", "GeForce", "AMD", "Intel", "Microsoft"];
+        var words = cleaned.Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Where(word => !noise.Contains(word, StringComparer.OrdinalIgnoreCase))
+            .ToArray();
+
+        return words.Length == 0 ? name.Trim() : string.Join(' ', words);
+    }
+
+    /// <summary>Used as a 0..1 share of the total, clamped; 0 when the total is unknown.</summary>
+    public static double Fraction(ulong used, ulong total) => total == 0 ? 0 : Math.Clamp((double)used / total, 0, 1);
+}

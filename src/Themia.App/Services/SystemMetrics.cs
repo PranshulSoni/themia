@@ -49,6 +49,10 @@ internal static class SystemMetrics
     private static ulong _lastUser;
     private static bool _haveCpuBaseline;
 
+    // [S-643] Every CPU widget reads through this, so a second tile in the same tick gets the
+    // first one's reading instead of a near-zero delta against the baseline it just moved.
+    private static readonly Themia.Core.Widgets.SampleCache<MeterReading> CpuCache = new();
+
     /// <summary>
     /// Processor load across all cores.
     /// <para>
@@ -57,6 +61,19 @@ internal static class SystemMetrics
     /// </para>
     /// </summary>
     public static MeterReading Cpu()
+    {
+        var now = Environment.TickCount64;
+        if (CpuCache.TryReuse(now, out var recent))
+        {
+            return recent;
+        }
+
+        var reading = ReadCpu();
+        CpuCache.Store(now, reading);
+        return reading;
+    }
+
+    private static MeterReading ReadCpu()
     {
         if (!Win32.GetSystemTimes(out var idle, out var kernel, out var user))
         {

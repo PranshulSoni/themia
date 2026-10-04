@@ -52,6 +52,14 @@ internal sealed partial class FolderView : Grid, IWidgetView, IWidgetHeaderConte
     private Ticker? _ticker;
     private FolderConfig _config = new();
 
+    /// <summary>
+    /// [S-13a] A copy of the settings this view last acted on, which is what a change is measured
+    /// against. Not <c>_config</c>: the settings page edits the live config object in place, so by
+    /// the time a change arrives the "previous" config already holds the new values, and comparing
+    /// the two found no difference — a new address or place stayed unfetched until the next tick.
+    /// </summary>
+    private FolderConfig _applied = new();
+
     /// <summary>The card this view draws on, which owns the header it names.</summary>
     private IWidgetSurface? _surface;
     private FolderPathResult _resolved;
@@ -135,9 +143,10 @@ internal sealed partial class FolderView : Grid, IWidgetView, IWidgetHeaderConte
     public void ApplyConfig(WidgetConfig config)
     {
         var next = config as FolderConfig ?? new FolderConfig();
-        var previous = _config;
+        var previous = _applied;
 
         _config = next;
+        _applied = (FolderConfig)next.Clone();
         PublishTitle();
 
         var resolved = FolderPath.Resolve(next.Path, ProfileFolder);

@@ -21,5 +21,6 @@ internal enum AppPage
     General,
     Appearance,
     Layout,
+    Accounts,
     About,
 }

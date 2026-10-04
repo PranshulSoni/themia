@@ -333,10 +333,16 @@ internal sealed partial class SunMoonView : Grid, IWidgetView, IWidgetSurfaceAwa
 
         // The thresholds are the width the shed-able parts need at their ramp step, so nothing ever
         // has to be clipped to fit.
+        //
+        // [S-649] The strip's side columns are 26% of the content width, and the extras have to fit
+        // in one of those, not in the tile: an icon beside "07:28" needs about 56px, which a
+        // column only has from a 250px tile, and "in 6h 45m" under it needs about 64px, from
+        // 280px. At the old 160 and 190 a 200px tile drew each icon over the time beside it
+        // ("07:2⊙ 11h 33m☼ 19:0") and trimmed the countdown to "in 6…".
         var showStrip = numbers && height >= 80 && width >= 120;
-        var showCountdown = width >= 190 && height >= 120;
+        var showCountdown = width >= 280 && height >= 120;
         var showDaylightLabel = width >= 140;
-        var showSmallExtras = width >= 160;
+        var showSmallExtras = width >= 250;
 
         // What is left for rows once the graphic's floor has taken its share. The header belongs to
         // the card and sits outside this box, so it takes nothing out of it.

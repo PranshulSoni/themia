@@ -70,6 +70,12 @@ public static class FluentType
     /// <summary>The average character advance, as a fraction of the font size.</summary>
     private const double AverageAdvance = 0.58;
 
+    /// <summary>
+    /// The same width estimate <see cref="Fit"/> chooses steps with, for a layout decision that has
+    /// to agree with it — whether a caption still fits beside a fitted reading, say.
+    /// </summary>
+    public static double EstimateWidth(TypeStep step, double characters) => Advance(step, characters);
+
     /// <summary>The ramp in order, smallest first.</summary>
     public static IReadOnlyList<TypeStep> Ramp { get; } =
         [Caption, Body, BodyLarge, Subtitle, Title, TitleLarge, Display];
@@ -142,8 +148,15 @@ public static class FluentType
     }
 
     /// <summary>
-    /// The largest multiple of <see cref="Display"/> that still fits, for a hero readout. Never
-    /// smaller than the ramp's own Display step.
+    /// The readout for a tile whose whole point is one number: a ramp step while the box is small,
+    /// and once it can hold <see cref="TitleLarge"/>, that step scaled to fill the box.
+    /// <para>
+    /// [S-641] It used to stay on the ramp until <see cref="Display"/> fitted and only then scale.
+    /// The gap between those two steps is 40px of line height, so every box between them — a wide
+    /// strip, a tall column — drew a 40px clock in a tile with room for one half as big again: the
+    /// readout jumped from 40 to 68 and never stood anywhere in between. Scaling from TitleLarge
+    /// closes the gap, keeping that step's own line-height ratio so it is still the ramp's shape.
+    /// </para>
     /// </summary>
     public static TypeStep Hero(double width, double height, double characters)
     {
@@ -154,17 +167,17 @@ public static class FluentType
 
         var fitted = Fit(width, height, characters, Caption, Display);
 
-        if (fitted.FontSize < Display.FontSize)
+        if (fitted.FontSize < TitleLarge.FontSize)
         {
             return fitted;
         }
 
         var wanted = Math.Max(1, characters);
-        var byWidth = width / Advance(Display, wanted);
-        var byHeight = height / Display.LineHeight;
+        var byWidth = width / Advance(TitleLarge, wanted);
+        var byHeight = height / TitleLarge.LineHeight;
         var factor = Math.Min(byWidth, byHeight);
 
-        return factor > 1 ? Scaled(Display, factor) : Display;
+        return factor > 1 ? Scaled(TitleLarge, factor) : TitleLarge;
     }
 
     private static bool IsUsable(double value) => double.IsFinite(value) && value > 0;
