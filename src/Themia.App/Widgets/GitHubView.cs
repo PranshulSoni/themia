@@ -4,6 +4,7 @@ using Themia.App.Services;
 using Themia.App.Services.Developer;
 using Themia.App.Shell;
 using Themia.Core.Developer;
+using Themia.Core.Localization;
 using Themia.Core.Model;
 using Themia.Core.Widgets;
 
@@ -128,6 +129,7 @@ internal sealed partial class GitHubView : Grid, IWidgetView, IWidgetHeaderConte
     public void Attach(Ticker ticker, WidgetConfig config)
     {
         _detached = false;
+        Strings.Changed += OnLanguage;
         _source = AppServices.GitHub;
 
         if (_source is not null)
@@ -226,7 +228,7 @@ internal sealed partial class GitHubView : Grid, IWidgetView, IWidgetHeaderConte
         var snapshot = _feed?.Snapshot ?? DevFeedSnapshot<RepoActivity>.Empty;
         var activity = snapshot.Value;
         var screen = DevScreens.Decide(
-            "GitHub", _source?.Accounts ?? [], _config.AccountIds, single: true, snapshot.Outcomes, activity is not null, string.Empty, now,
+            "GitHub", _source?.Accounts ?? [], _config.AccountIds, single: true, snapshot.Outcomes, activity is not null, string.Empty, now, Strings.Current,
             anonymous: true, savedAt: snapshot.SavedAt);
 
         // [S-614] A repository to show comes after an account to show it with.
@@ -236,8 +238,8 @@ internal sealed partial class GitHubView : Grid, IWidgetView, IWidgetHeaderConte
             screen = new DevScreen(
                 DevScreenKind.NeedsSetup,
                 string.IsNullOrWhiteSpace(_config.Repo)
-                    ? "Choose a repository: right-click, then Configure."
-                    : $"\"{_config.Repo.Trim()}\" is not a repository. Use owner/name.",
+                    ? Str.WidgetsA_Github_ChooseRepo.Text()
+                    : Str.WidgetsA_Github_NotARepo.Format(("repo", _config.Repo.Trim())),
                 false,
                 null);
         }
@@ -273,7 +275,7 @@ internal sealed partial class GitHubView : Grid, IWidgetView, IWidgetHeaderConte
         var tagInHeader = _release is not null && width >= TagInHeaderWidth;
         _tag.Visibility = tagInHeader ? Visibility.Visible : Visibility.Collapsed;
         _tagText.Text = _release?.Tag ?? string.Empty;
-        ToolTipService.SetToolTip(_tag, _release is null ? null : $"Latest release {_release.Tag}. Double-click to open.");
+        ToolTipService.SetToolTip(_tag, _release is null ? null : Str.WidgetsA_Github_LatestRelease.Format(("tag", _release.Tag)));
         _ciText.Visibility = width >= CiWordNeedsWidth ? Visibility.Visible : Visibility.Collapsed;
 
         var inline = !side && width >= 180;
@@ -338,8 +340,8 @@ internal sealed partial class GitHubView : Grid, IWidgetView, IWidgetHeaderConte
         }
 
         _ciDot.Foreground = DevBrushes.Run(run.State);
-        _ciText.Text = GitHubRules.RunLabel(run.State);
-        ToolTipService.SetToolTip(_ci, $"{run.Name} on {run.Branch}: {GitHubRules.RunLabel(run.State)}");
+        _ciText.Text = GitHubRules.RunLabel(run.State, Strings.Current);
+        ToolTipService.SetToolTip(_ci, Str.WidgetsA_Github_RunOn.Format(("run", run.Name), ("branch", run.Branch), ("state", GitHubRules.RunLabel(run.State, Strings.Current))));
         _ci.Visibility = Visibility.Visible;
     }
 
@@ -348,9 +350,9 @@ internal sealed partial class GitHubView : Grid, IWidgetView, IWidgetHeaderConte
         var repo = activity.Repo;
         var stats = new[]
         {
-            (Glyphs.Star, GitHubRules.Compact(repo.Stars), "stars"),
-            (Glyphs.PullRequest, GitHubRules.Compact(repo.Forks), "forks"),
-            (Glyphs.Issue, GitHubRules.Compact(repo.OpenIssues), "open issues and pull requests"),
+            (Glyphs.Star, GitHubRules.Compact(repo.Stars), Str.WidgetsA_Github_Stars),
+            (Glyphs.PullRequest, GitHubRules.Compact(repo.Forks), Str.WidgetsA_Github_Forks),
+            (Glyphs.Issue, GitHubRules.Compact(repo.OpenIssues), Str.WidgetsA_Github_OpenItems),
         };
 
         var line = new StackPanel { Orientation = inline ? Orientation.Horizontal : Orientation.Vertical, Spacing = inline ? Fluent.Space4 : 2 };
@@ -363,7 +365,7 @@ internal sealed partial class GitHubView : Grid, IWidgetView, IWidgetHeaderConte
             text.TextTrimming = TextTrimming.None;
 
             var stat = new StackPanel { Orientation = Orientation.Horizontal, Spacing = Fluent.Space2, Children = { icon, text } };
-            ToolTipService.SetToolTip(stat, $"{value} {what}");
+            ToolTipService.SetToolTip(stat, what.Format(("value", value)));
             line.Children.Add(stat);
         }
 
@@ -380,7 +382,7 @@ internal sealed partial class GitHubView : Grid, IWidgetView, IWidgetHeaderConte
                 Spacing = Fluent.Space1,
                 Children = { Fluent.Icon(Glyphs.Tag, "AccentTextFillColorPrimaryBrush", 12), tag },
             };
-            ToolTipService.SetToolTip(row, $"Latest release {release.Tag}. Double-click to open.");
+            ToolTipService.SetToolTip(row, Str.WidgetsA_Github_LatestRelease.Format(("tag", release.Tag)));
             row.DoubleTapped += OnTagDoubleTapped;
             _summary.Children.Add(row);
         }
@@ -395,7 +397,7 @@ internal sealed partial class GitHubView : Grid, IWidgetView, IWidgetHeaderConte
 
             if (repo.PushedAt is { } pushed)
             {
-                parts.Add($"pushed {GitHubRules.Ago(pushed, now)}");
+                parts.Add(Str.WidgetsA_Github_Pushed.Format(("when", GitHubRules.Ago(pushed, now, Strings.Current))));
             }
 
             parts.Add(repo.DefaultBranch);
@@ -429,7 +431,7 @@ internal sealed partial class GitHubView : Grid, IWidgetView, IWidgetHeaderConte
 
             if (latest.PublishedAt is { } published)
             {
-                parts.Add($"released {GitHubRules.Ago(published, now)}");
+                parts.Add(Str.WidgetsA_Github_Released.Format(("when", GitHubRules.Ago(published, now, Strings.Current))));
             }
 
             var text = Fluent.Text(FluentType.Caption, "TextFillColorTertiaryBrush");
@@ -447,10 +449,10 @@ internal sealed partial class GitHubView : Grid, IWidgetView, IWidgetHeaderConte
     /// </summary>
     private int PlaceLists(RepoActivity activity, DateTimeOffset now, double width, double height, bool side, bool twoLine)
     {
-        var commits = new Section("Commits", [.. activity.Commits.Select(c => CommitText(c, now))]);
-        var pulls = new Section("Pull requests", [.. activity.Pulls.Select(p => PullText(p, now))]);
-        var issues = new Section("Issues", [.. activity.Issues.Select(i => IssueText(i, now))]);
-        var runs = new Section("Workflow runs", _config.EffectiveRunCount == 0 ? [] : [.. activity.Runs.Select(r => RunText(r, now, twoLine))]);
+        var commits = new Section(Str.Github_CommitsLabel.Text(), [.. activity.Commits.Select(c => CommitText(c, now))]);
+        var pulls = new Section(Str.Github_PrsLabel.Text(), [.. activity.Pulls.Select(p => PullText(p, now))]);
+        var issues = new Section(Str.Github_IssuesLabel.Text(), [.. activity.Issues.Select(i => IssueText(i, now))]);
+        var runs = new Section(Str.WidgetsA_Github_WorkflowRuns.Text(), _config.EffectiveRunCount == 0 ? [] : [.. activity.Runs.Select(r => RunText(r, now, twoLine))]);
 
         var listWidth = side ? width - SummaryColumnWidth : width;
         var columns = side ? 1 : DevLayout.Columns(listWidth);
@@ -516,19 +518,19 @@ internal sealed partial class GitHubView : Grid, IWidgetView, IWidgetHeaderConte
     }
 
     private static DevRowText CommitText(CommitItem commit, DateTimeOffset now)
-        => new(commit.Message, commit.Sha, DevBrushes.Secondary, commit.Author, GitHubRules.Ago(commit.At, now), false, commit.HtmlUrl);
+        => new(commit.Message, commit.Sha, DevBrushes.Secondary, commit.Author, GitHubRules.Ago(commit.At, now, Strings.Current), false, commit.HtmlUrl);
 
     private static DevRowText PullText(PullItem pull, DateTimeOffset now)
-        => new(pull.Title, $"#{pull.Number}", DevBrushes.Pull(pull.State, pull.Draft), pull.Author, GitHubRules.Ago(pull.CreatedAt, now), pull.Draft, pull.HtmlUrl,
-            pull.Draft ? "draft" : pull.State switch { PullState.Merged => "merged", PullState.Closed => "closed", _ => "open" });
+        => new(pull.Title, $"#{pull.Number}", DevBrushes.Pull(pull.State, pull.Draft), pull.Author, GitHubRules.Ago(pull.CreatedAt, now, Strings.Current), pull.Draft, pull.HtmlUrl,
+            (pull.Draft ? Str.WidgetsA_Github_Draft : pull.State switch { PullState.Merged => Str.WidgetsA_Github_Merged, PullState.Closed => Str.WidgetsA_Github_Closed, _ => Str.WidgetsA_Github_Open }).Text());
 
     private static DevRowText IssueText(IssueRow issue, DateTimeOffset now)
-        => new(issue.Title, $"#{issue.Number}", DevBrushes.Success, GitHubRules.ItemDetail(issue.Author, issue.Comments), GitHubRules.Ago(issue.CreatedAt, now), false, issue.HtmlUrl,
+        => new(issue.Title, $"#{issue.Number}", DevBrushes.Success, GitHubRules.ItemDetail(issue.Author, issue.Comments, Strings.Current), GitHubRules.Ago(issue.CreatedAt, now, Strings.Current), false, issue.HtmlUrl,
             Labels: issue.Labels);
 
     /// <summary>A run: on one line its branch rides in the title; on two it is the second line's meta.</summary>
     private static DevRowText RunText(RunItem run, DateTimeOffset now, bool twoLine)
-        => new(run.Branch.Length > 0 && !twoLine ? $"{run.Name} · {run.Branch}" : run.Name, "●", DevBrushes.Run(run.State), run.Branch, GitHubRules.Ago(run.At, now), false, run.HtmlUrl,
+        => new(run.Branch.Length > 0 && !twoLine ? $"{run.Name} · {run.Branch}" : run.Name, "●", DevBrushes.Run(run.State), run.Branch, GitHubRules.Ago(run.At, now, Strings.Current), false, run.HtmlUrl,
             run.Actor.Length > 0 && run.Event.Length > 0 ? $"{run.Event} · {run.Actor}" : run.Event);
 
     private void OnTagDoubleTapped(object sender, Microsoft.UI.Xaml.Input.DoubleTappedRoutedEventArgs args)
@@ -548,12 +550,12 @@ internal sealed partial class GitHubView : Grid, IWidgetView, IWidgetHeaderConte
     {
         get
         {
-            var actions = new List<WidgetAction>(2) { new(Glyphs.Refresh, "Refresh", () => _feed?.Refresh()) };
+            var actions = new List<WidgetAction>(2) { new(Glyphs.Refresh, Str.Common_Refresh.Text(), () => _feed?.Refresh()) };
 
             // [S-749] The repository's own page, once there is one to open.
             if (_feed?.Snapshot.Value?.Repo.HtmlUrl is { } url)
             {
-                actions.Add(new WidgetAction(Glyphs.OpenExternal, "Open repository", () => DevRows.Open(url)));
+                actions.Add(new WidgetAction(Glyphs.OpenExternal, Str.WidgetsA_Github_OpenRepository.Text(), () => DevRows.Open(url)));
             }
 
             return actions;
@@ -572,12 +574,17 @@ internal sealed partial class GitHubView : Grid, IWidgetView, IWidgetHeaderConte
         _lists.Reset(_lists.Count);
     }
 
+    /// <summary>[S-1109] Everything on the tile is worded from the snapshot in hand; nothing is refetched.</summary>
+    private void OnLanguage(Locale locale) => Render();
+
     public void Detach()
     {
         if (_detached)
         {
             return;
         }
+
+        Strings.Changed -= OnLanguage;
 
         _detached = true;
         _tag.DoubleTapped -= OnTagDoubleTapped;

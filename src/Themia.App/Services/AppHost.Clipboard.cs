@@ -1,3 +1,4 @@
+using Themia.Core.Localization;
 using Themia.Core.Model;
 
 namespace Themia.App.Services;
@@ -75,7 +76,7 @@ internal sealed partial class AppHost
         Select(null);
 
         // [S-881] Delete asks nothing first ([B9]): the notice is the way back.
-        OfferUndo(ids.Count == 1 ? "Deleted a widget" : $"Deleted {ids.Count} widgets");
+        OfferUndo(Str.Shell_Undo_DeletedWidgets.Plural(ids.Count));
     }
 
     /// <summary>

@@ -1,4 +1,5 @@
 using System.Text.Json;
+using Themia.Core.Localization;
 
 namespace Themia.Core.Tasks;
 
@@ -24,7 +25,7 @@ public sealed record LocalTaskList(string Id, string Name, IReadOnlyList<LocalTa
 public static class LocalTaskLists
 {
     /// <summary>The name a new list starts with, numbered when taken.</summary>
-    public const string NewListName = "New list";
+    public static string NewListName => Str.Todo_LocalLists_NewName.Text();
 
     /// <summary>
     /// [S-603] Narrow an untrusted stored value. A non-array is no lists; an entry without a

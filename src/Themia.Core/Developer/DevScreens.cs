@@ -1,4 +1,4 @@
-using System.Globalization;
+using Themia.Core.Localization;
 using Themia.Core.Widgets;
 
 namespace Themia.Core.Developer;
@@ -102,6 +102,7 @@ public static class DevScreens
     /// <param name="emptyText">What "nothing here" means for this widget: "No issues assigned to you".</param>
     /// <param name="anonymous">[S-746] The widget can read public data with no account at all.</param>
     /// <param name="savedAt">[S-747] When the content on screen was fetched, if it came from the saved copy and nothing newer has arrived yet.</param>
+    /// <param name="locale">[S-1106] The language the sentences are written in.</param>
     public static DevScreen Decide(
         string service,
         IReadOnlyList<DevAccount> accounts,
@@ -111,6 +112,7 @@ public static class DevScreens
         bool hasContent,
         string emptyText,
         DateTimeOffset now,
+        Locale locale,
         bool anonymous = false,
         DateTimeOffset? savedAt = null)
     {
@@ -125,13 +127,13 @@ public static class DevScreens
 
         if (accounts.Count == 0)
         {
-            return new DevScreen(DevScreenKind.NoAccounts, $"Sign in to {service} in Accounts.", true, null);
+            return new DevScreen(DevScreenKind.NoAccounts, Strings.Format(locale, Str.WidgetsA_Dev_SignInTo, ("service", service)), true, null);
         }
 
         var targets = Targets(accounts, chosen, single);
         if (targets.Count == 0)
         {
-            return new DevScreen(DevScreenKind.AccountsGone, $"This widget's {service} account is no longer signed in.", true, null);
+            return new DevScreen(DevScreenKind.AccountsGone, Strings.Format(locale, Str.WidgetsA_Dev_AccountGone, ("service", service)), true, null);
         }
 
         var usable = targets.Where(a => a.Problem is null).ToList();
@@ -152,8 +154,8 @@ public static class DevScreens
         if (usable.Count == 0)
         {
             var text = broken.Count == 1
-                ? $"{broken[0].Label} needs you to sign in to {service} again."
-                : $"Your {service} accounts need you to sign in again.";
+                ? Strings.Format(locale, Str.WidgetsA_Dev_NeedsSignIn, ("account", broken[0].Label), ("service", service))
+                : Strings.Format(locale, Str.WidgetsA_Dev_AllNeedSignIn, ("service", service));
             return new DevScreen(DevScreenKind.SignInRequired, text, true, null);
         }
 
@@ -164,11 +166,11 @@ public static class DevScreens
             .ToList();
 
         var warning = broken.Count > 0
-            ? $"{broken[0].Label} needs you to sign in to {service} again."
+            ? Strings.Format(locale, Str.WidgetsA_Dev_NeedsSignIn, ("account", broken[0].Label), ("service", service))
             : failed.Count > 0
-                ? $"Could not refresh: {Lower(Explain(service, failed[0], now), service)}."
+                ? Strings.Format(locale, Str.WidgetsA_Dev_CouldNotRefresh, ("problem", Explain(service, failed[0], now, locale)))
                 : savedAt is { } saved
-                    ? Saved(saved, now)
+                    ? Saved(saved, now, locale)
                     : null;
 
         if (hasContent)
@@ -178,30 +180,25 @@ public static class DevScreens
 
         if (usable.Any(a => !byId.TryGetValue(a.Id, out var o) || o.Status == FetchStatus.Loading))
         {
-            return new DevScreen(DevScreenKind.Loading, "Loading…", false, null);
+            return new DevScreen(DevScreenKind.Loading, Strings.Get(locale, Str.Common_Loading), false, null);
         }
 
         if (failed.Count == usable.Count)
         {
-            return new DevScreen(DevScreenKind.Failed, Explain(service, failed[0], now) + ".", false, null);
+            return new DevScreen(DevScreenKind.Failed, Strings.Format(locale, Str.WidgetsA_Dev_Sentence, ("text", Explain(service, failed[0], now, locale))), false, null);
         }
 
         return new DevScreen(DevScreenKind.Empty, emptyText, false, warning);
     }
 
     /// <summary>[S-747] The note on content shown from the saved copy until the first refresh lands.</summary>
-    public static string Saved(DateTimeOffset savedAt, DateTimeOffset now)
-    {
-        var age = now - savedAt;
-        var when = age < TimeSpan.FromMinutes(1) ? "just now"
-            : age < TimeSpan.FromHours(1) ? $"{(int)age.TotalMinutes} min ago"
-            : age < TimeSpan.FromDays(1) ? $"{(int)age.TotalHours} h ago"
-            : $"{(int)age.TotalDays} d ago";
-        return $"Showing what was saved {when}; refreshing.";
-    }
+    public static string Saved(DateTimeOffset savedAt, DateTimeOffset now, Locale locale)
+        => now - savedAt < TimeSpan.FromMinutes(1)
+            ? Strings.Get(locale, Str.WidgetsA_Dev_SavedJustNow)
+            : Strings.Format(locale, Str.WidgetsA_Dev_Saved, ("when", LocaleFormat.Relative(locale, savedAt, now, RelativeStyle.Short)));
 
     /// <summary>A failed attempt in the widget's words.</summary>
-    public static string Explain(string service, DevOutcome outcome, DateTimeOffset now)
+    public static string Explain(string service, DevOutcome outcome, DateTimeOffset now, Locale locale)
     {
         ArgumentNullException.ThrowIfNull(outcome);
 
@@ -212,25 +209,19 @@ public static class DevScreens
 
         return outcome.Status switch
         {
-            FetchStatus.Offline => "No network",
-            FetchStatus.Unreachable => $"Can't reach {service}",
-            FetchStatus.TimedOut => $"{service} did not answer in time",
+            FetchStatus.Offline => Strings.Get(locale, Str.WidgetsA_Office_Problem_Offline),
+            FetchStatus.Unreachable => Strings.Format(locale, Str.WidgetsA_Dev_Unreachable, ("service", service)),
+            FetchStatus.TimedOut => Strings.Format(locale, Str.WidgetsA_Dev_TimedOut, ("service", service)),
             FetchStatus.RateLimited => outcome.RetryAt is { } at && at > now
-                ? $"{service} asked Themia to slow down; trying again at {Clock(at, now)}"
-                : $"{service} asked Themia to slow down",
-            FetchStatus.NotConfigured => $"{service} wants you to sign in again",
-            FetchStatus.Refused => $"{service} refused the request",
-            _ => $"{service} sent something unexpected",
+                ? Strings.Format(locale, Str.WidgetsA_Dev_RateLimitedUntil, ("service", service), ("time", Clock(at, now, locale)))
+                : Strings.Format(locale, Str.WidgetsA_Dev_RateLimited, ("service", service)),
+            FetchStatus.NotConfigured => Strings.Format(locale, Str.WidgetsA_Dev_SignInAgain, ("service", service)),
+            FetchStatus.Refused => Strings.Format(locale, Str.WidgetsA_Dev_Refused, ("service", service)),
+            _ => Strings.Format(locale, Str.WidgetsA_Dev_Unexpected, ("service", service)),
         };
     }
 
-    /// <summary>A time of day in the reader's offset, 24-hour (the app has no culture to read 12-hour from).</summary>
-    private static string Clock(DateTimeOffset at, DateTimeOffset now)
-        => at.ToOffset(now.Offset).ToString("HH:mm", CultureInfo.InvariantCulture);
-
-    /// <summary>A sentence carried on after a colon: lower-cased, unless it opens with a name.</summary>
-    private static string Lower(string sentence, string service)
-        => sentence.Length > 1 && !sentence.StartsWith(service, StringComparison.Ordinal) && char.IsUpper(sentence[0]) && !char.IsUpper(sentence[1])
-            ? char.ToLowerInvariant(sentence[0]) + sentence[1..]
-            : sentence;
+    /// <summary>A time of day in the reader's offset, on the language's clock.</summary>
+    private static string Clock(DateTimeOffset at, DateTimeOffset now, Locale locale)
+        => LocaleFormat.Time(locale, at.ToOffset(now.Offset).DateTime);
 }

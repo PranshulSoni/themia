@@ -4,6 +4,7 @@ using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
 using Themia.App.Services;
 using Themia.App.Shell;
+using Themia.Core.Localization;
 using Themia.Core.Model;
 using Themia.Core.Widgets;
 using Glyphs = Themia.App.Shell.Glyphs;
@@ -23,10 +24,10 @@ internal sealed partial class MixerView
         private readonly StackPanel _stack = new() { Spacing = Fluent.Space1 };
         private readonly TextBlock _deviceName = Fluent.Text(FluentType.BodyStrong);
         private readonly LevelRow _master;
-        private readonly TextBlock _micCaption = Caption("Input");
+        private readonly TextBlock _micCaption = Caption(Str.WidgetsB_Mixer_Input.Text());
         private readonly TextBlock _micName = Fluent.Text(FluentType.Body, "TextFillColorSecondaryBrush");
         private readonly LevelRow _mic;
-        private readonly TextBlock _devicesCaption = Caption("Output devices");
+        private readonly TextBlock _devicesCaption = Caption(Str.WidgetsB_Mixer_OutputDevices.Text());
         private readonly StackPanel _devices = new();
         private readonly List<(Button Button, RoutedEventHandler Click)> _deviceButtons = [];
         private AudioSnapshot? _snapshot;
@@ -42,7 +43,7 @@ internal sealed partial class MixerView
             _micName.TextTrimming = TextTrimming.CharacterEllipsis;
             _micName.Margin = new Thickness(0, Fluent.Space1, 0, 0);
 
-            _stack.Children.Add(Caption("Output"));
+            _stack.Children.Add(Caption(Str.WidgetsB_Mixer_Output.Text()));
             _stack.Children.Add(_deviceName);
             _stack.Children.Add(_master.Root);
             _stack.Children.Add(_micCaption);
@@ -70,9 +71,9 @@ internal sealed partial class MixerView
             _snapshot = snapshot;
 
             var master = Master();
-            _deviceName.Text = snapshot.Output?.Name is { Length: > 0 } name ? name : "Output device";
+            _deviceName.Text = snapshot.Output?.Name is { Length: > 0 } name ? name : Str.WidgetsB_Mixer_OutputDevice.Text();
             ToolTipService.SetToolTip(_deviceName, _deviceName.Text);
-            _master.Show(overrides.GetValueOrDefault(master.Key, master.Level), master.Muted, master.Muted ? "Unmute" : "Mute");
+            _master.Show(overrides.GetValueOrDefault(master.Key, master.Level), master.Muted, master.Muted ? Str.Mixer_Unmute.Text() : Str.Mixer_Mute.Text());
 
             var mic = snapshot.Microphone is not null && config.ShowMicrophone;
             _micCaption.Visibility = mic ? Visibility.Visible : Visibility.Collapsed;
@@ -81,8 +82,8 @@ internal sealed partial class MixerView
 
             if (snapshot.Microphone is { } input && mic)
             {
-                _micName.Text = input.Name.Length > 0 ? input.Name : "Microphone";
-                _mic.Show(overrides.GetValueOrDefault(MixerRules.MicrophoneKey, input.Level), input.Muted, input.Muted ? "Unmute the microphone" : "Mute the microphone");
+                _micName.Text = input.Name.Length > 0 ? input.Name : Str.WidgetsB_Mixer_Microphone.Text();
+                _mic.Show(overrides.GetValueOrDefault(MixerRules.MicrophoneKey, input.Level), input.Muted, input.Muted ? Str.WidgetsB_Mixer_UnmuteMicrophone.Text() : Str.WidgetsB_Mixer_MuteMicrophone.Text());
             }
 
             ShowDevices(snapshot, config.DeviceId, height);
@@ -133,8 +134,8 @@ internal sealed partial class MixerView
                 label.Text = AudioRules.DeviceName(device.Id, snapshot.Devices, null);
                 label.Foreground = FluentLayout.Themed(bound ? "TextFillColorPrimaryBrush" : "TextFillColorSecondaryBrush", Colors.White);
                 ToolTipService.SetToolTip(button, string.Equals(device.Id, snapshot.DefaultId, StringComparison.OrdinalIgnoreCase)
-                    ? $"{label.Text} (Windows default)"
-                    : $"Make {label.Text} the default output");
+                    ? Str.WidgetsB_Mixer_IsDefault.Format(("name", label.Text))
+                    : Str.WidgetsB_Mixer_MakeDefault.Format(("name", label.Text)));
                 button.Visibility = Visibility.Visible;
             }
         }

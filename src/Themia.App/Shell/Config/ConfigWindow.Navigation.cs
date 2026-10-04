@@ -6,6 +6,7 @@ using Microsoft.UI.Xaml.Media;
 using Themia.App.Interop;
 using Themia.App.Services;
 using Themia.Core.Diagnostics;
+using Themia.Core.Localization;
 using Themia.Core.Model;
 using Windows.Graphics;
 
@@ -27,7 +28,7 @@ internal sealed partial class ConfigWindow
             AddAppPages(_nav.MenuItems, AppPageSlot.Main, _host.State);
 
             _nav.MenuItems.Add(new NavigationViewItemSeparator());
-            _nav.MenuItems.Add(Header("Views"));
+            _nav.MenuItems.Add(Header(Str.App_Views.Text()));
 
             foreach (var view in _host.State.Views)
             {
@@ -57,7 +58,7 @@ internal sealed partial class ConfigWindow
             if (_host.Displays.Count > 0)
             {
                 _nav.MenuItems.Add(new NavigationViewItemSeparator());
-                _nav.MenuItems.Add(Header("Displays"));
+                _nav.MenuItems.Add(Header(Str.App_Displays.Text()));
 
                 foreach (var display in _host.Displays)
                 {

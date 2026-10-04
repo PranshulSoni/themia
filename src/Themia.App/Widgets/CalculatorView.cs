@@ -6,6 +6,7 @@ using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
 using Themia.App.Services;
 using Themia.App.Shell;
+using Themia.Core.Localization;
 using Themia.Core.Model;
 using Themia.Core.Widgets;
 
@@ -35,6 +36,7 @@ internal sealed partial class CalculatorView : Grid, IWidgetView, IWidgetSurface
     private readonly ScrollViewer _historyScroll;
     private readonly StackPanel _empty;
     private readonly FontIcon _emptyIcon;
+    private readonly TextBlock _emptyText = new() { Text = Str.WidgetsA_Calculator_Empty.Text() };
     private readonly Border _previewBox;
     private readonly TextBlock _preview;
     private readonly TextBox _input = new();
@@ -133,7 +135,7 @@ internal sealed partial class CalculatorView : Grid, IWidgetView, IWidgetSurface
 
         // A tall tile with nothing worked out yet was a large blank area above the input, which
         // reads as something failing to load. Windows Calculator says so in words instead.
-        _empty = Fluent.EmptyState(Glyphs.Calculator, new TextBlock { Text = "No history yet." }, out _emptyIcon);
+        _empty = Fluent.EmptyState(Glyphs.Calculator, _emptyText, out _emptyIcon);
         _empty.Visibility = Visibility.Collapsed;
 
         _keypad.ColumnSpacing = CalculatorLayout.KeyGap;
@@ -167,6 +169,7 @@ internal sealed partial class CalculatorView : Grid, IWidgetView, IWidgetSurface
         }
 #endif
 
+        Strings.Changed += OnLanguage;
         ApplyConfig(config);
     }
 
@@ -287,7 +290,7 @@ internal sealed partial class CalculatorView : Grid, IWidgetView, IWidgetSurface
             case ExpressionStatus.Error:
                 _preview.Visibility = Visibility.Visible;
                 _preview.Foreground = _errorBrush;
-                _preview.Text = ExpressionResult.ErrorText;
+                _preview.Text = Str.WidgetsA_Calculator_Error.Text();
                 break;
 
             default:
@@ -388,10 +391,31 @@ internal sealed partial class CalculatorView : Grid, IWidgetView, IWidgetSurface
             button.Background = FluentLayout.Themed("ControlFillColorSecondaryBrush", Colors.Gray);
         }
 
-        AutomationProperties.SetName(button, CalculatorKeypad.Name(key));
-        ToolTipService.SetToolTip(button, CalculatorKeypad.Name(key));
+        NameKey(button, key);
         button.Click += OnKeyClick;
         return button;
+    }
+
+    private static void NameKey(Button button, KeypadKey key)
+    {
+        var name = CalculatorKeypad.Name(key, Strings.Current);
+        AutomationProperties.SetName(button, name);
+        ToolTipService.SetToolTip(button, name);
+    }
+
+    /// <summary>[S-1109] The empty text, the error and the keys' names follow the language.</summary>
+    private void OnLanguage(Locale locale)
+    {
+        _emptyText.Text = Str.WidgetsA_Calculator_Empty.Text();
+        foreach (var child in _keypad.Children)
+        {
+            if (child is Button { Tag: KeypadKey key } button)
+            {
+                NameKey(button, key);
+            }
+        }
+
+        UpdatePreview();
     }
 
     private void OnKeyClick(object sender, RoutedEventArgs args)
@@ -684,6 +708,7 @@ internal sealed partial class CalculatorView : Grid, IWidgetView, IWidgetSurface
         }
 
         _detached = true;
+        Strings.Changed -= OnLanguage;
 
         _input.TextChanged -= OnInputChanged;
         _input.KeyDown -= OnInputKeyDown;

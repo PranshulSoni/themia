@@ -2,6 +2,7 @@ using System.Net.Http;
 using Themia.App.Services.Accounts;
 using Themia.Core.Accounts;
 using Themia.Core.Diagnostics;
+using Themia.Core.Localization;
 using Themia.Core.Mail;
 using Themia.Core.Widgets;
 
@@ -163,7 +164,7 @@ internal sealed class MailService : IMailSource, IDisposable
             case AccountProvider.Imap:
                 if (ImapMessageId.Parse(message.RawId) is not { } id)
                 {
-                    throw new AccountException(AccountError.Refused, "That message's handle is not one this version understands. Refresh and try again.");
+                    throw new AccountException(AccountError.Refused, Str.Shell_Mail_BadHandle.Text());
                 }
 
                 var login = _accounts.GetImapCredentials(message.AccountId);
@@ -179,7 +180,7 @@ internal sealed class MailService : IMailSource, IDisposable
             default:
                 // [S-544] Gmail is read through gmail.readonly: the menu never offers a change, and
                 // nothing else may ask for one.
-                throw new AccountException(AccountError.Refused, "Themia can read this account's mail but not change it.");
+                throw new AccountException(AccountError.Refused, Str.Shell_Mail_ReadOnly.Text());
         }
     }
 
@@ -263,7 +264,7 @@ internal sealed class MailService : IMailSource, IDisposable
                 return await Task.Run(() => ImapMailClient.StatusAsync(login, folder, cancellation), cancellation).ConfigureAwait(true);
 
             default:
-                throw new AccountException(AccountError.Refused, $"{slot.Provider.Label()} accounts have no mail.");
+                throw new AccountException(AccountError.Refused, Str.Shell_Mail_NoMail.Format(("provider", slot.Provider.Label())));
         }
     }
 
@@ -284,7 +285,7 @@ internal sealed class MailService : IMailSource, IDisposable
                 return await Task.Run(() => ImapMailClient.FetchAsync(login, slot.AccountId, folder, count, cancellation), cancellation).ConfigureAwait(true);
 
             default:
-                throw new AccountException(AccountError.Refused, $"{slot.Provider.Label()} accounts have no mail.");
+                throw new AccountException(AccountError.Refused, Str.Shell_Mail_NoMail.Format(("provider", slot.Provider.Label())));
         }
     }
 

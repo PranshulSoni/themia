@@ -5,6 +5,7 @@ using Microsoft.UI.Xaml.Input;
 using Themia.App.Services;
 using Themia.App.Shell;
 using Themia.Core.Diagnostics;
+using Themia.Core.Localization;
 using Themia.Core.Model;
 using Themia.Core.Widgets;
 using Windows.Foundation;
@@ -403,18 +404,22 @@ internal sealed partial class ShortcutsView
 
             yield return command switch
             {
-                ShortcutCommand.Open => new(Glyphs.Open, cell.Item.IsLayout ? "Open layout" : "Open", () => Open([cell]), Disabled: entry.Disabled),
-                ShortcutCommand.EditLayout => new(Glyphs.Edit, "Edit layout…", () => AppServices.EditAppLayout?.Invoke(cell.Item.Id),
+                ShortcutCommand.Open => new(Glyphs.Open,
+                    cell.Item.IsLayout ? Str.WidgetsC_Shortcuts_Menu_OpenLayout.Text() : Str.Common_Open.Text(),
+                    () => Open([cell]), Disabled: entry.Disabled),
+                ShortcutCommand.EditLayout => new(Glyphs.Edit, Str.Shortcut_EditLayoutMenu.Text(), () => AppServices.EditAppLayout?.Invoke(cell.Item.Id),
                     Disabled: AppServices.EditAppLayout is null),
-                ShortcutCommand.OpenAll => new(Glyphs.Open, $"Open {selected.Count}", () => Open(selected)),
-                ShortcutCommand.CopyUrl => new(Glyphs.Copy, "Copy URL", () => Copy(cell.Target.Value)),
-                ShortcutCommand.CopyPath => new(Glyphs.Copy, "Copy path", () => Copy(cell.Target.Value)),
-                ShortcutCommand.OpenFileLocation => new(Glyphs.Folder, "Open file location", () => Reveal(cell)),
-                ShortcutCommand.MoveToStart => new(Glyphs.MoveUp, "Move to start", () => Move(cell, command), Disabled: entry.Disabled),
-                ShortcutCommand.MoveUp => new(Glyphs.MoveUp, "Move up", () => Move(cell, command), Disabled: entry.Disabled),
-                ShortcutCommand.MoveDown => new(Glyphs.MoveDown, "Move down", () => Move(cell, command), Disabled: entry.Disabled),
-                ShortcutCommand.Rename => new(Glyphs.Rename, "Rename", () => BeginRename(cell), Disabled: entry.Disabled),
-                _ => new(Glyphs.Delete, many ? $"Remove {selected.Count}" : "Remove", () => Remove(many ? selected : [cell]), Danger: true),
+                ShortcutCommand.OpenAll => new(Glyphs.Open, Str.WidgetsC_Shortcuts_Menu_OpenMany.Plural(selected.Count), () => Open(selected)),
+                ShortcutCommand.CopyUrl => new(Glyphs.Copy, Str.Shortcut_CopyUrl.Text(), () => Copy(cell.Target.Value)),
+                ShortcutCommand.CopyPath => new(Glyphs.Copy, Str.Shortcut_CopyPath.Text(), () => Copy(cell.Target.Value)),
+                ShortcutCommand.OpenFileLocation => new(Glyphs.Folder, Str.Shortcut_OpenFileLocation.Text(), () => Reveal(cell)),
+                ShortcutCommand.MoveToStart => new(Glyphs.MoveUp, Str.WidgetsC_Shortcuts_Menu_MoveToStart.Text(), () => Move(cell, command), Disabled: entry.Disabled),
+                ShortcutCommand.MoveUp => new(Glyphs.MoveUp, Str.ChildList_MoveUp.Text(), () => Move(cell, command), Disabled: entry.Disabled),
+                ShortcutCommand.MoveDown => new(Glyphs.MoveDown, Str.ChildList_MoveDown.Text(), () => Move(cell, command), Disabled: entry.Disabled),
+                ShortcutCommand.Rename => new(Glyphs.Rename, Str.Common_Rename.Text(), () => BeginRename(cell), Disabled: entry.Disabled),
+                _ => new(Glyphs.Delete,
+                    many ? Str.WidgetsC_Shortcuts_Menu_RemoveMany.Plural(selected.Count) : Str.Common_Remove.Text(),
+                    () => Remove(many ? selected : [cell]), Danger: true),
             };
         }
     }

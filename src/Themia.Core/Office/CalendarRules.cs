@@ -1,4 +1,5 @@
 using System.Globalization;
+using Themia.Core.Localization;
 using Themia.Core.Model;
 
 namespace Themia.Core.Office;
@@ -22,7 +23,15 @@ public static class CalendarRules
     public static IReadOnlyList<string> Palette { get; } = ["#60cdff", "#ff9660", "#a8e6a3", "#ffcc70", "#c8b3f7", "#ff8bab"];
 
     /// <summary>What the settings page calls each palette colour, in palette order.</summary>
-    public static IReadOnlyList<string> PaletteNames { get; } = ["Blue", "Orange", "Green", "Yellow", "Purple", "Pink"];
+    public static IReadOnlyList<Str> PaletteNames { get; } =
+    [
+        Str.WidgetsA_Calendar_Color_Blue,
+        Str.WidgetsA_Calendar_Color_Orange,
+        Str.WidgetsA_Calendar_Color_Green,
+        Str.WidgetsA_Calendar_Color_Yellow,
+        Str.WidgetsA_Calendar_Color_Purple,
+        Str.WidgetsA_Calendar_Color_Pink,
+    ];
 
     /// <summary>The agenda looks this many days ahead, as the original did.</summary>
     public const int AgendaDays = 30;
@@ -251,34 +260,33 @@ public static class CalendarRules
     }
 
     /// <summary>
-    /// [S-568] The period's title: <c>October 2026</c>, <c>5 Oct – 11 Oct</c>, <c>Mon 5 Oct</c>. Agenda
-    /// has none. Names written out: the app has no culture to ask ([S-187]).
+    /// [S-568] The period's title: <c>October 2026</c>, <c>Sep 28 – Oct 4</c>, <c>Sun, Oct 4</c>. Agenda
+    /// has none. Names and order from <see cref="LocaleFormat"/> for <paramref name="locale"/> ([S-1106]).
     /// </summary>
-    public static string Title(CalendarViewMode view, DateOnly anchor, WeekStartDay start)
+    public static string Title(CalendarViewMode view, DateOnly anchor, WeekStartDay start, Locale locale)
     {
         switch (view)
         {
             case CalendarViewMode.Month:
-                return $"{MonthName(anchor.Month)} {anchor.Year.ToString(CultureInfo.InvariantCulture)}";
+                return LocaleFormat.Date(locale, anchor, DateStyle.MonthYear);
 
             case CalendarViewMode.Week:
                 var first = StartOfWeek(anchor, start);
-                return $"{ShortDate(first)} – {ShortDate(first.AddDays(6))}";
+                return Range(first, first.AddDays(6), locale);
 
             case CalendarViewMode.Day:
-                return $"{Widgets.CalendarText.WeekdayName(anchor.DayOfWeek)[..3]} {ShortDate(anchor)}";
+                return LocaleFormat.Date(locale, anchor, DateStyle.WeekdayMonthDayShort);
 
             default:
                 return string.Empty;
         }
     }
 
-    public static string MonthName(int month) => MonthNames[Math.Clamp(month, 1, 12) - 1];
-
-    private static readonly string[] MonthNames =
-        ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
-
-    private static string ShortDate(DateOnly day) => Widgets.Formatting.ShortDate(day);
+    /// <summary>"Sep 28 – Oct 4": two short dates as one span, in the language's own wording.</summary>
+    public static string Range(DateOnly first, DateOnly last, Locale locale)
+        => Strings.Format(locale, Str.WidgetsA_Calendar_Range,
+            ("from", LocaleFormat.Date(locale, first, DateStyle.MonthDayShort)),
+            ("to", LocaleFormat.Date(locale, last, DateStyle.MonthDayShort)));
 
     // ---- what falls on a day -----------------------------------------------------------------
 

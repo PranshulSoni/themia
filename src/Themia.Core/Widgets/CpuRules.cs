@@ -1,4 +1,4 @@
-using System.Globalization;
+using Themia.Core.Localization;
 
 namespace Themia.Core.Widgets;
 
@@ -90,14 +90,20 @@ public static class CpuRules
     }
 
     /// <summary>[S-1141] A clock as the original printed it: gigahertz, two decimals ("4.72 GHz").</summary>
-    public static string Gigahertz(double mhz)
-        => string.Create(CultureInfo.InvariantCulture, $"{Math.Max(0, mhz) / 1000:0.00} GHz");
+    public static string Gigahertz(double mhz) => Gigahertz(Strings.Current, mhz);
+
+    /// <summary><see cref="Gigahertz(double)"/> in <paramref name="locale"/>.</summary>
+    public static string Gigahertz(Locale locale, double mhz)
+        => Strings.Format(locale, Str.WidgetsB_Units_Gigahertz, ("value", LocaleFormat.Number(locale, Math.Max(0, mhz) / 1000, 2)));
 
     /// <summary>
     /// [S-1143] Time since boot in its two largest units, as the original showed it: <c>3d 4h</c>,
     /// <c>2h 5m</c>, <c>7m</c>.
     /// </summary>
-    public static string Uptime(TimeSpan up)
+    public static string Uptime(TimeSpan up) => Uptime(Strings.Current, up);
+
+    /// <summary><see cref="Uptime(TimeSpan)"/> in <paramref name="locale"/>.</summary>
+    public static string Uptime(Locale locale, TimeSpan up)
     {
         if (up < TimeSpan.Zero)
         {
@@ -106,23 +112,28 @@ public static class CpuRules
 
         if (up.TotalDays >= 1)
         {
-            return string.Create(CultureInfo.InvariantCulture, $"{(int)up.TotalDays}d {up.Hours}h");
+            return Strings.Format(locale, Str.WidgetsB_Units_DaysHours, ("days", (int)up.TotalDays), ("hours", up.Hours));
         }
 
         if (up.TotalHours >= 1)
         {
-            return string.Create(CultureInfo.InvariantCulture, $"{(int)up.TotalHours}h {up.Minutes}m");
+            return Strings.Format(locale, Str.WidgetsB_Units_HoursMinutes, ("hours", (int)up.TotalHours), ("minutes", up.Minutes));
         }
 
-        return string.Create(CultureInfo.InvariantCulture, $"{(int)up.TotalMinutes}m");
+        return Strings.Format(locale, Str.WidgetsB_Units_Minutes, ("minutes", (int)up.TotalMinutes));
     }
 
     /// <summary>A count with thousands grouped: "4,210".</summary>
-    public static string Count(long value) => value.ToString("N0", CultureInfo.InvariantCulture);
+    public static string Count(long value) => LocaleFormat.Integer(value);
 
     /// <summary>[S-1144] "312 processes · 4,210 threads", the footer of a process list.</summary>
-    public static string Totals(int processes, long threads)
-        => $"{Count(processes)} processes · {Count(threads)} threads";
+    public static string Totals(int processes, long threads) => Totals(Strings.Current, processes, threads);
+
+    /// <summary><see cref="Totals(int, long)"/> in <paramref name="locale"/>.</summary>
+    public static string Totals(Locale locale, int processes, long threads)
+        => Strings.Format(locale, Str.WidgetsB_Cpu_Totals,
+            ("processes", Strings.Plural(locale, Str.WidgetsB_Cpu_ProcessCount, processes)),
+            ("threads", Strings.Plural(locale, Str.WidgetsB_Cpu_ThreadCount, threads)));
 
     /// <summary>[S-1146] A thermal-zone reading (Kelvin) in Celsius, or null when it is not a plausible processor temperature.</summary>
     public static double? Celsius(double kelvin)
@@ -162,7 +173,10 @@ public static class CpuRules
     /// "N/A" while the sensor is still being asked), "N/A" when no source has a reading, else whole
     /// degrees.
     /// </summary>
-    public static string? TemperatureText(bool polled, double? celsius)
+    public static string? TemperatureText(bool polled, double? celsius) => TemperatureText(Strings.Current, polled, celsius);
+
+    /// <summary><see cref="TemperatureText(bool, double?)"/> in <paramref name="locale"/>.</summary>
+    public static string? TemperatureText(Locale locale, bool polled, double? celsius)
     {
         if (!polled)
         {
@@ -170,12 +184,15 @@ public static class CpuRules
         }
 
         return celsius is { } c && Plausible(c)
-            ? string.Create(CultureInfo.InvariantCulture, $"{Math.Round(c, MidpointRounding.AwayFromZero):0} °C")
-            : "N/A";
+            ? Strings.Format(locale, Str.WidgetsB_Units_Celsius, ("value", LocaleFormat.Number(locale, c, 0)))
+            : Strings.Get(locale, Str.WidgetsB_Meters_NotAvailable);
     }
 
     /// <summary>[S-1147] The fan line, on the same rule as <see cref="TemperatureText"/>.</summary>
-    public static string? FanText(bool polled, double? rpm)
+    public static string? FanText(bool polled, double? rpm) => FanText(Strings.Current, polled, rpm);
+
+    /// <summary><see cref="FanText(bool, double?)"/> in <paramref name="locale"/>.</summary>
+    public static string? FanText(Locale locale, bool polled, double? rpm)
     {
         if (!polled)
         {
@@ -183,7 +200,7 @@ public static class CpuRules
         }
 
         return rpm is { } r && double.IsFinite(r) && r >= MinRpm && r <= MaxRpm
-            ? $"{Count((long)Math.Round(r))} RPM"
-            : "N/A";
+            ? Strings.Format(locale, Str.WidgetsB_Units_Rpm, ("value", LocaleFormat.Integer(locale, (long)Math.Round(r))))
+            : Strings.Get(locale, Str.WidgetsB_Meters_NotAvailable);
     }
 }

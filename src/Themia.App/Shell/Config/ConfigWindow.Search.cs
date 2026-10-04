@@ -6,6 +6,7 @@ using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
 using Themia.App.Widgets;
 using Themia.Core.Diagnostics;
+using Themia.Core.Localization;
 using Themia.Core.Settings;
 
 namespace Themia.App.Shell.Config;
@@ -27,13 +28,11 @@ internal sealed partial class ConfigWindow
 
     private void BuildSearch()
     {
-        _search.PlaceholderText = "Find a setting";
         _search.QueryIcon = new FontIcon { Glyph = Glyphs.Search, FontSize = 12 };
         _search.VerticalAlignment = VerticalAlignment.Center;
         _search.HorizontalAlignment = HorizontalAlignment.Stretch;
         _search.Margin = new Thickness(Fluent.Space4, 0, Fluent.Space4, 0);
         _search.UpdateTextOnSelect = false;
-        AutomationProperties.SetName(_search, "Find a setting");
 
         _search.TextChanged += (sender, args) =>
         {
@@ -87,7 +86,7 @@ internal sealed partial class ConfigWindow
 
         if (items.Count == 0 && query.Trim().Length > 0)
         {
-            var none = new TextBlock { Text = "No results", IsHitTestVisible = false };
+            var none = new TextBlock { Text = Str.Common_NoResults.Text(), IsHitTestVisible = false };
             FluentLayout.ApplyStyle(none, "SettingsCaptionTextBlockStyle");
             items.Add(none);
         }
@@ -130,7 +129,7 @@ internal sealed partial class ConfigWindow
             Children = { icon, text },
         };
 
-        AutomationProperties.SetName(row, $"{hit.Entry.Title}, {hit.Entry.PagePath}");
+        AutomationProperties.SetName(row, Str.Shell_Settings_SearchHitName.Format(("title", hit.Entry.Title), ("page", hit.Entry.PagePath)));
         return row;
     }
 

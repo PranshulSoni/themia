@@ -1,5 +1,6 @@
 using System.Net.Http;
 using Themia.App.Services.Accounts;
+using Themia.Core.Localization;
 using Themia.Core.Accounts;
 using Themia.Core.Developer;
 
@@ -80,12 +81,12 @@ internal sealed class ClaudeUsageService : IClaudeUsageSource, IDisposable
             // service could not mend is already "sign in again"; a 429 is the hub's to wait out.
             throw new AccountException(ex.Error, ex.Message, ex.HttpStatus, ex)
             {
-                ProviderMessage = ClaudeUsageRules.MapError(ex.HttpStatus, ex.ProviderMessage),
+                ProviderMessage = ClaudeUsageRules.MapError(ex.HttpStatus, ex.ProviderMessage, Strings.Current),
                 RetryAt = ex.RetryAt,
             };
         }
 
-        var parsed = ClaudeUsageRules.Parse(reply.Body);
+        var parsed = ClaudeUsageRules.Parse(reply.Body, Strings.Current);
         if (parsed.Report is not { } report)
         {
             // [S-633] Loud: the endpoint changed shape. Never an all-zero default.

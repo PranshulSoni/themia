@@ -2,6 +2,7 @@ using System.Net.Http;
 using System.Text.Json.Serialization.Metadata;
 using Themia.Core.Accounts;
 using Themia.Core.Diagnostics;
+using Themia.Core.Localization;
 
 namespace Themia.App.Services.Accounts;
 
@@ -67,7 +68,7 @@ internal sealed partial class AccountService
             || verify.Scheme != Uri.UriSchemeHttps)
         {
             throw new AccountException(AccountError.BadResponse,
-                $"{provider.Label()} did not hand out a sign-in code: {ErrorBody.Message(reply.Body) ?? $"HTTP {reply.Status}"}", reply.Status);
+                Str.Shell_Accounts_NoCode.Format(("provider", provider.Label()), ("reason", ErrorBody.Message(reply.Body) ?? $"HTTP {reply.Status}")), reply.Status);
         }
 
         return new DeviceSignIn(provider, new DeviceCodeSession(code.UserCode, verify, code.Interval, code.ExpiresIn, Now), code.DeviceCode);
@@ -124,7 +125,7 @@ internal sealed partial class AccountService
             {
                 throw new AccountException(
                     step.Poll == DevicePoll.Expired ? AccountError.TimedOut : AccountError.Refused,
-                    step.Message ?? "The sign-in did not complete.");
+                    step.Message ?? Str.Shell_Accounts_NotCompleted.Text());
             }
 
             delay = step.Delay;
@@ -139,7 +140,7 @@ internal sealed partial class AccountService
 
         if (me.Id is not { Length: > 0 } id)
         {
-            throw new AccountException(AccountError.BadResponse, "Microsoft would not say which account signed in.");
+            throw new AccountException(AccountError.BadResponse, Str.Shell_Accounts_WhoUnknown.Format(("provider", "Microsoft")));
         }
 
         var address = me.Mail is { Length: > 0 } mail ? mail : me.UserPrincipalName ?? id;
@@ -168,7 +169,7 @@ internal sealed partial class AccountService
     /// </summary>
     public static string? GoogleUnavailableReason => BuildSecrets.GoogleClientSecret.Length > 0
         ? null
-        : "Google sign-in is not set up in this build of Themia. It needs the build to be made with THEMIA_GOOGLE_CLIENT_SECRET set.";
+        : Str.Shell_Accounts_GoogleMissing.Text();
 
     private static string GoogleSecretOrThrow()
         => GoogleUnavailableReason is { } reason
@@ -192,7 +193,7 @@ internal sealed partial class AccountService
 
         if (!openBrowser(OAuthClients.Google.AuthorizeUrl(loopback.RedirectUri, state, Pkce.Challenge(verifier))))
         {
-            throw new AccountException(AccountError.Refused, "The browser could not be opened.");
+            throw new AccountException(AccountError.Refused, Str.Shell_Accounts_BrowserNotOpened.Text());
         }
 
         string code;
@@ -205,7 +206,7 @@ internal sealed partial class AccountService
             }
             catch (OperationCanceledException) when (!cancellation.IsCancellationRequested)
             {
-                throw new AccountException(AccountError.TimedOut, "The browser did not come back within five minutes. Start again.");
+                throw new AccountException(AccountError.TimedOut, Str.Shell_Accounts_BrowserTimeout.Text());
             }
         }
 
@@ -223,7 +224,7 @@ internal sealed partial class AccountService
         if (!reply.IsSuccess || token?.AccessToken is not { Length: > 0 } access)
         {
             throw new AccountException(AccountError.Refused,
-                $"Google refused the sign-in: {token?.ErrorDescription ?? token?.Error ?? ErrorBody.Message(reply.Body) ?? $"HTTP {reply.Status}"}", reply.Status);
+                Str.Shell_Accounts_ProviderRefusedReason.Format(("provider", "Google"), ("reason", token?.ErrorDescription ?? token?.Error ?? ErrorBody.Message(reply.Body) ?? $"HTTP {reply.Status}")), reply.Status);
         }
 
         var me = await GetAnonymousJsonAsync(OAuthClients.Google.UserInfoUrl, access, AccountWireContext.Default.GoogleUserInfo, "Google", cancellation)
@@ -231,7 +232,7 @@ internal sealed partial class AccountService
 
         if (me.Subject is not { Length: > 0 } subject)
         {
-            throw new AccountException(AccountError.BadResponse, "Google would not say which account signed in.");
+            throw new AccountException(AccountError.BadResponse, Str.Shell_Accounts_WhoUnknown.Format(("provider", "Google")));
         }
 
         var address = me.Email ?? subject;
@@ -277,7 +278,7 @@ internal sealed partial class AccountService
 
         if (paste.State is not null && !Pkce.StateMatches(signIn.State, paste.State))
         {
-            throw new AccountException(AccountError.Refused, "That code belongs to a different sign-in. Open the page again and copy the new code.");
+            throw new AccountException(AccountError.Refused, Str.Shell_Accounts_CodeMismatch.Text());
         }
 
         var reply = await AccountHttp.SendAsync(RequestTemplate.Form(OAuthClients.Claude.TokenUrl,
@@ -294,7 +295,7 @@ internal sealed partial class AccountService
         if (!reply.IsSuccess || token?.AccessToken is not { Length: > 0 } access)
         {
             throw new AccountException(AccountError.Refused,
-                $"Claude sign-in failed: {ErrorBody.Message(reply.Body) ?? token?.Error ?? $"HTTP {reply.Status}"}", reply.Status);
+                Str.Shell_Accounts_ProviderRefusedReason.Format(("provider", "Claude"), ("reason", ErrorBody.Message(reply.Body) ?? token?.Error ?? $"HTTP {reply.Status}")), reply.Status);
         }
 
         // Validate before saving: the fresh token must be able to read usage.
@@ -312,9 +313,11 @@ internal sealed partial class AccountService
             var detail = ErrorBody.Message(check.Body);
             throw new AccountException(AccountError.Refused, check.Status switch
             {
-                401 => "Claude accepted the sign-in but its token was refused. Try again.",
-                403 => $"The Claude token lacks a required permission{(detail is null ? "." : $": {detail}")}",
-                _ => $"Anthropic answered HTTP {check.Status}{(detail is null ? "." : $": {detail}")}",
+                401 => Str.Shell_Accounts_ClaudeTokenRefused.Text(),
+                403 => detail is null ? Str.Shell_Accounts_ClaudeScope.Text() : Str.Shell_Accounts_ClaudeScopeReason.Format(("reason", detail)),
+                _ => detail is null
+                    ? Str.Shell_Net_Answered.Format(("host", "Anthropic"), ("status", $"HTTP {check.Status}"))
+                    : Str.Shell_Net_AnsweredReason.Format(("host", "Anthropic"), ("status", $"HTTP {check.Status}"), ("reason", detail)),
             }, check.Status);
         }
 
@@ -348,7 +351,7 @@ internal sealed partial class AccountService
         var trimmed = token?.Trim();
         if (string.IsNullOrEmpty(trimmed))
         {
-            throw new AccountException(AccountError.Refused, "Paste a token first.");
+            throw new AccountException(AccountError.Refused, Str.Shell_Accounts_PasteToken.Text());
         }
 
         var api = OAuthClients.GitHub.NormaliseApiBase(apiBase)
@@ -373,14 +376,17 @@ internal sealed partial class AccountService
         if (!reply.IsSuccess)
         {
             throw new AccountException(reply.Status == 401 ? AccountError.SignInRequired : AccountException.FromStatus(reply.Status),
-                $"GitHub answered HTTP {reply.Status}{(ErrorBody.Message(reply.Body) is { } said ? $": {said}" : ".")} Check the token and its scopes (it needs repo, read:user and notifications).",
+                Str.Shell_Accounts_GitHubTokenFailed.Format(
+                    ("answer", ErrorBody.Message(reply.Body) is { } said
+                        ? Str.Shell_Net_AnsweredReason.Format(("host", "GitHub"), ("status", $"HTTP {reply.Status}"), ("reason", said))
+                        : Str.Shell_Net_Answered.Format(("host", "GitHub"), ("status", $"HTTP {reply.Status}")))),
                 reply.Status);
         }
 
         var user = Parse(reply.Body, AccountWireContext.Default.GitHubUser);
         if (user?.Login is not { Length: > 0 } login)
         {
-            throw new AccountException(AccountError.BadResponse, "GitHub would not say whose token that is.");
+            throw new AccountException(AccountError.BadResponse, Str.Shell_Accounts_WhoUnknown.Format(("provider", "GitHub")));
         }
 
         return await UpsertAsync(new Account
@@ -420,17 +426,17 @@ internal sealed partial class AccountService
         if (cleanHost.Length == 0 || cleanHost.Contains("://", StringComparison.Ordinal) || cleanHost.Any(char.IsWhiteSpace)
             || Uri.CheckHostName(cleanHost) == UriHostNameType.Unknown)
         {
-            throw new AccountException(AccountError.Refused, "Enter the server as a host name, such as imap.example.com.");
+            throw new AccountException(AccountError.Refused, Str.Shell_Accounts_HostName.Text());
         }
 
         if (port is < 1 or > 65535)
         {
-            throw new AccountException(AccountError.Refused, "The port must be between 1 and 65535 (usually 993).");
+            throw new AccountException(AccountError.Refused, Str.Shell_Accounts_PortRange.Text());
         }
 
         if (cleanUser.Length == 0 || string.IsNullOrEmpty(password))
         {
-            throw new AccountException(AccountError.Refused, "Enter the user name and password.");
+            throw new AccountException(AccountError.Refused, Str.Shell_Accounts_EnterCredentials.Text());
         }
 
         await ImapLogin.VerifyAsync(new ImapCredentials(cleanHost, port, cleanUser, password), cancellation).ConfigureAwait(false);
@@ -477,7 +483,7 @@ internal sealed partial class AccountService
         var user = username?.Trim() ?? string.Empty;
         if (user.Length == 0 || string.IsNullOrEmpty(password))
         {
-            throw new AccountException(AccountError.Refused, "Enter the user name and password.");
+            throw new AccountException(AccountError.Refused, Str.Shell_Accounts_EnterCredentials.Text());
         }
 
         var basic = Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes($"{user}:{password}"));
@@ -529,6 +535,6 @@ internal sealed partial class AccountService
         return reply.IsSuccess && Parse(reply.Body, contract) is { } value
             ? value
             : throw new AccountException(AccountError.BadResponse,
-                $"{provider} would not say which account signed in: {ErrorBody.Message(reply.Body) ?? $"HTTP {reply.Status}"}", reply.Status);
+                Str.Shell_Accounts_WhoUnknownReason.Format(("provider", provider), ("reason", ErrorBody.Message(reply.Body) ?? $"HTTP {reply.Status}")), reply.Status);
     }
 }

@@ -1,6 +1,7 @@
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Themia.App.Services;
+using Themia.Core.Localization;
 using Themia.Core.Model;
 using Themia.Core.Widgets;
 
@@ -18,29 +19,29 @@ internal static partial class WidgetSettings
         ArgumentNullException.ThrowIfNull(disk);
         ArgumentNullException.ThrowIfNull(save);
 
-        rows.Add(FluentLayout.Header("Disk"));
+        rows.Add(FluentLayout.Header(Str.WidgetsB_Settings_Disk_Disk.Text()));
         AddDriveRows(rows, disk, save);
 
-        rows.Add(FluentLayout.Header("Show"));
+        rows.Add(FluentLayout.Header(Str.WidgetsB_Settings_Meters_Show.Text()));
 
         AddIoRow(rows, disk, save);
 
-        rows.Add(FluentLayout.Row(Glyphs.Count, "Operations",
-            "Reads and writes per second, across every disk",
+        rows.Add(FluentLayout.Row(Glyphs.Count, Str.WidgetsB_Settings_Disk_Operations_Label.Text(),
+            Str.WidgetsB_Settings_Disk_Operations_Desc.Text(),
             FluentLayout.Toggle(disk.ShowIops, value => { disk.ShowIops = value; save(); }),
             "iops"));
 
-        rows.Add(FluentLayout.Row(Glyphs.Info, "Volume",
-            "The drive's label and file system",
+        rows.Add(FluentLayout.Row(Glyphs.Info, Str.WidgetsB_Settings_Disk_Volume_Label.Text(),
+            Str.WidgetsB_Settings_Disk_Volume_Desc.Text(),
             FluentLayout.Toggle(disk.ShowVolume, value => { disk.ShowVolume = value; save(); }),
             "label", "file system", "ntfs"));
 
-        rows.Add(FluentLayout.Row(Glyphs.ListLayout, "All drives",
-            "List every drive on this PC where the tile has room, not only the ones chosen",
+        rows.Add(FluentLayout.Row(Glyphs.ListLayout, Str.WidgetsB_Settings_Disk_AllDrives_Label.Text(),
+            Str.WidgetsB_Settings_Disk_AllDrives_Desc.Text(),
             FluentLayout.Toggle(disk.ShowAllDrives, value => { disk.ShowAllDrives = value; save(); }),
             "per disk", "drives list"));
 
-        MeterRows(rows, disk, save, "the drives are read");
+        MeterRows(rows, disk, save, Str.WidgetsB_Settings_Disk_Refresh.Text());
     }
 
     /// <summary>
@@ -52,7 +53,7 @@ internal static partial class WidgetSettings
         const string Reading = "reading";
         const string All = "all";
 
-        var options = new List<(string Value, string Label)> { (Reading, "Same drive as the reading"), (All, "All drives") };
+        var options = new List<(string Value, string Label)> { (Reading, Str.WidgetsB_Settings_Disk_ChartSame.Text()), (All, Str.WidgetsB_Settings_Disk_ChartAll.Text()) };
 
         foreach (var volume in DiskMetrics.Volumes(refresh: false))
         {
@@ -69,11 +70,11 @@ internal static partial class WidgetSettings
         // A named drive that is not connected stays offered, so the choice still reads true.
         if (!options.Any(o => o.Value == current))
         {
-            options.Add((current, $"{DiskRules.Instance(current)} (not connected)"));
+            options.Add((current, Str.WidgetsB_Settings_Disk_NotConnectedDrive.Format(("drive", DiskRules.Instance(current)))));
         }
 
-        rows.Add(FluentLayout.Row(Glyphs.Motion, "Chart",
-            "Whose reads and writes the chart shows; space is the number and the bar",
+        rows.Add(FluentLayout.Row(Glyphs.Motion, Str.WidgetsB_Settings_Disk_Chart_Label.Text(),
+            Str.WidgetsB_Settings_Disk_Chart_Desc.Text(),
             FluentLayout.Choice(
                 [.. options.Select((o, i) => (i, o.Label))],
                 Math.Max(0, options.FindIndex(o => o.Value == current)),
@@ -107,7 +108,7 @@ internal static partial class WidgetSettings
         {
             if (!volumes.Any(v => string.Equals(v.Root, root, StringComparison.OrdinalIgnoreCase)))
             {
-                volumes.Add(new DiskVolume(root, "not connected", string.Empty, true, 0, 0));
+                volumes.Add(new DiskVolume(root, Str.WidgetsB_Settings_Disk_NotConnectedLabel.Text(), string.Empty, true, 0, 0));
             }
         }
 
@@ -118,7 +119,7 @@ internal static partial class WidgetSettings
         {
             var root = volume.Root;
             var on = chosen.Contains(root, StringComparer.OrdinalIgnoreCase);
-            var detail = volume.Total > 0 ? DiskRules.FreeOfTotal(volume) : "Not connected";
+            var detail = volume.Total > 0 ? DiskRules.FreeOfTotal(volume) : Str.WidgetsB_Settings_Disk_NotConnected.Text();
 
             switches.Add(FluentLayout.Row(Glyphs.Disk, DiskRules.Title(volume), detail,
                 FluentLayout.Toggle(on, value =>
@@ -137,8 +138,8 @@ internal static partial class WidgetSettings
                 })));
         }
 
-        rows.Add(FluentLayout.Expander(Glyphs.Disk, "Drives",
-            $"Which drives to report on; the first is the big number. None means the system drive ({DiskRules.Instance(system)})",
+        rows.Add(FluentLayout.Expander(Glyphs.Disk, Str.WidgetsB_Settings_Disk_Drives_Label.Text(),
+            Str.WidgetsB_Settings_Disk_Drives_Desc.Format(("drive", DiskRules.Instance(system))),
             null, switches, expanded: true));
     }
 }

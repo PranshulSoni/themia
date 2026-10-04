@@ -1,5 +1,6 @@
 using Themia.App.Shell;
 using Themia.Core.Diagnostics;
+using Themia.Core.Localization;
 using Themia.Core.Model;
 using Themia.Core.Shell;
 using Themia.Core.Storage;
@@ -53,10 +54,10 @@ internal sealed partial class AppHost
 
         if (SafeMode)
         {
-            Notices.Show(new Notice(NoticeKind.Warning, "Widgets are paused")
+            Notices.Show(new Notice(NoticeKind.Warning, Str.Shell_Notice_PausedTitle.Text())
             {
-                Message = "Themia didn't finish starting the last few times. Start your widgets here, or reset your settings in Settings › About.",
-                Action = new NoticeAction("Start widgets", StartPausedWidgets),
+                Message = Str.Shell_Notice_PausedBody.Text(),
+                Action = new NoticeAction(Str.Shell_Notice_StartWidgets.Text(), StartPausedWidgets),
                 Sticky = true,
             });
             return;
@@ -151,7 +152,7 @@ internal sealed partial class AppHost
         var action = undo ? _history.Undo(State) : _history.Redo(State);
         if (action is not { } done)
         {
-            Notices.Show(new Notice(NoticeKind.Info, undo ? "Nothing to undo" : "Nothing to redo") { Key = UndoNoticeKey });
+            Notices.Show(new Notice(NoticeKind.Info, undo ? Str.Shell_Undo_NothingToUndo.Text() : Str.Shell_Undo_NothingToRedo.Text()) { Key = UndoNoticeKey });
             return;
         }
 
@@ -168,7 +169,7 @@ internal sealed partial class AppHost
         Notices.Show(new Notice(NoticeKind.Info, undo ? UndoText.Undid(done) : UndoText.Redid(done))
         {
             Key = UndoNoticeKey,
-            Action = new NoticeAction(undo ? "Redo" : "Undo", () => StepIfCurrent(version, undo: !undo)),
+            Action = new NoticeAction(undo ? Str.Shell_Undo_Redo.Text() : Str.Shell_Undo_Undo.Text(), () => StepIfCurrent(version, undo: !undo)),
         });
     }
 
@@ -187,7 +188,7 @@ internal sealed partial class AppHost
         Notices.Show(new Notice(NoticeKind.Info, title)
         {
             Key = UndoNoticeKey,
-            Action = new NoticeAction("Undo", () => StepIfCurrent(version, undo: true)),
+            Action = new NoticeAction(Str.Shell_Undo_Undo.Text(), () => StepIfCurrent(version, undo: true)),
         });
     }
 
@@ -195,9 +196,9 @@ internal sealed partial class AppHost
     {
         if (_history?.Version != version)
         {
-            Notices.Show(new Notice(NoticeKind.Info, "The desktop changed since")
+            Notices.Show(new Notice(NoticeKind.Info, Str.Shell_Undo_Stale.Text())
             {
-                Message = "Use Ctrl+Z in edit mode to undo the latest change.",
+                Message = Str.Shell_Undo_StaleBody.Format(("keys", Str.Shell_Key_CtrlPlus.Format(("key", "Z")))),
                 Key = UndoNoticeKey,
             });
             return;
@@ -223,9 +224,9 @@ internal sealed partial class AppHost
             return problem;
         }
 
-        Notices.Show(new Notice(NoticeKind.Success, "Settings reset")
+        Notices.Show(new Notice(NoticeKind.Success, Str.Shell_Notice_ResetTitle.Text())
         {
-            Message = "Your previous settings are kept next to the settings file.",
+            Message = Str.Shell_Notice_ResetBody.Text(),
         });
         return null;
     }

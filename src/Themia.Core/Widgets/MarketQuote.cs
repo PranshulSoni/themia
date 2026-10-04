@@ -1,4 +1,5 @@
 using System.Globalization;
+using Themia.Core.Localization;
 using Themia.Core.Model;
 
 namespace Themia.Core.Widgets;
@@ -129,15 +130,17 @@ public static class MarketQuote
     }
 
     /// <summary>A price with grouped thousands and the decimals <see cref="PriceDecimals"/> chose.</summary>
-    public static string Price(double? price, int? priceHint = null)
+    public static string Price(double? price, int? priceHint = null) => Price(Strings.Current, price, priceHint);
+
+    /// <summary>The same, with <paramref name="locale"/>'s separators: "1,234.50" / "1.234,50".</summary>
+    public static string Price(Locale locale, double? price, int? priceHint = null)
     {
         if (price is not { } value || !double.IsFinite(value))
         {
             return "--";
         }
 
-        var decimals = PriceDecimals(value, priceHint);
-        return value.ToString("N" + decimals.ToString(CultureInfo.InvariantCulture), CultureInfo.InvariantCulture);
+        return LocaleFormat.Number(locale, value, PriceDecimals(value, priceHint));
     }
 
     /// <summary>
@@ -147,16 +150,17 @@ public static class MarketQuote
     /// get from a colour is a state some readers do not get at all.
     /// </para>
     /// </summary>
-    public static string ChangePercent(double? percent)
+    public static string ChangePercent(double? percent) => ChangePercent(Strings.Current, percent);
+
+    public static string ChangePercent(Locale locale, double? percent)
     {
         if (percent is not { } value || !double.IsFinite(value))
         {
             return "--";
         }
 
-        var text = Math.Abs(value).ToString("F2", CultureInfo.InvariantCulture);
         var sign = value > 0 ? "+" : value < 0 ? "-" : string.Empty;
-        return $"{sign}{text}%";
+        return sign + LocaleFormat.Percent(locale, Math.Abs(value), 2);
     }
 
     /// <summary>
@@ -253,11 +257,13 @@ public static class MarketQuote
     }
 
     /// <summary>The badge text for a phase, or empty when there is nothing worth saying.</summary>
-    public static string PhaseLabel(MarketPhase phase) => phase switch
+    public static string PhaseLabel(MarketPhase phase) => PhaseLabel(Strings.Current, phase);
+
+    public static string PhaseLabel(Locale locale, MarketPhase phase) => phase switch
     {
-        MarketPhase.Pre => "Pre-market",
-        MarketPhase.Post => "After hours",
-        MarketPhase.Closed => "Market closed",
+        MarketPhase.Pre => Strings.Get(locale, Str.Stocks_PreMarket),
+        MarketPhase.Post => Strings.Get(locale, Str.Stocks_AfterHours),
+        MarketPhase.Closed => Strings.Get(locale, Str.Stocks_MarketClosed),
         _ => string.Empty,
     };
 
@@ -398,7 +404,9 @@ public static class MarketQuote
     }
 
     /// <summary>[S-1311] A share count the way a quote page prints it: 950, 12.3K, 4.56M, 1.2B.</summary>
-    public static string Volume(long? volume)
+    public static string Volume(long? volume) => Volume(Strings.Current, volume);
+
+    public static string Volume(Locale locale, long? volume)
     {
         if (volume is not { } value || value < 0)
         {
@@ -407,18 +415,37 @@ public static class MarketQuote
 
         return value switch
         {
-            >= 1_000_000_000 => (value / 1e9).ToString("0.##", CultureInfo.InvariantCulture) + "B",
-            >= 1_000_000 => (value / 1e6).ToString("0.##", CultureInfo.InvariantCulture) + "M",
-            >= 10_000 => (value / 1e3).ToString("0.#", CultureInfo.InvariantCulture) + "K",
-            _ => value.ToString("N0", CultureInfo.InvariantCulture),
+            >= 1_000_000_000 => Strings.Format(locale, Str.WidgetsC_Stocks_Volume_Billions, ("value", Short(locale, value / 1e9, 2))),
+            >= 1_000_000 => Strings.Format(locale, Str.WidgetsC_Stocks_Volume_Millions, ("value", Short(locale, value / 1e6, 2))),
+            >= 10_000 => Strings.Format(locale, Str.WidgetsC_Stocks_Volume_Thousands, ("value", Short(locale, value / 1e3, 1))),
+            _ => LocaleFormat.Integer(locale, value),
         };
+    }
+
+    /// <summary>
+    /// A number with at most <paramref name="decimals"/> fraction digits and no trailing zeros
+    /// ("4.5", not "4.50"), in the language's separators.
+    /// </summary>
+    private static string Short(Locale locale, double value, int decimals)
+    {
+        var rounded = Math.Round(value, decimals, MidpointRounding.AwayFromZero);
+        var needed = 0;
+
+        while (needed < decimals && Math.Abs(Math.Round(rounded, needed, MidpointRounding.AwayFromZero) - rounded) > 1e-9)
+        {
+            needed++;
+        }
+
+        return LocaleFormat.Number(locale, rounded, needed);
     }
 
     /// <summary>
     /// [S-1311] The facts a large tile lists, in the order a quote page does, each only when the
     /// reply carried it: previous close, day range, 52-week range, volume, exchange.
     /// </summary>
-    public static IReadOnlyList<(string Label, string Value)> Facts(TickerQuote quote)
+    public static IReadOnlyList<(string Label, string Value)> Facts(TickerQuote quote) => Facts(Strings.Current, quote);
+
+    public static IReadOnlyList<(string Label, string Value)> Facts(Locale locale, TickerQuote quote)
     {
         ArgumentNullException.ThrowIfNull(quote);
 
@@ -427,27 +454,27 @@ public static class MarketQuote
 
         if (stats.PreviousClose is { } previous)
         {
-            facts.Add(("Previous close", Price(previous, quote.PriceHint)));
+            facts.Add((Strings.Get(locale, Str.WidgetsC_Stocks_Fact_PreviousClose), Price(locale, previous, quote.PriceHint)));
         }
 
         if (stats.DayLow is { } dayLow && stats.DayHigh is { } dayHigh && dayLow <= dayHigh)
         {
-            facts.Add(("Day range", $"{Price(dayLow, quote.PriceHint)} – {Price(dayHigh, quote.PriceHint)}"));
+            facts.Add((Strings.Get(locale, Str.WidgetsC_Stocks_Fact_DayRange), $"{Price(locale, dayLow, quote.PriceHint)} – {Price(locale, dayHigh, quote.PriceHint)}"));
         }
 
         if (stats.YearLow is { } yearLow && stats.YearHigh is { } yearHigh && yearLow <= yearHigh)
         {
-            facts.Add(("52-week range", $"{Price(yearLow, quote.PriceHint)} – {Price(yearHigh, quote.PriceHint)}"));
+            facts.Add((Strings.Get(locale, Str.WidgetsC_Stocks_Fact_YearRange), $"{Price(locale, yearLow, quote.PriceHint)} – {Price(locale, yearHigh, quote.PriceHint)}"));
         }
 
         if (stats.Volume is > 0)
         {
-            facts.Add(("Volume", Volume(stats.Volume)));
+            facts.Add((Strings.Get(locale, Str.WidgetsC_Stocks_Fact_Volume), Volume(locale, stats.Volume)));
         }
 
         if (stats.Exchange.Length > 0)
         {
-            facts.Add(("Exchange", stats.Exchange));
+            facts.Add((Strings.Get(locale, Str.WidgetsC_Stocks_Fact_Exchange), stats.Exchange));
         }
 
         return facts;

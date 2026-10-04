@@ -1,4 +1,5 @@
 using System.Globalization;
+using Themia.Core.Localization;
 using Themia.Core.Widgets;
 
 namespace Themia.Core.Mail;
@@ -154,6 +155,16 @@ public static class MailScreens
         IReadOnlyList<MailAccountOutcome> outcomes,
         int messageCount,
         MailFolder folder)
+        => Decide(Strings.Current, mailAccounts, chosen, outcomes, messageCount, folder);
+
+    /// <summary><see cref="Decide(IReadOnlyList{MailAccount}, IReadOnlyList{string}, IReadOnlyList{MailAccountOutcome}, int, MailFolder)"/> in <paramref name="locale"/>.</summary>
+    public static MailScreen Decide(
+        Locale locale,
+        IReadOnlyList<MailAccount> mailAccounts,
+        IReadOnlyList<string> chosen,
+        IReadOnlyList<MailAccountOutcome> outcomes,
+        int messageCount,
+        MailFolder folder)
     {
         ArgumentNullException.ThrowIfNull(mailAccounts);
         ArgumentNullException.ThrowIfNull(chosen);
@@ -161,13 +172,13 @@ public static class MailScreens
 
         if (mailAccounts.Count == 0)
         {
-            return new MailScreen(MailScreenKind.NoAccounts, "No mail account yet.", true, null);
+            return new MailScreen(MailScreenKind.NoAccounts, Strings.Get(locale, Str.WidgetsB_Email_NoAccount), true, null);
         }
 
         var targets = Targets(mailAccounts, chosen);
         if (targets.Count == 0)
         {
-            return new MailScreen(MailScreenKind.AccountsGone, "The mail account this widget showed is no longer signed in.", true, null);
+            return new MailScreen(MailScreenKind.AccountsGone, Strings.Get(locale, Str.WidgetsB_Email_AccountsGone), true, null);
         }
 
         var usable = targets.Where(a => a.Problem is null).ToList();
@@ -176,8 +187,8 @@ public static class MailScreens
         if (usable.Count == 0)
         {
             var text = broken.Count == 1
-                ? $"{broken[0].Label} needs you to sign in again."
-                : "Your mail accounts need you to sign in again.";
+                ? SignInAgain(locale, broken[0].Label)
+                : Strings.Get(locale, Str.WidgetsB_Email_AllSignInAgain);
             return new MailScreen(MailScreenKind.SignInRequired, text, true, null);
         }
 
@@ -188,9 +199,9 @@ public static class MailScreens
         var failed = states.Where(s => s.Outcome is { State: MailAccountState.Failed }).ToList();
 
         var warning = broken.Count > 0
-            ? $"{broken[0].Label} needs you to sign in again."
+            ? SignInAgain(locale, broken[0].Label)
             : failed.Count > 0
-                ? $"Could not refresh {failed[0].Account.Label}: {Lower(Describe(failed[0].Outcome!.Status))}."
+                ? Strings.Format(locale, Str.WidgetsB_Email_CouldNotRefresh, ("account", failed[0].Account.Label), ("reason", Reason(locale, failed[0].Outcome!.Status)))
                 : null;
 
         if (messageCount > 0)
@@ -200,7 +211,7 @@ public static class MailScreens
 
         if (states.Any(s => s.Outcome is null or { State: MailAccountState.Pending }))
         {
-            return new MailScreen(MailScreenKind.Loading, "Loading mail…", false, null);
+            return new MailScreen(MailScreenKind.Loading, Strings.Get(locale, Str.WidgetsB_Email_Loading), false, null);
         }
 
         if (failed.Count == states.Count)
@@ -208,40 +219,50 @@ public static class MailScreens
             var status = failed[0].Outcome!.Status;
             var signIn = status == FetchStatus.NotConfigured;
             var text = signIn
-                ? $"{failed[0].Account.Label} needs you to sign in again."
+                ? SignInAgain(locale, failed[0].Account.Label)
                 : status == FetchStatus.Offline
-                    ? "No network. Mail refreshes when you're back online."
-                    : Describe(status) + ".";
+                    ? Strings.Get(locale, Str.WidgetsB_Email_Offline)
+                    : Describe(locale, status);
             return new MailScreen(signIn ? MailScreenKind.SignInRequired : MailScreenKind.Failed, text, signIn, null);
         }
 
-        return new MailScreen(MailScreenKind.Empty, $"No messages in {folder.Label()}.", false, warning);
+        return new MailScreen(MailScreenKind.Empty, Strings.Format(locale, Str.WidgetsB_Email_NoMessagesIn, ("folder", folder.Label(locale))), false, warning);
     }
 
-    /// <summary>A failure in mail's own words; the generic sentence where mail has nothing better to say.</summary>
-    public static string Describe(FetchStatus status) => status switch
-    {
-        FetchStatus.Offline => "No network",
-        FetchStatus.Unreachable => "Can't reach the mail server",
-        FetchStatus.TimedOut => "The mail server did not answer in time",
-        FetchStatus.RateLimited => "The mail service asked Themia to slow down",
-        FetchStatus.NotConfigured => "The account needs you to sign in again",
-        FetchStatus.Refused => "The mail server refused the request",
-        _ => "The mail service sent something unexpected",
-    };
+    private static string SignInAgain(Locale locale, string account)
+        => Strings.Format(locale, Str.WidgetsB_Email_SignInAgain, ("account", account));
 
-    private static string Lower(string sentence)
-        => sentence.Length > 0 ? char.ToLowerInvariant(sentence[0]) + sentence[1..] : sentence;
+    /// <summary>A failure in mail's own words, as a sentence; the generic one where mail has nothing better to say.</summary>
+    public static string Describe(Locale locale, FetchStatus status) => Strings.Get(locale, status switch
+    {
+        FetchStatus.Offline => Str.WidgetsB_Email_Status_Offline,
+        FetchStatus.Unreachable => Str.WidgetsB_Email_Status_Unreachable,
+        FetchStatus.TimedOut => Str.WidgetsB_Email_Status_TimedOut,
+        FetchStatus.RateLimited => Str.WidgetsB_Email_Status_RateLimited,
+        FetchStatus.NotConfigured => Str.WidgetsB_Email_Status_NotConfigured,
+        FetchStatus.Refused => Str.WidgetsB_Email_Status_Refused,
+        _ => Str.WidgetsB_Email_Status_Unexpected,
+    });
+
+    /// <summary>The same failure as the reason inside "Could not refresh Home: …" (lower case where the language wants it).</summary>
+    private static string Reason(Locale locale, FetchStatus status) => Strings.Get(locale, status switch
+    {
+        FetchStatus.Offline => Str.WidgetsB_Email_Reason_Offline,
+        FetchStatus.Unreachable => Str.WidgetsB_Email_Reason_Unreachable,
+        FetchStatus.TimedOut => Str.WidgetsB_Email_Reason_TimedOut,
+        FetchStatus.RateLimited => Str.WidgetsB_Email_Reason_RateLimited,
+        FetchStatus.NotConfigured => Str.WidgetsB_Email_Reason_NotConfigured,
+        FetchStatus.Refused => Str.WidgetsB_Email_Reason_Refused,
+        _ => Str.WidgetsB_Email_Reason_Unexpected,
+    });
 }
 
 /// <summary>[S-548] When a message arrived, in a list's few characters.</summary>
 public static class MailTime
 {
     /// <summary>List and compact rows: now, 5m, 3h, 2d, then a date.</summary>
-    public static string Short(DateTimeOffset? when, DateTimeOffset now, CultureInfo culture)
+    public static string Short(DateTimeOffset? when, DateTimeOffset now, Locale locale)
     {
-        ArgumentNullException.ThrowIfNull(culture);
-
         if (when is not { } at)
         {
             return string.Empty;
@@ -251,32 +272,30 @@ public static class MailTime
 
         if (age < TimeSpan.FromMinutes(1))
         {
-            return "now"; // includes a provider clock running ahead of this one
+            return LocaleFormat.Relative(locale, TimeSpan.Zero); // "now", also for a provider clock running ahead of this one
         }
 
         if (age < TimeSpan.FromHours(1))
         {
-            return $"{(int)age.TotalMinutes}m";
+            return Strings.Format(locale, Str.WidgetsB_Time_MinutesCompact, ("count", (long)age.TotalMinutes));
         }
 
         if (age < TimeSpan.FromDays(1))
         {
-            return $"{(int)age.TotalHours}h";
+            return Strings.Format(locale, Str.WidgetsB_Time_HoursCompact, ("count", (long)age.TotalHours));
         }
 
         if (age < TimeSpan.FromDays(7))
         {
-            return $"{(int)age.TotalDays}d";
+            return Strings.Format(locale, Str.WidgetsB_Time_DaysCompact, ("count", (long)age.TotalDays));
         }
 
-        return MonthDay(at.ToOffset(now.Offset), culture);
+        return MonthDay(at.ToOffset(now.Offset), locale);
     }
 
     /// <summary>The row view's date column: a time today, a weekday this week, then a date.</summary>
-    public static string Full(DateTimeOffset? when, DateTimeOffset now, CultureInfo culture)
+    public static string Full(DateTimeOffset? when, DateTimeOffset now, Locale locale)
     {
-        ArgumentNullException.ThrowIfNull(culture);
-
         if (when is not { } at)
         {
             return string.Empty;
@@ -287,15 +306,12 @@ public static class MailTime
 
         if (age < TimeSpan.FromDays(1))
         {
-            return local.ToString(culture.DateTimeFormat.ShortTimePattern, culture);
+            return LocaleFormat.Time(locale, local.DateTime);
         }
 
-        return age < TimeSpan.FromDays(7) ? local.ToString("ddd", culture) : MonthDay(local, culture);
+        return age < TimeSpan.FromDays(7) ? LocaleFormat.WeekdayName(locale, local.DayOfWeek, NameWidth.Short) : MonthDay(local, locale);
     }
 
-    /// <summary>
-    /// "Sep 28". A fixed pattern rather than the culture's month-day pattern: the app runs with
-    /// invariant globalization, whose pattern is the long "September 28".
-    /// </summary>
-    private static string MonthDay(DateTimeOffset at, CultureInfo culture) => at.ToString("MMM d", culture);
+    /// <summary>"Sep 28" · "28. Sept.": the language's short month-day.</summary>
+    private static string MonthDay(DateTimeOffset at, Locale locale) => LocaleFormat.Date(locale, DateOnly.FromDateTime(at.DateTime), DateStyle.MonthDayShort);
 }

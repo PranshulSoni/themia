@@ -1,3 +1,4 @@
+using Themia.Core.Localization;
 using Themia.Core.Widgets;
 using Xunit;
 
@@ -36,7 +37,8 @@ public class FolderFormattingTests
     {
         var when = new DateTimeOffset(2026, 9, 24, 9, 5, 0, TimeSpan.Zero);
 
-        Assert.Equal("09:05", FolderFormatting.Modified(when, Now));
+        Assert.Equal("9:05 AM", FolderFormatting.Modified(Locale.En, when, Now).Replace('\u202F', ' '));
+        Assert.Equal("09:05", FolderFormatting.Modified(Locale.De, when, Now));
     }
 
     [Fact]
@@ -44,7 +46,8 @@ public class FolderFormattingTests
     {
         var when = new DateTimeOffset(2026, 9, 22, 23, 59, 0, TimeSpan.Zero);
 
-        Assert.Equal("22 Sep", FolderFormatting.Modified(when, Now));
+        Assert.Equal("Sep 22", FolderFormatting.Modified(Locale.En, when, Now));
+        Assert.Equal("22. Sept.", FolderFormatting.Modified(Locale.De, when, Now));
     }
 
     [Fact]
@@ -52,7 +55,8 @@ public class FolderFormattingTests
     {
         var when = new DateTimeOffset(2025, 12, 31, 8, 0, 0, TimeSpan.Zero);
 
-        Assert.Equal("31 Dec 2025", FolderFormatting.Modified(when, Now));
+        Assert.Equal("Dec 31, 2025", FolderFormatting.Modified(Locale.En, when, Now));
+        Assert.Equal("31.12.2025", FolderFormatting.Modified(Locale.De, when, Now));
     }
 
     [Fact]
@@ -61,8 +65,8 @@ public class FolderFormattingTests
         var justBefore = new DateTimeOffset(2026, 9, 23, 23, 59, 59, TimeSpan.Zero);
         var justAfter = new DateTimeOffset(2026, 9, 24, 0, 0, 1, TimeSpan.Zero);
 
-        Assert.Equal("23 Sep", FolderFormatting.Modified(justBefore, Now));
-        Assert.Equal("00:00", FolderFormatting.Modified(justAfter, Now));
+        Assert.Equal("Sep 23", FolderFormatting.Modified(Locale.En, justBefore, Now));
+        Assert.Equal("00:00", FolderFormatting.Modified(Locale.De, justAfter, Now));
     }
 
     [Theory]
@@ -130,5 +134,25 @@ public class FolderFormattingTests
         var characters = FolderFormatting.StatusMessage(FolderListingStatus.InvalidPath, FolderPathProblem.InvalidCharacters);
 
         Assert.NotEqual(rooted, characters);
+    }
+
+    /// <summary>[S-1323] The status footer counts with each language's plural rules and number format.</summary>
+    [Fact]
+    public void S1323_status_footer_speaks_the_language()
+    {
+        Assert.Equal("1 item", FolderFormatting.Status(Locale.En, 1, 0, 0, false));
+        Assert.Equal("1,204 items · 2 selected", FolderFormatting.Status(Locale.En, 1204, 2, 0, false));
+        Assert.Equal("1.204 Elemente · 2 ausgewählt", FolderFormatting.Status(Locale.De, 1204, 2, 0, false));
+        Assert.Equal("3 elementy", FolderFormatting.Status(Locale.Pl, 3, 0, 0, false));
+        Assert.Equal("5 elementów", FolderFormatting.Status(Locale.Pl, 5, 0, 0, false));
+    }
+
+    /// <summary>The empty-state sentences and the type fallback exist in every language, never blank.</summary>
+    [Fact]
+    public void Messages_and_types_are_translated()
+    {
+        Assert.Equal("Dieser Ordner ist leer.", FolderFormatting.StatusMessage(Locale.De, FolderListingStatus.Empty));
+        Assert.Equal("MD-Datei", FolderFormatting.TypeFallback(Locale.De, "notes.md", false));
+        Assert.Equal("Dateiordner", FolderFormatting.TypeFallback(Locale.De, "x", true));
     }
 }

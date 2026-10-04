@@ -1,4 +1,4 @@
-using System.Globalization;
+using Themia.Core.Localization;
 
 namespace Themia.Core.Widgets;
 
@@ -51,11 +51,14 @@ public static class MeterHistory
     }
 
     /// <summary>One value in the unit the meter reads in.</summary>
-    public static string Format(MeterUnit unit, double value) => unit switch
+    public static string Format(MeterUnit unit, double value) => Format(Strings.Current, unit, value);
+
+    /// <summary><see cref="Format(MeterUnit, double)"/> in <paramref name="locale"/>.</summary>
+    public static string Format(Locale locale, MeterUnit unit, double value) => unit switch
     {
-        MeterUnit.Rate => Formatting.Rate(value),
-        MeterUnit.Latency => Formatting.Latency(value),
-        _ => Formatting.Percent(value),
+        MeterUnit.Rate => Formatting.Rate(locale, value),
+        MeterUnit.Latency => Formatting.Latency(locale, value),
+        _ => Formatting.Percent(locale, value),
     };
 
     /// <summary>
@@ -64,14 +67,19 @@ public static class MeterHistory
     /// to summarise.
     /// </summary>
     public static string SummaryLine(MeterUnit unit, MeterSummary? summary, bool compact = false)
+        => SummaryLine(Strings.Current, unit, summary, compact);
+
+    /// <summary><see cref="SummaryLine(MeterUnit, MeterSummary?, bool)"/> in <paramref name="locale"/>.</summary>
+    public static string SummaryLine(Locale locale, MeterUnit unit, MeterSummary? summary, bool compact = false)
     {
         if (summary is not { } s)
         {
             return string.Empty;
         }
 
-        var tail = $"avg {Format(unit, s.Average)} · max {Format(unit, s.Max)}";
-        return compact ? tail : $"min {Format(unit, s.Min)} · {tail}";
+        return compact
+            ? Strings.Format(locale, Str.WidgetsB_Meters_SummaryCompact, ("avg", Format(locale, unit, s.Average)), ("max", Format(locale, unit, s.Max)))
+            : Strings.Format(locale, Str.WidgetsB_Meters_Summary, ("min", Format(locale, unit, s.Min)), ("avg", Format(locale, unit, s.Average)), ("max", Format(locale, unit, s.Max)));
     }
 
     /// <summary>
@@ -100,7 +108,10 @@ public static class MeterHistory
     /// What a window of <paramref name="samples"/> taken every <paramref name="interval"/> spans,
     /// in words: "last 45 s", "last 2 min", "last 1 h".
     /// </summary>
-    public static string Span(int samples, TimeSpan interval)
+    public static string Span(int samples, TimeSpan interval) => Span(Strings.Current, samples, interval);
+
+    /// <summary><see cref="Span(int, TimeSpan)"/> in <paramref name="locale"/>.</summary>
+    public static string Span(Locale locale, int samples, TimeSpan interval)
     {
         if (samples <= 0 || interval <= TimeSpan.Zero)
         {
@@ -111,14 +122,14 @@ public static class MeterHistory
 
         if (span.TotalSeconds < 90)
         {
-            return $"last {Math.Round(span.TotalSeconds).ToString("F0", CultureInfo.InvariantCulture)} s";
+            return Strings.Format(locale, Str.WidgetsB_Meters_LastSeconds, ("count", (long)Math.Round(span.TotalSeconds)));
         }
 
         if (span.TotalMinutes < 90)
         {
-            return $"last {Math.Round(span.TotalMinutes).ToString("F0", CultureInfo.InvariantCulture)} min";
+            return Strings.Format(locale, Str.WidgetsB_Meters_LastMinutes, ("count", (long)Math.Round(span.TotalMinutes)));
         }
 
-        return $"last {Math.Round(span.TotalHours).ToString("F0", CultureInfo.InvariantCulture)} h";
+        return Strings.Format(locale, Str.WidgetsB_Meters_LastHours, ("count", (long)Math.Round(span.TotalHours)));
     }
 }

@@ -3,6 +3,7 @@ using Microsoft.UI.Xaml.Controls;
 using Themia.App.Services;
 using Themia.App.Widgets;
 using Themia.Core.Accounts;
+using Themia.Core.Localization;
 using Themia.Core.Mail;
 using Themia.Core.Model;
 
@@ -28,29 +29,29 @@ internal static partial class WidgetSettings
 
         void OpenAccounts() => navigate(new ConfigTarget.App(AppPage.Accounts));
 
-        rows.Add(FluentLayout.Header("Accounts"));
+        rows.Add(FluentLayout.Header(Str.WidgetUi_AccountsLabel.Text()));
         MailAccountRows(rows, email, save, OpenAccounts);
 
-        rows.Add(FluentLayout.Header("Messages"));
+        rows.Add(FluentLayout.Header(Str.WidgetsB_Settings_Email_Messages.Text()));
 
-        rows.Add(FluentLayout.Row(Glyphs.Folder, "Folder", "Which folder of each account to list",
+        rows.Add(FluentLayout.Row(Glyphs.Folder, Str.Email_Folder_Label.Text(), Str.WidgetsB_Settings_Email_Folder_Desc.Text(),
             FluentLayout.Choice<MailFolder>(
                 [.. MailFolders.Listable.Select(f => (f, f.Label()))],
                 email.Folder,
                 value => { email.Folder = value; save(); })));
 
-        rows.Add(FluentLayout.Row(Glyphs.Count, "Messages",
-            "At least the newest this many, across every account; a bigger widget lists more to fill its space",
+        rows.Add(FluentLayout.Row(Glyphs.Count, Str.WidgetsB_Settings_Email_Count_Label.Text(),
+            Str.WidgetsB_Settings_Email_Count_Desc.Text(),
             FluentLayout.Slider(email.EffectiveMaxCount, 1, 50, 1, string.Empty,
                 value => { email.MaxCount = (int)Math.Round(value); save(); })));
 
-        rows.Add(FluentLayout.Row(Glyphs.Sort, "Order", null,
+        rows.Add(FluentLayout.Row(Glyphs.Sort, Str.WidgetsB_Settings_Email_Order.Text(), null,
             FluentLayout.Choice<MailSortOrder>(
-                [(MailSortOrder.NewestFirst, "Newest first"), (MailSortOrder.OldestFirst, "Oldest first")],
+                [(MailSortOrder.NewestFirst, Str.CtxMenu_NewestFirst.Text()), (MailSortOrder.OldestFirst, Str.CtxMenu_OldestFirst.Text())],
                 email.SortOrder,
                 value => { email.SortOrder = value; save(); })));
 
-        rows.Add(FluentLayout.Header("Display"));
+        rows.Add(FluentLayout.Header(Str.WidgetsB_Settings_Email_Display.Text()));
 
         // The rows that only mean something in one view come and go with it.
         var listOnly = new List<FrameworkElement>();
@@ -78,19 +79,19 @@ internal static partial class WidgetSettings
             }
         }
 
-        rows.Add(FluentLayout.Row(Glyphs.View, "View",
-            "List: three lines a message. Compact: two. Row: one line of columns",
+        rows.Add(FluentLayout.Row(Glyphs.View, Str.Email_View_Label.Text(),
+            Str.WidgetsB_Settings_Email_View_Desc.Text(),
             FluentLayout.Choice<MailViewMode>(
-                [(MailViewMode.List, "List"), (MailViewMode.Compact, "Compact"), (MailViewMode.Row, "Row")],
+                [(MailViewMode.List, Str.CtxMenu_List.Text()), (MailViewMode.Compact, Str.CtxMenu_Compact.Text()), (MailViewMode.Row, Str.CtxMenu_Row.Text())],
                 email.ViewMode,
                 value => { email.ViewMode = value; save(); ShowForView(); })));
 
         // [S-543] The optional lines of the list and compact views. Sender and time always show.
         foreach (var (field, glyph, title, description) in new[]
         {
-            (MailListField.Subject, Glyphs.Mail, "Show subject", (string?)null),
-            (MailListField.Preview, Glyphs.Preview, "Show preview", "The start of the message, in the list view"),
-            (MailListField.Account, Glyphs.Contact, "Show account", "Which account a message came to"),
+            (MailListField.Subject, Glyphs.Mail, Str.WidgetsB_Settings_Email_ShowSubject.Text(), (string?)null),
+            (MailListField.Preview, Glyphs.Preview, Str.WidgetsB_Settings_Email_ShowPreview_Label.Text(), Str.WidgetsB_Settings_Email_ShowPreview_Desc.Text()),
+            (MailListField.Account, Glyphs.Contact, Str.WidgetsB_Settings_Email_ShowAccount_Label.Text(), Str.WidgetsB_Settings_Email_ShowAccount_Desc.Text()),
         })
         {
             var toggle = FluentLayout.Toggle(email.EffectiveListFields.Contains(field), on =>
@@ -113,13 +114,13 @@ internal static partial class WidgetSettings
             rows.Add(row);
         }
 
-        var lines = FluentLayout.Row(Glyphs.Wrap, "Preview lines", "How many lines of each message's preview",
+        var lines = FluentLayout.Row(Glyphs.Wrap, Str.Email_PreviewLines_Label.Text(), Str.WidgetsB_Settings_Email_PreviewLines_Desc.Text(),
             FluentLayout.Slider(email.EffectivePreviewLines, 1, 5, 1, string.Empty,
                 value => { email.PreviewLines = (int)Math.Round(value); save(); }));
         previewOnly.Add(lines);
         rows.Add(lines);
 
-        var columnsHeader = FluentLayout.Note("Columns, in order. A narrow widget drops the preview, account and date columns first.");
+        var columnsHeader = FluentLayout.Note(Str.WidgetsB_Settings_Email_ColumnsNote.Text());
         rowOnly.Add(columnsHeader);
         rows.Add(columnsHeader);
 
@@ -139,13 +140,13 @@ internal static partial class WidgetSettings
     {
         var accounts = AppServices.Accounts?.WithFeature(AccountFeatures.Mail) ?? [];
 
-        var manage = new Button { Content = accounts.Count == 0 ? "Add an account" : "Manage accounts" };
+        var manage = new Button { Content = accounts.Count == 0 ? Str.WidgetsB_Settings_Email_AddAccount.Text() : Str.WidgetsB_Settings_Email_ManageAccounts.Text() };
         manage.Click += (_, _) => openAccounts();
 
         if (accounts.Count == 0)
         {
-            rows.Add(FluentLayout.Row(Glyphs.Mail, "No mail account yet",
-                "Sign in to Microsoft, Google or a mail server (IMAP) on the Accounts page", manage));
+            rows.Add(FluentLayout.Row(Glyphs.Mail, Str.WidgetsB_Settings_Email_NoAccount_Label.Text(),
+                Str.WidgetsB_Settings_Email_NoAccount_Desc.Text(), manage));
             return;
         }
 
@@ -165,7 +166,7 @@ internal static partial class WidgetSettings
             }
         }
 
-        rows.Add(FluentLayout.Row(Glyphs.Mail, "Every mail account", "Accounts you add later are included too",
+        rows.Add(FluentLayout.Row(Glyphs.Mail, Str.WidgetsB_Settings_Email_Every_Label.Text(), Str.WidgetsB_Settings_Email_Every_Desc.Text(),
             FluentLayout.Toggle(every, on =>
             {
                 // Off starts from every account there is now, so turning it off changes nothing on
@@ -223,7 +224,7 @@ internal static partial class WidgetSettings
             rows.Add(row);
         }
 
-        rows.Add(FluentLayout.Row(Glyphs.Contact, "Accounts", "Sign in, sign out and rename on the Accounts page", manage));
+        rows.Add(FluentLayout.Row(Glyphs.Contact, Str.WidgetUi_AccountsLabel.Text(), Str.WidgetsB_Settings_Email_Accounts_Desc.Text(), manage));
         ShowChoice();
     }
 
@@ -260,11 +261,11 @@ internal static partial class WidgetSettings
                     Rebuild();
                 });
 
-                var up = FluentLayout.IconCommand(Glyphs.MoveUp, "Move up");
+                var up = FluentLayout.IconCommand(Glyphs.MoveUp, Str.ChildList_MoveUp.Text());
                 up.IsEnabled = on && index > 0;
                 up.Click += (_, _) => Move(-1);
 
-                var down = FluentLayout.IconCommand(Glyphs.MoveDown, "Move down");
+                var down = FluentLayout.IconCommand(Glyphs.MoveDown, Str.ChildList_MoveDown.Text());
                 down.IsEnabled = on && index >= 0 && index < chosen.Count - 1;
                 down.Click += (_, _) => Move(+1);
 

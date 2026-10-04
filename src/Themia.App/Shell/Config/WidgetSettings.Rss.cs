@@ -1,6 +1,7 @@
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Themia.App.Widgets;
+using Themia.Core.Localization;
 using Themia.Core.Model;
 using Themia.Core.Widgets;
 using Windows.System;
@@ -24,23 +25,23 @@ internal static partial class WidgetSettings
         ArgumentNullException.ThrowIfNull(config);
         ArgumentNullException.ThrowIfNull(save);
 
-        rows.Add(FluentLayout.Header("Feeds"));
+        rows.Add(FluentLayout.Header(Str.WidgetsC_Rss_Settings_Feeds.Text()));
 
         FluentLayout.ListEditor(rows, new ListEditorOptions<RssFeed>
         {
             Items = config.Feeds,
             Body = feed => FeedAddress(feed, save),
             Save = save,
-            EmptyText = "No feeds yet. Add the address of an RSS or Atom feed.",
-            AddTitle = "Add a feed",
-            AddDescription = "The articles of every feed are merged, newest first",
-            AddAction = "Add feed",
+            EmptyText = Str.WidgetsC_Rss_Settings_Empty.Text(),
+            AddTitle = Str.WidgetsC_Rss_Settings_Add_Title.Text(),
+            AddDescription = Str.WidgetsC_Rss_Settings_Add_Desc.Text(),
+            AddAction = Str.WidgetsC_Rss_Settings_Add_Action.Text(),
             Create = () => new RssFeed(),
             Capacity = RssConfig.MaxFeeds,
-            RemoveTooltip = "Remove feed",
+            RemoveTooltip = Str.WidgetsC_Rss_Settings_Remove.Text(),
         });
 
-        var title = new TextBox { Text = config.Title, Width = 200, PlaceholderText = "Optional" };
+        var title = new TextBox { Text = config.Title, Width = 200, PlaceholderText = Str.WidgetsC_Rss_Settings_Optional.Text() };
 
         title.LostFocus += (_, _) =>
         {
@@ -55,23 +56,23 @@ internal static partial class WidgetSettings
             save();
         };
 
-        rows.Add(FluentLayout.Row(Glyphs.Rename, "Title",
-            "Shown instead of the feed's own title (several feeds show their names joined)", title));
+        rows.Add(FluentLayout.Row(Glyphs.Rename, Str.WidgetsC_Rss_Settings_Title_Label.Text(),
+            Str.WidgetsC_Rss_Settings_Title_Desc.Text(), title));
 
-        rows.Add(FluentLayout.Header("Articles"));
+        rows.Add(FluentLayout.Header(Str.WidgetsC_Rss_Settings_Articles.Text()));
 
-        rows.Add(FluentLayout.Row(Glyphs.Link, "Show source",
-            "The site each article came from: its icon, and its name where there is room. The icon is fetched from the site itself",
+        rows.Add(FluentLayout.Row(Glyphs.Link, Str.WidgetsC_Rss_Settings_Source_Label.Text(),
+            Str.WidgetsC_Rss_Settings_Source_Desc.Text(),
             FluentLayout.Toggle(config.ShowSource, value => { config.ShowSource = value; save(); })));
 
-        rows.Add(FluentLayout.Row(Glyphs.Preview, "Show preview", "The start of the article, where the widget has room",
+        rows.Add(FluentLayout.Row(Glyphs.Preview, Str.WidgetsC_Rss_Settings_Preview_Label.Text(), Str.WidgetsC_Rss_Settings_Preview_Desc.Text(),
             FluentLayout.Toggle(config.ShowPreview, value => { config.ShowPreview = value; save(); })));
 
-        rows.Add(FluentLayout.Row(Glyphs.Clock, "Show date", "How long ago it was published",
+        rows.Add(FluentLayout.Row(Glyphs.Clock, Str.WidgetsC_Rss_Settings_Date_Label.Text(), Str.WidgetsC_Rss_Settings_Date_Desc.Text(),
             FluentLayout.Toggle(config.ShowDate, value => { config.ShowDate = value; save(); })));
 
-        rows.Add(FluentLayout.Row(Glyphs.Count, "Articles",
-            "How many the list holds, across all feeds. A display cap, not a fetch count: a feed that publishes ten can never fill fifty",
+        rows.Add(FluentLayout.Row(Glyphs.Count, Str.WidgetsC_Rss_Settings_Articles.Text(),
+            Str.WidgetsC_Rss_Settings_Count_Desc.Text(),
             FluentLayout.Slider(config.EffectiveMaxItems, 5, 50, 1, string.Empty,
                 value => { config.MaxItems = (int)Math.Round(value); save(); })));
 

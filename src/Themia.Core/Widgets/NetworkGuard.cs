@@ -1,5 +1,6 @@
 using System.Net;
 using System.Net.Sockets;
+using Themia.Core.Localization;
 
 namespace Themia.Core.Widgets;
 
@@ -195,10 +196,13 @@ public static class NetworkGuard
     }
 
     /// <summary>The sentence a refused address is shown with.</summary>
-    public static string Explain(GuardVerdict verdict, string host) => verdict switch
+    public static string Explain(GuardVerdict verdict, string host) => Explain(Strings.Current, verdict, host);
+
+    /// <summary><see cref="Explain(GuardVerdict, string)"/> in <paramref name="locale"/>.</summary>
+    public static string Explain(Locale locale, GuardVerdict verdict, string host) => verdict switch
     {
-        GuardVerdict.Blocked => $"{host} is on the local network. Turn on local network access in Settings › General to reach it",
-        GuardVerdict.Unresolvable => $"{host} could not be found",
+        GuardVerdict.Blocked => Strings.Format(locale, Str.Shell_Net_Blocked, ("host", host)),
+        GuardVerdict.Unresolvable => Strings.Format(locale, Str.Shell_Net_NotFound, ("host", host)),
         _ => string.Empty,
     };
 

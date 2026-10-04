@@ -1,7 +1,9 @@
 using Microsoft.UI.Xaml;
 using Themia.App.Services;
 using Themia.App.Shell;
+using Themia.Core.Localization;
 using Themia.Core.Model;
+using Themia.Core.Widgets;
 
 namespace Themia.App.Widgets;
 
@@ -173,19 +175,26 @@ public interface IWidgetView
 
 /// <summary>One entry in the widget picker.</summary>
 /// <param name="Kind">The persisted discriminator.</param>
-/// <param name="Label">Display name.</param>
-/// <param name="Description">One line shown under the name in the picker.</param>
+/// <param name="LabelId">Display name, as a string id: read <see cref="Label"/> for the current language.</param>
+/// <param name="DescriptionId">One line shown under the name in the picker.</param>
 /// <param name="Glyph">Segoe Fluent Icons code point, so the picker matches the rest of Windows.</param>
 /// <param name="DefaultWidthPx">[S-10] Default size in device-independent pixels, converted to a fraction at drop time.</param>
 /// <param name="Category">[S-420] The picker column section it is listed under.</param>
 internal readonly record struct WidgetDefinition(
     WidgetKind Kind,
-    string Label,
-    string Description,
+    Str LabelId,
+    Str DescriptionId,
     string Glyph,
     double DefaultWidthPx,
     double DefaultHeightPx,
-    WidgetCategory Category);
+    WidgetCategory Category)
+{
+    /// <summary>[S-1109] The display name in the current language, read each time so a language switch reaches every caller.</summary>
+    public string Label => LabelId.Text();
+
+    /// <summary>The picker's one-line description in the current language.</summary>
+    public string Description => DescriptionId.Text();
+}
 
 /// <summary>
 /// [S-420] The sections of the widget picker, in the order they are read. A closed set, and an
@@ -218,77 +227,105 @@ internal static class WidgetCatalog
 {
     public static readonly IReadOnlyList<WidgetDefinition> All =
     [
-        new(WidgetKind.Clock, "Clock", "Time and date, digital or analog", Glyphs.Clock, 280, 140, WidgetCategory.Time),
-        new(WidgetKind.Cpu, "CPU", "Processor load across all cores", Glyphs.Cpu, 200, 150, WidgetCategory.System),
-        new(WidgetKind.Memory, "Memory", "Physical memory in use", Glyphs.Memory, 200, 150, WidgetCategory.System),
-        new(WidgetKind.Disk, "Disk", "Read and write activity, and space left", Glyphs.Disk, 200, 150, WidgetCategory.System),
-        new(WidgetKind.Battery, "Battery", "Charge level and time remaining", Glyphs.Battery, 200, 150, WidgetCategory.System),
-        new(WidgetKind.Network, "Network", "Bytes per second across the active adapters", Glyphs.Network, 200, 150, WidgetCategory.System),
-        new(WidgetKind.Ping, "Ping", "Round-trip time to a host", Glyphs.Ping, 200, 150, WidgetCategory.System),
-        new(WidgetKind.Processes, "Processes", "The busiest processes, ranked", Glyphs.Processes, 320, 240, WidgetCategory.System),
-        new(WidgetKind.Gpu, "GPU", "Graphics load and video memory", Glyphs.Gpu, 220, 220, WidgetCategory.System),
-        new(WidgetKind.Mixer, "Mixer", "Volume for each app that plays sound", Glyphs.Mixer, 300, 260, WidgetCategory.System),
-        new(WidgetKind.ScreenTime, "Screen time", "Which apps you used today, and for how long", Glyphs.ScreenTime, 260, 300, WidgetCategory.System),
-        new(WidgetKind.Email, "Mail", "Recent messages from Outlook, Gmail or any mail server", Glyphs.Mail, 380, 260, WidgetCategory.Accounts),
-        new(WidgetKind.Calendar, "Calendar", "Your Microsoft, Google and CalDAV calendars, with birthdays", Glyphs.Calendar, 340, 260, WidgetCategory.Accounts),
-        new(WidgetKind.Tasks, "Tasks", "Microsoft To Do, Google Tasks, or a list on this PC", Glyphs.Task, 320, 320, WidgetCategory.Accounts),
-        new(WidgetKind.Contacts, "Contacts", "People from your Microsoft, Google and CardDAV address books", Glyphs.Contact, 320, 260, WidgetCategory.Accounts),
-        new(WidgetKind.Notes, "Notes", "A note kept on this machine", Glyphs.Note, 300, 220, WidgetCategory.Desk),
-        new(WidgetKind.Countdown, "Countdown", "Time left until the dates you care about", Glyphs.Countdown, 300, 200, WidgetCategory.Time),
-        new(WidgetKind.Pomodoro, "Pomodoro", "A focus and break timer", Glyphs.Pomodoro, 240, 200, WidgetCategory.Time),
-        new(WidgetKind.Calculator, "Calculator", "An arithmetic scratchpad", Glyphs.Calculator, 260, 260, WidgetCategory.Desk),
-        new(WidgetKind.SunMoon, "Sun & Moon", "Sunrise, sunset and the moon phase", Glyphs.Sun, 320, 240, WidgetCategory.Time),
-        new(WidgetKind.Folder, "Folder", "What is in a folder on this PC", Glyphs.Folder, 340, 280, WidgetCategory.Launch),
-        new(WidgetKind.Volume, "Volume", "Master output level and mute", Glyphs.Volume, 200, 150, WidgetCategory.System),
-        new(WidgetKind.Power, "Power", "Shut down, restart, sleep and lock", Glyphs.Power, 260, 120, WidgetCategory.System),
-        new(WidgetKind.Bluetooth, "Bluetooth", "Paired devices and their battery", Glyphs.Bluetooth, 300, 240, WidgetCategory.System),
-        new(WidgetKind.Music, "Now playing", "Whatever Windows is playing", Glyphs.Music, 340, 160, WidgetCategory.Media),
-        new(WidgetKind.WeatherNow, "Weather", "Conditions where you are", Glyphs.Weather, 260, 200, WidgetCategory.Information),
-        new(WidgetKind.WeatherForecast, "Forecast", "The next few days", Glyphs.Forecast, 380, 220, WidgetCategory.Information),
-        new(WidgetKind.Stocks, "Stocks", "Tickers and crypto, with a sparkline", Glyphs.Stocks, 320, 240, WidgetCategory.Information),
-        new(WidgetKind.Rss, "Feed", "Headlines from the feeds you choose", Glyphs.Rss, 360, 280, WidgetCategory.Information),
-        new(WidgetKind.Apps, "Apps", "Launch an installed application", Glyphs.Apps, 320, 240, WidgetCategory.Launch),
-        new(WidgetKind.Shortcuts, "Shortcuts", "Links, files and folders you keep to hand", Glyphs.Shortcut, 320, 220, WidgetCategory.Launch),
-        new(WidgetKind.OneDrive, "OneDrive", "Recent files, or a folder, on your OneDrive", Glyphs.OneDrive, 330, 320, WidgetCategory.Launch),
-        new(WidgetKind.WebSearch, "Search", "Type a query, open it in your browser", Glyphs.Search, 320, 56, WidgetCategory.Launch),
-        new(WidgetKind.Clipboard, "Clipboard", "What you have copied recently", Glyphs.Clipboard, 320, 260, WidgetCategory.Desk),
-        new(WidgetKind.Scratchpad, "Scratchpad", "A place to draw", Glyphs.Scratchpad, 300, 260, WidgetCategory.Desk),
-        new(WidgetKind.ColorSwatch, "Colour", "A block of colour or a gradient, or a palette to copy from", Glyphs.Color, 120, 120, WidgetCategory.Desk),
-        new(WidgetKind.Quote, "Quote", "A line worth rereading", Glyphs.Quote, 320, 180, WidgetCategory.Desk),
-        new(WidgetKind.Gallery, "Gallery", "Pictures from a folder, a file or Bing", Glyphs.Gallery, 320, 240, WidgetCategory.Media),
-        new(WidgetKind.VideoStream, "Video stream", "A live camera: MJPEG, a snapshot, MP4 or HLS", Glyphs.Video, 320, 240, WidgetCategory.Media),
-        new(WidgetKind.WebElement, "Web element", "One part of a web page, kept up to date", Glyphs.WebElement, 360, 260, WidgetCategory.Information),
-        new(WidgetKind.HabitTracker, "Habits", "Daily check-offs and streaks", Glyphs.Habit, 320, 240, WidgetCategory.Trackers),
-        new(WidgetKind.MoodTracker, "Mood", "How you felt, as a heatmap", Glyphs.Mood, 320, 240, WidgetCategory.Trackers),
-        new(WidgetKind.Group, "Group", "An area that holds other widgets", Glyphs.Group, 400, 300, WidgetCategory.Layout),
-        new(WidgetKind.Stack, "Stack", "Widgets rolled up to their headers", Glyphs.Stack, 360, 320, WidgetCategory.Layout),
-        new(WidgetKind.Tabs, "Tabs", "Several widgets, one at a time", Glyphs.Tabs, 360, 320, WidgetCategory.Layout),
-        new(WidgetKind.ViewSwitcher, "View switcher", "Switch the view of the display it is on", Glyphs.View, 320, 56, WidgetCategory.Layout),
-        new(WidgetKind.GitHub, "GitHub", "A repository: stars, CI, commits, pull requests", Glyphs.Code, 320, 320, WidgetCategory.Developer),
-        new(WidgetKind.GitHubIssues, "Assigned issues", "Open GitHub issues assigned to you", Glyphs.Issue, 320, 260, WidgetCategory.Developer),
-        new(WidgetKind.GitHubNotifications, "Notifications", "Your GitHub notifications", Glyphs.Bell, 320, 340, WidgetCategory.Developer),
-        new(WidgetKind.GitHubReviews, "Review requests", "Pull requests waiting for your review", Glyphs.PullRequest, 320, 260, WidgetCategory.Developer),
-        new(WidgetKind.ClaudeUsage, "Claude usage", "Your Claude plan's session and weekly limits", Glyphs.Gauge, 260, 180, WidgetCategory.Developer),
-        new(WidgetKind.Help, "Help", "How Themia works, in four short tabs", Glyphs.Help, 440, 440, WidgetCategory.App),
-        new(WidgetKind.Themia, "Themia", "The Themia mark, name and version", Glyphs.Themia, 120, 120, WidgetCategory.App),
+        new(WidgetKind.Clock, Str.Widget_Clock_Label, Str.WidgetsA_Catalog_Clock_Description, Glyphs.Clock, 280, 140, WidgetCategory.Time),
+        new(WidgetKind.Cpu, Str.WidgetsA_Catalog_Cpu_Label, Str.WidgetsA_Catalog_Cpu_Description, Glyphs.Cpu, 200, 150, WidgetCategory.System),
+        new(WidgetKind.Memory, Str.WidgetsA_Catalog_Memory_Label, Str.WidgetsA_Catalog_Memory_Description, Glyphs.Memory, 200, 150, WidgetCategory.System),
+        new(WidgetKind.Disk, Str.WidgetsA_Catalog_Disk_Label, Str.WidgetsA_Catalog_Disk_Description, Glyphs.Disk, 200, 150, WidgetCategory.System),
+        new(WidgetKind.Battery, Str.Widget_Battery_Label, Str.WidgetsA_Catalog_Battery_Description, Glyphs.Battery, 200, 150, WidgetCategory.System),
+        new(WidgetKind.Network, Str.WidgetsA_Catalog_Network_Label, Str.WidgetsA_Catalog_Network_Description, Glyphs.Network, 200, 150, WidgetCategory.System),
+        new(WidgetKind.Ping, Str.Widget_Ping_Label, Str.WidgetsA_Catalog_Ping_Description, Glyphs.Ping, 200, 150, WidgetCategory.System),
+        new(WidgetKind.Processes, Str.WidgetsA_Catalog_Processes_Label, Str.WidgetsA_Catalog_Processes_Description, Glyphs.Processes, 320, 240, WidgetCategory.System),
+        new(WidgetKind.Gpu, Str.WidgetsA_Catalog_Gpu_Label, Str.WidgetsA_Catalog_Gpu_Description, Glyphs.Gpu, 220, 220, WidgetCategory.System),
+        new(WidgetKind.Mixer, Str.WidgetsA_Catalog_Mixer_Label, Str.WidgetsA_Catalog_Mixer_Description, Glyphs.Mixer, 300, 260, WidgetCategory.System),
+        new(WidgetKind.ScreenTime, Str.WidgetsA_Catalog_ScreenTime_Label, Str.WidgetsA_Catalog_ScreenTime_Description, Glyphs.ScreenTime, 260, 300, WidgetCategory.System),
+        new(WidgetKind.Email, Str.WidgetsA_Catalog_Mail_Label, Str.WidgetsA_Catalog_Mail_Description, Glyphs.Mail, 380, 260, WidgetCategory.Accounts),
+        new(WidgetKind.Calendar, Str.Widget_Calendar_Label, Str.WidgetsA_Catalog_Calendar_Description, Glyphs.Calendar, 340, 260, WidgetCategory.Accounts),
+        new(WidgetKind.Tasks, Str.WidgetsA_Catalog_Tasks_Label, Str.WidgetsA_Catalog_Tasks_Description, Glyphs.Task, 320, 320, WidgetCategory.Accounts),
+        new(WidgetKind.Contacts, Str.Widget_Contacts_Label, Str.WidgetsA_Catalog_Contacts_Description, Glyphs.Contact, 320, 260, WidgetCategory.Accounts),
+        new(WidgetKind.Notes, Str.Widget_Notes_Label, Str.WidgetsA_Catalog_Notes_Description, Glyphs.Note, 300, 220, WidgetCategory.Desk),
+        new(WidgetKind.Countdown, Str.Widget_Countdown_Label, Str.WidgetsA_Catalog_Countdown_Description, Glyphs.Countdown, 300, 200, WidgetCategory.Time),
+        new(WidgetKind.Pomodoro, Str.Widget_Pomodoro_Label, Str.WidgetsA_Catalog_Pomodoro_Description, Glyphs.Pomodoro, 240, 200, WidgetCategory.Time),
+        new(WidgetKind.Calculator, Str.Widget_Calculator_Label, Str.WidgetsA_Catalog_Calculator_Description, Glyphs.Calculator, 260, 260, WidgetCategory.Desk),
+        new(WidgetKind.SunMoon, Str.Widget_SunMoon_Label, Str.WidgetsA_Catalog_SunMoon_Description, Glyphs.Sun, 320, 240, WidgetCategory.Time),
+        new(WidgetKind.Folder, Str.Widget_Folder_Label, Str.WidgetsA_Catalog_Folder_Description, Glyphs.Folder, 340, 280, WidgetCategory.Launch),
+        new(WidgetKind.Volume, Str.Widget_Volume_Label, Str.WidgetsA_Catalog_Volume_Description, Glyphs.Volume, 200, 150, WidgetCategory.System),
+        new(WidgetKind.Power, Str.Widget_Power_Label, Str.WidgetsA_Catalog_Power_Description, Glyphs.Power, 260, 120, WidgetCategory.System),
+        new(WidgetKind.Bluetooth, Str.Widget_Bluetooth_Label, Str.WidgetsA_Catalog_Bluetooth_Description, Glyphs.Bluetooth, 300, 240, WidgetCategory.System),
+        new(WidgetKind.Music, Str.WidgetsA_Catalog_Music_Label, Str.WidgetsA_Catalog_Music_Description, Glyphs.Music, 340, 160, WidgetCategory.Media),
+        new(WidgetKind.WeatherNow, Str.Widget_WeatherCurrent_Label, Str.WidgetsA_Catalog_Weather_Description, Glyphs.Weather, 260, 200, WidgetCategory.Information),
+        new(WidgetKind.WeatherForecast, Str.WidgetsA_Catalog_Forecast_Label, Str.WidgetsA_Catalog_Forecast_Description, Glyphs.Forecast, 380, 220, WidgetCategory.Information),
+        new(WidgetKind.Stocks, Str.Widget_Stocks_Label, Str.WidgetsA_Catalog_Stocks_Description, Glyphs.Stocks, 320, 240, WidgetCategory.Information),
+        new(WidgetKind.Rss, Str.WidgetsA_Catalog_Feed_Label, Str.WidgetsA_Catalog_Feed_Description, Glyphs.Rss, 360, 280, WidgetCategory.Information),
+        new(WidgetKind.Apps, Str.Widget_Apps_Label, Str.WidgetsA_Catalog_Apps_Description, Glyphs.Apps, 320, 240, WidgetCategory.Launch),
+        new(WidgetKind.Shortcuts, Str.WidgetsA_Catalog_Shortcuts_Label, Str.WidgetsA_Catalog_Shortcuts_Description, Glyphs.Shortcut, 320, 220, WidgetCategory.Launch),
+        new(WidgetKind.OneDrive, Str.Widget_Onedrive_Label, Str.WidgetsA_Catalog_OneDrive_Description, Glyphs.OneDrive, 330, 320, WidgetCategory.Launch),
+        new(WidgetKind.WebSearch, Str.WidgetsA_Catalog_Search_Label, Str.WidgetsA_Catalog_Search_Description, Glyphs.Search, 320, 56, WidgetCategory.Launch),
+        new(WidgetKind.Clipboard, Str.WidgetsA_Catalog_Clipboard_Label, Str.WidgetsA_Catalog_Clipboard_Description, Glyphs.Clipboard, 320, 260, WidgetCategory.Desk),
+        new(WidgetKind.Scratchpad, Str.Widget_Scratchpad_Label, Str.WidgetsA_Catalog_Scratchpad_Description, Glyphs.Scratchpad, 300, 260, WidgetCategory.Desk),
+        new(WidgetKind.ColorSwatch, Str.Widget_ColorSwatch_Label, Str.WidgetsA_Catalog_Colour_Description, Glyphs.Color, 120, 120, WidgetCategory.Desk),
+        new(WidgetKind.Quote, Str.WidgetsA_Catalog_Quote_Label, Str.WidgetsA_Catalog_Quote_Description, Glyphs.Quote, 320, 180, WidgetCategory.Desk),
+        new(WidgetKind.Gallery, Str.Widget_Gallery_Label, Str.WidgetsA_Catalog_Gallery_Description, Glyphs.Gallery, 320, 240, WidgetCategory.Media),
+        new(WidgetKind.VideoStream, Str.WidgetsA_Catalog_VideoStream_Label, Str.WidgetsA_Catalog_VideoStream_Description, Glyphs.Video, 320, 240, WidgetCategory.Media),
+        new(WidgetKind.WebElement, Str.WidgetsA_Catalog_WebElement_Label, Str.WidgetsA_Catalog_WebElement_Description, Glyphs.WebElement, 360, 260, WidgetCategory.Information),
+        new(WidgetKind.HabitTracker, Str.WidgetsA_Catalog_Habits_Label, Str.WidgetsA_Catalog_Habits_Description, Glyphs.Habit, 320, 240, WidgetCategory.Trackers),
+        new(WidgetKind.MoodTracker, Str.WidgetsA_Catalog_Mood_Label, Str.WidgetsA_Catalog_Mood_Description, Glyphs.Mood, 320, 240, WidgetCategory.Trackers),
+        new(WidgetKind.Group, Str.Widget_Group_Label, Str.WidgetsA_Catalog_Group_Description, Glyphs.Group, 400, 300, WidgetCategory.Layout),
+        new(WidgetKind.Stack, Str.Widget_Stack_Label, Str.WidgetsA_Catalog_Stack_Description, Glyphs.Stack, 360, 320, WidgetCategory.Layout),
+        new(WidgetKind.Tabs, Str.Widget_Tabs_Label, Str.WidgetsA_Catalog_Tabs_Description, Glyphs.Tabs, 360, 320, WidgetCategory.Layout),
+        new(WidgetKind.ViewSwitcher, Str.WidgetsA_Catalog_ViewSwitcher_Label, Str.WidgetsA_Catalog_ViewSwitcher_Description, Glyphs.View, 320, 56, WidgetCategory.Layout),
+        new(WidgetKind.GitHub, Str.Widget_Github_Label, Str.WidgetsA_Catalog_Github_Description, Glyphs.Code, 320, 320, WidgetCategory.Developer),
+        new(WidgetKind.GitHubIssues, Str.WidgetsA_Catalog_GithubIssues_Label, Str.WidgetsA_Catalog_GithubIssues_Description, Glyphs.Issue, 320, 260, WidgetCategory.Developer),
+        new(WidgetKind.GitHubNotifications, Str.WidgetsA_Catalog_GithubNotifications_Label, Str.WidgetsA_Catalog_GithubNotifications_Description, Glyphs.Bell, 320, 340, WidgetCategory.Developer),
+        new(WidgetKind.GitHubReviews, Str.WidgetsA_Catalog_GithubReviews_Label, Str.WidgetsA_Catalog_GithubReviews_Description, Glyphs.PullRequest, 320, 260, WidgetCategory.Developer),
+        new(WidgetKind.ClaudeUsage, Str.WidgetsA_Catalog_ClaudeUsage_Label, Str.WidgetsA_Catalog_ClaudeUsage_Description, Glyphs.Gauge, 260, 180, WidgetCategory.Developer),
+        new(WidgetKind.Help, Str.WidgetsA_Catalog_Help_Label, Str.WidgetsA_Catalog_Help_Description, Glyphs.Help, 440, 440, WidgetCategory.App),
+        new(WidgetKind.Themia, Str.Widget_Themia_Label, Str.WidgetsA_Catalog_Themia_Description, Glyphs.Themia, 120, 120, WidgetCategory.App),
     ];
 
-    /// <summary>The heading a picker section is shown under.</summary>
-    public static string Title(WidgetCategory category) => category switch
+    /// <summary>The heading a picker section is shown under, in the current language.</summary>
+    public static string Title(WidgetCategory category) => TitleId(category).Text();
+
+    private static Str TitleId(WidgetCategory category) => category switch
     {
-        WidgetCategory.Time => "Time",
-        WidgetCategory.Accounts => "Mail & calendar",
-        WidgetCategory.System => "System",
-        WidgetCategory.Information => "Information",
-        WidgetCategory.Media => "Media",
-        WidgetCategory.Launch => "Launch",
-        WidgetCategory.Desk => "Desk",
-        WidgetCategory.Trackers => "Trackers",
-        WidgetCategory.Layout => "Layout",
-        WidgetCategory.Developer => "Developer",
-        WidgetCategory.App => "Themia",
-        _ => category.ToString(),
+        WidgetCategory.Time => Str.WidgetsA_Catalog_Category_Time,
+        WidgetCategory.Accounts => Str.WidgetsA_Catalog_Category_Accounts,
+        WidgetCategory.System => Str.Category_System,
+        WidgetCategory.Information => Str.WidgetsA_Catalog_Category_Information,
+        WidgetCategory.Media => Str.WidgetsA_Catalog_Category_Media,
+        WidgetCategory.Launch => Str.WidgetsA_Catalog_Category_Launch,
+        WidgetCategory.Desk => Str.WidgetsA_Catalog_Category_Desk,
+        WidgetCategory.Trackers => Str.WidgetsA_Catalog_Category_Trackers,
+        WidgetCategory.Layout => Str.Category_Layout,
+        WidgetCategory.Developer => Str.WidgetsA_Catalog_Category_Developer,
+        _ => Str.Category_Themia,
     };
+
+    /// <summary>
+    /// [S-943] What the picker's search matches a widget on. Name, description and section come in
+    /// the current language and, when that is not English, in English as well — a German user who
+    /// types "weather" still finds the Wetter widget, and the curated keywords
+    /// (<see cref="WidgetKeywords"/>, English only) keep working in every language.
+    /// </summary>
+    public static WidgetSearchDoc SearchDoc(WidgetDefinition definition)
+    {
+        var locale = Strings.Current;
+        var titleId = TitleId(definition.Category);
+        return new WidgetSearchDoc(
+            definition.Kind.ToString(),
+            Both(locale, definition.LabelId),
+            WidgetKeywords.For(definition.Kind),
+            Both(locale, definition.DescriptionId),
+            Both(locale, titleId),
+            WidgetKeywords.Providers(definition.Kind));
+    }
+
+    /// <summary>The text in <paramref name="locale"/>, then in English when that differs; the first is the shown one.</summary>
+    private static string[] Both(Locale locale, Str id)
+    {
+        var shown = Strings.Get(locale, id);
+        var english = Strings.Get(Locale.En, id);
+        return string.Equals(shown, english, StringComparison.Ordinal) ? [shown] : [shown, english];
+    }
 
     public static WidgetDefinition Definition(WidgetKind kind)
     {

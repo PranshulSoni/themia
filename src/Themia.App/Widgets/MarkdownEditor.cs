@@ -8,6 +8,7 @@ using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
 using Themia.App.Shell;
 using Themia.Core.Diagnostics;
+using Themia.Core.Localization;
 using Themia.Core.Notes;
 using Themia.Core.Widgets;
 using Windows.ApplicationModel.DataTransfer;
@@ -62,17 +63,17 @@ internal sealed class MarkdownEditor
     private const int ImeProcessKey = 0xE5;
 
     /// <summary>The bar in display order, with the order buttons are shed in as it narrows (0 = last to go).</summary>
-    private static readonly (NoteCommand Command, string? Glyph, string? Label, string Tip, int Rank)[] BarButtons =
+    private static readonly (NoteCommand Command, string? Glyph, string? Label, Func<string> Tip, int Rank)[] BarButtons =
     [
-        (NoteCommand.Heading, null, "H", "Heading (H1, H2, H3, body)", 4),
-        (NoteCommand.Bold, Glyphs.Bold, null, "Bold (Ctrl+B)", 0),
-        (NoteCommand.Italic, Glyphs.Italic, null, "Italic (Ctrl+I)", 1),
-        (NoteCommand.Strike, Glyphs.Strikethrough, null, "Strikethrough", 5),
-        (NoteCommand.Code, Glyphs.Code, null, "Code", 6),
-        (NoteCommand.Bullet, Glyphs.BulletList, null, "Bulleted list", 3),
-        (NoteCommand.Ordered, null, "1.", "Numbered list", 7),
-        (NoteCommand.Task, Glyphs.Checklist, null, "Task list", 2),
-        (NoteCommand.Quote, Glyphs.Quote, null, "Quote", 8),
+        (NoteCommand.Heading, null, "H", () => Str.WidgetsC_Notes_Editor_HeadingTip.Text(), 4),
+        (NoteCommand.Bold, Glyphs.Bold, null, () => WithShortcut(Str.Widget_Notes_Fmt_Bold, "Ctrl+B"), 0),
+        (NoteCommand.Italic, Glyphs.Italic, null, () => WithShortcut(Str.Widget_Notes_Fmt_Italic, "Ctrl+I"), 1),
+        (NoteCommand.Strike, Glyphs.Strikethrough, null, () => Str.Widget_Notes_Fmt_Strike.Text(), 5),
+        (NoteCommand.Code, Glyphs.Code, null, () => Str.Widget_Notes_Fmt_Code.Text(), 6),
+        (NoteCommand.Bullet, Glyphs.BulletList, null, () => Str.Widget_Notes_Fmt_Bullet.Text(), 3),
+        (NoteCommand.Ordered, null, "1.", () => Str.Widget_Notes_Fmt_Numbered.Text(), 7),
+        (NoteCommand.Task, Glyphs.Checklist, null, () => Str.Widget_Notes_Fmt_Task.Text(), 2),
+        (NoteCommand.Quote, Glyphs.Quote, null, () => Str.Widget_Notes_Fmt_Quote.Text(), 8),
     ];
 
     private readonly Dictionary<FormatKey, ITextCharacterFormat> _formats = [];
@@ -108,7 +109,7 @@ internal sealed class MarkdownEditor
             DisabledFormattingAccelerators = DisabledFormattingAccelerators.All,
             ClipboardCopyFormat = RichEditClipboardFormat.PlainText,
             SelectionFlyout = null,
-            PlaceholderText = "Type your notes here…",
+            PlaceholderText = Str.Notes_Placeholder.Text(),
         };
 
         // [S-1360] One undo stack, and it is ours.
@@ -769,8 +770,8 @@ internal sealed class MarkdownEditor
                 AllowFocusOnInteraction = false,
             };
 
-            ToolTipService.SetToolTip(button, tip);
-            Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(button, tip);
+            ToolTipService.SetToolTip(button, tip());
+            Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(button, tip());
             button.Click += (_, _) => Run(command);
 
             _buttons.Add((command, button, rank));
@@ -778,6 +779,31 @@ internal sealed class MarkdownEditor
         }
 
         return bar;
+    }
+
+    /// <summary>"Bold (Ctrl+B)": a command's name with its key, in the language's word order.</summary>
+    private static string WithShortcut(Str name, string keys)
+        => Str.WidgetsC_Notes_Editor_WithShortcut.Format(("name", name.Text()), ("keys", keys));
+
+    /// <summary>
+    /// [S-1110] Re-read the texts this editor set once (the bar's tooltips, the placeholder) after
+    /// the language changed. The context menu is built on every open, so it follows by itself.
+    /// </summary>
+    public void RefreshTexts()
+    {
+        Box.PlaceholderText = Str.Notes_Placeholder.Text();
+        foreach (var (command, button, _) in _buttons)
+        {
+            foreach (var entry in BarButtons)
+            {
+                if (entry.Command == command)
+                {
+                    var tip = entry.Tip();
+                    ToolTipService.SetToolTip(button, tip);
+                    Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(button, tip);
+                }
+            }
+        }
     }
 
     private static TextBlock LabelFor(string label)
@@ -834,14 +860,14 @@ internal sealed class MarkdownEditor
 
             var items = ItemMenu.Build(
             [
-                new ItemMenuEntry(Glyphs.Undo, "Undo", () => Step(redo: false), Disabled: _readOnly || !_history.CanUndo),
-                new ItemMenuEntry(Glyphs.Reset, "Redo", () => Step(redo: true), Disabled: _readOnly || !_history.CanRedo),
+                new ItemMenuEntry(Glyphs.Undo, Str.WidgetsC_Notes_Editor_Undo.Text(), () => Step(redo: false), Disabled: _readOnly || !_history.CanUndo),
+                new ItemMenuEntry(Glyphs.Reset, Str.WidgetsC_Notes_Editor_Redo.Text(), () => Step(redo: true), Disabled: _readOnly || !_history.CanRedo),
                 ItemMenuEntry.Separator,
-                new ItemMenuEntry(Glyphs.Cut, "Cut", () => Box.Document.Selection.Cut(), Disabled: _readOnly || !selected),
-                new ItemMenuEntry(Glyphs.Copy, "Copy", () => Box.Document.Selection.Copy(), Disabled: !selected),
-                new ItemMenuEntry(Glyphs.Paste, "Paste", () => _ = PasteAsync(), Disabled: _readOnly),
+                new ItemMenuEntry(Glyphs.Cut, Str.Common_Cut.Text(), () => Box.Document.Selection.Cut(), Disabled: _readOnly || !selected),
+                new ItemMenuEntry(Glyphs.Copy, Str.Common_Copy.Text(), () => Box.Document.Selection.Copy(), Disabled: !selected),
+                new ItemMenuEntry(Glyphs.Paste, Str.Common_Paste.Text(), () => _ = PasteAsync(), Disabled: _readOnly),
                 ItemMenuEntry.Separator,
-                new ItemMenuEntry(null, "Select all", () => Box.Document.Selection.SetRange(0, _text.Length)),
+                new ItemMenuEntry(null, Str.Folder_SelectAll.Text(), () => Box.Document.Selection.SetRange(0, _text.Length)),
             ]);
 
             // The entries are built once here and moved across, so the menu keeps its own instance.

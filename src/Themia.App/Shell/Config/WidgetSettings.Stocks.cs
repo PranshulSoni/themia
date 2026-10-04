@@ -3,6 +3,7 @@ using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Themia.App.Services.Web;
 using Themia.App.Widgets;
+using Themia.Core.Localization;
 using Themia.Core.Model;
 using Themia.Core.Widgets;
 
@@ -29,23 +30,23 @@ internal static partial class WidgetSettings
         ArgumentNullException.ThrowIfNull(config);
         ArgumentNullException.ThrowIfNull(save);
 
-        rows.Add(FluentLayout.Header("Instrument"));
+        rows.Add(FluentLayout.Header(Str.WidgetsC_Stocks_Settings_Instrument.Text()));
 
         var verdict = FluentLayout.Verdict();
         var search = SymbolSearch(config, save, verdict);
 
-        rows.Add(FluentLayout.FieldRow(Glyphs.Search, "Symbol",
-            "Search by name or ticker: shares, funds, indices, currencies, futures and coins", search, verdict));
+        rows.Add(FluentLayout.FieldRow(Glyphs.Search, Str.Stocks_Tab_Symbols.Text(),
+            Str.WidgetsC_Stocks_Settings_Symbol_Desc.Text(), search, verdict));
 
         var market = FluentLayout.Choice(
-            [(QuoteMarket.Listed, "Listed"), (QuoteMarket.Crypto, "Crypto")],
+            [(QuoteMarket.Listed, Str.WidgetsC_Stocks_Settings_Market_Listed.Text()), (QuoteMarket.Crypto, Str.WidgetsC_Stocks_Asset_Crypto.Text())],
             config.Market,
             value => { config.Market = value; save(); });
 
-        rows.Add(FluentLayout.Row(Glyphs.Stocks, "Market",
-            "Set by a search pick. Listed covers shares, funds, indices, currencies and futures", market));
+        rows.Add(FluentLayout.Row(Glyphs.Stocks, Str.WidgetsC_Stocks_Settings_Market_Label.Text(),
+            Str.WidgetsC_Stocks_Settings_Market_Desc.Text(), market));
 
-        var name = new TextBox { Text = config.DisplayName, Width = 200, PlaceholderText = "Optional" };
+        var name = new TextBox { Text = config.DisplayName, Width = 200, PlaceholderText = Str.WidgetsC_Stocks_Settings_Optional.Text() };
 
         name.LostFocus += (_, _) =>
         {
@@ -60,52 +61,52 @@ internal static partial class WidgetSettings
             save();
         };
 
-        rows.Add(FluentLayout.Row(Glyphs.Rename, "Name", "Shown instead of the symbol", name));
+        rows.Add(FluentLayout.Row(Glyphs.Rename, Str.Stocks_DisplayNamePlaceholder.Text(), Str.WidgetsC_Stocks_Settings_Name_Desc.Text(), name));
 
-        rows.Add(FluentLayout.Row(Glyphs.Moon, "Say when the market is shut",
-            "Listed instruments only — crypto trades every day",
+        rows.Add(FluentLayout.Row(Glyphs.Moon, Str.Stocks_DimWhenClosed.Text(),
+            Str.WidgetsC_Stocks_Settings_MarketState_Desc.Text(),
             FluentLayout.Toggle(config.ShowMarketState, value => { config.ShowMarketState = value; save(); })));
 
-        rows.Add(FluentLayout.Row(Glyphs.Sun, "Extended hours",
-            "Pre-market and after-hours prices for listed instruments, on the 1 day and 5 day charts",
+        rows.Add(FluentLayout.Row(Glyphs.Sun, Str.Stocks_ExtendedHours.Text(),
+            Str.Stocks_ExtendedHoursDesc.Text(),
             FluentLayout.Toggle(config.ShowExtendedHours, value => { config.ShowExtendedHours = value; save(); })));
 
-        rows.Add(FluentLayout.Header("Chart"));
+        rows.Add(FluentLayout.Header(Str.WidgetsC_Stocks_Settings_Chart.Text()));
 
-        rows.Add(FluentLayout.Row(Glyphs.Motion, "Show chart", "The period's prices under or beside the price",
+        rows.Add(FluentLayout.Row(Glyphs.Motion, Str.WidgetsC_Stocks_Settings_ShowChart_Label.Text(), Str.WidgetsC_Stocks_Settings_ShowChart_Desc.Text(),
             FluentLayout.Toggle(config.ShowSparkline, value => { config.ShowSparkline = value; save(); })));
 
-        rows.Add(FluentLayout.Row(Glyphs.Hours, "Period", "How much history the chart covers",
+        rows.Add(FluentLayout.Row(Glyphs.Hours, Str.Stocks_Timeframe.Text(), Str.Stocks_TimeframeDesc.Text(),
             FluentLayout.Choice(
                 [
-                    (QuoteRange.Day, "1 day"),
-                    (QuoteRange.FiveDays, "5 days"),
-                    (QuoteRange.Month, "1 month"),
-                    (QuoteRange.ThreeMonths, "3 months"),
-                    (QuoteRange.SixMonths, "6 months"),
-                    (QuoteRange.Year, "1 year"),
-                    (QuoteRange.TwoYears, "2 years"),
-                    (QuoteRange.FiveYears, "5 years"),
-                    (QuoteRange.TenYears, "10 years"),
+                    (QuoteRange.Day, Str.WidgetsC_Stocks_Period_Days.Plural(1)),
+                    (QuoteRange.FiveDays, Str.WidgetsC_Stocks_Period_Days.Plural(5)),
+                    (QuoteRange.Month, Str.WidgetsC_Stocks_Period_Months.Plural(1)),
+                    (QuoteRange.ThreeMonths, Str.WidgetsC_Stocks_Period_Months.Plural(3)),
+                    (QuoteRange.SixMonths, Str.WidgetsC_Stocks_Period_Months.Plural(6)),
+                    (QuoteRange.Year, Str.WidgetsC_Stocks_Period_Years.Plural(1)),
+                    (QuoteRange.TwoYears, Str.WidgetsC_Stocks_Period_Years.Plural(2)),
+                    (QuoteRange.FiveYears, Str.WidgetsC_Stocks_Period_Years.Plural(5)),
+                    (QuoteRange.TenYears, Str.WidgetsC_Stocks_Period_Years.Plural(10)),
                 ],
                 config.Range,
                 value => { config.Range = value; save(); })));
 
-        rows.Add(FluentLayout.Row(Glyphs.Fit, "Fill under the line", "Shade the area under the chart",
+        rows.Add(FluentLayout.Row(Glyphs.Fit, Str.Stocks_AreaFill.Text(), Str.Stocks_AreaFillDesc.Text(),
             FluentLayout.Toggle(config.ShowAreaFill, value => { config.ShowAreaFill = value; save(); })));
 
-        rows.Add(FluentLayout.Row(Glyphs.Count, "High and low", "Mark the period's highest and lowest price on the chart",
+        rows.Add(FluentLayout.Row(Glyphs.Count, Str.Stocks_ShowMinMax.Text(), Str.Stocks_ShowMinMaxDesc.Text(),
             FluentLayout.Toggle(config.ShowMinMax, value => { config.ShowMinMax = value; save(); })));
 
-        rows.Add(FluentLayout.ColorPickerRow(Glyphs.Palette, "Rising colour", "The change and the chart when the price is up",
+        rows.Add(FluentLayout.ColorPickerRow(Glyphs.Palette, Str.Stocks_UpColor.Text(), Str.WidgetsC_Stocks_Settings_Rising_Desc.Text(),
             config.UpColor,
             value => { config.UpColor = value; save(); },
-            new ColorChoiceOptions { DefaultLabel = "Windows green", DefaultColor = () => ThemeColor("SystemFillColorSuccessBrush") }));
+            new ColorChoiceOptions { DefaultLabel = Str.WidgetsC_Stocks_Settings_WindowsGreen.Text(), DefaultColor = () => ThemeColor("SystemFillColorSuccessBrush") }));
 
-        rows.Add(FluentLayout.ColorPickerRow(Glyphs.Palette, "Falling colour", "The change and the chart when the price is down",
+        rows.Add(FluentLayout.ColorPickerRow(Glyphs.Palette, Str.Stocks_DownColor.Text(), Str.WidgetsC_Stocks_Settings_Falling_Desc.Text(),
             config.DownColor,
             value => { config.DownColor = value; save(); },
-            new ColorChoiceOptions { DefaultLabel = "Windows red", DefaultColor = () => ThemeColor("SystemFillColorCriticalBrush") }));
+            new ColorChoiceOptions { DefaultLabel = Str.WidgetsC_Stocks_Settings_WindowsRed.Text(), DefaultColor = () => ThemeColor("SystemFillColorCriticalBrush") }));
 
         FluentLayout.RefreshChoice(rows, config.RefreshMinutes, value => { config.RefreshMinutes = value; save(); }, fast: true);
     }
@@ -233,7 +234,7 @@ internal static partial class WidgetSettings
             // leave the widget quoting something other than what is written in its own settings.
             if (typed.Length > 0 && !WebInput.IsPlausibleSymbol(typed))
             {
-                FluentLayout.Refuse(verdict, "Pick a search result, or type a symbol: letters, digits and . - ^ = only");
+                FluentLayout.Refuse(verdict, Str.WidgetsC_Stocks_Settings_SymbolRefused.Text());
                 return;
             }
 
@@ -279,7 +280,9 @@ internal static partial class WidgetSettings
         }
 
         var asset = hit?.Asset ?? MarketQuote.Classify(config.EffectiveSymbol, config.Market);
-        var where = hit is { Exchange.Length: > 0 } ? $" on {hit.Exchange}" : string.Empty;
-        FluentLayout.Confirm(verdict, $"{MarketSearch.Label(asset)}{where}");
+        var label = MarketSearch.Label(asset);
+        FluentLayout.Confirm(verdict, hit is { Exchange.Length: > 0 }
+            ? Str.WidgetsC_Stocks_Settings_ClassOnExchange.Format(("class", label), ("exchange", hit.Exchange))
+            : label);
     }
 }

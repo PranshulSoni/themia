@@ -1,3 +1,4 @@
+using Themia.Core.Localization;
 using Themia.Core.Model;
 
 namespace Themia.Core.Widgets;
@@ -181,73 +182,87 @@ public static class PowerActionRules
             : new PowerOutcome(hibernate ? PowerFailure.HibernateUnavailable : PowerFailure.SleepRefused, 0);
 
     /// <summary>The button's name.</summary>
-    public static string Label(PowerAction action) => action switch
+    public static string Label(PowerAction action) => Label(Strings.Current, action);
+
+    /// <summary><see cref="Label(PowerAction)"/> in an explicit language (the original's own action names).</summary>
+    public static string Label(Locale locale, PowerAction action) => action switch
     {
-        PowerAction.Shutdown => "Shut down",
-        PowerAction.Restart => "Restart",
-        PowerAction.Sleep => "Sleep",
-        PowerAction.Hibernate => "Hibernate",
-        PowerAction.Lock => "Lock",
-        PowerAction.SignOut => "Sign out",
-        PowerAction.ScreenOff => "Display off",
+        PowerAction.Shutdown => Strings.Get(locale, Str.Power_Action_Shutdown),
+        PowerAction.Restart => Strings.Get(locale, Str.Power_Action_Restart),
+        PowerAction.Sleep => Strings.Get(locale, Str.Power_Action_Sleep),
+        PowerAction.Hibernate => Strings.Get(locale, Str.Power_Action_Hibernate),
+        PowerAction.Lock => Strings.Get(locale, Str.Power_Action_Lock),
+        PowerAction.SignOut => Strings.Get(locale, Str.Power_Action_SignOut),
+        PowerAction.ScreenOff => Strings.Get(locale, Str.Power_Action_ScreenOff),
         _ => action.ToString(),
     };
 
     /// <summary>What the settings page says each action does.</summary>
     public static string Description(PowerAction action) => action switch
     {
-        PowerAction.Shutdown => "Closes every app and turns the PC off",
-        PowerAction.Restart => "Closes every app and starts Windows again",
-        PowerAction.Sleep => "Low power; comes back to the same desktop",
-        PowerAction.Hibernate => "Saves the session to disk and powers off",
-        PowerAction.Lock => "Shows the lock screen; apps keep running",
-        PowerAction.SignOut => "Closes your apps and ends your session",
-        PowerAction.ScreenOff => "Turns the displays off; any input wakes them",
+        PowerAction.Shutdown => Str.WidgetsC_Power_Desc_Shutdown.Text(),
+        PowerAction.Restart => Str.WidgetsC_Power_Desc_Restart.Text(),
+        PowerAction.Sleep => Str.WidgetsC_Power_Desc_Sleep.Text(),
+        PowerAction.Hibernate => Str.WidgetsC_Power_Desc_Hibernate.Text(),
+        PowerAction.Lock => Str.WidgetsC_Power_Desc_Lock.Text(),
+        PowerAction.SignOut => Str.WidgetsC_Power_Desc_SignOut.Text(),
+        PowerAction.ScreenOff => Str.WidgetsC_Power_Desc_ScreenOff.Text(),
         _ => string.Empty,
     };
 
     /// <summary>The words an armed tile shows in place of its name.</summary>
-    public const string ConfirmLabel = "Confirm";
+    public static string ConfirmLabel => Str.Power_ConfirmTile.Text();
 
     /// <summary>The tooltip of an armed tile.</summary>
-    public static string ConfirmHint(PowerAction action) => $"Click again to {Verb(action)}";
+    public static string ConfirmHint(PowerAction action) => ConfirmHint(Strings.Current, action);
 
-    /// <summary>The verb used in sentences: "Could not <i>sleep</i>".</summary>
-    public static string Verb(PowerAction action) => action switch
+    /// <summary><see cref="ConfirmHint(PowerAction)"/> in an explicit language.</summary>
+    public static string ConfirmHint(Locale locale, PowerAction action)
+        => Strings.Format(locale, Str.WidgetsC_Power_ConfirmHint, ("action", Verb(locale, action)));
+
+    /// <summary>
+    /// The verb used in sentences: "Could not <i>sleep</i>". Each language words it to fit its own
+    /// two sentences (an infinitive in English, a noun in German).
+    /// </summary>
+    public static string Verb(Locale locale, PowerAction action) => Strings.Get(locale, action switch
     {
-        PowerAction.Shutdown => "shut down",
-        PowerAction.Restart => "restart",
-        PowerAction.Sleep => "sleep",
-        PowerAction.Hibernate => "hibernate",
-        PowerAction.Lock => "lock",
-        PowerAction.SignOut => "sign out",
-        PowerAction.ScreenOff => "turn off the display",
-        _ => action.ToString(),
-    };
+        PowerAction.Shutdown => Str.WidgetsC_Power_Verb_Shutdown,
+        PowerAction.Restart => Str.WidgetsC_Power_Verb_Restart,
+        PowerAction.Sleep => Str.WidgetsC_Power_Verb_Sleep,
+        PowerAction.Hibernate => Str.WidgetsC_Power_Verb_Hibernate,
+        PowerAction.Lock => Str.WidgetsC_Power_Verb_Lock,
+        PowerAction.SignOut => Str.WidgetsC_Power_Verb_SignOut,
+        _ => Str.WidgetsC_Power_Verb_ScreenOff,
+    });
 
     /// <summary>
     /// [S-1246] The tile's error line for a failed action: the action and the reason, in words.
     /// Null when it succeeded.
     /// </summary>
-    public static string? FailureMessage(PowerAction action, PowerOutcome outcome)
+    public static string? FailureMessage(PowerAction action, PowerOutcome outcome) => FailureMessage(Strings.Current, action, outcome);
+
+    /// <summary><see cref="FailureMessage(PowerAction, PowerOutcome)"/> in an explicit language.</summary>
+    public static string? FailureMessage(Locale locale, PowerAction action, PowerOutcome outcome)
     {
         var reason = outcome.Failure switch
         {
             PowerFailure.None => null,
-            PowerFailure.NotAllowed => "this account is not allowed to",
-            PowerFailure.HibernateUnavailable => "hibernation is turned off on this PC",
-            PowerFailure.SleepRefused => "Windows refused to sleep",
+            PowerFailure.NotAllowed => Strings.Get(locale, Str.WidgetsC_Power_Reason_NotAllowed),
+            PowerFailure.HibernateUnavailable => Strings.Get(locale, Str.WidgetsC_Power_Reason_HibernateOff),
+            PowerFailure.SleepRefused => Strings.Get(locale, Str.WidgetsC_Power_Reason_SleepRefused),
             _ => outcome.Win32Error switch
             {
-                AccessDenied => "access denied",
-                PrivilegeNotHeld or NotAllAssigned => "this account is not allowed to",
-                ShutdownInProgress => "Windows is already shutting down",
-                0 => "Windows refused",
-                var code => $"Windows error {code}",
+                AccessDenied => Strings.Get(locale, Str.WidgetsC_Power_Reason_AccessDenied),
+                PrivilegeNotHeld or NotAllAssigned => Strings.Get(locale, Str.WidgetsC_Power_Reason_NotAllowed),
+                ShutdownInProgress => Strings.Get(locale, Str.WidgetsC_Power_Reason_ShuttingDown),
+                0 => Strings.Get(locale, Str.WidgetsC_Power_Reason_Refused),
+
+                // An error code is an identifier, not a quantity: never digit-grouped.
+                var code => Strings.Format(locale, Str.WidgetsC_Power_Reason_WindowsError, ("code", code.ToString(System.Globalization.CultureInfo.InvariantCulture))),
             },
         };
 
-        return reason is null ? null : $"Could not {Verb(action)}: {reason}";
+        return reason is null ? null : Strings.Format(locale, Str.WidgetsC_Power_CouldNot, ("action", Verb(locale, action)), ("reason", reason));
     }
 
     /// <summary>

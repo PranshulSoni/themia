@@ -7,6 +7,7 @@ using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
 using Themia.App.Services;
 using Themia.App.Shell;
+using Themia.Core.Localization;
 using Themia.Core.Widgets;
 using Glyphs = Themia.App.Shell.Glyphs;
 
@@ -137,7 +138,7 @@ internal sealed partial class ScreenTimeView
 
             if (goal is { } g)
             {
-                tip += $" · limit {ScreenTimeRules.FormatLimit(g.Limit)}{(g.Over ? " (over)" : string.Empty)}";
+                tip += $" · {(g.Over ? Str.WidgetsC_ScreenTime_LimitOverTip : Str.WidgetsC_ScreenTime_LimitTip).Format(("limit", ScreenTimeRules.FormatLimit(g.Limit)))}";
             }
 
             ToolTipService.SetToolTip(Host, tip);
@@ -202,7 +203,7 @@ internal sealed partial class ScreenTimeView
                 return;
             }
 
-            var hide = new MenuFlyoutItem { Text = "Hide from list", Icon = new FontIcon { Glyph = Glyphs.Hide } };
+            var hide = new MenuFlyoutItem { Text = Str.Screentime_HideApp.Text(), Icon = new FontIcon { Glyph = Glyphs.Hide } };
             hide.Click += (_, _) => _owner.Hide(segment.Key);
 
             var menu = new MenuFlyout();

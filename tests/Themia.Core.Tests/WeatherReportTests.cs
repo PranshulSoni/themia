@@ -1,4 +1,4 @@
-using System.Globalization;
+using Themia.Core.Localization;
 using Themia.Core.Model;
 using Themia.Core.Widgets;
 using Xunit;
@@ -7,31 +7,60 @@ namespace Themia.Core.Tests;
 
 /// <summary>
 /// The strings the weather widgets print, and the WMO table behind them. Every input here is one
-/// the service can genuinely send, including the ones it is not supposed to.
+/// the service can genuinely send, including the ones it is not supposed to. English is pinned
+/// through the explicit-locale overloads, so no test depends on the process-wide language.
 /// </summary>
 public class WeatherReportTests
 {
     [Theory]
-    [InlineData(0, "Clear sky")]
+    [InlineData(0, "Clear")]
     [InlineData(2, "Partly cloudy")]
     [InlineData(45, "Fog")]
     [InlineData(63, "Rain")]
     [InlineData(75, "Heavy snow")]
     [InlineData(95, "Thunderstorm")]
     public void A_known_code_is_described_in_words(int code, string expected)
-        => Assert.Equal(expected, WeatherReport.Describe(code));
+        => Assert.Equal(expected, WeatherReport.Describe(Locale.En, code));
 
     [Fact]
     public void An_unknown_code_says_so_rather_than_being_guessed_at()
     {
         // The reader can see that the service said something this app has no word for, which is
         // true. A blank would read as a broken widget.
-        Assert.Equal("Code 78", WeatherReport.Describe(78));
+        Assert.Equal("Code 78", WeatherReport.Describe(Locale.En, 78));
     }
 
     [Fact]
     public void A_missing_code_is_unknown_rather_than_clear_sky()
-        => Assert.Equal("Unknown", WeatherReport.Describe(null));
+        => Assert.Equal("Unknown", WeatherReport.Describe(Locale.En, null));
+
+    [Fact]
+    public void S1100_conditions_are_described_in_the_language_asked_for()
+    {
+        Assert.Equal("Teilweise bewölkt", WeatherReport.Describe(Locale.De, 2));
+        Assert.Equal("Gewitter mit Hagel", WeatherReport.Describe(Locale.De, 96));
+        Assert.Equal("Unbekannt", WeatherReport.Describe(Locale.De, null));
+        Assert.Equal("Code 78", WeatherReport.Describe(Locale.De, 78));
+    }
+
+    [Fact]
+    public void S1100_every_known_code_has_words_in_every_language()
+    {
+        // A code the table knows must never fall through to "Code 63" or to the raw key.
+        int[] codes = [0, 1, 2, 3, 45, 48, 51, 53, 55, 56, 57, 61, 63, 65, 66, 67, 71, 73, 75, 77, 80, 81, 82, 85, 86, 95, 96, 99];
+
+        foreach (var locale in LanguageResolver.All)
+        {
+            foreach (var code in codes)
+            {
+                var text = WeatherReport.Describe(locale, code);
+                Assert.DoesNotContain(code.ToString(System.Globalization.CultureInfo.InvariantCulture), text);
+                Assert.DoesNotContain("widgetsC", text);
+                Assert.DoesNotContain("forecast.", text);
+                Assert.False(string.IsNullOrWhiteSpace(text));
+            }
+        }
+    }
 
     [Theory]
     [InlineData(0, WeatherLook.Clear)]
@@ -73,13 +102,21 @@ public class WeatherReportTests
     [InlineData(0.0, "0%")]
     [InlineData(100.0, "100%")]
     public void Humidity_is_a_whole_percentage(double value, string expected)
-        => Assert.Equal(expected, WeatherReport.Humidity(value));
+        => Assert.Equal(expected, WeatherReport.Humidity(Locale.En, value));
 
     [Theory]
     [InlineData(140.0, "100%")]
     [InlineData(-5.0, "0%")]
     public void A_humidity_outside_the_possible_range_is_clamped_rather_than_printed(double value, string expected)
-        => Assert.Equal(expected, WeatherReport.Humidity(value));
+        => Assert.Equal(expected, WeatherReport.Humidity(Locale.En, value));
+
+    [Fact]
+    public void S1106_a_percentage_and_a_decimal_follow_the_language()
+    {
+        Assert.Equal("59 %", WeatherReport.Humidity(Locale.De, 59));
+        Assert.Equal("0,2 mm", WeatherReport.Precipitation(Locale.De, 0.2));
+        Assert.Equal("0,3", WeatherReport.PrecipitationAmount(Locale.De, 0.3));
+    }
 
     [Fact]
     public void Wind_is_in_the_unit_it_was_asked_for()
@@ -96,7 +133,7 @@ public class WeatherReportTests
     public void A_dry_day_shows_nothing_rather_than_a_zero(double? value, string expected)
     {
         // A column of zeroes is noise that makes the one wet day harder to find.
-        Assert.Equal(expected, WeatherReport.Precipitation(value));
+        Assert.Equal(expected, WeatherReport.Precipitation(Locale.En, value));
     }
 
     [Theory]
@@ -104,7 +141,7 @@ public class WeatherReportTests
     [InlineData(4.5, "4.5 mm")]
     [InlineData(12.0, "12 mm")]
     public void Precipitation_keeps_a_decimal_only_while_it_carries(double value, string expected)
-        => Assert.Equal(expected, WeatherReport.Precipitation(value));
+        => Assert.Equal(expected, WeatherReport.Precipitation(Locale.En, value));
 
     // ---- day labels ------------------------------------------------------------------------
 
@@ -113,7 +150,7 @@ public class WeatherReportTests
     {
         var today = new DateOnly(2026, 9, 24);
 
-        Assert.Equal("Today", WeatherReport.DayLabel(today, today));
+        Assert.Equal("Today", WeatherReport.DayLabel(Locale.En, today, today));
     }
 
     [Fact]
@@ -125,8 +162,8 @@ public class WeatherReportTests
         var fetchedOn = new DateOnly(2026, 9, 24);
         var todayNow = new DateOnly(2026, 9, 25);
 
-        Assert.Equal("Thu", WeatherReport.DayLabel(fetchedOn, todayNow, CultureInfo.InvariantCulture));
-        Assert.Equal("Today", WeatherReport.DayLabel(todayNow, todayNow, CultureInfo.InvariantCulture));
+        Assert.Equal("Thu", WeatherReport.DayLabel(Locale.En, fetchedOn, todayNow));
+        Assert.Equal("Today", WeatherReport.DayLabel(Locale.En, todayNow, todayNow));
     }
 
     [Theory]
@@ -134,19 +171,17 @@ public class WeatherReportTests
     [InlineData(2026, 9, 28, "Mon")]
     [InlineData(2026, 10, 2, "Fri")]
     public void Other_days_get_their_short_weekday_name(int year, int month, int day, string expected)
-        => Assert.Equal(expected, WeatherReport.DayLabel(new DateOnly(year, month, day), new DateOnly(2026, 9, 24), CultureInfo.InvariantCulture));
+        => Assert.Equal(expected, WeatherReport.DayLabel(Locale.En, new DateOnly(year, month, day), new DateOnly(2026, 9, 24)));
 
     [Fact]
-    public void S721_the_weekday_is_in_the_culture_s_own_abbreviation()
+    public void S721_the_day_label_is_in_the_language_s_own_words()
     {
-        // Built by hand: the app runs globalization-invariant, so a named culture is not available
-        // here; the label still reads whatever culture it is handed.
+        // The app runs globalization-invariant, so the names come from the string layer's own
+        // tables: the weekday abbreviation and the word for today both follow the language.
         var thursday = new DateOnly(2026, 9, 24);
-        var german = (CultureInfo)CultureInfo.InvariantCulture.Clone();
-        german.DateTimeFormat.AbbreviatedDayNames = ["So.", "Mo.", "Di.", "Mi.", "Do.", "Fr.", "Sa."];
 
-        Assert.Equal("Do.", WeatherReport.DayLabel(thursday, thursday.AddDays(-1), german));
-        Assert.Equal("Today", WeatherReport.DayLabel(thursday, thursday, german));
+        Assert.Equal("Do.", WeatherReport.DayLabel(Locale.De, thursday, thursday.AddDays(-1)));
+        Assert.Equal("Heute", WeatherReport.DayLabel(Locale.De, thursday, thursday));
     }
 
     // ---- [S-722] the extra readings ------------------------------------------------------
@@ -159,7 +194,7 @@ public class WeatherReportTests
     [InlineData(359.0, "N")]
     [InlineData(360.0, "N")]
     public void S722_a_bearing_reads_on_the_eight_point_rose(double degrees, string expected)
-        => Assert.Equal(expected, WeatherReport.Compass(degrees));
+        => Assert.Equal(expected, WeatherReport.Compass(Locale.En, degrees));
 
     [Theory]
     [InlineData(-1.0)]
@@ -167,13 +202,21 @@ public class WeatherReportTests
     [InlineData(double.NaN)]
     public void S722_an_impossible_bearing_is_left_out_rather_than_guessed(double degrees)
     {
-        Assert.Equal(string.Empty, WeatherReport.Compass(degrees));
-        Assert.Equal("6 km/h", WeatherReport.WindFrom(6, degrees));
+        Assert.Equal(string.Empty, WeatherReport.Compass(Locale.En, degrees));
+        Assert.Equal("6 km/h", WeatherReport.WindFrom(Locale.En, 6, degrees));
     }
 
     [Fact]
     public void S722_wind_carries_its_direction_when_known()
-        => Assert.Equal("11 km/h NW", WeatherReport.WindFrom(11, 315));
+        => Assert.Equal("11 km/h NW", WeatherReport.WindFrom(Locale.En, 11, 315));
+
+    [Fact]
+    public void S722_the_compass_point_is_the_language_s_own()
+    {
+        // German writes east as O (Ost): north-east is "NO", not "NE".
+        Assert.Equal("11 km/h NO", WeatherReport.WindFrom(Locale.De, 11, 45));
+        Assert.Equal("O", WeatherReport.Compass(Locale.De, 90));
+    }
 
     [Theory]
     [InlineData(1016.4, "1016 hPa")]
@@ -185,16 +228,17 @@ public class WeatherReportTests
     [Fact]
     public void S727_a_bare_precipitation_amount_drops_the_unit_and_stays_blank_when_dry()
     {
-        Assert.Equal("0.3", WeatherReport.PrecipitationAmount(0.3));
-        Assert.Equal("12", WeatherReport.PrecipitationAmount(12));
-        Assert.Equal(string.Empty, WeatherReport.PrecipitationAmount(0));
+        Assert.Equal("0.3", WeatherReport.PrecipitationAmount(Locale.En, 0.3));
+        Assert.Equal("12", WeatherReport.PrecipitationAmount(Locale.En, 12));
+        Assert.Equal(string.Empty, WeatherReport.PrecipitationAmount(Locale.En, 0));
     }
 
     [Fact]
     public void S722_today_s_range_reads_high_then_low()
     {
-        Assert.Equal("H 24°  L 14°", WeatherReport.HighLow(24.2, 13.8));
-        Assert.Equal(string.Empty, WeatherReport.HighLow(null, null));
+        Assert.Equal("H 24°  L 14°", WeatherReport.HighLow(Locale.En, 24.2, 13.8));
+        Assert.Equal(string.Empty, WeatherReport.HighLow(Locale.En, null, null));
+        Assert.Equal("H 24°  T 14°", WeatherReport.HighLow(Locale.De, 24.2, 13.8));
     }
 
     // ---- the range bar ---------------------------------------------------------------------

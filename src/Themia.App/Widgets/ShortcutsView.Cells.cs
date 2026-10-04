@@ -10,6 +10,7 @@ using Themia.App.Services;
 using Themia.App.Services.Web;
 using Themia.App.Shell;
 using Themia.Core.Diagnostics;
+using Themia.Core.Localization;
 using Themia.Core.Model;
 using Themia.Core.Widgets;
 using Windows.Storage.Streams;
@@ -302,7 +303,7 @@ internal sealed partial class ShortcutsView
         var spacer = new Border { Width = plan.Icon + Fluent.Space3 };
         _columnHeader.Children.Add(spacer);
 
-        string[] titles = ["Name", "Target", "Kind"];
+        string[] titles = [Str.Folder_ColName.Text(), Str.WidgetsC_Shortcuts_Column_Target.Text(), Str.WidgetsC_Shortcuts_Column_Kind.Text()];
 
         for (var c = 1; c < _columnHeader.ColumnDefinitions.Count; c++)
         {
@@ -516,7 +517,7 @@ internal sealed partial class ShortcutsView
 
         if (cell.Kind is { } kind)
         {
-            kind.Text = cell.Item.IsLayout ? ShortcutRules.LayoutKindLabel : ShortcutRules.KindLabel(cell.Target, cell.Health);
+            kind.Text = cell.Item.IsLayout ? ShortcutRules.LayoutKindLabel() : ShortcutRules.KindLabel(cell.Target, cell.Health);
         }
 
         if (cell.Item.IsLayout)
@@ -527,7 +528,7 @@ internal sealed partial class ShortcutsView
         {
             var name = NameOf(cell.Item);
             ToolTipService.SetToolTip(cell.Root, missing
-                ? $"{name} (target missing)\n{cell.Item.Target}"
+                ? Str.WidgetsC_Shortcuts_Tooltip_Missing.Format(("name", name), ("target", cell.Item.Target))
                 : $"{name}\n{cell.Item.Target}");
         }
     }
@@ -716,8 +717,8 @@ internal sealed partial class ShortcutsView
     {
         LaunchKind.Web => Uri.TryCreate(target.Value, UriKind.Absolute, out var uri) ? uri.Host : target.Value,
         LaunchKind.LocalPath => Path.GetDirectoryName(target.Value.TrimEnd('\\')) ?? target.Value,
-        LaunchKind.ShellNamespace => "Windows location",
-        _ => "Not allowed",
+        LaunchKind.ShellNamespace => Str.WidgetsC_Shortcuts_Kind_Location.Text(),
+        _ => Str.WidgetsC_Shortcuts_Kind_Refused.Text(),
     };
 
     /// <summary>The glyph that stands for an item until its real icon arrives, or for good when it has none.</summary>

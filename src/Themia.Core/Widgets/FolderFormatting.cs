@@ -1,4 +1,5 @@
 using System.Globalization;
+using Themia.Core.Localization;
 
 namespace Themia.Core.Widgets;
 
@@ -32,7 +33,10 @@ public static class FolderFormatting
     /// local wall-clock times for both — so this stays a pure function of what it is given rather
     /// than of the machine's time zone.
     /// </param>
-    public static string Modified(DateTimeOffset when, DateTimeOffset now)
+    public static string Modified(DateTimeOffset when, DateTimeOffset now) => Modified(Strings.Current, when, now);
+
+    /// <summary><see cref="Modified(DateTimeOffset, DateTimeOffset)"/> in <paramref name="locale"/>.</summary>
+    public static string Modified(Locale locale, DateTimeOffset when, DateTimeOffset now)
     {
         // A file with no usable timestamp comes back as the FILETIME epoch rather than as an error.
         // "1 Jan 1601" in a date column is noise pretending to be information.
@@ -46,12 +50,12 @@ public static class FolderFormatting
 
         if (day == today)
         {
-            return when.DateTime.ToString("HH:mm", CultureInfo.InvariantCulture);
+            return LocaleFormat.Time(locale, when.DateTime);
         }
 
         return day.Year == today.Year
-            ? Formatting.ShortDate(day)
-            : $"{Formatting.ShortDate(day)} {day.Year.ToString(CultureInfo.InvariantCulture)}";
+            ? Formatting.ShortDate(locale, day)
+            : LocaleFormat.Date(locale, day, DateStyle.Medium);
     }
 
     /// <summary>
@@ -64,33 +68,43 @@ public static class FolderFormatting
     /// from the user, so they do not share a sentence.
     /// </param>
     public static string StatusMessage(FolderListingStatus status, FolderPathProblem problem = FolderPathProblem.None)
+        => StatusMessage(Strings.Current, status, problem);
+
+    /// <summary><see cref="StatusMessage(FolderListingStatus, FolderPathProblem)"/> in <paramref name="locale"/>.</summary>
+    public static string StatusMessage(Locale locale, FolderListingStatus status, FolderPathProblem problem = FolderPathProblem.None)
         => status switch
         {
-            FolderListingStatus.Loading => "Reading this folder…",
             FolderListingStatus.Ok => string.Empty,
-            FolderListingStatus.Empty => "This folder is empty.",
-            FolderListingStatus.NotFound => "That folder does not exist.",
-            FolderListingStatus.NotAFolder => "That path is a file, not a folder.",
-            FolderListingStatus.AccessDenied => "Windows will not let Themia read that folder.",
-            FolderListingStatus.Failed => "Could not read that folder. See themia.log.",
             // A refused path with no recorded reason should not happen, but "no rows and no
             // sentence" is the one outcome this whole function exists to rule out.
-            FolderListingStatus.InvalidPath => problem == FolderPathProblem.None
-                ? "That folder path cannot be read."
-                : PathMessage(problem),
-            _ => "Could not read that folder.",
+            FolderListingStatus.InvalidPath when problem != FolderPathProblem.None => PathMessage(locale, problem),
+            _ => Strings.Get(locale, status switch
+            {
+                FolderListingStatus.Loading => Str.WidgetsB_Folder_Status_Loading,
+                FolderListingStatus.Empty => Str.WidgetsB_Folder_Status_Empty,
+                FolderListingStatus.NotFound => Str.WidgetsB_Folder_Status_NotFound,
+                FolderListingStatus.NotAFolder => Str.WidgetsB_Folder_Status_NotAFolder,
+                FolderListingStatus.AccessDenied => Str.WidgetsB_Folder_Status_AccessDenied,
+                FolderListingStatus.Failed => Str.WidgetsB_Folder_Status_Failed,
+                FolderListingStatus.InvalidPath => Str.WidgetsB_Folder_Status_InvalidPath,
+                _ => Str.WidgetsB_Folder_Status_Unreadable,
+            }),
         };
 
     /// <summary>The one-line reason shown under the path box in settings, or nothing when it is fine.</summary>
-    public static string PathMessage(FolderPathProblem problem) => problem switch
-    {
-        FolderPathProblem.None => string.Empty,
-        FolderPathProblem.Empty => "No folder set.",
-        FolderPathProblem.InvalidCharacters => "A folder path cannot contain < > \" | ? or *.",
-        FolderPathProblem.NotRooted => @"Enter a full path, like C:\Users\You\Documents.",
-        FolderPathProblem.TooLong => "That path is longer than Windows allows.",
-        _ => "That path cannot be read.",
-    };
+    public static string PathMessage(FolderPathProblem problem) => PathMessage(Strings.Current, problem);
+
+    /// <summary><see cref="PathMessage(FolderPathProblem)"/> in <paramref name="locale"/>.</summary>
+    public static string PathMessage(Locale locale, FolderPathProblem problem) => problem == FolderPathProblem.None
+        ? string.Empty
+        : Strings.Get(locale, problem switch
+        {
+            FolderPathProblem.Empty => Str.WidgetsB_Folder_Path_Empty,
+            FolderPathProblem.InvalidCharacters => Str.WidgetsB_Folder_Path_InvalidCharacters,
+            FolderPathProblem.NotRooted => Str.WidgetsB_Folder_Path_NotRooted,
+            FolderPathProblem.TooLong => Str.WidgetsB_Folder_Path_TooLong,
+            _ => Str.WidgetsB_Folder_Path_Unreadable,
+        });
 
     /// <summary>
     /// [S-1323] The status footer, as Explorer's: "24 items", then "· 2 selected", then the selected
@@ -98,16 +112,20 @@ public static class FolderFormatting
     /// recursive walk is not done.
     /// </summary>
     public static string Status(int count, int selected, long selectedBytes, bool selectionHasFiles)
+        => Status(Strings.Current, count, selected, selectedBytes, selectionHasFiles);
+
+    /// <summary><see cref="Status(int, int, long, bool)"/> in <paramref name="locale"/>: each fact its own phrase, joined as Explorer joins them.</summary>
+    public static string Status(Locale locale, int count, int selected, long selectedBytes, bool selectionHasFiles)
     {
-        var text = count == 1 ? "1 item" : $"{count.ToString("N0", CultureInfo.InvariantCulture)} items";
+        var text = Strings.Plural(locale, Str.WidgetsB_Folder_ItemCount, count);
 
         if (selected > 0)
         {
-            text += $" · {selected.ToString("N0", CultureInfo.InvariantCulture)} selected";
+            text += " · " + Strings.Plural(locale, Str.WidgetsB_Folder_SelectedCount, selected);
 
             if (selectionHasFiles)
             {
-                text += $" · {Formatting.Bytes(selectedBytes)}";
+                text += " · " + Formatting.Bytes(locale, selectedBytes);
             }
         }
 
@@ -126,17 +144,20 @@ public static class FolderFormatting
     /// [S-1322] The Type column when the shell has no friendly name: "File folder", "TXT File", or
     /// "File" for a name without an extension — Explorer's own fallbacks.
     /// </summary>
-    public static string TypeFallback(string name, bool isDirectory)
+    public static string TypeFallback(string name, bool isDirectory) => TypeFallback(Strings.Current, name, isDirectory);
+
+    /// <summary><see cref="TypeFallback(string, bool)"/> in <paramref name="locale"/>.</summary>
+    public static string TypeFallback(Locale locale, string name, bool isDirectory)
     {
         if (isDirectory)
         {
-            return "File folder";
+            return Strings.Get(locale, Str.WidgetsB_Folder_Type_Folder);
         }
 
         var dot = name.LastIndexOf('.');
         return dot > 0 && dot < name.Length - 1
-            ? $"{name[(dot + 1)..].ToUpperInvariant()} File"
-            : "File";
+            ? Strings.Format(locale, Str.WidgetsB_Folder_Type_Extension, ("ext", name[(dot + 1)..].ToUpperInvariant()))
+            : Strings.Get(locale, Str.WidgetsB_Folder_Type_File);
     }
 
     /// <summary>Extensions whose every file carries its own icon (a program's, a shortcut's target's).</summary>

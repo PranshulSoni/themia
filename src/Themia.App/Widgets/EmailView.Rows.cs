@@ -3,12 +3,13 @@ using Microsoft.UI;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Shapes;
+using Run = Microsoft.UI.Xaml.Documents.Run;
 using Themia.App.Shell;
 using Themia.Core.Accounts;
+using Themia.Core.Localization;
 using Themia.Core.Mail;
 using Themia.Core.Model;
 using Themia.Core.Widgets;
-using Run = Microsoft.UI.Xaml.Documents.Run;
 
 namespace Themia.App.Widgets;
 
@@ -195,7 +196,7 @@ internal sealed partial class EmailView
     private TextBlock TimeText(MailMessage message, DateTimeOffset now, bool full)
     {
         var when = Fluent.Text(FluentType.Caption, message.IsRead ? "TextFillColorTertiaryBrush" : "AccentTextFillColorPrimaryBrush");
-        when.Text = full ? MailTime.Full(message.Received, now, CultureInfo.CurrentCulture) : MailTime.Short(message.Received, now, CultureInfo.CurrentCulture);
+        when.Text = full ? MailTime.Full(message.Received, now, Strings.Current) : MailTime.Short(message.Received, now, Strings.Current);
         when.VerticalAlignment = VerticalAlignment.Center;
 
         if (full)
@@ -214,7 +215,7 @@ internal sealed partial class EmailView
     /// <summary>[S-1284] The account's name, and on the largest tile its provider: "Work (Microsoft)".</summary>
     private static string? AccountTag(MailMessage message, Dictionary<string, string> labels, bool provider)
         => labels.TryGetValue(message.AccountId, out var label)
-            ? provider ? $"{label} ({message.Provider.Label()})" : label
+            ? provider ? Str.WidgetsB_Email_AccountProvider.Format(("account", label), ("provider", message.Provider.Label())) : label
             : null;
 
     /// <summary>[S-542] The row view's column titles, laid out on the same grid as its rows.</summary>
@@ -360,12 +361,12 @@ internal sealed partial class EmailView
         var actions = new StackPanel { Orientation = Orientation.Horizontal, Spacing = Fluent.Space1, Visibility = Visibility.Collapsed };
         actions.Children.Add(QuickAction(
             message.IsRead ? Glyphs.Unread : Glyphs.MailRead,
-            message.IsRead ? "Mark as unread" : "Mark as read",
+            message.IsRead ? Str.WidgetsB_Email_MarkUnread.Text() : Str.WidgetsB_Email_MarkRead.Text(),
             () => Change(message, message.IsRead ? MailChange.MarkUnread : MailChange.MarkRead)));
 
         if (message.Folder != MailFolder.Junk)
         {
-            actions.Children.Add(QuickAction(Glyphs.Archive, "Archive", () => Change(message, MailChange.Archive)));
+            actions.Children.Add(QuickAction(Glyphs.Archive, Str.CtxMenu_Archive.Text(), () => Change(message, MailChange.Archive)));
         }
 
         actions.Children.Add(QuickAction(Glyphs.Delete, DeleteLabel(message), () => Change(message, MailChange.Delete)));
@@ -468,8 +469,14 @@ internal sealed partial class EmailView
             ? $"{message.FromName} <{message.FromAddress}>"
             : message.Sender;
 
-        var when = message.Received is { } at ? Environment.NewLine + at.ToLocalTime().ToString("f", CultureInfo.CurrentCulture) : string.Empty;
-        var to = account is null ? string.Empty : $"{Environment.NewLine}{account.Label} ({account.Provider.Label()})";
+        var when = message.Received is { } at ? Environment.NewLine + WhenLong(at.ToLocalTime()) : string.Empty;
+        var to = account is null ? string.Empty : Environment.NewLine + Str.WidgetsB_Email_AccountProvider.Format(("account", account.Label), ("provider", account.Provider.Label()));
         return from + Environment.NewLine + message.SubjectLine + when + to;
     }
+
+    /// <summary>"Sunday, October 4, 2026, 9:05 AM" in the current language.</summary>
+    private static string WhenLong(DateTimeOffset local)
+        => Str.WidgetsB_Time_DateTime.Format(
+            ("date", LocaleFormat.Date(Strings.Current, local.DateTime, DateStyle.Full)),
+            ("time", LocaleFormat.Time(Strings.Current, local.DateTime)));
 }

@@ -3,6 +3,7 @@ using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
 using Themia.App.Services;
 using Themia.App.Shell;
+using Themia.Core.Localization;
 using Themia.Core.Model;
 using Themia.Core.Widgets;
 
@@ -92,11 +93,11 @@ internal sealed partial class OneDriveView
         row.DoubleTapped += OnRowDoubleTapped;
         row.RightTapped += OnRowRightTapped;
 
-        var how = item.IsFolder
-            ? "Click to open the folder"
-            : _config.ClickMode == ItemClickMode.Single ? "Click to open it in your browser" : "Double-click to open it in your browser";
-        var where = item.Location is { } location ? $"{Environment.NewLine}In {location}" : string.Empty;
-        var who = item.ModifiedBy is { } by ? $"{Environment.NewLine}Modified by {by}" : string.Empty;
+        var how = (item.IsFolder
+            ? Str.WidgetsC_OneDrive_Tip_OpenFolder
+            : _config.ClickMode == ItemClickMode.Single ? Str.WidgetsC_OneDrive_Tip_ClickBrowser : Str.WidgetsC_OneDrive_Tip_DoubleClickBrowser).Text();
+        var where = item.Location is { } location ? $"{Environment.NewLine}{Str.WidgetsC_OneDrive_Tip_In.Format(("location", location))}" : string.Empty;
+        var who = item.ModifiedBy is { } by ? $"{Environment.NewLine}{Str.WidgetsC_OneDrive_Tip_ModifiedBy.Format(("name", by))}" : string.Empty;
         ToolTipService.SetToolTip(row, $"{item.Name}{(metaText.Length > 0 ? $"{Environment.NewLine}{metaText}" : string.Empty)}{who}{where}{Environment.NewLine}{how}");
         return row;
     }
@@ -151,7 +152,7 @@ internal sealed partial class OneDriveView
         var lane = new Border { Width = Fluent.IconSize + Fluent.Space3 };
         _columnHeader.Children.Add(lane);
 
-        AddTitle("Name", 1, TextAlignment.Left);
+        AddTitle(Str.WidgetsC_OneDrive_Col_Name.Text(), 1, TextAlignment.Left);
         for (var i = 0; i < fit.Columns.Count; i++)
         {
             AddTitle(DriveLayout.Label(fit.Columns[i].Column), i + 2, fit.Columns[i].Column == DriveColumn.Size ? TextAlignment.Right : TextAlignment.Left);
@@ -234,10 +235,10 @@ internal sealed partial class OneDriveView
     private ItemMenuEntry[] ItemEntries(DriveItem item) =>
         [
             item.IsFolder
-                ? new ItemMenuEntry(Glyphs.Folder, "Open", () => EnterFolder(item))
-                : new ItemMenuEntry(Glyphs.Open, "Open in browser", () => OpenOnWeb(item)),
-            item.IsFolder ? new ItemMenuEntry(Glyphs.Open, "Open in browser", () => OpenOnWeb(item)) : ItemMenuEntry.Separator,
-            new ItemMenuEntry(Glyphs.Link, "Copy link", () =>
+                ? new ItemMenuEntry(Glyphs.Folder, Str.Common_Open.Text(), () => EnterFolder(item))
+                : new ItemMenuEntry(Glyphs.Open, Str.Github_OpenInBrowser.Text(), () => OpenOnWeb(item)),
+            item.IsFolder ? new ItemMenuEntry(Glyphs.Open, Str.Github_OpenInBrowser.Text(), () => OpenOnWeb(item)) : ItemMenuEntry.Separator,
+            new ItemMenuEntry(Glyphs.Link, Str.WidgetsC_OneDrive_CopyLink.Text(), () =>
             {
                 if (!ClipboardWatcher.SetText(item.WebUrl))
                 {

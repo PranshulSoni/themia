@@ -1,3 +1,5 @@
+using Themia.Core.Localization;
+
 namespace Themia.Core.Widgets;
 
 /// <summary>
@@ -55,19 +57,22 @@ public enum FetchStatus
 public static class FetchState
 {
     /// <summary>The line shown in place of data. One sentence, naming the actual state.</summary>
-    public static string Message(FetchStatus status) => status switch
+    public static string Message(FetchStatus status) => Message(Strings.Current, status);
+
+    /// <summary><see cref="Message(FetchStatus)"/> in <paramref name="locale"/>.</summary>
+    public static string Message(Locale locale, FetchStatus status) => status switch
     {
         FetchStatus.Ok => string.Empty,
-        FetchStatus.NotConfigured => "Not set up yet",
-        FetchStatus.Loading => "Loading",
-        FetchStatus.Offline => "No network",
-        FetchStatus.Unreachable => "Can't reach the service",
-        FetchStatus.TimedOut => "The service timed out",
-        FetchStatus.RateLimited => "Asked too often — waiting a while",
-        FetchStatus.BadResponse => "The service sent something unexpected",
-        FetchStatus.Empty => "Nothing to show",
-        FetchStatus.Refused => "That setting was refused",
-        _ => "Can't reach the service",
+        FetchStatus.NotConfigured => Strings.Get(locale, Str.Shell_Fetch_NotConfigured),
+        FetchStatus.Loading => Strings.Get(locale, Str.Shell_Fetch_Loading),
+        FetchStatus.Offline => Strings.Get(locale, Str.Shell_Fetch_Offline),
+        FetchStatus.Unreachable => Strings.Get(locale, Str.Shell_Fetch_Unreachable),
+        FetchStatus.TimedOut => Strings.Get(locale, Str.Shell_Fetch_TimedOut),
+        FetchStatus.RateLimited => Strings.Get(locale, Str.Shell_Fetch_RateLimited),
+        FetchStatus.BadResponse => Strings.Get(locale, Str.Shell_Fetch_BadResponse),
+        FetchStatus.Empty => Strings.Get(locale, Str.Shell_Fetch_Empty),
+        FetchStatus.Refused => Strings.Get(locale, Str.Shell_Fetch_Refused),
+        _ => Strings.Get(locale, Str.Shell_Fetch_Unreachable),
     };
 
     /// <summary>
@@ -94,32 +99,23 @@ public static class FetchState
     /// and stale data presented as live is the way a weather tile actively misleads somebody.
     /// </para>
     /// </summary>
-    public static string Freshness(DateTimeOffset fetched, DateTimeOffset now)
+    public static string Freshness(DateTimeOffset fetched, DateTimeOffset now) => Freshness(Strings.Current, fetched, now);
+
+    /// <summary>
+    /// <see cref="Freshness(DateTimeOffset, DateTimeOffset)"/> in <paramref name="locale"/>: "Just now"
+    /// under a minute, then the language's short relative time ("5 min. ago", "vor 3 Std.").
+    /// </summary>
+    public static string Freshness(Locale locale, DateTimeOffset fetched, DateTimeOffset now)
     {
         var age = now - fetched;
 
         // A provider clock running ahead of this machine's is not the future.
-        if (age < TimeSpan.Zero)
-        {
-            age = TimeSpan.Zero;
-        }
-
         if (age < TimeSpan.FromMinutes(1))
         {
-            return "Just now";
+            return Strings.Get(locale, Str.Shell_Time_JustNow);
         }
 
-        if (age < TimeSpan.FromHours(1))
-        {
-            return $"{(int)age.TotalMinutes}m ago";
-        }
-
-        if (age < TimeSpan.FromDays(1))
-        {
-            return $"{(int)age.TotalHours}h ago";
-        }
-
-        return $"{(int)age.TotalDays}d ago";
+        return LocaleFormat.Relative(locale, -age, RelativeStyle.Short);
     }
 
     /// <summary>

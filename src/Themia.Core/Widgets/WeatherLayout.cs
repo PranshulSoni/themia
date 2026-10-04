@@ -341,7 +341,11 @@ public static class WeatherForecastLayout
         var description = width >= 380;
         var precipitation = width >= 420;
         var chance = width >= 500;
-        var wind = width >= 500;
+
+        // The wind is the first column a narrower list sheds after the chance, so the sky keeps its
+        // words: beside the Today panel the list is ~510px, where "Teilweise bewölkt" was trimmed to
+        // "Teilweise be…" with the wind in. [S-725]
+        var wind = width >= 540;
 
         // A row tall enough for two lines puts the sky under the day and the precipitation under the
         // high, when the width has not already given them columns of their own.

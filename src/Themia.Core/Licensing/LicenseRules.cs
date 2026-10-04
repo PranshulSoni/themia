@@ -1,4 +1,5 @@
 using System.Globalization;
+using Themia.Core.Localization;
 using Themia.Core.Model;
 
 namespace Themia.Core.Licensing;
@@ -289,44 +290,56 @@ public enum LicenseCacheState
     Corrupt,
 }
 
-/// <summary>[S-1068] The License page's words, kept here so every state has one and the tests can see it.</summary>
+/// <summary>
+/// [S-1068] The License page's words, kept here so every state has one and the tests can see it.
+/// Each takes the language explicitly; the overloads without one use <see cref="Strings.Current"/>.
+/// </summary>
 public static class LicenseText
 {
-    public static string Title(LicenseStatus status) => status.Basis switch
+    public static string Title(LicenseStatus status) => Title(Strings.Current, status);
+
+    public static string Title(Locale locale, LicenseStatus status) => status.Basis switch
     {
-        LicenseBasis.DeveloperBuild => "Developer build",
+        LicenseBasis.DeveloperBuild => Strings.Get(locale, Str.Shell_License_DeveloperBuild),
         LicenseBasis.StorePro or LicenseBasis.OfflineGrace => "Themia Pro",
-        LicenseBasis.Checking => "Checking your licence…",
+        LicenseBasis.Checking => Strings.Get(locale, Str.Shell_License_Checking),
         _ => "Themia Free",
     };
 
-    public static string Detail(LicenseStatus status) => status.Basis switch
+    public static string Detail(LicenseStatus status) => Detail(Strings.Current, status);
+
+    public static string Detail(Locale locale, LicenseStatus status) => status.Basis switch
     {
-        LicenseBasis.DeveloperBuild =>
-            "Not installed from the Microsoft Store, so there is no licence to check and nothing is limited.",
-        LicenseBasis.StorePro => "Unlimited widgets and views. Thank you for supporting Themia.",
-        LicenseBasis.OfflineGrace =>
-            $"The Microsoft Store can't be reached right now. Pro stays on until {status.GraceUntil?.ToLocalTime().ToString("d MMM yyyy", CultureInfo.InvariantCulture) ?? "the Store confirms it"}.",
-        LicenseBasis.Checking => "Asking the Microsoft Store. Until it answers, the free limits apply.",
-        LicenseBasis.StoreUnavailable =>
-            $"The Microsoft Store can't be reached, so the free limits apply ({LicenseRules.FreeWidgetLimit} widgets, {LicenseRules.FreeViewLimit} views). Nothing is removed.",
-        _ => $"Every widget type, up to {LicenseRules.FreeWidgetLimit} widgets and {LicenseRules.FreeViewLimit} views. Pro removes the limits.",
+        LicenseBasis.DeveloperBuild => Strings.Get(locale, Str.Shell_License_DeveloperDetail),
+        LicenseBasis.StorePro => Strings.Get(locale, Str.Shell_License_ProDetail),
+        LicenseBasis.OfflineGrace => status.GraceUntil is { } until
+            ? Strings.Format(locale, Str.Shell_License_GraceUntil, ("date", LocaleFormat.Date(locale, until.ToLocalTime().DateTime, DateStyle.Medium)))
+            : Strings.Get(locale, Str.Shell_License_GraceOpen),
+        LicenseBasis.Checking => Strings.Get(locale, Str.Shell_License_CheckingDetail),
+        LicenseBasis.StoreUnavailable => Strings.Format(locale, Str.Shell_License_StoreUnavailable,
+            ("widgets", LicenseRules.FreeWidgetLimit), ("views", LicenseRules.FreeViewLimit)),
+        _ => Strings.Format(locale, Str.Shell_License_FreeDetail,
+            ("widgets", LicenseRules.FreeWidgetLimit), ("views", LicenseRules.FreeViewLimit)),
     };
 
-    public static string Purchase(PurchaseOutcome outcome) => outcome switch
+    public static string Purchase(PurchaseOutcome outcome) => Purchase(Strings.Current, outcome);
+
+    public static string Purchase(Locale locale, PurchaseOutcome outcome) => Strings.Get(locale, outcome switch
     {
-        PurchaseOutcome.Purchased => "Thank you! Themia Pro is on.",
-        PurchaseOutcome.AlreadyOwned => "You already own Themia Pro. It is on.",
-        PurchaseOutcome.Cancelled => "The purchase was cancelled. Nothing was charged.",
-        PurchaseOutcome.NetworkError => "The Microsoft Store couldn't be reached. Check the connection and try again.",
-        PurchaseOutcome.ServerError => "The Microsoft Store had a problem. Try again in a moment.",
-        PurchaseOutcome.NotConfigured => "Themia Pro isn't on sale in the Microsoft Store yet.",
-        _ => "The Microsoft Store isn't available here.",
-    };
+        PurchaseOutcome.Purchased => Str.Shell_License_Purchased,
+        PurchaseOutcome.AlreadyOwned => Str.Shell_License_AlreadyOwned,
+        PurchaseOutcome.Cancelled => Str.Shell_License_Cancelled,
+        PurchaseOutcome.NetworkError => Str.Shell_License_NetworkError,
+        PurchaseOutcome.ServerError => Str.Shell_License_ServerError,
+        PurchaseOutcome.NotConfigured => Str.Shell_License_NotOnSale,
+        _ => Str.Shell_License_StoreMissing,
+    });
 
     /// <summary>Why a create was refused, for the page the refusal opens.</summary>
-    public static string Refusal(LicenseUsage usage, int addWidgets, int addViews)
+    public static string Refusal(LicenseUsage usage, int addWidgets, int addViews) => Refusal(Strings.Current, usage, addWidgets, addViews);
+
+    public static string Refusal(Locale locale, LicenseUsage usage, int addWidgets, int addViews)
         => addViews > 0 && usage.Views + addViews > LicenseRules.FreeViewLimit
-            ? $"The free version holds {LicenseRules.FreeViewLimit} views. Upgrade to Pro for more."
-            : $"The free version holds {LicenseRules.FreeWidgetLimit} widgets. Upgrade to Pro for more, or remove one to make room.";
+            ? Strings.Format(locale, Str.Shell_License_ViewLimit, ("count", LicenseRules.FreeViewLimit))
+            : Strings.Format(locale, Str.Shell_License_WidgetLimit, ("count", LicenseRules.FreeWidgetLimit));
 }

@@ -1,4 +1,5 @@
 using System.Globalization;
+using Themia.Core.Localization;
 using Themia.Core.Model;
 
 namespace Themia.Core.Widgets;
@@ -213,7 +214,10 @@ public static class ShortcutRules
     }
 
     /// <summary>[S-1389] The Recycle Bin's tooltip: "name — N items (size)", "name — empty", or the name when unknown.</summary>
-    public static string BinTooltip(string name, RecycleBinState? state)
+    public static string BinTooltip(string name, RecycleBinState? state) => BinTooltip(Strings.Current, name, state);
+
+    /// <inheritdoc cref="BinTooltip(string, RecycleBinState?)"/>
+    public static string BinTooltip(Locale locale, string name, RecycleBinState? state)
     {
         if (state is not { } bin)
         {
@@ -222,11 +226,11 @@ public static class ShortcutRules
 
         if (bin.IsEmpty)
         {
-            return $"{name} — empty";
+            return Strings.Format(locale, Str.WidgetsC_Shortcuts_Bin_Empty, ("name", name));
         }
 
-        var noun = bin.Items == 1 ? "item" : "items";
-        return $"{name} — {bin.Items.ToString(CultureInfo.InvariantCulture)} {noun} ({Formatting.Bytes(bin.Bytes)})";
+        return Strings.Plural(locale, Str.WidgetsC_Shortcuts_Bin_Items, bin.Items,
+            ("name", name), ("size", Formatting.Bytes(locale, bin.Bytes)));
     }
 
     /// <summary>
@@ -245,21 +249,30 @@ public static class ShortcutRules
         return probe(target.Value);
     }
 
-    /// <summary>[S-1405] The details view's kind column for an app layout.</summary>
-    public const string LayoutKindLabel = "App layout";
+    /// <summary>
+    /// [S-1405] The details view's kind column for an app layout, which is also what a layout
+    /// nobody named is called.
+    /// </summary>
+    public static string LayoutKindLabel() => LayoutKindLabel(Strings.Current);
+
+    /// <inheritdoc cref="LayoutKindLabel()"/>
+    public static string LayoutKindLabel(Locale locale) => Strings.Get(locale, Str.Shortcut_ChipLayout);
 
     /// <summary>[S-1384] The details view's kind column.</summary>
-    public static string KindLabel(LaunchTarget target, TargetHealth health) => target.Kind switch
+    public static string KindLabel(LaunchTarget target, TargetHealth health) => KindLabel(Strings.Current, target, health);
+
+    /// <inheritdoc cref="KindLabel(LaunchTarget, TargetHealth)"/>
+    public static string KindLabel(Locale locale, LaunchTarget target, TargetHealth health) => Strings.Get(locale, target.Kind switch
     {
-        LaunchKind.Web => "Web address",
-        LaunchKind.ShellNamespace => "Windows location",
+        LaunchKind.Web => Str.WidgetsC_Shortcuts_Kind_Web,
+        LaunchKind.ShellNamespace => Str.WidgetsC_Shortcuts_Kind_Location,
         LaunchKind.LocalPath => health switch
         {
-            TargetHealth.Folder => "Folder",
-            TargetHealth.File => "File",
-            TargetHealth.Missing => "Missing",
-            _ => "Path",
+            TargetHealth.Folder => Str.Shortcut_KindFolder,
+            TargetHealth.File => Str.Shortcut_ChipFile,
+            TargetHealth.Missing => Str.WidgetsC_Shortcuts_Kind_Missing,
+            _ => Str.WidgetsC_Shortcuts_Kind_Path,
         },
-        _ => "Not allowed",
-    };
+        _ => Str.WidgetsC_Shortcuts_Kind_Refused,
+    });
 }

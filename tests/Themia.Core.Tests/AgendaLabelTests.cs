@@ -1,3 +1,4 @@
+using Themia.Core.Localization;
 using Themia.Core.Widgets;
 using Xunit;
 
@@ -17,28 +18,28 @@ public sealed class AgendaLabelTests
     [Fact]
     public void S105_TodayAndTomorrowAreNamed()
     {
-        Assert.Equal("Today", Formatting.DayHeading(Today, Today));
-        Assert.Equal("Tomorrow", Formatting.DayHeading(Today.AddDays(1), Today));
+        Assert.Equal("Today", Formatting.DayHeading(Locale.En, Today, Today));
+        Assert.Equal("Tomorrow", Formatting.DayHeading(Locale.En, Today.AddDays(1), Today));
     }
 
     [Fact]
     public void S105_FurtherOutIsAWeekdayAndDate()
-        => Assert.Equal("Sun 27 Sep", Formatting.DayHeading(Today.AddDays(3), Today));
+        => Assert.Equal("Sun, Sep 27", Formatting.DayHeading(Locale.En, Today.AddDays(3), Today));
 
     /// <summary>A heading is relative to the day passed in, never to the real clock.</summary>
     [Fact]
     public void S105_HeadingIsRelativeToTheGivenDay()
-        => Assert.Equal("Today", Formatting.DayHeading(new DateOnly(2001, 1, 1), new DateOnly(2001, 1, 1)));
+        => Assert.Equal("Today", Formatting.DayHeading(Locale.En, new DateOnly(2001, 1, 1), new DateOnly(2001, 1, 1)));
 
     [Fact]
     public void S105_APastDayIsJustItsDate()
-        => Assert.Equal("Wed 23 Sep", Formatting.DayHeading(Today.AddDays(-1), Today));
+        => Assert.Equal("Wed, Sep 23", Formatting.DayHeading(Locale.En, Today.AddDays(-1), Today));
 
     [Fact]
     public void S105_YearBoundaryStillReadsAsTomorrow()
     {
         var newYearsEve = new DateOnly(2026, 12, 31);
-        Assert.Equal("Tomorrow", Formatting.DayHeading(new DateOnly(2027, 1, 1), newYearsEve));
+        Assert.Equal("Tomorrow", Formatting.DayHeading(Locale.En, new DateOnly(2027, 1, 1), newYearsEve));
     }
 
     // ---- due dates -----------------------------------------------------------------------------
@@ -46,14 +47,14 @@ public sealed class AgendaLabelTests
     /// <summary>Overdue must be readable without colour, so it is said in words. [S-106]</summary>
     [Fact]
     public void S106_OverdueIsSaidInWords()
-        => Assert.Equal("Overdue · 22 Sep", Formatting.DueDate(new DateOnly(2026, 9, 22), Today, overdue: true));
+        => Assert.Equal("Overdue · Sep 22", Formatting.DueDate(Locale.En, new DateOnly(2026, 9, 22), Today, overdue: true));
 
     [Fact]
     public void S106_NotOverdueReadsLikeAHeading()
     {
-        Assert.Equal("Today", Formatting.DueDate(Today, Today, overdue: false));
-        Assert.Equal("Tomorrow", Formatting.DueDate(Today.AddDays(1), Today, overdue: false));
-        Assert.Equal("Sun 27 Sep", Formatting.DueDate(Today.AddDays(3), Today, overdue: false));
+        Assert.Equal("Today", Formatting.DueDate(Locale.En, Today, Today, overdue: false));
+        Assert.Equal("Tomorrow", Formatting.DueDate(Locale.En, Today.AddDays(1), Today, overdue: false));
+        Assert.Equal("Sun, Sep 27", Formatting.DueDate(Locale.En, Today.AddDays(3), Today, overdue: false));
     }
 
     /// <summary>
@@ -62,7 +63,7 @@ public sealed class AgendaLabelTests
     /// </summary>
     [Fact]
     public void S106_OverdueWinsOverToday()
-        => Assert.Equal("Overdue · 24 Sep", Formatting.DueDate(Today, Today, overdue: true));
+        => Assert.Equal("Overdue · Sep 24", Formatting.DueDate(Locale.En, Today, Today, overdue: true));
 
     // ---- filing --------------------------------------------------------------------------------
 
@@ -148,11 +149,23 @@ public sealed class AgendaLabelTests
     public void S107_ClockIsAlwaysTwentyFourHour()
     {
         var evening = new DateTimeOffset(2026, 9, 24, 19, 5, 0, TimeSpan.Zero).ToLocalTime();
-        Assert.Equal(evening.ToString("HH:mm"), Formatting.Clock24(evening));
-        Assert.DoesNotContain("PM", Formatting.Clock24(evening), StringComparison.OrdinalIgnoreCase);
+        Assert.Equal(evening.ToString("HH:mm"), Formatting.Clock24(Locale.En, evening));
+        Assert.DoesNotContain("PM", Formatting.Clock24(Locale.En, evening), StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
-    public void ShortDateIsDayThenMonth()
-        => Assert.Equal("1 Jan", Formatting.ShortDate(new DateOnly(2026, 1, 1)));
+    public void ShortDateFollowsTheLanguage()
+    {
+        Assert.Equal("Jan 1", Formatting.ShortDate(Locale.En, new DateOnly(2026, 1, 1)));
+        Assert.Equal("1. Jan.", Formatting.ShortDate(Locale.De, new DateOnly(2026, 1, 1)));
+    }
+
+    /// <summary>The headings and due dates in German: its own words for today and overdue, day before month.</summary>
+    [Fact]
+    public void S105_S106_HeadingsSpeakTheLanguage()
+    {
+        Assert.Equal("Heute", Formatting.DayHeading(Locale.De, Today, Today));
+        Assert.Equal("Morgen", Formatting.DayHeading(Locale.De, Today.AddDays(1), Today));
+        Assert.Equal("Überfällig · 22. Sept.", Formatting.DueDate(Locale.De, new DateOnly(2026, 9, 22), Today, overdue: true));
+    }
 }

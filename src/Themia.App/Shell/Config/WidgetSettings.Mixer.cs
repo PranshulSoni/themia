@@ -1,4 +1,5 @@
 using Microsoft.UI.Xaml;
+using Themia.Core.Localization;
 using Themia.Core.Model;
 
 namespace Themia.App.Shell.Config;
@@ -19,7 +20,7 @@ internal static partial class WidgetSettings
         ArgumentNullException.ThrowIfNull(config);
         ArgumentNullException.ThrowIfNull(save);
 
-        rows.Add(FluentLayout.Header("Mixer"));
+        rows.Add(FluentLayout.Header(Str.WidgetsB_Settings_Mixer_Header.Text()));
 
         // [S-1222] Which device's apps; the default follows Windows.
         rows.Add(AudioDeviceRow(config.DeviceId, config.DeviceName, (id, name) =>
@@ -30,32 +31,32 @@ internal static partial class WidgetSettings
         }));
 
         // [S-442] The original request: one slider per app, not one per tab.
-        rows.Add(FluentLayout.Row(Glyphs.Group, "One row per app",
-            "A browser playing in three tabs gets one slider instead of three",
+        rows.Add(FluentLayout.Row(Glyphs.Group, Str.WidgetsB_Settings_Mixer_GroupByApp_Label.Text(),
+            Str.WidgetsB_Settings_Mixer_GroupByApp_Desc.Text(),
             FluentLayout.Toggle(config.GroupByApp, value => { config.GroupByApp = value; save(); })));
 
-        rows.Add(FluentLayout.Row(Glyphs.Volume, "Master volume", "The device's own level, as the first row",
+        rows.Add(FluentLayout.Row(Glyphs.Volume, Str.WidgetsB_Settings_Mixer_Master_Label.Text(), Str.WidgetsB_Settings_Mixer_Master_Desc.Text(),
             FluentLayout.Toggle(config.ShowMaster, value => { config.ShowMaster = value; save(); })));
 
-        rows.Add(FluentLayout.Row(Glyphs.Play, "Only apps playing now",
-            "Leave out apps that hold an audio session but are silent; a large mixer lists them dimmed below",
+        rows.Add(FluentLayout.Row(Glyphs.Play, Str.Mixer_Cfg_ActiveLabel.Text(),
+            Str.WidgetsB_Settings_Mixer_OnlyActive_Desc.Text(),
             FluentLayout.Toggle(config.OnlyActive, value => { config.OnlyActive = value; save(); })));
 
-        rows.Add(FluentLayout.Row(Glyphs.Bell, "System sounds", "Windows' own notification sounds",
+        rows.Add(FluentLayout.Row(Glyphs.Bell, Str.Mixer_Cfg_SystemLabel.Text(), Str.WidgetsB_Settings_Mixer_SystemSounds_Desc.Text(),
             FluentLayout.Toggle(config.ShowSystemSounds, value => { config.ShowSystemSounds = value; save(); })));
 
-        rows.Add(FluentLayout.Header("Rows"));
+        rows.Add(FluentLayout.Header(Str.WidgetsB_Settings_Mixer_Rows.Text()));
 
-        rows.Add(FluentLayout.Row(Glyphs.Apps, "App icons", "Each app's own icon rather than a generic one",
+        rows.Add(FluentLayout.Row(Glyphs.Apps, Str.Mixer_Cfg_IconsLabel.Text(), Str.WidgetsB_Settings_Mixer_Icons_Desc.Text(),
             FluentLayout.Toggle(config.ShowIcons, value => { config.ShowIcons = value; save(); })));
 
         // [S-1223] [S-1224]
-        rows.Add(FluentLayout.Row(Glyphs.Volume2, "Level meters", "A live meter under each slider, where there is room",
+        rows.Add(FluentLayout.Row(Glyphs.Volume2, Str.WidgetsB_Settings_Mixer_Peaks_Label.Text(), Str.WidgetsB_Settings_Mixer_Peaks_Desc.Text(),
             FluentLayout.Toggle(config.ShowPeaks, value => { config.ShowPeaks = value; save(); })));
 
-        rows.Add(FluentLayout.Row(Glyphs.Microphone, "Microphone", "The default microphone in the extra-large layout's side panel",
+        rows.Add(FluentLayout.Row(Glyphs.Microphone, Str.WidgetsB_Mixer_Microphone.Text(), Str.WidgetsB_Settings_Mixer_Microphone_Desc.Text(),
             FluentLayout.Toggle(config.ShowMicrophone, value => { config.ShowMicrophone = value; save(); })));
 
-        rows.Add(FluentLayout.Note("The list follows Windows as apps start and stop playing. Click the mixer, then use ↑ and ↓ to pick a row, ← and → or + and − to change it, and M to mute."));
+        rows.Add(FluentLayout.Note(Str.WidgetsB_Settings_Mixer_Note.Text()));
     }
 }

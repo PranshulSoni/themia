@@ -1,4 +1,5 @@
 using System.Globalization;
+using Themia.Core.Localization;
 
 namespace Themia.Core.Widgets;
 
@@ -177,8 +178,8 @@ public static class ClipboardLayout
     }
 
     /// <summary>"12 of 50": the footer under a large tile's list.</summary>
-    public static string CountLine(int count, int capacity)
-        => $"{count.ToString(CultureInfo.InvariantCulture)} of {capacity.ToString(CultureInfo.InvariantCulture)}";
+    public static string CountLine(int count, int capacity, Locale locale)
+        => Strings.Format(locale, Str.WidgetsA_Clipboard_CountOf, ("count", count), ("capacity", capacity));
 
     private static bool IsColour(string trimmed)
     {

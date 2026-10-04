@@ -4,6 +4,7 @@ using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
 using Themia.App.Shell;
+using Themia.Core.Localization;
 using Themia.Core.Tasks;
 using Themia.Core.Widgets;
 using Windows.System;
@@ -15,6 +16,7 @@ namespace Themia.App.Widgets;
 internal sealed partial class TasksView
 {
     private readonly Border _addRow;
+    private TextBlock _addLabel = null!;
 
     // One per row, so the handlers come off with the row they belong to. A leaked one keeps the row
     // alive and re-lights it after the list has moved on.
@@ -81,7 +83,7 @@ internal sealed partial class TasksView
                 // heading earns its line.
                 if (task.Completed && plan.CompletedHeading && ReferenceEquals(task, rows.First(t => t.Completed)))
                 {
-                    _rowsPanel.Children.Add(Heading($"Completed · {doneCount}"));
+                    _rowsPanel.Children.Add(Heading(Str.WidgetsC_Tasks_CompletedHeading.Format(("count", doneCount))));
                 }
 
                 _rowsPanel.Children.Add(BuildRow(task, today, plan));
@@ -289,7 +291,7 @@ internal sealed partial class TasksView
             };
         }
 
-        ToolTipService.SetToolTip(marker, task.Completed ? "Mark as not done" : "Mark as done");
+        ToolTipService.SetToolTip(marker, (task.Completed ? Str.WidgetsC_Tasks_MarkNotDone : Str.WidgetsC_Tasks_MarkDone).Text());
         marker.Tapped += OnMarkerTapped;
         marker.DoubleTapped += OnMarkerDoubleTapped;
         return marker;
@@ -297,19 +299,19 @@ internal sealed partial class TasksView
 
     private static string Tooltip(TaskItem task, Due? due)
     {
-        var lines = new List<string> { task.DisplayTitle, task.Completed ? "Completed" : "Open" };
+        var lines = new List<string> { task.DisplayTitle, (task.Completed ? Str.WidgetsC_Tasks_StateCompleted : Str.WidgetsC_Tasks_StateOpen).Text() };
 
         if (due is { } resolved)
         {
-            lines.Add($"Due {TaskDue.LongText(resolved)}{(resolved.IsPast && !task.Completed ? " (overdue)" : string.Empty)}");
+            lines.Add((resolved.IsPast && !task.Completed ? Str.WidgetsC_Tasks_DueOnOverdue : Str.WidgetsC_Tasks_DueOn).Format(("date", TaskDue.LongText(resolved))));
         }
 
         if (task.Important)
         {
-            lines.Add("High priority");
+            lines.Add(Str.WidgetsC_Tasks_HighPriority.Text());
         }
 
-        lines.Add("Drag to reorder; double-click or F2 to rename; right-click for more");
+        lines.Add(Str.WidgetsC_Tasks_RowHint.Text());
         return string.Join(Environment.NewLine, lines);
     }
 
@@ -385,21 +387,21 @@ internal sealed partial class TasksView
         var menu = new MenuFlyout();
         var index = IndexOf(task.Id);
 
-        menu.Items.Add(MenuItem(task.Completed ? Glyphs.Undo : Glyphs.Done, task.Completed ? "Mark as not done" : "Mark as done",
+        menu.Items.Add(MenuItem(task.Completed ? Glyphs.Undo : Glyphs.Done, (task.Completed ? Str.WidgetsC_Tasks_MarkNotDone : Str.WidgetsC_Tasks_MarkDone).Text(),
             () => SetCompleted(task, !task.Completed)));
-        menu.Items.Add(MenuItem(Glyphs.Rename, "Rename", () => BeginRename(row, task)));
+        menu.Items.Add(MenuItem(Glyphs.Rename, Str.Common_Rename.Text(), () => BeginRename(row, task)));
         menu.Items.Add(new MenuFlyoutSeparator());
 
-        var up = MenuItem(Glyphs.MoveUp, "Move up", () => Move(task, -1));
+        var up = MenuItem(Glyphs.MoveUp, Str.WidgetsC_Tasks_MoveUp.Text(), () => Move(task, -1));
         up.IsEnabled = index > 0;
         menu.Items.Add(up);
 
-        var down = MenuItem(Glyphs.MoveDown, "Move down", () => Move(task, +1));
+        var down = MenuItem(Glyphs.MoveDown, Str.WidgetsC_Tasks_MoveDown.Text(), () => Move(task, +1));
         down.IsEnabled = index >= 0 && index < _displayed.Count - 1;
         menu.Items.Add(down);
 
         menu.Items.Add(new MenuFlyoutSeparator());
-        menu.Items.Add(MenuItem(Glyphs.Delete, "Delete", () => Delete(task)));
+        menu.Items.Add(MenuItem(Glyphs.Delete, Str.Common_Delete.Text(), () => Delete(task)));
 
         menu.ShowAt(row, args.GetPosition(row));
         args.Handled = true;
@@ -749,7 +751,8 @@ internal sealed partial class TasksView
         plus.Margin = new Thickness(Fluent.Space1 / 2, 0, Fluent.Space3 + (Fluent.Space1 / 2), 0);
 
         var label = Fluent.Text(FluentType.Body, "TextFillColorSecondaryBrush");
-        label.Text = "Add a task";
+        label.Text = Str.WidgetsC_Tasks_AddTask.Text();
+        _addLabel = label;
         label.VerticalAlignment = VerticalAlignment.Center;
 
         var body = new Grid
@@ -790,7 +793,7 @@ internal sealed partial class TasksView
         CancelEdit();
 
         var box = NewEditor(string.Empty);
-        box.PlaceholderText = "Task name";
+        box.PlaceholderText = Str.WidgetsC_Tasks_TaskName.Text();
         Grid.SetColumn(box, 1);
         body.Children[1].Visibility = Visibility.Collapsed;
         body.Children.Add(box);

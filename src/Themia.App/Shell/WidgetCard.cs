@@ -10,6 +10,7 @@ using Themia.App.Services;
 using Themia.App.Widgets;
 using Themia.Core.Diagnostics;
 using Themia.Core.Geometry;
+using Themia.Core.Localization;
 using Themia.Core.Model;
 using Themia.Core.Widgets;
 using Windows.Foundation;
@@ -1057,11 +1058,11 @@ internal sealed partial class WidgetCard : Grid, IWidgetSurface, IContainerSurfa
             return null;
         }
 
-        var submenu = new MenuFlyoutSubItem { Text = "Move into" };
+        var submenu = new MenuFlyoutSubItem { Text = Str.Shell_Card_MoveInto.Text() };
 
         if (Model.ParentId is not null)
         {
-            var out_ = new MenuFlyoutItem { Text = "The desktop" };
+            var out_ = new MenuFlyoutItem { Text = Str.Shell_Card_MoveToDesktop.Text() };
             out_.Click += (_, _) => _host.RequestReparent(this, null);
             submenu.Items.Add(out_);
             submenu.Items.Add(new MenuFlyoutSeparator());
@@ -1103,8 +1104,10 @@ internal sealed partial class WidgetCard : Grid, IWidgetSurface, IContainerSurfa
                 _host.RequestSelect(this);
             }
 
+            // [S-1592] One widget reads "Copy"; a selection reads "Copy 3 widgets", one sentence per
+            // language rather than a verb with a count glued on.
             var count = _host.SelectionCount;
-            var several = count > 1 ? $" {count} widgets" : string.Empty;
+            string Verb(Str one, Str many) => count > 1 ? many.Plural(count) : one.Text();
 
             var menu = new MenuFlyout { Placement = FlyoutPlacementMode.BottomEdgeAlignedLeft };
             var cards = _host.ViewForCards;
@@ -1112,10 +1115,10 @@ internal sealed partial class WidgetCard : Grid, IWidgetSurface, IContainerSurfa
             // [S-870] Holding widgets is what a container is for, so adding one inside comes first.
             if (cards is not null && WidgetTree.IsContainer(Model.Kind) && cards.CanAddInto(Model.Id))
             {
-                menu.Items.Add(Item(Glyphs.Add, "Add widget inside…", () => _host.RequestAddInside(this)));
+                menu.Items.Add(Item(Glyphs.Add, Str.CtxMenu_AddToContainer.Text(), () => _host.RequestAddInside(this)));
             }
 
-            menu.Items.Add(Item("", "Configure…", () => _host.RequestConfigure(this)));
+            menu.Items.Add(Item("", Str.CtxMenu_Configure.Text(), () => _host.RequestConfigure(this)));
             // The view's own commands — pause a camera, refresh a page — sit under Configure,
             // read fresh each time so their text can follow the state they toggle.
             if (_view is IWidgetContextActions { ContextActions: { Count: > 0 } actions })
@@ -1137,11 +1140,11 @@ internal sealed partial class WidgetCard : Grid, IWidgetSurface, IContainerSurfa
             // [S-874] Layering, for a widget the grid places (a stack or tab strip lays its own out).
             if (cards is not null && !DrawnByContainer(cards))
             {
-                var front = Item(Glyphs.MoveUp, "Bring to front", () => _host.RequestZOrder(this, front: true));
+                var front = Item(Glyphs.MoveUp, Str.Shell_Card_BringToFront.Text(), () => _host.RequestZOrder(this, front: true));
                 front.IsEnabled = count > 1 || cards.CanBringToFront(Model.Id);
                 menu.Items.Add(front);
 
-                var back = Item(Glyphs.MoveDown, "Send to back", () => _host.RequestZOrder(this, front: false));
+                var back = Item(Glyphs.MoveDown, Str.Shell_Card_SendToBack.Text(), () => _host.RequestZOrder(this, front: false));
                 back.IsEnabled = count > 1 || cards.CanSendToBack(Model.Id);
                 menu.Items.Add(back);
             }
@@ -1151,25 +1154,25 @@ internal sealed partial class WidgetCard : Grid, IWidgetSurface, IContainerSurfa
                 menu.Items.Add(new MenuFlyoutSeparator());
             }
 
-            menu.Items.Add(Item("", "Copy" + several, () => _host.RequestCopy(this), "Ctrl+C"));
-            menu.Items.Add(Item("", "Cut" + several, () => _host.RequestCut(this), "Ctrl+X"));
+            menu.Items.Add(Item("", Verb(Str.CtxMenu_Copy, Str.Shell_Card_CopyMany), () => _host.RequestCopy(this), Ctrl("C")));
+            menu.Items.Add(Item("", Verb(Str.CtxMenu_Cut, Str.Shell_Card_CutMany), () => _host.RequestCut(this), Ctrl("X")));
 
-            var paste = Item("", "Paste", _host.RequestPaste, "Ctrl+V");
+            var paste = Item("", Str.CtxMenu_Paste.Text(), _host.RequestPaste, Ctrl("V"));
             paste.IsEnabled = _host.CanPaste;
             menu.Items.Add(paste);
 
-            menu.Items.Add(Item("", "Duplicate" + several, () => _host.RequestDuplicate(this), "Ctrl+D"));
+            menu.Items.Add(Item("", Verb(Str.CtxMenu_Duplicate, Str.Shell_Card_DuplicateMany), () => _host.RequestDuplicate(this), Ctrl("D")));
 
-            menu.Items.Add(Item("", "Move" + several, () => _host.RequestMove(this)));
+            menu.Items.Add(Item("", Verb(Str.Common_Move, Str.Shell_Card_MoveMany), () => _host.RequestMove(this)));
             menu.Items.Add(new MenuFlyoutSeparator());
 
             menu.Items.Add(Item(
                 _host.EditMode ? "" : "",
-                _host.EditMode ? "Done editing" : "Edit layout",
+                _host.EditMode ? Str.Shell_Card_DoneEditing.Text() : Str.Shell_Card_EditLayout.Text(),
                 () => _host.RequestEditMode(!_host.EditMode)));
 
             menu.Items.Add(new MenuFlyoutSeparator());
-            menu.Items.Add(Item("", "Delete" + several, () => _host.RequestDelete(this), "Del"));
+            menu.Items.Add(Item("", Verb(Str.Common_Delete, Str.Shell_Card_DeleteMany), () => _host.RequestDelete(this), Str.Shell_Key_Delete.Text()));
 
             menu.ShowAt(this, e.GetPosition(this));
             e.Handled = true;
@@ -1178,6 +1181,9 @@ internal sealed partial class WidgetCard : Grid, IWidgetSurface, IContainerSurfa
         {
             Log.Error(Scope, "could not open the widget context menu", ex);
         }
+
+        // Key names as Windows prints them in the language's menus: "Strg+C" in German.
+        static string Ctrl(string key) => Str.Shell_Key_CtrlPlus.Format(("key", key));
 
         static MenuFlyoutItem Item(string glyph, string text, Action action, string? shortcut = null)
         {

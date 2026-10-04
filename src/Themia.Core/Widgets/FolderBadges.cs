@@ -1,3 +1,6 @@
+
+using Themia.Core.Localization;
+
 namespace Themia.Core.Widgets;
 
 /// <summary>[S-1324] An item's cloud sync state, as Explorer's status column shows it.</summary>
@@ -73,9 +76,9 @@ public static class CloudBadges
 
     public static string Describe(CloudState state) => state switch
     {
-        CloudState.CloudOnly => "Available when online",
-        CloudState.Pinned => "Always available on this device",
-        CloudState.Synced => "Available on this device",
+        CloudState.CloudOnly => Str.WidgetsB_Folder_Cloud_OnlineOnly.Text(),
+        CloudState.Pinned => Str.Folder_CloudPinned.Text(),
+        CloudState.Synced => Str.WidgetsB_Folder_Cloud_OnDevice.Text(),
         _ => string.Empty,
     };
 }

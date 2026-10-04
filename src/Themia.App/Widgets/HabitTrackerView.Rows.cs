@@ -8,6 +8,7 @@ using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
 using Themia.App.Shell;
 using Themia.Core.Habits;
+using Themia.Core.Localization;
 using Themia.Core.Widgets;
 using Windows.System;
 using Windows.UI.Core;
@@ -172,13 +173,13 @@ internal sealed partial class HabitTrackerView
 
         return
         [
-            new(done ? Glyphs.Undo : Glyphs.Done, done ? $"Not done {noun}" : $"Done {noun}", () => Toggle(habitId)),
-            new(Glyphs.Rename, "Rename", () => BeginRename(habitId)),
+            new(done ? Glyphs.Undo : Glyphs.Done, done ? Str.WidgetsB_Habits_NotDone.Format(("when", noun)) : Str.WidgetsB_Habits_Done.Format(("when", noun)), () => Toggle(habitId)),
+            new(Glyphs.Rename, Str.WidgetsB_Folder_Rename.Text(), () => BeginRename(habitId)),
             ItemMenuEntry.Separator,
-            new(Glyphs.MoveUp, "Move up", () => Move(habitId, -1), Disabled: index <= 0),
-            new(Glyphs.MoveDown, "Move down", () => Move(habitId, +1), Disabled: index < 0 || index >= Habits.Count - 1),
+            new(Glyphs.MoveUp, Str.ChildList_MoveUp.Text(), () => Move(habitId, -1), Disabled: index <= 0),
+            new(Glyphs.MoveDown, Str.ChildList_MoveDown.Text(), () => Move(habitId, +1), Disabled: index < 0 || index >= Habits.Count - 1),
             ItemMenuEntry.Separator,
-            new(Glyphs.Delete, "Delete", () => Delete(habitId), Danger: true),
+            new(Glyphs.Delete, Str.Common_Delete.Text(), () => Delete(habitId), Danger: true),
         ];
     }
 
@@ -338,7 +339,7 @@ internal sealed partial class HabitTrackerView
         plus.Margin = new Thickness(Fluent.Space1 / 2, 0, Fluent.Space3 + (Fluent.Space1 / 2), 0);
 
         var label = Fluent.Text(FluentType.Body, "TextFillColorSecondaryBrush");
-        label.Text = "Add a habit";
+        label.Text = Str.WidgetsB_Habits_AddHabit.Text();
         label.VerticalAlignment = VerticalAlignment.Center;
         label.TextTrimming = TextTrimming.CharacterEllipsis;
 
@@ -358,7 +359,7 @@ internal sealed partial class HabitTrackerView
         var row = Fluent.Row(body);
         row.Visibility = Visibility.Collapsed;
         row.Tapped += OnAddTapped;
-        AutomationProperties.SetName(row, "Add a habit");
+        AutomationProperties.SetName(row, Str.WidgetsB_Habits_AddHabit.Text());
         _addHover = Fluent.Hover(row);
         return row;
     }
@@ -379,7 +380,7 @@ internal sealed partial class HabitTrackerView
         CloseEditor();
 
         var box = NewEditor(string.Empty);
-        box.PlaceholderText = "Habit name";
+        box.PlaceholderText = Str.WidgetsB_Habits_NamePlaceholder.Text();
         SetColumn(box, 1);
         body.Children[1].Visibility = Visibility.Collapsed;
         body.Children.Add(box);
@@ -689,7 +690,7 @@ internal sealed partial class HabitTrackerView
         {
             var zone = TimeZoneInfo.Local;
 
-            _name.Text = string.IsNullOrWhiteSpace(habit.Name) ? "Untitled habit" : habit.Name;
+            _name.Text = string.IsNullOrWhiteSpace(habit.Name) ? Str.WidgetsB_Habits_Untitled.Text() : habit.Name;
             ToolTipService.SetToolTip(_name, _name.Text);
 
             _done = HabitRules.IsDone(log, current);
@@ -699,16 +700,16 @@ internal sealed partial class HabitTrackerView
             _tick.Visibility = _done ? Visibility.Visible : Visibility.Collapsed;
 
             var noun = HabitPeriods.CurrentNoun(cadence.Period);
-            var state = _done ? $"done {noun}" : $"not done {noun}";
-            AutomationProperties.SetName(_box, $"{_name.Text}, {state}");
-            AutomationProperties.SetName(Host, $"{_name.Text}, {state}");
-            ToolTipService.SetToolTip(_box, _done ? $"Mark as not done {noun}" : $"Mark as done {noun}");
+            var state = (_done ? Str.WidgetsB_Habits_StateDone : Str.WidgetsB_Habits_StateNotDone).Format(("name", _name.Text), ("when", noun));
+            AutomationProperties.SetName(_box, state);
+            AutomationProperties.SetName(Host, state);
+            ToolTipService.SetToolTip(_box, (_done ? Str.WidgetsB_Habits_MarkNotDone : Str.WidgetsB_Habits_MarkDone).Format(("when", noun)));
 
             _period = cadence.Period;
             _showStreak = showStreak;
             _streakCount = HabitRules.Streak(log, current, cadence, zone);
 
-            var runWords = _streakCount == 0 ? "No run yet" : $"{HabitPeriods.Units(_period, _streakCount)} in a row";
+            var runWords = _streakCount == 0 ? Str.WidgetsB_Habits_NoRun.Text() : Str.WidgetsB_Habits_InARow.Format(("units", HabitPeriods.Units(_period, _streakCount)));
             AutomationProperties.SetName(_streak, runWords);
             ToolTipService.SetToolTip(_streak, runWords);
 
@@ -716,14 +717,14 @@ internal sealed partial class HabitTrackerView
             DrawDots(cadence);
 
             var doneIn = HabitRules.DoneIn(log, current, cadence, zone, HabitRules.RateWindow);
-            _rate.Text = string.Create(CultureInfo.InvariantCulture, $"{(int)Math.Round(100.0 * doneIn / HabitRules.RateWindow)}%");
-            var rateWords = $"Done {doneIn} of the last {HabitPeriods.Units(_period, HabitRules.RateWindow)}";
+            _rate.Text = LocaleFormat.Percent(Strings.Current, Math.Round(100.0 * doneIn / HabitRules.RateWindow));
+            var rateWords = Str.WidgetsB_Habits_DoneOfLast.Format(("done", doneIn), ("units", HabitPeriods.Units(_period, HabitRules.RateWindow)));
             ToolTipService.SetToolTip(_rate, rateWords);
             AutomationProperties.SetName(_rate, rateWords);
 
             var best = HabitRules.BestStreak(log, current, cadence, zone);
-            _best.Text = string.Create(CultureInfo.InvariantCulture, $"best {best}");
-            var bestWords = best == 0 ? "No best run yet" : $"Best run: {HabitPeriods.Units(_period, best)}";
+            _best.Text = Str.WidgetsB_Habits_BestShort.Format(("count", best));
+            var bestWords = best == 0 ? Str.WidgetsB_Habits_NoBest.Text() : Str.WidgetsB_Habits_BestRun.Format(("units", HabitPeriods.Units(_period, best)));
             ToolTipService.SetToolTip(_best, bestWords);
             AutomationProperties.SetName(_best, bestWords);
         }
@@ -760,7 +761,7 @@ internal sealed partial class HabitTrackerView
                 var dot = _recent[i];
                 _dots[i].Background = dot.Done ? _filled : _blank;
 
-                var label = $"{HabitPeriods.Describe(dot.Bucket, cadence)}: {(dot.Done ? "done" : "not done")}";
+                var label = (dot.Done ? Str.WidgetsB_Habits_DotDone : Str.WidgetsB_Habits_DotNotDone).Format(("period", HabitPeriods.Describe(dot.Bucket, cadence)));
                 ToolTipService.SetToolTip(_dots[i], label);
                 AutomationProperties.SetName(_dots[i], label);
             }
@@ -778,7 +779,7 @@ internal sealed partial class HabitTrackerView
                 return;
             }
 
-            var count = _streakCount.ToString(CultureInfo.InvariantCulture);
+            var count = LocaleFormat.Integer(_streakCount);
             _streak.Text = _streakCount == 0 ? string.Empty : plan.StreakWords ? HabitPeriods.Units(_period, _streakCount) : count;
             _streak.Visibility = _showStreak && plan.Streak && _streakCount > 0 ? Visibility.Visible : Visibility.Collapsed;
 

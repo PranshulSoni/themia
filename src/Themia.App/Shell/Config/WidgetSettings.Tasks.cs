@@ -5,6 +5,7 @@ using Themia.App.Services.Tasks;
 using Themia.App.Widgets;
 using Themia.Core.Accounts;
 using Themia.Core.Diagnostics;
+using Themia.Core.Localization;
 using Themia.Core.Model;
 using Themia.Core.Tasks;
 
@@ -32,7 +33,7 @@ internal static partial class WidgetSettings
 
         var service = AppServices.Tasks;
 
-        rows.Add(FluentLayout.Header("Source"));
+        rows.Add(FluentLayout.Header(Str.WidgetsC_Tasks_Settings_Source.Text()));
 
         // The rows under the source change with it, so they live in one host rebuilt in place.
         var sourceRows = new StackPanel { Spacing = Fluent.Space1 };
@@ -55,27 +56,27 @@ internal static partial class WidgetSettings
             }
         }
 
-        rows.Add(FluentLayout.Header("Display"));
+        rows.Add(FluentLayout.Header(Str.ConfigTabs_Display.Text()));
 
-        rows.Add(FluentLayout.Row(Glyphs.Done, "Show completed", "List finished tasks too, struck through",
+        rows.Add(FluentLayout.Row(Glyphs.Done, Str.Todo_ShowCompleted_Label.Text(), Str.WidgetsC_Tasks_Settings_ShowCompleted_Desc.Text(),
             FluentLayout.Toggle(config.ShowCompleted, value => { config.ShowCompleted = value; save(); })));
 
-        rows.Add(FluentLayout.Row(Glyphs.Calendar, "Show due date", "Overdue is said in words, not only in red",
+        rows.Add(FluentLayout.Row(Glyphs.Calendar, Str.WidgetsC_Tasks_Settings_ShowDue_Label.Text(), Str.WidgetsC_Tasks_Settings_ShowDue_Desc.Text(),
             FluentLayout.Toggle(config.ShowDueDate, value => { config.ShowDueDate = value; save(); })));
 
-        rows.Add(FluentLayout.Row(Glyphs.View, "Layout", "List: the due date under the title. Compact: beside it",
+        rows.Add(FluentLayout.Row(Glyphs.View, Str.WidgetsC_Tasks_Settings_Layout_Label.Text(), Str.WidgetsC_Tasks_Settings_Layout_Desc.Text(),
             FluentLayout.Choice<TaskViewMode>(
-                [(TaskViewMode.List, "List"), (TaskViewMode.Compact, "Compact")],
+                [(TaskViewMode.List, Str.WidgetsC_Tasks_Settings_Layout_List.Text()), (TaskViewMode.Compact, Str.WidgetsC_Tasks_Settings_Layout_Compact.Text())],
                 config.ViewMode,
                 value => { config.ViewMode = value; save(); })));
 
-        rows.Add(FluentLayout.Row(Glyphs.Wrap, "Title lines", "How far a long title wraps before it is cut short",
+        rows.Add(FluentLayout.Row(Glyphs.Wrap, Str.Todo_TitleLines_Label.Text(), Str.WidgetsC_Tasks_Settings_TitleLines_Desc.Text(),
             FluentLayout.Slider(config.EffectiveTitleLines, TaskRules.TitleLinesMin, TaskRules.TitleLinesMax, 1, string.Empty,
                 value => { config.TitleLines = (int)Math.Round(value); save(); })));
 
-        var header = FluentLayout.Header("Updating");
-        var refresh = FluentLayout.Row(Glyphs.Timer, "Refresh", "How often the account is asked for changes",
-            FluentLayout.Slider(config.RefreshInterval.TotalSeconds, 30, 600, 30, "s",
+        var header = FluentLayout.Header(Str.WidgetsC_Tasks_Settings_Updating.Text());
+        var refresh = FluentLayout.Row(Glyphs.Timer, Str.Common_Refresh.Text(), Str.WidgetsC_Tasks_Settings_Refresh_Desc.Text(),
+            FluentLayout.Slider(config.RefreshInterval.TotalSeconds, 30, 600, 30, Str.WidgetsC_Tasks_Settings_SecondsUnit.Text(),
                 value => { config.RefreshSeconds = (int)Math.Round(value); save(); }));
         updating.Add(header);
         updating.Add(refresh);
@@ -95,7 +96,7 @@ internal static partial class WidgetSettings
     {
         if (service is null)
         {
-            yield return FluentLayout.Note("Tasks are not available until Themia has started.");
+            yield return FluentLayout.Note(Str.WidgetsC_Tasks_Settings_NotStarted.Text());
             yield break;
         }
 
@@ -103,18 +104,18 @@ internal static partial class WidgetSettings
 
         // "Automatic" first: the first account with tasks, now or later. Then each account, then this PC.
         var combo = new ComboBox { MinWidth = 260 };
-        combo.Items.Add(new ComboBoxItem { Content = accounts.Count > 0 ? $"First account ({accounts[0].Label})" : "First account to sign in", Tag = string.Empty });
+        combo.Items.Add(new ComboBoxItem { Content = accounts.Count > 0 ? Str.WidgetsC_Tasks_Settings_FirstAccountNamed.Format(("account", accounts[0].Label)) : Str.WidgetsC_Tasks_Settings_FirstAccount.Text(), Tag = string.Empty });
 
         foreach (var account in accounts)
         {
             combo.Items.Add(new ComboBoxItem
             {
-                Content = account.Problem is null ? $"{account.Label} — {account.Provider.Label()}" : $"{account.Label} — sign in again",
+                Content = account.Problem is null ? $"{account.Label} — {account.Provider.Label()}" : Str.WidgetsC_OneDrive_Settings_AccountSignInAgain.Format(("account", account.Label)),
                 Tag = account.Id,
             });
         }
 
-        combo.Items.Add(new ComboBoxItem { Content = "This PC", Tag = LocalTag });
+        combo.Items.Add(new ComboBoxItem { Content = Str.WidgetsC_Tasks_Settings_ThisPc.Text(), Tag = LocalTag });
 
         combo.SelectedIndex = config.Source == TaskSource.Local
             ? combo.Items.Count - 1
@@ -136,7 +137,7 @@ internal static partial class WidgetSettings
 
                 // [S-604] The list it had if that still exists, else the first, else a new one.
                 config.Source = TaskSource.Local;
-                config.LocalListId = service.Local.Ensure(config.LocalListId, "My tasks");
+                config.LocalListId = service.Local.Ensure(config.LocalListId, Str.Todo_LocalLists_DefaultName.Text());
             }
             else
             {
@@ -157,14 +158,14 @@ internal static partial class WidgetSettings
             rebuild();
         };
 
-        yield return FluentLayout.Row(Glyphs.Contact, "Show tasks from",
-            accounts.Count == 0 ? "No Microsoft or Google account is signed in" : "A Microsoft or Google account, or a list kept on this PC",
+        yield return FluentLayout.Row(Glyphs.Contact, Str.WidgetsC_Tasks_Settings_ShowFrom_Label.Text(),
+            (accounts.Count == 0 ? Str.WidgetsC_Tasks_Settings_NoAccount : Str.WidgetsC_Tasks_Settings_ShowFrom_Desc).Text(),
             combo);
 
         if (accounts.Count == 0 || accounts.Any(a => a.Problem is not null))
         {
-            yield return FluentLayout.NavRow(Glyphs.Contact, "Accounts",
-                accounts.Count == 0 ? "Sign in to Microsoft To Do or Google Tasks" : "An account needs you to sign in again",
+            yield return FluentLayout.NavRow(Glyphs.Contact, Str.WidgetUi_AccountsLabel.Text(),
+                (accounts.Count == 0 ? Str.WidgetsC_Tasks_Settings_SignIn : Str.WidgetsC_OneDrive_Settings_AccountNeedsSignIn).Text(),
                 () => navigate(new ConfigTarget.App(AppPage.Accounts)));
         }
 
@@ -194,8 +195,8 @@ internal static partial class WidgetSettings
     /// </summary>
     private static Border AccountListRow(TaskService service, TaskAccount account, TasksConfig config, Action save)
     {
-        var combo = new ComboBox { MinWidth = 260, IsEnabled = false, PlaceholderText = "Loading lists…" };
-        var row = FluentLayout.Row(Glyphs.Task, "List", $"From {account.Label}", combo);
+        var combo = new ComboBox { MinWidth = 260, IsEnabled = false, PlaceholderText = Str.Todo_LoadingLists.Text() };
+        var row = FluentLayout.Row(Glyphs.Task, Str.WidgetsC_Tasks_Settings_List_Label.Text(), Str.WidgetsC_Tasks_Settings_List_From.Format(("account", account.Label)), combo);
 
         _ = FillAsync();
         return row;
@@ -210,17 +211,17 @@ internal static partial class WidgetSettings
             catch (AccountException ex)
             {
                 Log.Warn(TasksScope, $"could not read the lists of {account.Id}", ex);
-                combo.PlaceholderText = ex.Error == AccountError.SignInRequired ? "Sign in again to see the lists" : "Could not read the lists";
+                combo.PlaceholderText = (ex.Error == AccountError.SignInRequired ? Str.WidgetsC_Tasks_Settings_List_SignInAgain : Str.WidgetsC_Tasks_Settings_List_Failed).Text();
                 return;
             }
 
             var fallback = TaskRules.DefaultList(lists);
-            combo.Items.Add(new ComboBoxItem { Content = fallback is null ? "The default list" : $"The default list ({fallback.Name})", Tag = string.Empty });
-            combo.Items.Add(new ComboBoxItem { Content = "Today — due today and overdue, every list", Tag = TaskRules.TodayListId });
+            combo.Items.Add(new ComboBoxItem { Content = fallback is null ? Str.WidgetsC_Tasks_Settings_List_Default.Text() : Str.WidgetsC_Tasks_Settings_List_DefaultNamed.Format(("name", fallback.Name)), Tag = string.Empty });
+            combo.Items.Add(new ComboBoxItem { Content = Str.WidgetsC_Tasks_Settings_List_Today.Text(), Tag = TaskRules.TodayListId });
 
             foreach (var list in lists)
             {
-                combo.Items.Add(new ComboBoxItem { Content = string.IsNullOrWhiteSpace(list.Name) ? "(unnamed list)" : list.Name, Tag = list.Id });
+                combo.Items.Add(new ComboBoxItem { Content = string.IsNullOrWhiteSpace(list.Name) ? Str.WidgetsC_Tasks_Settings_List_Unnamed.Text() : list.Name, Tag = list.Id });
             }
 
             // A list that has gone since it was picked is not in the box; it falls back to the
@@ -277,7 +278,7 @@ internal static partial class WidgetSettings
             var name = new TextBox
             {
                 Text = list.Name,
-                PlaceholderText = "List name",
+                PlaceholderText = Str.Todo_LocalLists_NamePlaceholder.Text(),
                 MinWidth = 160,
                 VerticalAlignment = VerticalAlignment.Center,
                 IsEnabled = pool.Writable,
@@ -287,10 +288,10 @@ internal static partial class WidgetSettings
             name.TextChanged += (_, _) => pool.Rename(listId, name.Text);
 
             var count = Fluent.Text(Themia.Core.Widgets.FluentType.Caption, "TextFillColorTertiaryBrush");
-            count.Text = list.Tasks.Count == 1 ? "1 task" : $"{list.Tasks.Count} tasks";
+            count.Text = Str.WidgetsC_Tasks_Settings_TaskCount.Plural(list.Tasks.Count);
             count.VerticalAlignment = VerticalAlignment.Center;
 
-            var remove = FluentLayout.IconCommand(Glyphs.Delete, "Delete this list");
+            var remove = FluentLayout.IconCommand(Glyphs.Delete, Str.WidgetsC_Tasks_Settings_DeleteList.Text());
             remove.IsEnabled = pool.Writable;
             remove.Click += async (_, _) =>
             {
@@ -299,10 +300,10 @@ internal static partial class WidgetSettings
                     // [S-604] Always asked, empty or not: it takes every task in it, and the button
                     // sits one row from the name being typed in.
                     var detail = list.Tasks.Count == 0
-                        ? $"\"{Display(list.Name)}\" will be deleted from this PC."
-                        : $"\"{Display(list.Name)}\" and its {list.Tasks.Count} task{(list.Tasks.Count == 1 ? string.Empty : "s")} will be deleted from this PC. This cannot be undone.";
+                        ? Str.WidgetsC_Tasks_Settings_DeleteListEmpty.Format(("name", Display(list.Name)))
+                        : Str.WidgetsC_Tasks_Settings_DeleteListWithTasks.Plural(list.Tasks.Count, ("name", Display(list.Name)));
 
-                    if (!await FluentLayout.ConfirmAsync(remove, "Delete this list?", detail, "Delete").ConfigureAwait(true))
+                    if (!await FluentLayout.ConfirmAsync(remove, Str.WidgetsC_Tasks_Settings_DeleteListConfirm.Text(), detail, Str.Common_Delete.Text()).ConfigureAwait(true))
                     {
                         return;
                     }
@@ -350,10 +351,10 @@ internal static partial class WidgetSettings
 
         if (pool.Lists.Count == 0)
         {
-            yield return FluentLayout.Note("No lists on this PC yet.");
+            yield return FluentLayout.Note(Str.WidgetsC_Tasks_Settings_NoLocalLists.Text());
         }
 
-        var add = new Button { Content = "Add a list", IsEnabled = pool.Writable };
+        var add = new Button { Content = Str.WidgetsC_Tasks_Settings_AddList.Text(), IsEnabled = pool.Writable };
         add.Click += (_, _) =>
         {
             config.LocalListId = pool.Create(LocalTaskLists.NewListName);
@@ -364,7 +365,7 @@ internal static partial class WidgetSettings
         yield return add;
     }
 
-    private static string Display(string name) => string.IsNullOrWhiteSpace(name) ? "Untitled list" : name;
+    private static string Display(string name) => string.IsNullOrWhiteSpace(name) ? Str.WidgetsC_Tasks_UntitledList.Text() : name;
 
     private static int IndexOfTag(ComboBox combo, string? tag)
     {

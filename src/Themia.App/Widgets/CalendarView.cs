@@ -9,6 +9,7 @@ using Themia.App.Services.Office;
 using Themia.App.Shell;
 using Themia.Core.Accounts;
 using Themia.Core.Diagnostics;
+using Themia.Core.Localization;
 using Themia.Core.Model;
 using Themia.Core.Office;
 using Themia.Core.Widgets;
@@ -68,9 +69,10 @@ internal sealed partial class CalendarView : Grid, IWidgetView, IWidgetHeaderCon
     /// <summary>The view's slot, from the card ([S-663]); unmeasured until the first layout pass.</summary>
     private WidgetArea _area;
     private Screen _screen = Screen.Loading;
-    private string _problemText = string.Empty;
+    /// <summary>The problem in words, worded when shown so a language switch reaches it ([S-1109]).</summary>
+    private Func<string> _problemText = () => string.Empty;
     private bool _problemOffersAccounts;
-    private string? _warningText;
+    private Func<string>? _warningText;
     private bool _warningOpensAccounts;
     private IReadOnlyList<CalendarEvent> _events = [];
     private IReadOnlyList<Birthday> _birthdays = [];
@@ -94,9 +96,9 @@ internal sealed partial class CalendarView : Grid, IWidgetView, IWidgetHeaderCon
         _warning.Tapped += OnWarningTapped;
 
         // [S-569] Back, forward and today ride on the card's header, as the classic widget's did.
-        _back = NavButton(ChevronLeft, "Previous", () => Navigate(-1));
-        _forward = NavButton(ChevronRight, "Next", () => Navigate(1));
-        _todayButton = NavButton(Glyphs.Calendar, "Today", GoToday);
+        _back = NavButton(ChevronLeft, Str.WidgetsA_Calendar_Previous.Text(), () => Navigate(-1));
+        _forward = NavButton(ChevronRight, Str.Common_Next.Text(), () => Navigate(1));
+        _todayButton = NavButton(Glyphs.Calendar, Str.Calendar_Today.Text(), GoToday);
 
         _trailing = new StackPanel
         {
@@ -144,8 +146,19 @@ internal sealed partial class CalendarView : Grid, IWidgetView, IWidgetHeaderCon
             _source.Changed += OnAccountsChanged;
         }
 
+        Strings.Changed += OnLanguage;
+
         // [S-588] The ticker fires once on subscribing, which is the first load.
         _poll = ticker.Subscribe(Poll, () => _ = RefreshAsync(force: false));
+    }
+
+    /// <summary>[S-1109] Names, dates and states are worded again from what is in hand; nothing is refetched.</summary>
+    private void OnLanguage(Locale locale)
+    {
+        ToolTipService.SetToolTip(_back, Str.WidgetsA_Calendar_Previous.Text());
+        ToolTipService.SetToolTip(_forward, Str.Common_Next.Text());
+        ToolTipService.SetToolTip(_todayButton, Str.Calendar_Today.Text());
+        Render();
     }
 
     public void ApplyConfig(WidgetConfig config)
@@ -168,14 +181,14 @@ internal sealed partial class CalendarView : Grid, IWidgetView, IWidgetHeaderCon
         get
         {
             // [S-561] The classic menu: refresh, then the four views with the current one checked.
-            var actions = new List<WidgetAction> { new(Glyphs.Refresh, "Refresh", () => _ = RefreshAsync(force: true)) };
+            var actions = new List<WidgetAction> { new(Glyphs.Refresh, Str.Common_Refresh.Text(), () => _ = RefreshAsync(force: true)) };
 
             foreach (var (mode, label, glyph) in new[]
             {
-                (CalendarViewMode.Month, "Month", Glyphs.Calendar),
-                (CalendarViewMode.Week, "Week", WeekGlyph),
-                (CalendarViewMode.Day, "Day", DayGlyph),
-                (CalendarViewMode.Agenda, "Agenda", AgendaGlyph),
+                (CalendarViewMode.Month, Str.CtxMenu_Month.Text(), Glyphs.Calendar),
+                (CalendarViewMode.Week, Str.CtxMenu_Week.Text(), WeekGlyph),
+                (CalendarViewMode.Day, Str.CtxMenu_Day.Text(), DayGlyph),
+                (CalendarViewMode.Agenda, Str.CtxMenu_Agenda.Text(), AgendaGlyph),
             })
             {
                 actions.Add(new(_config.EffectiveView == mode ? Glyphs.Done : glyph, label, () => SetView(mode)));
@@ -193,6 +206,7 @@ internal sealed partial class CalendarView : Grid, IWidgetView, IWidgetHeaderCon
         }
 
         _detached = true;
+        Strings.Changed -= OnLanguage;
         _poll?.Dispose();
         _poll = null;
 
@@ -334,7 +348,8 @@ internal sealed partial class CalendarView : Grid, IWidgetView, IWidgetHeaderCon
             if (!anyData && problems.Count > 0)
             {
                 _screen = Screen.Problem;
-                _problemText = SyncProblems.Message(worst.Problem, "calendar");
+                var problem = worst.Problem;
+                _problemText = () => SyncProblems.Message(problem, SyncSubject.Calendar, Strings.Current);
                 _problemOffersAccounts = SyncProblems.NeedsUser(worst.Problem);
                 _warningText = null;
             }
@@ -343,8 +358,10 @@ internal sealed partial class CalendarView : Grid, IWidgetView, IWidgetHeaderCon
                 _screen = Screen.Ready;
                 _warningText = problems.Count == 0
                     ? null
-                    : string.Join(Environment.NewLine, problems.Distinct().Select(p =>
-                        $"{(labels.TryGetValue(p.Account, out var label) ? label : p.Account)}: {SyncProblems.Message(p.Problem, "calendar")}"));
+                    : () => string.Join(Environment.NewLine, problems.Distinct().Select(p =>
+                        Str.WidgetsA_Office_AccountProblem.Format(
+                            ("account", labels.TryGetValue(p.Account, out var label) ? label : p.Account),
+                            ("problem", SyncProblems.Message(p.Problem, SyncSubject.Calendar, Strings.Current)))));
                 _warningOpensAccounts = problems.Any(p => SyncProblems.NeedsUser(p.Problem));
             }
         }
@@ -353,7 +370,7 @@ internal sealed partial class CalendarView : Grid, IWidgetView, IWidgetHeaderCon
             // Reached from a ticker callback and a menu click: nothing above may see an exception.
             Log.Error(Scope, "could not refresh the calendar", ex);
             _screen = Screen.Problem;
-            _problemText = "Could not read the calendar. See themia.log.";
+            _problemText = () => Str.WidgetsA_Calendar_ReadFailed.Text();
             _problemOffersAccounts = false;
         }
         finally
@@ -543,27 +560,27 @@ internal sealed partial class CalendarView : Grid, IWidgetView, IWidgetHeaderCon
         _todayButton.Visibility = paged && !InView(Today) ? Visibility.Visible : Visibility.Collapsed;
 
         _warning.Visibility = ready && _warningText is not null ? Visibility.Visible : Visibility.Collapsed;
-        ToolTipService.SetToolTip(_warning, _warningText);
+        ToolTipService.SetToolTip(_warning, _warningText?.Invoke());
 
         // [S-568] The period is the header's title while paging; the agenda is just "Calendar".
-        _surface?.SetHeaderTitle(paged ? CalendarFit.Title(layout, _config.EffectiveView, _anchor, _config.EffectiveWeekStart, StripDays()) : null);
+        _surface?.SetHeaderTitle(paged ? CalendarFit.Title(layout, _config.EffectiveView, _anchor, _config.EffectiveWeekStart, StripDays(), Strings.Current) : null);
 
         switch (_screen)
         {
             case Screen.Loading:
-                _state.Show("Loading…", offerAccounts: false);
+                _state.Show(Str.Common_Loading.Text(), offerAccounts: false);
                 return;
 
             case Screen.NoAccounts:
-                _state.Show("No calendar account yet", offerAccounts: true);
+                _state.Show(Str.WidgetsA_Calendar_NoAccount.Text(), offerAccounts: true);
                 return;
 
             case Screen.AccountsGone:
-                _state.Show(SyncProblems.Message(SyncProblem.NoAccount, "calendar"), offerAccounts: true);
+                _state.Show(SyncProblems.Message(SyncProblem.NoAccount, SyncSubject.Calendar, Strings.Current), offerAccounts: true);
                 return;
 
             case Screen.Problem:
-                _state.Show(_problemText, _problemOffersAccounts);
+                _state.Show(_problemText(), _problemOffersAccounts);
                 return;
         }
 
@@ -681,15 +698,15 @@ internal sealed partial class CalendarView : Grid, IWidgetView, IWidgetHeaderCon
         if (item.AllDay)
         {
             var days = item.EndDay.DayNumber - item.FirstDay.DayNumber;
-            lines.Add(days > 1
-                ? $"All day · {Formatting.ShortDate(item.FirstDay)} – {Formatting.ShortDate(item.EndDay.AddDays(-1))}"
-                : $"All day · {Formatting.ShortDate(item.FirstDay)}");
+            lines.Add(Str.WidgetsA_Calendar_AllDayOn.Format(("date", days > 1
+                ? CalendarRules.Range(item.FirstDay, item.EndDay.AddDays(-1), Strings.Current)
+                : Formatting.ShortDate(item.FirstDay))));
         }
         else
         {
             var start = item.Start.ToLocalTime();
             var span = item.End > item.Start
-                ? $"{Clock(item.Start)}–{Clock(item.End)} ({Formatting.Duration(item.End - item.Start)})"
+                ? Str.WidgetsA_Calendar_SpanWithLength.Format(("from", Clock(item.Start)), ("to", Clock(item.End)), ("length", Formatting.Duration(item.End - item.Start)))
                 : Clock(item.Start);
             lines.Add($"{Formatting.ShortDate(DateOnly.FromDateTime(start.DateTime))} · {span}");
         }
@@ -707,7 +724,7 @@ internal sealed partial class CalendarView : Grid, IWidgetView, IWidgetHeaderCon
         return string.Join(Environment.NewLine, lines);
     }
 
-    private static string Title(CalendarEvent item) => string.IsNullOrWhiteSpace(item.Subject) ? "(no title)" : item.Subject;
+    private static string Title(CalendarEvent item) => string.IsNullOrWhiteSpace(item.Subject) ? Str.Calendar_NoTitle.Text() : item.Subject;
 
     private static string Clock(DateTimeOffset moment) => Formatting.Clock24(moment);
 

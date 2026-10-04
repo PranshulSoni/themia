@@ -1,4 +1,5 @@
 using System.Text.Json.Serialization;
+using Themia.Core.Localization;
 
 namespace Themia.Core.Widgets;
 
@@ -91,7 +92,7 @@ public static class SearchEngines
         SearchEngine.DuckDuckGo => "DuckDuckGo",
         SearchEngine.Startpage => "Startpage",
         SearchEngine.Ecosia => "Ecosia",
-        SearchEngine.Custom => "Custom",
+        SearchEngine.Custom => Str.WidgetsC_WebSearch_Custom.Text(),
         _ => "Google",
     };
 
@@ -216,13 +217,13 @@ public static class SearchEngines
     public static string ProblemMessage(SearchProblem problem) => problem switch
     {
         SearchProblem.None => string.Empty,
-        SearchProblem.NoQuery => "Type something to search for.",
-        SearchProblem.TemplateEmpty => "Enter a search address containing %s.",
-        SearchProblem.TemplateNoPlaceholder => "Put %s where the search words should go.",
-        SearchProblem.TemplateManyPlaceholders => "Use %s once only.",
-        SearchProblem.TemplateBadScheme => "The address must start with https:// or http://.",
-        SearchProblem.TemplatePlaceholderInAuthority => "%s cannot be part of the site name.",
-        SearchProblem.ResultRefused => "That search would not make a usable web address.",
-        _ => "That search could not be opened.",
+        SearchProblem.NoQuery => Str.WidgetsC_WebSearch_Problem_NoQuery.Text(),
+        SearchProblem.TemplateEmpty => Str.WidgetsC_WebSearch_Problem_TemplateEmpty.Text(),
+        SearchProblem.TemplateNoPlaceholder => Str.WidgetsC_WebSearch_Problem_NoPlaceholder.Text(),
+        SearchProblem.TemplateManyPlaceholders => Str.WidgetsC_WebSearch_Problem_ManyPlaceholders.Text(),
+        SearchProblem.TemplateBadScheme => Str.WidgetsC_WebSearch_Problem_BadScheme.Text(),
+        SearchProblem.TemplatePlaceholderInAuthority => Str.WidgetsC_WebSearch_Problem_InAuthority.Text(),
+        SearchProblem.ResultRefused => Str.WidgetsC_WebSearch_Problem_Refused.Text(),
+        _ => Str.WidgetsC_WebSearch_Problem_Other.Text(),
     };
 }

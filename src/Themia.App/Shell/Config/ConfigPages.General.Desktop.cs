@@ -5,6 +5,7 @@ using Themia.App.Interop;
 using Themia.App.Services;
 using Themia.App.Widgets;
 using Themia.Core.Diagnostics;
+using Themia.Core.Localization;
 using Themia.Core.Shell;
 
 namespace Themia.App.Shell.Config;
@@ -95,7 +96,7 @@ internal static partial class ConfigPages
             }
         };
 
-        rows.Add(FluentLayout.Row(Glyphs.Startup, "Start with Windows", "Start Themia when you sign in", toggle,
+        rows.Add(FluentLayout.Row(Glyphs.Startup, Str.Shell_Settings_General_Startup.Text(), Str.Shell_Settings_General_StartupDesc.Text(), toggle,
             "startup", "autostart", "sign in", "login", "boot"));
         rows.Add(advice);
         rows.Add(detail);
@@ -158,8 +159,8 @@ internal static partial class ConfigPages
             watch = null;
         };
 
-        return FluentLayout.Row(Glyphs.Apps, "Show desktop icons",
-            "Windows' own desktop icons under the widgets. The same setting as View › Show desktop icons on the desktop's menu",
+        return FluentLayout.Row(Glyphs.Apps, Str.Settings_DesktopIcons_Label.Text(),
+            Str.Shell_Settings_General_DesktopIconsDesc.Text(),
             toggle, "desktop icons", "hide icons", "clean desktop");
     }
 
@@ -170,7 +171,7 @@ internal static partial class ConfigPages
     {
         var status = new TextBlock
         {
-            Text = "Paused now",
+            Text = Str.Shell_Settings_General_PausedNow.Text(),
             VerticalAlignment = VerticalAlignment.Center,
             Foreground = FluentLayout.Themed("AccentTextFillColorPrimaryBrush", Colors.DodgerBlue),
             Visibility = host.Suspended ? Visibility.Visible : Visibility.Collapsed,
@@ -193,8 +194,8 @@ internal static partial class ConfigPages
             Children = { status, toggle },
         };
 
-        return FluentLayout.Row(Glyphs.Game, "Pause widgets during full-screen apps",
-            "Hide the widgets and stop their updates while a game, a full-screen video or a presentation has the screen. They come back when it closes",
+        return FluentLayout.Row(Glyphs.Game, Str.Shell_Settings_General_GameMode.Text(),
+            Str.Shell_Settings_General_GameModeDesc.Text(),
             control, "game mode", "fullscreen", "full screen", "presentation", "suspend", "battery");
     }
 }

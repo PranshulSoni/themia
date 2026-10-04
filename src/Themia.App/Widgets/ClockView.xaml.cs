@@ -5,6 +5,7 @@ using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Shapes;
 using Themia.App.Services;
 using Themia.App.Shell;
+using Themia.Core.Localization;
 using Themia.Core.Model;
 using Themia.Core.Widgets;
 using Windows.Foundation;
@@ -108,8 +109,12 @@ public sealed partial class ClockView : UserControl, IWidgetView, IWidgetSizeAwa
     public void Attach(Ticker ticker, WidgetConfig config)
     {
         _ticker = ticker;
+        Strings.Changed += OnLanguage;
         ApplyConfig(config);
     }
+
+    /// <summary>[S-1109] Names and the meridiem follow the language at once, not at the next tick.</summary>
+    private void OnLanguage(Locale locale) => ApplyConfig(_config);
 
     /// <summary>Re-read the config after the user changed it, resubscribing if the cadence changed.</summary>
     public void ApplyConfig(WidgetConfig config)
@@ -543,14 +548,15 @@ public sealed partial class ClockView : UserControl, IWidgetView, IWidgetSizeAwa
     private void Render()
     {
         var now = DateTimeOffset.UtcNow;
-        var reading = ClockFormatter.Read(now, _config);
-        var offset = _showOffset || _offsetOnDate ? ClockFormatter.OffsetLine(now, _config) : null;
+        var locale = Strings.Current;
+        var reading = ClockFormatter.Read(now, _config, locale);
+        var offset = _showOffset || _offsetOnDate ? ClockFormatter.OffsetLine(now, _config, locale) : null;
         OffsetText.Text = offset ?? string.Empty;
 
         // The extras are worked out only when a rung that shows one is up.
         if (_shortDate || _dateWithWeek || _showWeek || _showZone)
         {
-            var details = ClockFormatter.Details(now, _config);
+            var details = ClockFormatter.Details(now, _config, locale);
             var date = _shortDate ? details.ShortDate
                 : _dateWithWeek ? $"{reading.Date} · {details.Week}"
                 : reading.Date ?? string.Empty;
@@ -588,6 +594,7 @@ public sealed partial class ClockView : UserControl, IWidgetView, IWidgetSizeAwa
 
     public void Detach()
     {
+        Strings.Changed -= OnLanguage;
         _subscription?.Dispose();
         _subscription = null;
     }

@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using Themia.Core.Localization;
 using Themia.Core.Widgets;
 
 namespace Themia.Core.Developer;
@@ -149,11 +150,11 @@ public static class ClaudeUsageRules
     /// default: "the endpoint changed shape" has to be loud. An empty object is valid and is a
     /// fresh, unused subscription.
     /// </summary>
-    public static UsageParse Parse(string? body)
+    public static UsageParse Parse(string? body, Locale locale)
     {
         if (string.IsNullOrWhiteSpace(body))
         {
-            return new UsageParse(null, "The usage endpoint sent an empty answer");
+            return new UsageParse(null, Strings.Get(locale, Str.WidgetsA_Claude_Error_Empty));
         }
 
         ClaudeUsageWire? wire;
@@ -163,12 +164,12 @@ public static class ClaudeUsageRules
         }
         catch (JsonException ex)
         {
-            return new UsageParse(null, $"Unexpected usage response: {ex.Message}");
+            return new UsageParse(null, Strings.Format(locale, Str.WidgetsA_Claude_Error_Unexpected, ("detail", ex.Message)));
         }
 
         if (wire is null)
         {
-            return new UsageParse(null, "Unexpected usage response: not an object");
+            return new UsageParse(null, Strings.Get(locale, Str.WidgetsA_Claude_Error_NotObject));
         }
 
         return new UsageParse(
@@ -200,17 +201,19 @@ public static class ClaudeUsageRules
     /// endpoint wants, which signing in the same way again will not fix, so Anthropic's own reason
     /// is shown; anything else is the status and whatever Anthropic said.
     /// </summary>
-    public static string MapError(int status, string? providerMessage)
+    public static string MapError(int status, string? providerMessage, Locale locale)
     {
         var said = string.IsNullOrWhiteSpace(providerMessage) ? null : providerMessage.Trim();
 
         return status switch
         {
-            401 => "The Claude sign-in expired or was revoked. Reconnect the Claude account in Accounts",
+            401 => Strings.Get(locale, Str.WidgetsA_Claude_Error_Expired),
             403 => said is null
-                ? "The Claude sign-in lacks a permission the usage endpoint needs"
-                : $"The Claude sign-in lacks a permission: {said}",
-            _ => said is null ? $"Anthropic answered HTTP {status}" : $"Anthropic answered HTTP {status}: {said}",
+                ? Strings.Get(locale, Str.WidgetsA_Claude_Error_Scope)
+                : Strings.Format(locale, Str.WidgetsA_Claude_Error_ScopeSaid, ("detail", said)),
+            _ => said is null
+                ? Strings.Format(locale, Str.WidgetsA_Claude_Error_Http, ("status", status.ToString(CultureInfo.InvariantCulture)))
+                : Strings.Format(locale, Str.WidgetsA_Claude_Error_HttpSaid, ("status", status.ToString(CultureInfo.InvariantCulture)), ("detail", said)),
         };
     }
 
@@ -221,24 +224,26 @@ public static class ClaudeUsageRules
     /// toggle is on. A per-model window the endpoint sends as null (no active limit) is a 0% bar,
     /// not a missing row, so a toggled-on model always shows.
     /// </summary>
-    public static IReadOnlyList<UsageBar> BuildBars(ClaudeUsageReport usage, bool showOpus, bool showSonnet)
+    public static IReadOnlyList<UsageBar> BuildBars(ClaudeUsageReport usage, bool showOpus, bool showSonnet, Locale locale)
     {
         ArgumentNullException.ThrowIfNull(usage);
 
+        string T(Str id) => Strings.Get(locale, id);
+
         var bars = new List<UsageBar>(4)
         {
-            new("five_hour", "Session (5h)", "Session", "5h", usage.FiveHour),
-            new("seven_day", "Weekly (all models)", "Weekly", "7d", usage.SevenDay),
+            new("five_hour", T(Str.WidgetsA_Claude_Bar_Session), T(Str.WidgetsA_Claude_Bar_SessionShort), T(Str.WidgetsA_Claude_Bar_SessionMini), usage.FiveHour),
+            new("seven_day", T(Str.WidgetsA_Claude_Bar_Weekly), T(Str.WidgetsA_Claude_Bar_WeeklyShort), T(Str.WidgetsA_Claude_Bar_WeeklyMini), usage.SevenDay),
         };
 
         if (showOpus)
         {
-            bars.Add(new UsageBar("opus", "Weekly (Opus)", "Opus", "Opus", usage.Opus ?? UsageWindow.Unused));
+            bars.Add(new UsageBar("opus", Strings.Format(locale, Str.WidgetsA_Claude_Bar_WeeklyModel, ("model", "Opus")), "Opus", "Opus", usage.Opus ?? UsageWindow.Unused));
         }
 
         if (showSonnet)
         {
-            bars.Add(new UsageBar("sonnet", "Weekly (Sonnet)", "Sonnet", "Son.", usage.Sonnet ?? UsageWindow.Unused));
+            bars.Add(new UsageBar("sonnet", Strings.Format(locale, Str.WidgetsA_Claude_Bar_WeeklyModel, ("model", "Sonnet")), "Sonnet", "Son.", usage.Sonnet ?? UsageWindow.Unused));
         }
 
         return bars;
@@ -260,7 +265,7 @@ public static class ClaudeUsageRules
     /// [S-632] "resets in 3h 20m" — or, short, "3h 20m". Empty when the window has no reset, it has
     /// passed, or the time is unreadable.
     /// </summary>
-    public static string ResetLabel(DateTimeOffset? resetsAt, DateTimeOffset now, bool brief = false)
+    public static string ResetLabel(DateTimeOffset? resetsAt, DateTimeOffset now, Locale locale, bool brief = false)
     {
         if (resetsAt is not { } at || at <= now)
         {
@@ -271,14 +276,13 @@ public static class ClaudeUsageRules
         var days = totalMinutes / (60 * 24);
         var hours = totalMinutes % (60 * 24) / 60;
         var minutes = totalMinutes % 60;
-        var prefix = brief ? string.Empty : "resets in ";
+        var span = days > 0
+            ? Strings.Format(locale, Str.WidgetsA_Countdown_Compact_Dh, ("days", days), ("hours", hours))
+            : hours > 0
+                ? Strings.Format(locale, Str.WidgetsA_Countdown_Compact_Hm, ("hours", hours), ("minutes", minutes))
+                : Strings.Format(locale, Str.WidgetsA_Claude_CompactMinutes, ("minutes", minutes));
 
-        if (days > 0)
-        {
-            return $"{prefix}{days}d {hours}h";
-        }
-
-        return hours > 0 ? $"{prefix}{hours}h {minutes}m" : $"{prefix}{minutes}m";
+        return brief ? span : Strings.Format(locale, Str.WidgetsA_Claude_ResetsIn, ("duration", span));
     }
 
     /// <summary>[S-636] The cadence in minutes, clamped; fifteen by default — the endpoint's limits are strict.</summary>
@@ -489,26 +493,28 @@ public static class ClaudeUsageRules
             : UsagePace.On;
     }
 
-    public static string PaceText(UsagePace pace) => pace switch
+    public static string PaceText(UsagePace pace, Locale locale) => Strings.Get(locale, pace switch
     {
-        UsagePace.Ahead => "ahead of pace",
-        UsagePace.Under => "under pace",
-        _ => "on pace",
-    };
+        UsagePace.Ahead => Str.WidgetsA_Claude_Pace_Ahead,
+        UsagePace.Under => Str.WidgetsA_Claude_Pace_Under,
+        _ => Str.WidgetsA_Claude_Pace_On,
+    });
 
     /// <summary>
     /// [S-793] When a window resets, on the viewer's clock: "14:20" today, "Thu 14:20" another day.
     /// </summary>
-    public static string ResetClock(DateTimeOffset at, DateTimeOffset now, TimeZoneInfo viewer)
+    public static string ResetClock(DateTimeOffset at, DateTimeOffset now, TimeZoneInfo viewer, Locale locale)
     {
         ArgumentNullException.ThrowIfNull(viewer);
 
         var local = TimeZoneInfo.ConvertTime(at, viewer);
         var today = TimeZoneInfo.ConvertTime(now, viewer);
 
+        var time = LocaleFormat.Time(locale, local.DateTime);
         return local.Date == today.Date
-            ? local.ToString("HH:mm", CultureInfo.InvariantCulture)
-            : local.ToString("ddd HH:mm", CultureInfo.InvariantCulture);
+            ? time
+            : Strings.Format(locale, Str.WidgetsA_Claude_WeekdayTime,
+                ("weekday", LocaleFormat.WeekdayName(locale, local.DayOfWeek, NameWidth.Short)), ("time", time));
     }
 
     /// <summary>

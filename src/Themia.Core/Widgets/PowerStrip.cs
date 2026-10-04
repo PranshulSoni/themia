@@ -1,3 +1,4 @@
+using Themia.Core.Localization;
 namespace Themia.Core.Widgets;
 
 /// <summary>Which fact a status line carries; picks its icon.</summary>
@@ -42,30 +43,31 @@ public static class PowerStrip
     {
         if (!snapshot.Readable)
         {
-            return [new PowerFact(PowerFactKind.Unreadable, "Power", "Unavailable", "Power state unavailable")];
+            return [new PowerFact(PowerFactKind.Unreadable, Str.WidgetsC_Power_Fact_Power.Text(), Str.WidgetsC_Power_Unavailable.Text(), Str.WidgetsC_Power_Fact_UnreadableLine.Text())];
         }
 
         var facts = new List<PowerFact>(4);
 
         var source = SourceValue(snapshot);
-        facts.Add(new PowerFact(PowerFactKind.Source, "Power", source, source));
+        facts.Add(new PowerFact(PowerFactKind.Source, Str.WidgetsC_Power_Fact_Power.Text(), source, source));
 
         if (showPlan)
         {
             var plan = PowerRules.PlanLabel(snapshot);
-            facts.Add(new PowerFact(PowerFactKind.Plan, "Plan", plan, snapshot.PlanName is null ? "Plan unavailable" : $"{plan} plan"));
+            facts.Add(new PowerFact(PowerFactKind.Plan, Str.WidgetsC_Power_Fact_Plan.Text(), plan, snapshot.PlanName is null ? Str.WidgetsC_Power_Fact_PlanUnavailable.Text() : Str.WidgetsC_Power_Fact_PlanLine.Format(("plan", plan))));
         }
 
         if (showTimeRemaining && snapshot.Remaining is { } remaining && snapshot.Source == PowerSource.Battery)
         {
-            var left = $"{Formatting.Duration(remaining)} left";
-            facts.Add(new PowerFact(PowerFactKind.Remaining, "Time left", Formatting.Duration(remaining), left));
+            var left = Str.WidgetsC_Power_Left.Format(("duration", Formatting.Duration(remaining)));
+            facts.Add(new PowerFact(PowerFactKind.Remaining, Str.WidgetsC_Power_Fact_TimeLeft.Text(), Formatting.Duration(remaining), left));
         }
 
         if (showSaver && snapshot.HasBattery)
         {
             var saver = PowerRules.SaverLabel(snapshot);
-            facts.Add(new PowerFact(PowerFactKind.Saver, "Battery saver", saver, $"Battery saver {saver.ToLowerInvariant()}"));
+            var line = (snapshot.BatterySaver ? Str.WidgetsC_Power_Fact_SaverOn : Str.WidgetsC_Power_Fact_SaverOff).Text();
+            facts.Add(new PowerFact(PowerFactKind.Saver, Str.WidgetsC_Power_Fact_Saver.Text(), saver, line));
         }
 
         return facts;
@@ -82,14 +84,20 @@ public static class PowerStrip
             return PowerRules.SourceLabel(snapshot);
         }
 
-        var percent = snapshot.Percent is { } p ? $" · {p}%" : string.Empty;
-
-        return snapshot.Source switch
+        if (snapshot.Source == PowerSource.Mains && snapshot.Percent >= 100)
         {
-            PowerSource.Mains when snapshot.Percent >= 100 => "Fully charged",
-            PowerSource.Mains => $"Charging{percent}",
-            PowerSource.Battery => $"On battery{percent}",
-            _ => $"Unknown{percent}",
-        };
+            return Str.WidgetsC_Power_FullyCharged.Text();
+        }
+
+        var state = (snapshot.Source switch
+        {
+            PowerSource.Mains => Str.WidgetsC_Power_Charging,
+            PowerSource.Battery => Str.WidgetsC_Power_Source_Battery,
+            _ => Str.WidgetsC_Power_Source_Unknown,
+        }).Text();
+
+        return snapshot.Percent is { } p
+            ? Str.WidgetsC_Power_WithPercent.Format(("state", state), ("percent", LocaleFormat.Percent(Strings.Current, p)))
+            : state;
     }
 }

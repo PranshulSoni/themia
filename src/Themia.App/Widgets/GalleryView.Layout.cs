@@ -5,6 +5,7 @@ using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Media.Imaging;
 using Themia.App.Shell;
+using Themia.Core.Localization;
 using Themia.Core.Model;
 using Themia.Core.Widgets;
 
@@ -139,7 +140,7 @@ internal sealed partial class GalleryView
         PlaceControls(plan);
 
         _counter.Text = plan.Counter && plan.Mode == GalleryMode.Slideshow
-            ? string.Create(CultureInfo.InvariantCulture, $"{_index + 1}/{_scan.Paths.Count}")
+            ? Str.WidgetsB_Gallery_Counter.Format(("index", _index + 1), ("count", _scan.Paths.Count))
             : string.Empty;
     }
 
@@ -256,8 +257,7 @@ internal sealed partial class GalleryView
         {
             var path = _scan.Paths[_index];
             title = System.IO.Path.GetFileNameWithoutExtension(path);
-            detail = string.Create(CultureInfo.InvariantCulture,
-                $"{_index + 1} of {_scan.Paths.Count} · {FolderPath.DisplayName(_config.Path)}");
+            detail = Str.WidgetsB_Gallery_Position.Format(("index", _index + 1), ("count", _scan.Paths.Count), ("folder", FolderPath.DisplayName(_config.Path)));
         }
 
         _captionTitle.Text = title;
@@ -478,7 +478,7 @@ internal sealed partial class GalleryView
         {
             if (!IsLocal(path))
             {
-                return "Photo of the day";
+                return Str.WidgetsB_Gallery_PhotoOfTheDay.Text();
             }
 
             try

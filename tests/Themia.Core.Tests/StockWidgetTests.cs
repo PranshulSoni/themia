@@ -1,3 +1,4 @@
+using Themia.Core.Localization;
 using Themia.Core.Model;
 using Themia.Core.Widgets;
 using Xunit;
@@ -131,8 +132,9 @@ public sealed class StockWidgetTests
         // 13:30 UTC is 09:30 in New York (EDT, UTC-4), whatever the reader's own zone.
         var open = new DateTimeOffset(2026, 10, 2, 13, 30, 0, TimeSpan.Zero).ToUnixTimeSeconds();
 
-        Assert.Equal("09:30", ExchangeTime.Label(open, TimeSpan.FromHours(-4), QuoteRange.Day, TimeSpan.FromHours(2)));
-        Assert.Equal("15:30", ExchangeTime.Label(open, null, QuoteRange.Day, TimeSpan.FromHours(2)));
+        Assert.Equal("9:30 AM", ExchangeTime.Label(Locale.En, open, TimeSpan.FromHours(-4), QuoteRange.Day, TimeSpan.FromHours(2)));
+        Assert.Equal("3:30 PM", ExchangeTime.Label(Locale.En, open, null, QuoteRange.Day, TimeSpan.FromHours(2)));
+        Assert.Equal("09:30", ExchangeTime.Label(Locale.De, open, TimeSpan.FromHours(-4), QuoteRange.Day, TimeSpan.FromHours(2)));
     }
 
     [Fact]
@@ -140,9 +142,11 @@ public sealed class StockWidgetTests
     {
         var at = new DateTimeOffset(2025, 3, 4, 20, 0, 0, TimeSpan.Zero).ToUnixTimeSeconds();
 
-        Assert.Equal("Mar 4", ExchangeTime.Label(at, TimeSpan.FromHours(-5), QuoteRange.Year, TimeSpan.Zero));
-        Assert.Equal("Mar 4, 2025", ExchangeTime.Label(at, TimeSpan.FromHours(-5), QuoteRange.FiveYears, TimeSpan.Zero));
-        Assert.Equal("Tue 15:00", ExchangeTime.Label(at, TimeSpan.FromHours(-5), QuoteRange.FiveDays, TimeSpan.Zero));
+        Assert.Equal("Mar 4", ExchangeTime.Label(Locale.En, at, TimeSpan.FromHours(-5), QuoteRange.Year, TimeSpan.Zero));
+        Assert.Equal("Mar 4, 2025", ExchangeTime.Label(Locale.En, at, TimeSpan.FromHours(-5), QuoteRange.FiveYears, TimeSpan.Zero));
+        Assert.Equal("Tue 3:00 PM", ExchangeTime.Label(Locale.En, at, TimeSpan.FromHours(-5), QuoteRange.FiveDays, TimeSpan.Zero));
+        Assert.Equal("4. März", ExchangeTime.Label(Locale.De, at, TimeSpan.FromHours(-5), QuoteRange.Year, TimeSpan.Zero));
+        Assert.Equal("Di. 15:00", ExchangeTime.Label(Locale.De, at, TimeSpan.FromHours(-5), QuoteRange.FiveDays, TimeSpan.Zero));
     }
 
     [Fact]
@@ -150,9 +154,9 @@ public sealed class StockWidgetTests
     {
         IReadOnlyList<QuoteBar> bars = [new(0, 1), new(3600, 2), new(7200, 3)];
 
-        Assert.Equal(["00:00", "02:00"], ExchangeTime.Labels(bars, TimeSpan.Zero, QuoteRange.Day, TimeSpan.Zero, withMiddle: false));
-        Assert.Equal(["00:00", "01:00", "02:00"], ExchangeTime.Labels(bars, TimeSpan.Zero, QuoteRange.Day, TimeSpan.Zero, withMiddle: true));
-        Assert.Empty(ExchangeTime.Labels([new(0, 1)], null, QuoteRange.Day, TimeSpan.Zero, withMiddle: true));
+        Assert.Equal(["00:00", "02:00"], ExchangeTime.Labels(Locale.De, bars, TimeSpan.Zero, QuoteRange.Day, TimeSpan.Zero, withMiddle: false));
+        Assert.Equal(["00:00", "01:00", "02:00"], ExchangeTime.Labels(Locale.De, bars, TimeSpan.Zero, QuoteRange.Day, TimeSpan.Zero, withMiddle: true));
+        Assert.Empty(ExchangeTime.Labels(Locale.De, [new(0, 1)], null, QuoteRange.Day, TimeSpan.Zero, withMiddle: true));
     }
 
     [Theory]
@@ -204,7 +208,23 @@ public sealed class StockWidgetTests
     [InlineData(1_200_000_000L, "1.2B")]
     [InlineData(null, "--")]
     public void S1311_VolumeIsCompact(long? volume, string expected)
-        => Assert.Equal(expected, MarketQuote.Volume(volume));
+        => Assert.Equal(expected, MarketQuote.Volume(Locale.En, volume));
+
+    [Theory]
+    [InlineData(9_500L, "9.500")]
+    [InlineData(12_345L, "12,3 Tsd.")]
+    [InlineData(4_500_000L, "4,5 Mio.")]
+    [InlineData(1_000_000_000L, "1 Mrd.")]
+    public void S1311_VolumeIsCompactInTheLanguagesOwnWords(long volume, string expected)
+        => Assert.Equal(expected, MarketQuote.Volume(Locale.De, volume));
+
+    [Fact]
+    public void S1309_TheZoneNoteNamesTheExchangesZone()
+    {
+        Assert.Equal("Times in EDT, the exchange's time", ExchangeTime.ZoneNote(Locale.En, "EDT"));
+        Assert.Equal("Times in your time zone", ExchangeTime.ZoneNote(Locale.En, string.Empty));
+        Assert.Equal("Zeiten in EDT, der Zeit der Börse", ExchangeTime.ZoneNote(Locale.De, "EDT"));
+    }
 
     [Fact]
     public void S1311_FactsAreOnlyWhatTheReplyCarried()
@@ -214,10 +234,14 @@ public sealed class StockWidgetTests
             Stats = new QuoteStats(4990, 5010, 4980, null, 4100, null, "SNP"),
         };
 
-        var facts = MarketQuote.Facts(quote);
+        var facts = MarketQuote.Facts(Locale.En, quote);
 
         Assert.Equal(["Previous close", "Day range", "Exchange"], facts.Select(f => f.Label));
         Assert.Equal("4,980.00 – 5,010.00", facts[1].Value);
+
+        var german = MarketQuote.Facts(Locale.De, quote);
+        Assert.Equal(["Vortagesschluss", "Tagesspanne", "Börse"], german.Select(f => f.Label));
+        Assert.Equal("4.980,00 – 5.010,00", german[1].Value);
     }
 
     private static StockPlan Plan(double width, double height, bool chart = true, int stats = 5)

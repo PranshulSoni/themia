@@ -1,3 +1,4 @@
+using Themia.Core.Localization;
 using Themia.Core.Widgets;
 using Xunit;
 
@@ -130,6 +131,14 @@ public class Polish2LayoutTests
         Assert.Equal(["5 min", "15 min", "Never"], facts.Select(f => f.Value));
         Assert.Equal("Screen off after 5 min", facts[0].Line);
     }
+
+    [Theory]
+    [InlineData(Locale.En, 5400u, "1 h 30 min")]
+    [InlineData(Locale.De, 5400u, "1 Std. 30 Min.")]
+    [InlineData(Locale.De, 0u, "Nie")]
+    [InlineData(Locale.Ja, 300u, "5 分")]
+    public void S1623_timeouts_are_worded_per_language(Locale locale, uint seconds, string expected)
+        => Assert.Equal(expected, PowerTimeoutRules.Duration(locale, seconds));
 
     [Fact]
     public void S1623_an_unreadable_timeout_has_no_row_rather_than_reading_never()

@@ -1,5 +1,6 @@
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Themia.Core.Localization;
 using Themia.Core.Model;
 using Themia.Core.Widgets;
 
@@ -22,9 +23,8 @@ internal static partial class WidgetSettings
         ArgumentNullException.ThrowIfNull(views);
         ArgumentNullException.ThrowIfNull(save);
 
-        rows.Add(FluentLayout.Header("Views"));
-        rows.Add(FluentLayout.Note(
-            "Each view switched on gets a button. With every one on, views you add later get one too."));
+        rows.Add(FluentLayout.Header(Str.ViewSwitcher_ViewsTab.Text()));
+        rows.Add(FluentLayout.Note(Str.WidgetsC_ViewSwitcher_Settings_Note.Text()));
 
         var toggles = new List<(string Id, ToggleSwitch Toggle)>(views.Count);
         var syncing = false;
@@ -70,10 +70,10 @@ internal static partial class WidgetSettings
 
         Sync();
 
-        rows.Add(FluentLayout.Header("Buttons"));
+        rows.Add(FluentLayout.Header(Str.WidgetsC_ViewSwitcher_Settings_Buttons.Text()));
 
-        rows.Add(FluentLayout.Row(Glyphs.Hidden, "Initials only",
-            "Drops the names, for a narrow strip. The name is still in the tooltip",
+        rows.Add(FluentLayout.Row(Glyphs.Hidden, Str.WidgetsC_ViewSwitcher_InitialsOnly.Text(),
+            Str.WidgetsC_ViewSwitcher_Settings_InitialsOnly_Desc.Text(),
             FluentLayout.Toggle(config.IconOnly, value => { config.IconOnly = value; save(); })));
     }
 }

@@ -1,4 +1,5 @@
 using System.Globalization;
+using Themia.Core.Localization;
 using Themia.Core.Model;
 
 namespace Themia.Core.Widgets;
@@ -34,52 +35,61 @@ public enum WeatherLook
 /// that the service said something this app does not have a word for, which is true, and a blank
 /// would read as a broken widget.
 /// </para>
+/// <para>
+/// Every text in words comes from the string table, in the app's language or in the one passed in
+/// (the explicit overloads keep tests independent of the process-wide language). Whole numbers are
+/// written with plain digits, which every supported language shares; a number with a fraction or a
+/// percentage goes through <see cref="LocaleFormat"/>, so "0,3 mm" and "59 %" read right in German.
+/// </para>
 /// </summary>
 public static class WeatherReport
 {
-    private static readonly Dictionary<int, (WeatherLook Look, string Text)> Codes = new()
+    private static readonly Dictionary<int, (WeatherLook Look, Str Text)> Codes = new()
     {
-        [0] = (WeatherLook.Clear, "Clear sky"),
-        [1] = (WeatherLook.Clear, "Mainly clear"),
-        [2] = (WeatherLook.PartlyCloudy, "Partly cloudy"),
-        [3] = (WeatherLook.Overcast, "Overcast"),
-        [45] = (WeatherLook.Fog, "Fog"),
-        [48] = (WeatherLook.Fog, "Icy fog"),
-        [51] = (WeatherLook.Drizzle, "Light drizzle"),
-        [53] = (WeatherLook.Drizzle, "Drizzle"),
-        [55] = (WeatherLook.Drizzle, "Heavy drizzle"),
-        [56] = (WeatherLook.Drizzle, "Freezing drizzle"),
-        [57] = (WeatherLook.Drizzle, "Heavy freezing drizzle"),
-        [61] = (WeatherLook.Rain, "Light rain"),
-        [63] = (WeatherLook.Rain, "Rain"),
-        [65] = (WeatherLook.Rain, "Heavy rain"),
-        [66] = (WeatherLook.Rain, "Freezing rain"),
-        [67] = (WeatherLook.Rain, "Heavy freezing rain"),
-        [71] = (WeatherLook.Snow, "Light snow"),
-        [73] = (WeatherLook.Snow, "Snow"),
-        [75] = (WeatherLook.Snow, "Heavy snow"),
-        [77] = (WeatherLook.Snow, "Snow grains"),
-        [80] = (WeatherLook.Rain, "Light showers"),
-        [81] = (WeatherLook.Rain, "Showers"),
-        [82] = (WeatherLook.Rain, "Heavy showers"),
-        [85] = (WeatherLook.Snow, "Snow showers"),
-        [86] = (WeatherLook.Snow, "Heavy snow showers"),
-        [95] = (WeatherLook.Thunderstorm, "Thunderstorm"),
-        [96] = (WeatherLook.Thunderstorm, "Thunderstorm with hail"),
-        [99] = (WeatherLook.Thunderstorm, "Severe thunderstorm"),
+        [0] = (WeatherLook.Clear, Str.Forecast_Wmo_Clear),
+        [1] = (WeatherLook.Clear, Str.Forecast_Wmo_MainlyClear),
+        [2] = (WeatherLook.PartlyCloudy, Str.Forecast_Wmo_PartlyCloudy),
+        [3] = (WeatherLook.Overcast, Str.Forecast_Wmo_Overcast),
+        [45] = (WeatherLook.Fog, Str.Forecast_Wmo_Fog),
+        [48] = (WeatherLook.Fog, Str.Forecast_Wmo_IcyFog),
+        [51] = (WeatherLook.Drizzle, Str.WidgetsC_Weather_Condition_LightDrizzle),
+        [53] = (WeatherLook.Drizzle, Str.Forecast_Wmo_Drizzle),
+        [55] = (WeatherLook.Drizzle, Str.WidgetsC_Weather_Condition_HeavyDrizzle),
+        [56] = (WeatherLook.Drizzle, Str.WidgetsC_Weather_Condition_FreezingDrizzle),
+        [57] = (WeatherLook.Drizzle, Str.WidgetsC_Weather_Condition_HeavyFreezingDrizzle),
+        [61] = (WeatherLook.Rain, Str.Forecast_Wmo_LightRain),
+        [63] = (WeatherLook.Rain, Str.Forecast_Wmo_Rain),
+        [65] = (WeatherLook.Rain, Str.Forecast_Wmo_HeavyRain),
+        [66] = (WeatherLook.Rain, Str.WidgetsC_Weather_Condition_FreezingRain),
+        [67] = (WeatherLook.Rain, Str.WidgetsC_Weather_Condition_HeavyFreezingRain),
+        [71] = (WeatherLook.Snow, Str.Forecast_Wmo_LightSnow),
+        [73] = (WeatherLook.Snow, Str.Forecast_Wmo_Snow),
+        [75] = (WeatherLook.Snow, Str.Forecast_Wmo_HeavySnow),
+        [77] = (WeatherLook.Snow, Str.Forecast_Wmo_SnowGrains),
+        [80] = (WeatherLook.Rain, Str.WidgetsC_Weather_Condition_LightShowers),
+        [81] = (WeatherLook.Rain, Str.Forecast_Wmo_Showers),
+        [82] = (WeatherLook.Rain, Str.Forecast_Wmo_HeavyShowers),
+        [85] = (WeatherLook.Snow, Str.Forecast_Wmo_SnowShowers),
+        [86] = (WeatherLook.Snow, Str.WidgetsC_Weather_Condition_HeavySnowShowers),
+        [95] = (WeatherLook.Thunderstorm, Str.WidgetsC_Weather_Condition_Thunderstorm),
+        [96] = (WeatherLook.Thunderstorm, Str.WidgetsC_Weather_Condition_ThunderstormHail),
+        [99] = (WeatherLook.Thunderstorm, Str.WidgetsC_Weather_Condition_SevereThunderstorm),
     };
 
-    /// <summary>What the sky is doing, in words.</summary>
-    public static string Describe(int? code)
+    /// <summary>What the sky is doing, in words, in the app's language.</summary>
+    public static string Describe(int? code) => Describe(Strings.Current, code);
+
+    /// <summary>What the sky is doing, in words, in <paramref name="locale"/>.</summary>
+    public static string Describe(Locale locale, int? code)
     {
         if (code is not { } value)
         {
-            return "Unknown";
+            return Strings.Get(locale, Str.WidgetsC_Weather_Condition_Unknown);
         }
 
         return Codes.TryGetValue(value, out var entry)
-            ? entry.Text
-            : $"Code {value.ToString(CultureInfo.InvariantCulture)}";
+            ? Strings.Get(locale, entry.Text)
+            : Strings.Format(locale, Str.WidgetsC_Weather_Condition_Code, ("code", value.ToString(CultureInfo.InvariantCulture)));
     }
 
     /// <summary>Which icon family the condition belongs to.</summary>
@@ -140,7 +150,9 @@ public static class WeatherReport
     }
 
     /// <summary>A relative humidity as a whole percentage, clamped to the range it can occupy.</summary>
-    public static string Humidity(double? percent)
+    public static string Humidity(double? percent) => Humidity(Strings.Current, percent);
+
+    public static string Humidity(Locale locale, double? percent)
     {
         if (percent is not { } value || !double.IsFinite(value))
         {
@@ -148,7 +160,7 @@ public static class WeatherReport
         }
 
         var clamped = Math.Clamp(Math.Round(value, MidpointRounding.AwayFromZero), 0, 100);
-        return $"{clamped.ToString("F0", CultureInfo.InvariantCulture)}%";
+        return LocaleFormat.Percent(locale, clamped);
     }
 
     /// <summary>A wind speed in km/h. Negative is not a speed, so it reads as missing.</summary>
@@ -169,17 +181,12 @@ public static class WeatherReport
     /// noise that makes the one wet day harder to find.
     /// </para>
     /// </summary>
-    public static string Precipitation(double? millimetres)
-    {
-        if (millimetres is not { } value || !double.IsFinite(value) || value <= 0)
-        {
-            return string.Empty;
-        }
+    public static string Precipitation(double? millimetres) => Precipitation(Strings.Current, millimetres);
 
-        // A tenth below 10mm, where the difference between 0.2 and 2 is the difference between
-        // damp and wet; whole millimetres above it, where it no longer carries.
-        var digits = value < 10 ? 1 : 0;
-        return $"{value.ToString($"F{digits}", CultureInfo.InvariantCulture)} mm";
+    public static string Precipitation(Locale locale, double? millimetres)
+    {
+        var amount = PrecipitationAmount(locale, millimetres);
+        return amount.Length == 0 ? amount : $"{amount} mm";
     }
 
     /// <summary>
@@ -190,51 +197,50 @@ public static class WeatherReport
     /// is the one label a reader will act on without checking.
     /// </para>
     /// </summary>
-    public static string DayLabel(DateOnly day, DateOnly today)
-        => DayLabel(day, today, CultureInfo.CurrentCulture);
+    public static string DayLabel(DateOnly day, DateOnly today) => DayLabel(Strings.Current, day, today);
 
     /// <summary>
-    /// [S-721] The same label with the weekday in <paramref name="culture"/>'s own abbreviation
-    /// ("Do." on a German machine). "Today" stays a word of this app's, like every other string it
-    /// prints, until there is a localisation layer to translate it.
+    /// [S-721] The same label in <paramref name="locale"/>: its word for today and its own weekday
+    /// abbreviation ("Heute", "Do.").
     /// </summary>
-    public static string DayLabel(DateOnly day, DateOnly today, CultureInfo culture)
-    {
-        ArgumentNullException.ThrowIfNull(culture);
-
-        if (day == today)
-        {
-            return "Today";
-        }
-
-        var names = culture.DateTimeFormat.AbbreviatedDayNames;
-        var index = (int)day.DayOfWeek;
-
-        // A culture is a trust boundary of sorts: a custom one can carry an odd array. The English
-        // name is a better answer than an exception on the render path.
-        return index < names.Length && !string.IsNullOrWhiteSpace(names[index])
-            ? names[index]
-            : DayNames[index];
-    }
+    public static string DayLabel(Locale locale, DateOnly day, DateOnly today)
+        => day == today
+            ? Strings.Get(locale, Str.Common_Today)
+            : LocaleFormat.WeekdayName(locale, day.DayOfWeek, NameWidth.Short);
 
     /// <summary>
     /// A precipitation amount as the bare number, for a column whose droplet says what it is
-    /// ("0.3"). Empty when dry, for the same reason <see cref="Precipitation"/> is. [S-727]
+    /// ("0.3"). Empty when dry, for the same reason <see cref="Precipitation(double?)"/> is. [S-727]
     /// </summary>
-    public static string PrecipitationAmount(double? millimetres)
+    public static string PrecipitationAmount(double? millimetres) => PrecipitationAmount(Strings.Current, millimetres);
+
+    public static string PrecipitationAmount(Locale locale, double? millimetres)
     {
-        var text = Precipitation(millimetres);
-        return text.Length == 0 ? text : text[..^3];
+        if (millimetres is not { } value || !double.IsFinite(value) || value <= 0)
+        {
+            return string.Empty;
+        }
+
+        // A tenth below 10mm, where the difference between 0.2 and 2 is the difference between
+        // damp and wet; whole millimetres above it, where it no longer carries.
+        return LocaleFormat.Number(locale, value, value < 10 ? 1 : 0);
     }
 
     /// <summary>A chance of precipitation, "40%", or empty when the service did not say.</summary>
-    public static string Chance(double? percent)
-        => percent is { } value && double.IsFinite(value) ? Humidity(value) : string.Empty;
+    public static string Chance(double? percent) => Chance(Strings.Current, percent);
+
+    public static string Chance(Locale locale, double? percent)
+        => percent is { } value && double.IsFinite(value) ? Humidity(locale, value) : string.Empty;
 
     /// <summary>A share of the sky, "75%".</summary>
-    public static string Cover(double? percent) => Humidity(percent);
+    public static string Cover(double? percent) => Humidity(Strings.Current, percent);
 
-    /// <summary>Sea-level pressure in hectopascals, "1013 hPa". Outside 850..1100 is not weather.</summary>
+    public static string Cover(Locale locale, double? percent) => Humidity(locale, percent);
+
+    /// <summary>
+    /// Sea-level pressure in hectopascals, "1013 hPa". Outside 850..1100 is not weather. Plain
+    /// digits with no grouping in every language, as weather services print it ("1013", not "1.013").
+    /// </summary>
     public static string Pressure(double? hectopascals)
     {
         if (hectopascals is not { } value || !double.IsFinite(value) || value < 850 || value > 1100)
@@ -257,10 +263,12 @@ public static class WeatherReport
     }
 
     /// <summary>
-    /// Where the wind comes from, on the eight-point rose: "NW". Empty for a missing or impossible
-    /// bearing rather than a guess.
+    /// Where the wind comes from, on the eight-point rose: "NW" ("NO" in German). Empty for a
+    /// missing or impossible bearing rather than a guess.
     /// </summary>
-    public static string Compass(double? degrees)
+    public static string Compass(double? degrees) => Compass(Strings.Current, degrees);
+
+    public static string Compass(Locale locale, double? degrees)
     {
         if (degrees is not { } value || !double.IsFinite(value) || value < 0 || value > 360)
         {
@@ -268,33 +276,39 @@ public static class WeatherReport
         }
 
         var sector = (int)Math.Round(value / 45, MidpointRounding.AwayFromZero) % 8;
-        return Points[sector];
+        return Strings.Get(locale, Points[sector]);
     }
 
     /// <summary>Wind speed and, when known, its direction: "6 km/h NW".</summary>
     public static string WindFrom(double? kilometresPerHour, double? degrees)
+        => WindFrom(Strings.Current, kilometresPerHour, degrees);
+
+    public static string WindFrom(Locale locale, double? kilometresPerHour, double? degrees)
     {
         var speed = Wind(kilometresPerHour);
-        var from = Compass(degrees);
-        return speed == "--" || from.Length == 0 ? speed : $"{speed} {from}";
+        var from = Compass(locale, degrees);
+        return speed == "--" || from.Length == 0
+            ? speed
+            : Strings.Format(locale, Str.WidgetsC_Weather_WindFrom, ("speed", speed), ("direction", from));
     }
 
-    /// <summary>A sunrise or sunset in the culture's short time pattern, or "--" for a polar day.</summary>
-    public static string Clock(TimeOnly? time, CultureInfo culture)
-    {
-        ArgumentNullException.ThrowIfNull(culture);
-        return time is { } value ? value.ToString(culture.DateTimeFormat.ShortTimePattern, culture) : "--";
-    }
+    /// <summary>A sunrise or sunset on the language's clock, or "--" for a polar day.</summary>
+    public static string Clock(TimeOnly? time) => Clock(Strings.Current, time);
+
+    public static string Clock(Locale locale, TimeOnly? time)
+        => time is { } value ? LocaleFormat.Time(locale, value) : "--";
 
     /// <summary>"H 24°  L 14°" for today's line beside the condition, or empty when neither is known.</summary>
-    public static string HighLow(double? high, double? low)
+    public static string HighLow(double? high, double? low) => HighLow(Strings.Current, high, low);
+
+    public static string HighLow(Locale locale, double? high, double? low)
     {
         if (high is null && low is null)
         {
             return string.Empty;
         }
 
-        return $"H {Degrees(high)}  L {Degrees(low)}";
+        return Strings.Format(locale, Str.WidgetsC_Weather_HighLow, ("high", Degrees(high)), ("low", Degrees(low)));
     }
 
     /// <summary>
@@ -328,7 +342,9 @@ public static class WeatherReport
         return end < start ? (end, start) : (start, end);
     }
 
-    private static readonly string[] DayNames = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-
-    private static readonly string[] Points = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"];
+    private static readonly Str[] Points =
+    [
+        Str.WidgetsC_Weather_Compass_N, Str.WidgetsC_Weather_Compass_Ne, Str.WidgetsC_Weather_Compass_E, Str.WidgetsC_Weather_Compass_Se,
+        Str.WidgetsC_Weather_Compass_S, Str.WidgetsC_Weather_Compass_Sw, Str.WidgetsC_Weather_Compass_W, Str.WidgetsC_Weather_Compass_Nw,
+    ];
 }

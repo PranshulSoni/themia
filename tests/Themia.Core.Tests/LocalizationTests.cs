@@ -336,36 +336,6 @@ public sealed class LocalizationTests
     }
 
     // -----------------------------------------------------------------------------------------
-    // [S-1110] Live switching
-    // -----------------------------------------------------------------------------------------
-
-    [Fact]
-    public void S1110_switching_raises_changed_once_and_lookups_follow()
-    {
-        var seen = new List<Locale>();
-        void OnChanged(Locale l) => seen.Add(l);
-
-        Strings.SetLocale(Locale.En);
-        Strings.Changed += OnChanged;
-        try
-        {
-            Strings.SetLocale(Locale.De);
-            Strings.SetLocale(Locale.De);
-            Assert.Equal("Speichern", Str.Common_Save.Text());
-            Assert.Equal("3 Apps", Str.Shortcut_AppCount.Plural(3));
-            Strings.SetLocale((Locale)99);
-            Assert.Equal(Locale.De, Strings.Current);
-        }
-        finally
-        {
-            Strings.Changed -= OnChanged;
-            Strings.SetLocale(Locale.En);
-        }
-
-        Assert.Equal([Locale.De], seen);
-    }
-
-    // -----------------------------------------------------------------------------------------
     // [S-1106] Formatting tables, per language
     // -----------------------------------------------------------------------------------------
 
@@ -541,5 +511,47 @@ public sealed class LocalizationTests
         Assert.Equal("3 min. ago", LocaleFormat.Relative(Locale.En, TimeSpan.FromMinutes(-3), RelativeStyle.Short));
         Assert.Equal("1,200 years ago", LocaleFormat.Relative(Locale.En, RelativeUnit.Year, -1200));
         Assert.Equal("now", LocaleFormat.Relative(Locale.En, TimeSpan.Zero));
+    }
+}
+
+/// <summary>
+/// The only tests that switch the process-wide language. Everything else passes a <see cref="Locale"/>
+/// explicitly; these run in a collection of their own, never beside another test class, because a
+/// test reading <see cref="Strings.Current"/> while one of these has it on German would fail at random.
+/// </summary>
+[CollectionDefinition(Name, DisableParallelization = true)]
+public sealed class GlobalLocaleCollection
+{
+    public const string Name = "Global locale";
+}
+
+/// <summary>[S-1110] Live switching of <see cref="Strings.Current"/>.</summary>
+[Collection(GlobalLocaleCollection.Name)]
+public class LiveLanguageSwitchTests
+{
+    [Fact]
+    public void S1110_switching_raises_changed_once_and_lookups_follow()
+    {
+        var seen = new List<Locale>();
+        void OnChanged(Locale l) => seen.Add(l);
+
+        Strings.SetLocale(Locale.En);
+        Strings.Changed += OnChanged;
+        try
+        {
+            Strings.SetLocale(Locale.De);
+            Strings.SetLocale(Locale.De);
+            Assert.Equal("Speichern", Str.Common_Save.Text());
+            Assert.Equal("3 Apps", Str.Shortcut_AppCount.Plural(3));
+            Strings.SetLocale((Locale)99);
+            Assert.Equal(Locale.De, Strings.Current);
+        }
+        finally
+        {
+            Strings.Changed -= OnChanged;
+            Strings.SetLocale(Locale.En);
+        }
+
+        Assert.Equal([Locale.De], seen);
     }
 }

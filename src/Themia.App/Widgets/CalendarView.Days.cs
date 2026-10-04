@@ -6,6 +6,7 @@ using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Documents;
 using Microsoft.UI.Xaml.Media;
 using Themia.App.Shell;
+using Themia.Core.Localization;
 using Themia.Core.Model;
 using Themia.Core.Office;
 using Themia.Core.Widgets;
@@ -52,7 +53,7 @@ internal sealed partial class CalendarView
             var header = new StackPanel { Spacing = 0, HorizontalAlignment = HorizontalAlignment.Center, Margin = new Thickness(0, 0, 0, Fluent.Space1) };
 
             var weekday = Fluent.Text(FluentType.Caption, "TextFillColorTertiaryBrush");
-            weekday.Text = names ? CalendarText.WeekdayName(day.DayOfWeek)[..3] : CalendarText.WeekdayInitial(day.DayOfWeek);
+            weekday.Text = names ? CalendarText.WeekdayShort(day.DayOfWeek) : CalendarText.WeekdayInitial(day.DayOfWeek);
             weekday.HorizontalAlignment = HorizontalAlignment.Center;
             header.Children.Add(weekday);
 
@@ -259,7 +260,7 @@ internal sealed partial class CalendarView
         if (timed.Count == 0 && allDay.Count == 0)
         {
             var none = Fluent.Text(FluentType.Body, "TextFillColorSecondaryBrush");
-            none.Text = day == Today ? "No events today" : "No events";
+            none.Text = (day == Today ? Str.Calendar_NoEventsToday : Str.WidgetsA_Calendar_NoEvents).Text();
             none.HorizontalAlignment = HorizontalAlignment.Center;
             none.VerticalAlignment = VerticalAlignment.Center;
             SetRow(none, 1);
@@ -289,7 +290,7 @@ internal sealed partial class CalendarView
 
         if (item.Birthday is { } b)
         {
-            text.Text = $"Birthday: {BirthdayRules.Label(b, day)}";
+            text.Text = Str.WidgetsA_Calendar_BirthdayOf.Format(("name", BirthdayRules.Label(b, day)));
             chip.BorderThickness = new Thickness(2, 0, 0, 0);
             chip.BorderBrush = BirthdayBrush();
             ToolTipService.SetToolTip(chip, text.Text);
@@ -363,7 +364,7 @@ internal sealed partial class CalendarView
 
         if (groups.Count == 0)
         {
-            _state.Show("No upcoming events", offerAccounts: false);
+            _state.Show(Str.Calendar_NoUpcoming.Text(), offerAccounts: false);
             return;
         }
 
@@ -461,14 +462,14 @@ internal sealed partial class CalendarView
             gift.HorizontalAlignment = HorizontalAlignment.Left;
             when.Children.Add(gift);
             title.Text = BirthdayRules.Label(b, day);
-            second = compact && !narrow ? null : "Birthday";
+            second = compact && !narrow ? null : Str.WidgetsA_Calendar_Birthday.Text();
             stripe = BirthdayBrush();
         }
         else
         {
             var e = item.Event!;
             var running = AgendaRules.IsInProgress(e.AllDay, e.Start, e.End, now);
-            var startText = e.AllDay ? "All day" : running ? "Now" : Clock(e.Start);
+            var startText = e.AllDay ? Str.Calendar_AllDay.Text() : running ? Str.WidgetsA_Calendar_Now.Text() : Clock(e.Start);
             var start = Fluent.Text(running ? FluentType.BodyStrong : FluentType.Body, "TextFillColorSecondaryBrush");
             start.Text = startText;
             start.TextTrimming = TextTrimming.None;

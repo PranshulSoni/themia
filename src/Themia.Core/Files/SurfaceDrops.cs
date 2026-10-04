@@ -1,5 +1,6 @@
 using System.Buffers.Binary;
 using System.Text;
+using Themia.Core.Localization;
 
 namespace Themia.Core.Files;
 
@@ -161,15 +162,18 @@ public static class SurfaceDrops
     /// [S-1024] The caption for <paramref name="effect"/> into <paramref name="place"/>, in the shell's
     /// own words ("Move to %1", "Copy to %1", "Create link in %1").
     /// </summary>
-    public static DropFeedback Feedback(DropEffect effect, string place)
+    public static DropFeedback Feedback(DropEffect effect, string place) => Feedback(Strings.Current, effect, place);
+
+    /// <summary><see cref="Feedback(DropEffect, string)"/> in <paramref name="locale"/> (%1 is the shell's own insert mark).</summary>
+    public static DropFeedback Feedback(Locale locale, DropEffect effect, string place)
     {
         ArgumentNullException.ThrowIfNull(place);
 
         return effect switch
         {
-            DropEffect.Move => new(DropEffect.Move, "Move to %1", place),
-            DropEffect.Copy => new(DropEffect.Copy, "Copy to %1", place),
-            DropEffect.Link => new(DropEffect.Link, "Create link in %1", place),
+            DropEffect.Move => new(DropEffect.Move, Strings.Get(locale, Str.Shell_Drop_MoveTo), place),
+            DropEffect.Copy => new(DropEffect.Copy, Strings.Get(locale, Str.Shell_Drop_CopyTo), place),
+            DropEffect.Link => new(DropEffect.Link, Strings.Get(locale, Str.Shell_Drop_LinkIn), place),
             _ => DropFeedback.Refused,
         };
     }

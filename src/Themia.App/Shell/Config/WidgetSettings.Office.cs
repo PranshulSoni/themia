@@ -4,6 +4,7 @@ using Themia.App.Services.Accounts;
 using Themia.App.Services.Office;
 using Themia.App.Widgets;
 using Themia.Core.Accounts;
+using Themia.Core.Localization;
 using Themia.Core.Model;
 using Themia.Core.Office;
 
@@ -26,12 +27,12 @@ internal static partial class WidgetSettings
         ArgumentNullException.ThrowIfNull(config);
         ArgumentNullException.ThrowIfNull(save);
 
-        rows.Add(FluentLayout.Header("Accounts"));
-        OfficeAccountRows(rows, AccountFeatures.Contacts, Glyphs.Contact, "contacts",
-            "Sign in to Microsoft, Google or a CardDAV address book on the Accounts page",
+        rows.Add(FluentLayout.Header(Str.WidgetUi_AccountsLabel.Text()));
+        OfficeAccountRows(rows, AccountFeatures.Contacts, Glyphs.Contact,
+            new OfficeAccountTexts(Str.WidgetsA_Contacts_NoAccount, Str.WidgetsA_Contacts_Settings_Every, Str.WidgetsA_Contacts_Settings_AddHint),
             () => config.AccountIds, ids => config.AccountIds = ids, save, perAccount: null);
 
-        rows.Add(FluentLayout.Header("Display"));
+        rows.Add(FluentLayout.Header(Str.ConfigTabs_Display.Text()));
 
         var columnRows = new List<FrameworkElement>();
 
@@ -43,10 +44,10 @@ internal static partial class WidgetSettings
             }
         }
 
-        rows.Add(FluentLayout.Row(Glyphs.View, "Layout",
-            "List, compact rows, a table, or cards; a narrow widget falls back to the list",
+        rows.Add(FluentLayout.Row(Glyphs.View, Str.WidgetsA_Contacts_Settings_Layout_Label.Text(),
+            Str.WidgetsA_Contacts_Settings_Layout_Desc.Text(),
             FluentLayout.Choice<ContactsLayout>(
-                [(ContactsLayout.List, "List"), (ContactsLayout.Compact, "Compact"), (ContactsLayout.Details, "Details"), (ContactsLayout.Grid, "Grid")],
+                [(ContactsLayout.List, Str.Apps_ViewList.Text()), (ContactsLayout.Compact, Str.Apps_ViewCompact.Text()), (ContactsLayout.Details, Str.CtxMenu_Details.Text()), (ContactsLayout.Grid, Str.Apps_ViewGrid.Text())],
                 config.EffectiveLayout,
                 value => { config.Layout = value; save(); ShowColumns(); })));
 
@@ -76,22 +77,22 @@ internal static partial class WidgetSettings
             });
 
             toggles[column] = toggle;
-            var row = FluentLayout.Row(Glyphs.Grid, $"{ContactRules.ColumnTitle(column)} column", null, toggle);
+            var row = FluentLayout.Row(Glyphs.Grid, Str.WidgetsA_Contacts_Settings_Column.Format(("name", ContactRules.ColumnTitle(column, Strings.Current))), null, toggle);
             columnRows.Add(row);
             rows.Add(row);
         }
 
         // [S-583] / [S-1276] At least five, in steps of five, and no upper bound, as the original.
-        rows.Add(FluentLayout.Row(Glyphs.Count, "People",
-            "How many to list, at least five; a short widget shows fewer",
+        rows.Add(FluentLayout.Row(Glyphs.Count, Str.WidgetsA_Contacts_Settings_Count_Label.Text(),
+            Str.WidgetsA_Contacts_Settings_Count_Desc.Text(),
             FluentLayout.Stepper(config.EffectiveCount, 5, 5, value => { config.Count = value; save(); })));
 
         // [S-584] Saved as the user stops typing would be nicer, but each keystroke is one cheap save
         // and the widget only re-filters what it holds.
-        var search = new TextBox { Text = config.DefaultSearch, PlaceholderText = "Nothing", MinWidth = 220 };
+        var search = new TextBox { Text = config.DefaultSearch, PlaceholderText = Str.WidgetsA_Contacts_Settings_Search_Empty.Text(), MinWidth = 220 };
         search.TextChanged += (_, _) => { config.DefaultSearch = search.Text; save(); };
-        rows.Add(FluentLayout.Row(Glyphs.Search, "Start with a search",
-            "What the search box holds when the widget starts", search));
+        rows.Add(FluentLayout.Row(Glyphs.Search, Str.WidgetsA_Contacts_Settings_Search_Label.Text(),
+            Str.WidgetsA_Contacts_Settings_Search_Desc.Text(), search));
 
         ShowColumns();
     }
@@ -107,8 +108,7 @@ internal static partial class WidgetSettings
         List<FrameworkElement> rows,
         AccountFeatures feature,
         string glyph,
-        string noun,
-        string addHint,
+        OfficeAccountTexts texts,
         Func<List<string>> getIds,
         Action<List<string>> setIds,
         Action save,
@@ -116,12 +116,12 @@ internal static partial class WidgetSettings
     {
         var accounts = OfficeSources.Current?.Accounts(feature) ?? [];
 
-        var manage = new Button { Content = accounts.Count == 0 ? "Add an account" : "Manage accounts" };
+        var manage = new Button { Content = (accounts.Count == 0 ? Str.WidgetsA_Office_AddAccount : Str.WidgetsA_Office_ManageAccounts).Text() };
         manage.Click += (_, _) => OfficeStatePanel.OpenAccounts();
 
         if (accounts.Count == 0)
         {
-            rows.Add(FluentLayout.Row(glyph, $"No {noun} account yet", addHint, manage));
+            rows.Add(FluentLayout.Row(glyph, texts.None.Text(), texts.AddHint.Text(), manage));
             return;
         }
 
@@ -145,7 +145,7 @@ internal static partial class WidgetSettings
             }
         }
 
-        rows.Add(FluentLayout.Row(glyph, $"Every {noun} account", "Accounts you add later are included too",
+        rows.Add(FluentLayout.Row(glyph, texts.Every.Text(), Str.WidgetsA_Office_EveryDesc.Text(),
             FluentLayout.Toggle(getIds().Count == 0, on =>
             {
                 setIds(on ? [] : [.. accounts.Select(a => a.Id)]);
@@ -205,7 +205,10 @@ internal static partial class WidgetSettings
             }
         }
 
-        rows.Add(FluentLayout.Row(Glyphs.Contact, "Accounts", "Sign in, sign out and rename on the Accounts page", manage));
+        rows.Add(FluentLayout.Row(Glyphs.Contact, Str.WidgetUi_AccountsLabel.Text(), Str.WidgetsA_Office_ManageDesc.Text(), manage));
         ShowChoice();
     }
+
+    /// <summary>The sentences that name the account kind: whole sentences per widget, never a noun glued in.</summary>
+    private readonly record struct OfficeAccountTexts(Str None, Str Every, Str AddHint);
 }

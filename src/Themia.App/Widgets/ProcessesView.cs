@@ -8,6 +8,7 @@ using Microsoft.UI.Xaml.Shapes;
 using Themia.App.Services;
 using Themia.App.Shell;
 using Themia.Core.Diagnostics;
+using Themia.Core.Localization;
 using Themia.Core.Model;
 using Themia.Core.Widgets;
 using Glyphs = Themia.App.Shell.Glyphs;
@@ -98,7 +99,7 @@ internal sealed partial class ProcessesView : Grid, IWidgetView, IWidgetHeaderCo
         _empty.VerticalAlignment = VerticalAlignment.Center;
         _empty.Padding = WidgetLayout.SideInset;
         _empty.TextAlignment = TextAlignment.Center;
-        _empty.Text = "Could not read the process list.";
+        _empty.Text = Str.WidgetsC_Processes_ReadFailed.Text();
         _empty.Visibility = Visibility.Collapsed;
 
         RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
@@ -123,8 +124,8 @@ internal sealed partial class ProcessesView : Grid, IWidgetView, IWidgetHeaderCo
     public IReadOnlyList<WidgetAction> ContextActions =>
     [
         _config.Sort == ProcessSort.Cpu
-            ? new WidgetAction(Glyphs.Memory, "Rank by memory", () => SetSort(ProcessSort.Memory))
-            : new WidgetAction(Glyphs.Cpu, "Rank by processor", () => SetSort(ProcessSort.Cpu)),
+            ? new WidgetAction(Glyphs.Memory, Str.WidgetsC_Processes_RankByMemory.Text(), () => SetSort(ProcessSort.Memory))
+            : new WidgetAction(Glyphs.Cpu, Str.WidgetsC_Processes_RankByCpu.Text(), () => SetSort(ProcessSort.Cpu)),
     ];
 
     public void Bind(IWidgetSurface surface) => _surface = surface;
@@ -133,13 +134,39 @@ internal sealed partial class ProcessesView : Grid, IWidgetView, IWidgetHeaderCo
     {
         _ticker = ticker;
         _detached = false;
+        Strings.Changed -= OnLanguage;
+        Strings.Changed += OnLanguage;
         ApplyConfig(config);
+    }
+
+    /// <summary>[S-1110] The caption, the column headings and the message again; the rows redraw.</summary>
+    private void OnLanguage(Locale locale)
+    {
+        _empty.Text = Str.WidgetsC_Processes_ReadFailed.Text();
+        _caption.Text = SortCaption(_config.Sort);
+        ApplyColumnLabels();
+        Render();
+    }
+
+    private static string SortCaption(ProcessSort sort)
+        => (sort == ProcessSort.Cpu ? Str.WidgetsC_Processes_ByCpu : Str.WidgetsC_Processes_ByMemory).Text();
+
+    private void ApplyColumnLabels()
+    {
+        Str[] labels = [Str.WidgetsC_Processes_Col_Name, Str.WidgetsC_Processes_Col_Cpu, Str.WidgetsC_Processes_Col_Memory, Str.WidgetsC_Processes_Col_Threads, Str.WidgetsC_Processes_Col_Pid];
+        for (var i = 0; i < labels.Length && i < _columnLabels.Length; i++)
+        {
+            if (_columnLabels[i] is { } label)
+            {
+                label.Text = labels[i].Text();
+            }
+        }
     }
 
     public void ApplyConfig(WidgetConfig config)
     {
         _config = config as ProcessesConfig ?? new ProcessesConfig();
-        _caption.Text = _config.Sort == ProcessSort.Cpu ? "by CPU" : "by memory";
+        _caption.Text = SortCaption(_config.Sort);
 
         // Subscribing fires a tick of its own; otherwise the shape of what is on screen changed
         // (rows, columns, ranking) and is redrawn now from a fresh sample.
@@ -167,7 +194,7 @@ internal sealed partial class ProcessesView : Grid, IWidgetView, IWidgetHeaderCo
         }
 
         _config.Sort = sort;
-        _caption.Text = sort == ProcessSort.Cpu ? "by CPU" : "by memory";
+        _caption.Text = SortCaption(sort);
         _surface?.RequestSave();
         Lay();
         Render();
@@ -319,7 +346,7 @@ internal sealed partial class ProcessesView : Grid, IWidgetView, IWidgetHeaderCo
         _columns.Margin = new Thickness(Fluent.Space4 + RowFocus.Ring, 0, Fluent.Space4 + RowFocus.Ring, Fluent.Space1);
         _columns.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
 
-        string[] labels = ["Name", "CPU", "Memory", "Threads", "PID"];
+        string[] labels = [Str.WidgetsC_Processes_Col_Name.Text(), Str.WidgetsC_Processes_Col_Cpu.Text(), Str.WidgetsC_Processes_Col_Memory.Text(), Str.WidgetsC_Processes_Col_Threads.Text(), Str.WidgetsC_Processes_Col_Pid.Text()];
 
         for (var i = 0; i < labels.Length; i++)
         {
@@ -406,6 +433,7 @@ internal sealed partial class ProcessesView : Grid, IWidgetView, IWidgetHeaderCo
     public void Detach()
     {
         _detached = true;
+        Strings.Changed -= OnLanguage;
         _subscription?.Dispose();
         _subscription = null;
 
@@ -542,7 +570,7 @@ internal sealed partial class ProcessesView : Grid, IWidgetView, IWidgetHeaderCo
                 _bar.ColumnDefinitions[1].Width = new GridLength(1 - clamped, GridUnitType.Star);
             }
 
-            ToolTipService.SetToolTip(Host, $"{usage.Name}.exe (pid {usage.Pid})");
+            ToolTipService.SetToolTip(Host, Str.WidgetsC_Processes_RowTip.Format(("name", usage.Name), ("pid", usage.Pid.ToString(System.Globalization.CultureInfo.InvariantCulture))));
         }
     }
 }

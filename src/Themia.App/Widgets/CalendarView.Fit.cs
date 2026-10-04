@@ -6,6 +6,7 @@ using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Documents;
 using Microsoft.UI.Xaml.Media;
 using Themia.App.Shell;
+using Themia.Core.Localization;
 using Themia.Core.Model;
 using Themia.Core.Office;
 using Themia.Core.Widgets;
@@ -44,12 +45,13 @@ internal sealed partial class CalendarView
             room.Reserve(FluentType.Caption.LineHeight);
 
             var number = Fluent.Text(FluentType.Fit(box.Width, room.Remaining - FluentType.Caption.LineHeight, 6, FluentType.BodyStrong, FluentType.Title));
-            number.Text = $"{today.Day.ToString(CultureInfo.InvariantCulture)} {Formatting.ShortDate(today).Split(' ')[1]}";
+            // Day and month in the language's own order ("Oct 4", "4. Okt."), never parsed out of other text.
+            number.Text = LocaleFormat.Date(Strings.Current, today, DateStyle.MonthDayShort);
             number.TextTrimming = TextTrimming.None;
             stack.Children.Add(number);
 
             var none = Fluent.Text(FluentType.Caption, "TextFillColorTertiaryBrush");
-            none.Text = "Nothing coming up";
+            none.Text = Str.WidgetsA_Calendar_NothingComingUp.Text();
             stack.Children.Add(none);
             _content.Children.Add(new Border { Child = stack, Padding = new Thickness(Fluent.Space3, Fluent.Space1, Fluent.Space3, Fluent.Space1) });
             return;
@@ -58,9 +60,9 @@ internal sealed partial class CalendarView
         var item = next.Item;
         var now = DateTimeOffset.Now;
         var running = item.Event is { } ev && AgendaRules.IsInProgress(ev.AllDay, ev.Start, ev.End, now);
-        var when = item.Birthday is not null ? "Birthday"
-            : item.Event!.AllDay ? "All day"
-            : running ? "Now"
+        var when = item.Birthday is not null ? Str.WidgetsA_Calendar_Birthday.Text()
+            : item.Event!.AllDay ? Str.Calendar_AllDay.Text()
+            : running ? Str.WidgetsA_Calendar_Now.Text()
             : Clock(item.Event.Start);
 
         // The day is said whenever it is not today: an XS tile has no heading to carry it.
@@ -100,8 +102,8 @@ internal sealed partial class CalendarView
         {
             var rest = Fluent.Text(FluentType.Caption, "TextFillColorTertiaryBrush");
             rest.Text = next.Day == today
-                ? $"+{next.MoreThatDay.ToString(CultureInfo.InvariantCulture)} more today"
-                : $"+{next.MoreThatDay.ToString(CultureInfo.InvariantCulture)} more";
+                ? Str.WidgetsA_Calendar_MoreToday.Format(("count", next.MoreThatDay))
+                : Str.WidgetsA_Calendar_More.Format(("count", next.MoreThatDay));
             stack.Children.Add(rest);
         }
 
@@ -168,7 +170,7 @@ internal sealed partial class CalendarView
             var column = new StackPanel { Spacing = 2, Margin = new Thickness(2, 0, 2, 0) };
 
             var heading = Fluent.Text(FluentType.Strong(FluentType.Caption), day == today ? "AccentTextFillColorPrimaryBrush" : "TextFillColorSecondaryBrush");
-            heading.Text = day == today ? "Today" : $"{CalendarText.WeekdayName(day.DayOfWeek)[..3]} {day.Day.ToString(CultureInfo.InvariantCulture)}";
+            heading.Text = day == today ? Str.Calendar_Today.Text() : Str.WidgetsA_Calendar_WeekdayDay.Format(("weekday", CalendarText.WeekdayShort(day.DayOfWeek)), ("day", day.Day));
             heading.Margin = new Thickness(Fluent.Space1, 0, 0, Fluent.Space1 - 2);
             column.Children.Add(heading);
 
@@ -192,7 +194,7 @@ internal sealed partial class CalendarView
             if (shown < items.Count)
             {
                 var more = Fluent.Text(FluentType.Caption, "TextFillColorTertiaryBrush");
-                more.Text = $"+{(items.Count - shown).ToString(CultureInfo.InvariantCulture)} more";
+                more.Text = Str.WidgetsA_Calendar_More.Format(("count", items.Count - shown));
                 more.Margin = new Thickness(Fluent.Space1, 0, 0, 0);
                 column.Children.Add(more);
             }
@@ -222,7 +224,7 @@ internal sealed partial class CalendarView
         {
             text.Text = BirthdayRules.Label(b, day);
             entry.BorderBrush = BirthdayBrush();
-            ToolTipService.SetToolTip(entry, $"Birthday: {text.Text}");
+            ToolTipService.SetToolTip(entry, Str.WidgetsA_Calendar_BirthdayOf.Format(("name", text.Text)));
             return entry;
         }
 
@@ -288,7 +290,7 @@ internal sealed partial class CalendarView
         if (groups.Count == 0)
         {
             var none = Fluent.Text(FluentType.Body, "TextFillColorSecondaryBrush");
-            none.Text = from == Today ? "Nothing else this month" : "No events";
+            none.Text = (from == Today ? Str.WidgetsA_Calendar_NothingElseThisMonth : Str.WidgetsA_Calendar_NoEvents).Text();
             none.HorizontalAlignment = HorizontalAlignment.Center;
             none.VerticalAlignment = VerticalAlignment.Center;
             list = none;

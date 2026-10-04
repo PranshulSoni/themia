@@ -6,6 +6,7 @@ using Microsoft.UI.Xaml.Shapes;
 using Themia.App.Services;
 using Themia.App.Shell;
 using Themia.Core.Diagnostics;
+using Themia.Core.Localization;
 using Themia.Core.Model;
 using Themia.Core.Widgets;
 
@@ -162,15 +163,19 @@ internal sealed partial class BluetoothView : Grid, IWidgetView, IWidgetHeaderCo
     public IReadOnlyList<WidgetAction> ContextActions =>
     [
         // [S-1259] The original's "Refresh": enumerate now rather than at the next tick.
-        new WidgetAction(Glyphs.Refresh, "Refresh", Reload),
+        new WidgetAction(Glyphs.Refresh, Str.Common_Refresh.Text(), Reload),
     ];
 
     public void Attach(Ticker ticker, WidgetConfig config)
     {
         _ticker = ticker;
         _detached = false;
+        Strings.Changed += OnLanguage;
         ApplyConfig(config);
     }
+
+    /// <summary>[S-1109] Rows, states and the summary are worded again; the radios are not re-read.</summary>
+    private void OnLanguage(Locale locale) => Render();
 
     public void ApplyConfig(WidgetConfig config)
     {
@@ -326,7 +331,7 @@ internal sealed partial class BluetoothView : Grid, IWidgetView, IWidgetHeaderCo
         ClearRows();
 
         List<BluetoothDeviceEntry> devices = _snapshot.Status == BluetoothStatus.Ok
-            ? BluetoothRules.Arrange(_snapshot.Devices, _config.ConnectedOnly, _config.EffectiveMaxCount)
+            ? BluetoothRules.Arrange(_snapshot.Devices, _config.ConnectedOnly, _config.EffectiveMaxCount, Strings.Current)
             : [];
 
         var connected = devices.Count(device => device.Connected);
@@ -337,7 +342,7 @@ internal sealed partial class BluetoothView : Grid, IWidgetView, IWidgetHeaderCo
         var plan = BluetoothLayout.Plan(_area, listHeight, devices.Count);
 
         // [S-1255] "2 connected" in words where the header has room; the bare count elsewhere.
-        var summary = plan.Summary ? BluetoothRules.ConnectedSummary(connected) : null;
+        var summary = plan.Summary ? BluetoothRules.ConnectedSummary(connected, Strings.Current) : null;
         _summary.Text = summary ?? string.Empty;
         _summary.Visibility = summary is null ? Visibility.Collapsed : Visibility.Visible;
         _count.Text = connected.ToString(System.Globalization.CultureInfo.InvariantCulture);
@@ -346,7 +351,7 @@ internal sealed partial class BluetoothView : Grid, IWidgetView, IWidgetHeaderCo
         if (devices.Count == 0)
         {
             // Ok with no rows is "nothing paired", which StatusMessage already words correctly.
-            _message.Text = BluetoothRules.StatusMessage(_snapshot.Status);
+            _message.Text = BluetoothRules.StatusMessage(_snapshot.Status, Strings.Current);
             _messageHost.Visibility = Visibility.Visible;
             _scroll.Visibility = Visibility.Collapsed;
             ShowDetail(plan, devices, listHeight);
@@ -427,7 +432,7 @@ internal sealed partial class BluetoothView : Grid, IWidgetView, IWidgetHeaderCo
         if (plan.TwoLine)
         {
             var detail = Fluent.Text(FluentType.Caption, "TextFillColorSecondaryBrush");
-            detail.Text = BluetoothRules.DetailLine(device, _config.ShowConnection, _config.ShowBattery && !batteryColumn, _config.ShowSignal && !signalColumn);
+            detail.Text = BluetoothRules.DetailLine(device, _config.ShowConnection, _config.ShowBattery && !batteryColumn, _config.ShowSignal && !signalColumn, Strings.Current);
 
             var stack = new StackPanel { VerticalAlignment = VerticalAlignment.Center, Children = { name, detail } };
             SetColumn(stack, 1);
@@ -441,7 +446,7 @@ internal sealed partial class BluetoothView : Grid, IWidgetView, IWidgetHeaderCo
 
         // Only when the device actually reported one. A column of blanks down the list is worse
         // than no column, and "--" would read as a battery at zero.
-        if (batteryColumn && BluetoothRules.BatteryLabel(device.BatteryPercent) is { } battery && device.BatteryPercent is { } percent)
+        if (batteryColumn && BluetoothRules.BatteryLabel(device.BatteryPercent, Strings.Current) is { } battery && device.BatteryPercent is { } percent)
         {
             FrameworkElement level = plan.BatteryBar ? BatteryWithBar(percent, battery) : Detail(battery);
             SetColumn(level, 2);
@@ -459,7 +464,7 @@ internal sealed partial class BluetoothView : Grid, IWidgetView, IWidgetHeaderCo
         {
             if (plan.StatusWord)
             {
-                var state = Detail(BluetoothRules.ConnectionLabel(device.Connected));
+                var state = Detail(BluetoothRules.ConnectionLabel(device.Connected, Strings.Current));
                 SetColumn(state, 4);
                 grid.Children.Add(state);
             }
@@ -506,7 +511,7 @@ internal sealed partial class BluetoothView : Grid, IWidgetView, IWidgetHeaderCo
         }
 
         // Everything the row knows, in words, for a reader who cannot see the dot or the bar.
-        ToolTipService.SetToolTip(row, $"{device.Name} · {BluetoothRules.DetailLine(device, true, true, true)}");
+        ToolTipService.SetToolTip(row, $"{device.Name} · {BluetoothRules.DetailLine(device, true, true, true, Strings.Current)}");
 
         return row;
     }
@@ -580,6 +585,7 @@ internal sealed partial class BluetoothView : Grid, IWidgetView, IWidgetHeaderCo
     public void Detach()
     {
         _detached = true;
+        Strings.Changed -= OnLanguage;
 
         ClearRows();
 

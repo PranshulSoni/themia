@@ -3,6 +3,7 @@ using Microsoft.UI.Xaml.Controls;
 using Themia.App.Services;
 using Themia.App.Widgets;
 using Themia.Core.Diagnostics;
+using Themia.Core.Localization;
 using Themia.Core.Model;
 using Themia.Core.Widgets;
 
@@ -21,11 +22,11 @@ namespace Themia.App.Shell.Config;
 /// </summary>
 internal static partial class WidgetSettings
 {
-    private static readonly (AppsViewMode, string)[] AppsViews =
+    private static (AppsViewMode, string)[] AppsViews() =>
     [
-        (AppsViewMode.Grid, "Tiles"),
-        (AppsViewMode.List, "List"),
-        (AppsViewMode.Compact, "Compact list"),
+        (AppsViewMode.Grid, Str.WidgetsA_Apps_Settings_View_Tiles.Text()),
+        (AppsViewMode.List, Str.Apps_ViewList.Text()),
+        (AppsViewMode.Compact, Str.WidgetsA_Apps_Settings_View_Compact.Text()),
     ];
 
     public static void Apps(List<FrameworkElement> rows, AppsConfig config, Action save)
@@ -34,43 +35,43 @@ internal static partial class WidgetSettings
         ArgumentNullException.ThrowIfNull(config);
         ArgumentNullException.ThrowIfNull(save);
 
-        rows.Add(FluentLayout.Header("Display"));
+        rows.Add(FluentLayout.Header(Str.ConfigTabs_Display.Text()));
 
-        rows.Add(FluentLayout.Row(Glyphs.GridLayout, "View",
-            "Tiles with the name under the icon, rows, or compact rows with names only",
-            FluentLayout.Choice(AppsViews, config.View, value => { config.View = value; save(); })));
+        rows.Add(FluentLayout.Row(Glyphs.GridLayout, Str.Apps_ViewLabel.Text(),
+            Str.WidgetsA_Apps_Settings_View_Desc.Text(),
+            FluentLayout.Choice(AppsViews(), config.View, value => { config.View = value; save(); })));
 
-        rows.Add(FluentLayout.Row(Glyphs.Folder, "Group by Start menu folder",
-            "Tiles and rows, under a heading per folder. Compact rows show the folder beside the name instead",
+        rows.Add(FluentLayout.Row(Glyphs.Folder, Str.WidgetsA_Apps_Settings_Group_Label.Text(),
+            Str.WidgetsA_Apps_Settings_Group_Desc.Text(),
             FluentLayout.Toggle(config.GroupByFolder, value => { config.GroupByFolder = value; save(); })));
 
-        rows.Add(FluentLayout.Row(Glyphs.Search, "Show the filter box",
-            "Where the widget is tall enough for it",
+        rows.Add(FluentLayout.Row(Glyphs.Search, Str.WidgetsA_Apps_Settings_Filter_Label.Text(),
+            Str.WidgetsA_Apps_Settings_Filter_Desc.Text(),
             FluentLayout.Toggle(config.ShowFilter, value => { config.ShowFilter = value; save(); })));
 
-        rows.Add(FluentLayout.Row(Glyphs.Count, "Apps", "How many the list holds",
+        rows.Add(FluentLayout.Row(Glyphs.Count, Str.Widget_Apps_Label.Text(), Str.WidgetsA_Apps_Settings_Count_Desc.Text(),
             FluentLayout.Slider(config.EffectiveMaxCount, 10, 1000, 10, string.Empty,
                 value => { config.MaxCount = (int)Math.Round(value); save(); })));
 
-        rows.Add(FluentLayout.Header("Behaviour"));
+        rows.Add(FluentLayout.Header(Str.WidgetsA_Common_Behavior.Text()));
 
         // Double by default, and this says plainly why: the widget sits under every other window,
         // on the path the pointer takes across the desktop.
-        rows.Add(FluentLayout.Row(Glyphs.Open, "Open with",
-            "A double click is harder to do by accident on the desktop",
-            FluentLayout.Choice(ShortcutClicks, config.ClickMode, value => { config.ClickMode = value; save(); })));
+        rows.Add(FluentLayout.Row(Glyphs.Open, Str.WidgetsA_Apps_Settings_OpenWith_Label.Text(),
+            Str.WidgetsA_Apps_Settings_OpenWith_Desc.Text(),
+            FluentLayout.Choice(ShortcutClicks(), config.ClickMode, value => { config.ClickMode = value; save(); })));
 
         // The hidden apps first: a short list, above a folder list that can run to dozens of rows.
-        rows.Add(FluentLayout.Header("Hidden apps"));
+        rows.Add(FluentLayout.Header(Str.Apps_HiddenLabel.Text()));
 
         var hidden = new StackPanel { Spacing = Fluent.Space1 };
         rows.Add(hidden);
         FillHiddenApps(hidden, config, save);
 
-        rows.Add(FluentLayout.Header("Folders"));
+        rows.Add(FluentLayout.Header(Str.WidgetsA_Apps_Settings_Folders.Text()));
 
         var folders = new StackPanel { Spacing = Fluent.Space1 };
-        folders.Children.Add(FluentLayout.Note("Reading the Start menu…"));
+        folders.Children.Add(FluentLayout.Note(Str.WidgetsA_Apps_Settings_Reading.Text()));
         rows.Add(folders);
 
         _ = FillFoldersAsync(folders, config, save);
@@ -92,7 +93,7 @@ internal static partial class WidgetSettings
         {
             Log.Warn("apps-settings", "could not read the Start menu for the folder list", ex);
             host.Children.Clear();
-            host.Children.Add(FluentLayout.Note("The Start menu could not be read."));
+            host.Children.Add(FluentLayout.Note(Str.WidgetsA_Apps_Settings_ReadFailed.Text()));
             return;
         }
 
@@ -112,7 +113,7 @@ internal static partial class WidgetSettings
 
         if (categories.Count == 0)
         {
-            host.Children.Add(FluentLayout.Note("No folders found in your Start menu."));
+            host.Children.Add(FluentLayout.Note(Str.WidgetsA_Apps_Settings_NoFolders.Text()));
             return;
         }
 
@@ -122,10 +123,10 @@ internal static partial class WidgetSettings
             var shown = !config.HiddenCategories.Contains(category, StringComparer.OrdinalIgnoreCase);
             var name = category;
 
-            host.Children.Add(FluentLayout.Row(Glyphs.Folder, InstalledAppRules.CategoryTitle(category),
+            host.Children.Add(FluentLayout.Row(Glyphs.Folder, InstalledAppRules.CategoryTitle(category, Strings.Current),
                 category.Length == 0
-                    ? $"Apps at the top of the Start menu · {count}"
-                    : count == 1 ? "1 app" : $"{count} apps",
+                    ? Str.WidgetsA_Apps_Settings_TopLevel.Format(("count", count))
+                    : Str.WidgetsA_Apps_Count.Plural(count),
                 FluentLayout.Toggle(shown, on =>
                 {
                     config.HiddenCategories.RemoveAll(c => c.Equals(name, StringComparison.OrdinalIgnoreCase));
@@ -147,13 +148,13 @@ internal static partial class WidgetSettings
 
         if (config.HiddenApps.Count == 0)
         {
-            host.Children.Add(FluentLayout.Note("None. Right-click an app in the widget and choose Hide from list."));
+            host.Children.Add(FluentLayout.Note(Str.WidgetsA_Apps_Settings_NoneHidden.Text()));
             return;
         }
 
         foreach (var path in config.HiddenApps.ToList())
         {
-            var show = new Button { Content = "Show again" };
+            var show = new Button { Content = Str.WidgetsA_Apps_Settings_ShowAgain.Text() };
             show.Click += (_, _) =>
             {
                 config.HiddenApps.RemoveAll(p => p.Equals(path, StringComparison.OrdinalIgnoreCase));

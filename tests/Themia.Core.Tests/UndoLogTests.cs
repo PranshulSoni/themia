@@ -1,4 +1,5 @@
 using Themia.Core.Geometry;
+using Themia.Core.Localization;
 using Themia.Core.Model;
 using Xunit;
 
@@ -394,11 +395,18 @@ public sealed class UndoLogTests
     [Fact]
     public void S885_undo_text_names_the_step()
     {
-        Assert.Equal("Undid delete", UndoText.Undid(UndoAction.Delete));
-        Assert.Equal("Redid move", UndoText.Redid(UndoAction.Move));
-        foreach (var action in Enum.GetValues<UndoAction>())
+        Assert.Equal("Undid delete", UndoText.Undid(Locale.En, UndoAction.Delete));
+        Assert.Equal("Redid move", UndoText.Redid(Locale.En, UndoAction.Move));
+        foreach (var locale in LanguageResolver.All)
         {
-            Assert.False(string.IsNullOrWhiteSpace(UndoText.Name(action)));
+            foreach (var action in Enum.GetValues<UndoAction>())
+            {
+                Assert.False(string.IsNullOrWhiteSpace(UndoText.Name(locale, action)));
+            }
         }
     }
+
+    [Fact]
+    public void S1100_undo_text_is_one_sentence_in_the_asked_language()
+        => Assert.Equal("Rückgängig gemacht: Löschen", UndoText.Undid(Locale.De, UndoAction.Delete));
 }

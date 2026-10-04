@@ -8,6 +8,7 @@ using Themia.App.Services;
 using Themia.App.Services.Web;
 using Themia.App.Shell;
 using Themia.Core.Diagnostics;
+using Themia.Core.Localization;
 using Themia.Core.Widgets;
 using Windows.Foundation;
 using Windows.Storage.Streams;
@@ -123,7 +124,7 @@ internal sealed partial class RssView
         }
 
         var headline = Fluent.Text(FluentType.Body);
-        headline.Text = entry.Title.Length > 0 ? entry.Title : "(untitled)";
+        headline.Text = entry.Title.Length > 0 ? entry.Title : Str.WidgetsC_Rss_Untitled.Text();
         headline.TextWrapping = TextWrapping.Wrap;
         headline.TextTrimming = TextTrimming.CharacterEllipsis;
         headline.MaxLines = _plan.HeadlineLines;
@@ -205,8 +206,8 @@ internal sealed partial class RssView
     /// <summary>[S-1306] The item's own menu: open, copy the link, refresh the feeds.</summary>
     private IEnumerable<ItemMenuEntry> MenuFor(FeedEntry entry) =>
     [
-        new ItemMenuEntry(Glyphs.OpenExternal, "Open", () => Open(entry.Link), Disabled: entry.Link.Length == 0),
-        new ItemMenuEntry(Glyphs.Link, "Copy link", () =>
+        new ItemMenuEntry(Glyphs.OpenExternal, Str.Common_Open.Text(), () => Open(entry.Link), Disabled: entry.Link.Length == 0),
+        new ItemMenuEntry(Glyphs.Link, Str.WidgetsC_Rss_CopyLink.Text(), () =>
         {
             if (!ClipboardWatcher.SetText(entry.Link))
             {
@@ -214,7 +215,7 @@ internal sealed partial class RssView
             }
         }, Disabled: entry.Link.Length == 0),
         ItemMenuEntry.Separator,
-        new ItemMenuEntry(Glyphs.Refresh, "Refresh", () => Reload(force: true)),
+        new ItemMenuEntry(Glyphs.Refresh, Str.Common_Refresh.Text(), () => Reload(force: true)),
     ];
 
     /// <summary>

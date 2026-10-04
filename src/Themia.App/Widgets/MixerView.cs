@@ -4,6 +4,7 @@ using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
 using Themia.App.Services;
 using Themia.App.Shell;
+using Themia.Core.Localization;
 using Themia.Core.Model;
 using Themia.Core.Widgets;
 using Glyphs = Themia.App.Shell.Glyphs;
@@ -146,7 +147,7 @@ internal sealed partial class MixerView : Grid, IWidgetView, IWidgetSizeAware, I
     /// <inheritdoc />
     public IReadOnlyList<WidgetAction> ContextActions => _config.DeviceId is null
         ? []
-        : [new WidgetAction(Glyphs.Speakers, "Follow the default output", () => PickDevice(null))];
+        : [new WidgetAction(Glyphs.Speakers, Str.WidgetsB_Mixer_FollowDefault.Text(), () => PickDevice(null))];
 
     private void OnLoaded(object sender, RoutedEventArgs args)
     {
@@ -230,9 +231,9 @@ internal sealed partial class MixerView : Grid, IWidgetView, IWidgetSizeAware, I
             // [S-448] [S-1221] An intentional empty state, not a blank card.
             ShowEmpty(snapshot.Status switch
             {
-                AudioStatus.DeviceMissing => $"{AudioRules.DeviceName(_config.DeviceId, snapshot.Devices, _config.DeviceName)} is not connected",
-                AudioStatus.NoDevice => "No output device",
-                _ => "Sound is not available",
+                AudioStatus.DeviceMissing => Str.WidgetsB_Mixer_DeviceMissing.Format(("device", AudioRules.DeviceName(_config.DeviceId, snapshot.Devices, _config.DeviceName))),
+                AudioStatus.NoDevice => Str.WidgetsB_Mixer_NoDevice.Text(),
+                _ => Str.WidgetsB_Mixer_Unavailable.Text(),
             });
             return;
         }
@@ -262,7 +263,7 @@ internal sealed partial class MixerView : Grid, IWidgetView, IWidgetSizeAware, I
 
         if (main.Count == 0 && !panel)
         {
-            ShowEmpty("No app is playing audio");
+            ShowEmpty(Str.Mixer_Empty.Text());
             return;
         }
 
@@ -330,12 +331,13 @@ internal sealed partial class MixerView : Grid, IWidgetView, IWidgetSizeAware, I
 
     private StackPanel BuildFooter()
     {
-        var text = new TextBlock { Text = "Other apps appear here when they play sound" };
+        var text = new TextBlock { Text = Str.WidgetsB_Mixer_FooterHint.Text() };
         var hint = Fluent.EmptyState(Glyphs.Speakers, text, out _);
 
         var link = new HyperlinkButton
         {
-            Content = "Volume mixer in Settings",
+            // Wrapped rather than clipped: in the longer languages the link is wider than a tall, narrow card.
+            Content = new TextBlock { Text = Str.WidgetsB_Mixer_WindowsMixer.Text(), TextWrapping = TextWrapping.Wrap, TextAlignment = TextAlignment.Center },
             HorizontalAlignment = HorizontalAlignment.Center,
             Margin = new Thickness(0, Fluent.Space1, 0, 0),
         };
@@ -428,7 +430,7 @@ internal sealed partial class MixerView : Grid, IWidgetView, IWidgetSizeAware, I
         _device.BorderThickness = new Thickness(0);
         _device.CornerRadius = new CornerRadius(0);
         _device.Click += OnDeviceClicked;
-        ToolTipService.SetToolTip(_device, "Choose the output device");
+        ToolTipService.SetToolTip(_device, Str.WidgetsB_Mixer_ChooseDevice.Text());
     }
 
     private void ShowDeviceLine(bool shown, AudioSnapshot snapshot, IReadOnlyList<MixerRow> rows)
@@ -440,10 +442,10 @@ internal sealed partial class MixerView : Grid, IWidgetView, IWidgetSizeAware, I
             return;
         }
 
-        _deviceName.Text = snapshot.Output?.Name is { Length: > 0 } name ? name : "Output device";
+        _deviceName.Text = snapshot.Output?.Name is { Length: > 0 } name ? name : Str.WidgetsB_Mixer_OutputDevice.Text();
 
         var playing = rows.Count(static row => row.Active && !row.IsMaster && !row.IsSystem);
-        _playing.Text = playing == 0 ? "silent" : $"{playing} playing";
+        _playing.Text = playing == 0 ? Str.WidgetsB_Mixer_Silent.Text() : Str.WidgetsB_Mixer_PlayingCount.Plural(playing);
     }
 
     private void OnDeviceClicked(object sender, RoutedEventArgs args) => OpenDeviceMenu(_device);
@@ -487,7 +489,7 @@ internal sealed partial class MixerView : Grid, IWidgetView, IWidgetSizeAware, I
             if (after.Notice is { } notice)
             {
                 // [S-1616]/[S-880] Said once, as a notice: the widget is bound now, nothing to answer.
-                Themia.App.Services.Notices.Warning("Default output not changed", notice);
+                Themia.App.Services.Notices.Warning(Str.WidgetsB_Mixer_DefaultNotChanged.Text(), notice);
             }
         }
         catch (Exception ex)
@@ -618,11 +620,11 @@ internal sealed partial class MixerView : Grid, IWidgetView, IWidgetSizeAware, I
         _focused = null;
     }
 
-    private static string RowName(MixerRow row) => row.IsMaster ? "Master"
-        : row.IsSystem ? "System sounds"
-        : row.Key == MixerRules.MicrophoneKey ? (row.Name.Length > 0 ? row.Name : "Microphone")
+    private static string RowName(MixerRow row) => row.IsMaster ? Str.WidgetsB_Mixer_Master.Text()
+        : row.IsSystem ? Str.Mixer_SystemSounds.Text()
+        : row.Key == MixerRules.MicrophoneKey ? (row.Name.Length > 0 ? row.Name : Str.WidgetsB_Mixer_Microphone.Text())
         : row.Name.Length > 0 ? row.Name
-        : "Unknown app";
+        : Str.Mixer_UnknownApp.Text();
 
     private static Brush Accent() => FluentLayout.Themed("AccentFillColorDefaultBrush", Colors.DodgerBlue);
 }

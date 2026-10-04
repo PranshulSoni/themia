@@ -3,6 +3,7 @@ using System.Collections.Immutable;
 using Microsoft.UI.Dispatching;
 using Themia.Core.Accounts;
 using Themia.Core.Diagnostics;
+using Themia.Core.Localization;
 using Themia.Core.Storage;
 
 namespace Themia.App.Services.Accounts;
@@ -90,8 +91,8 @@ internal sealed partial class AccountService : IDisposable
 
         LoadProblem = load.Outcome == LoadOutcome.Recovered
             ? load.Writable
-                ? $"The accounts file could not be read ({load.Detail}). It was kept beside the new one."
-                : $"The accounts file could not be read ({load.Detail}). Accounts cannot be changed until Themia restarts."
+                ? Str.Shell_Accounts_FileRecovered.Format(("detail", load.Detail))
+                : Str.Shell_Accounts_FileReadOnly.Format(("detail", load.Detail))
             : null;
 
         foreach (var account in _accounts)
@@ -129,7 +130,7 @@ internal sealed partial class AccountService : IDisposable
             var index = list.FindIndex(a => a.Id == accountId);
             if (index < 0)
             {
-                throw new AccountException(AccountError.UnknownAccount, "That account is no longer here.");
+                throw new AccountException(AccountError.UnknownAccount, Str.Shell_Accounts_Gone.Text());
             }
 
             list[index] = list[index] with { Nickname = clean };
@@ -146,7 +147,7 @@ internal sealed partial class AccountService : IDisposable
         {
             if (list.RemoveAll(a => a.Id == accountId) == 0)
             {
-                throw new AccountException(AccountError.UnknownAccount, "That account is no longer here.");
+                throw new AccountException(AccountError.UnknownAccount, Str.Shell_Accounts_Gone.Text());
             }
         }, userAction: true, cancellation).ConfigureAwait(false);
 
@@ -183,7 +184,7 @@ internal sealed partial class AccountService : IDisposable
     }
 
     private Account Require(string accountId)
-        => Get(accountId) ?? throw new AccountException(AccountError.UnknownAccount, "That account is no longer signed in to Themia.");
+        => Get(accountId) ?? throw new AccountException(AccountError.UnknownAccount, Str.Shell_Accounts_NotSignedIn.Text());
 
     private AccountInfo Info(Account account) => new(
         account.Id,
@@ -204,20 +205,14 @@ internal sealed partial class AccountService : IDisposable
     {
         var (sealedSecret, what) = account.Provider.Auth() switch
         {
-            AccountAuth.OAuthRefresh => (account.SealedRefreshToken ?? account.SealedAccessToken, "sign-in"),
-            AccountAuth.BearerToken => (account.SealedAccessToken, "token"),
-            _ => (account.SealedPassword, "password"),
+            AccountAuth.OAuthRefresh => (account.SealedRefreshToken ?? account.SealedAccessToken, SecretKind.SignIn),
+            AccountAuth.BearerToken => (account.SealedAccessToken, SecretKind.Token),
+            _ => (account.SealedPassword, SecretKind.Password),
         };
 
         var opened = Dpapi.Open(sealedSecret);
 
-        var problem = opened.State switch
-        {
-            SecretState.Open => null,
-            SecretState.Absent => $"No {what} is stored. Sign in again.",
-            SecretState.Plaintext => $"The {what} was stored unprotected and is not used. Sign in again.",
-            _ => $"The {what} cannot be read on this PC or by this Windows user. Sign in again.",
-        };
+        var problem = opened.State == SecretState.Open ? null : SecretProblem(what, opened.State);
 
         if (problem is null)
         {
@@ -272,7 +267,7 @@ internal sealed partial class AccountService : IDisposable
             {
                 if (userAction)
                 {
-                    throw new AccountException(AccountError.Refused, LoadProblem ?? "The accounts file cannot be written.");
+                    throw new AccountException(AccountError.Refused, LoadProblem ?? Str.Shell_Accounts_FileNotWritable.Text());
                 }
 
                 Log.Warn(Scope, "accounts file is read-only this session; a refreshed token is kept in memory only");
@@ -289,7 +284,7 @@ internal sealed partial class AccountService : IDisposable
 
                     if (userAction)
                     {
-                        throw new AccountException(AccountError.Refused, $"Could not save the accounts file: {ex.Message}", 0, ex);
+                        throw new AccountException(AccountError.Refused, Str.Shell_Accounts_SaveFailed.Format(("reason", ex.Message)), 0, ex);
                     }
                 }
             }

@@ -1,4 +1,5 @@
 using System.Globalization;
+using Themia.Core.Localization;
 
 namespace Themia.Core.Widgets;
 
@@ -213,14 +214,17 @@ public static class GpuEngines
     }
 
     /// <summary>[S-1203] An engine kind in words, as a row names it.</summary>
-    public static string Label(GpuEngineKind kind) => kind switch
+    public static string Label(GpuEngineKind kind) => Label(Strings.Current, kind);
+
+    /// <summary><see cref="Label(GpuEngineKind)"/> in <paramref name="locale"/>.</summary>
+    public static string Label(Locale locale, GpuEngineKind kind) => kind switch
     {
-        GpuEngineKind.Graphics => "3D",
-        GpuEngineKind.Compute => "Compute",
-        GpuEngineKind.Copy => "Copy",
-        GpuEngineKind.VideoDecode => "Video decode",
-        GpuEngineKind.VideoEncode => "Video encode",
-        GpuEngineKind.VideoProcessing => "Video processing",
+        GpuEngineKind.Graphics => Strings.Get(locale, Str.WidgetsB_Gpu_Engine3d),
+        GpuEngineKind.Compute => Strings.Get(locale, Str.WidgetsB_Gpu_EngineCompute),
+        GpuEngineKind.Copy => Strings.Get(locale, Str.WidgetsB_Gpu_EngineCopy),
+        GpuEngineKind.VideoDecode => Strings.Get(locale, Str.WidgetsB_Gpu_EngineVideoDecode),
+        GpuEngineKind.VideoEncode => Strings.Get(locale, Str.WidgetsB_Gpu_EngineVideoEncode),
+        GpuEngineKind.VideoProcessing => Strings.Get(locale, Str.WidgetsB_Gpu_EngineVideoProcessing),
         _ => kind.ToString(),
     };
 
@@ -231,7 +235,10 @@ public static class GpuEngines
     /// put the driver's number next to a counter's engine would claim the engine is that busy. Empty
     /// when no engine is doing anything — naming the busiest of five idle engines would be noise.
     /// </summary>
-    public static string Caption(IReadOnlyList<GpuEngineLoad> loads, bool precise)
+    public static string Caption(IReadOnlyList<GpuEngineLoad> loads, bool precise) => Caption(Strings.Current, loads, precise);
+
+    /// <summary><see cref="Caption(IReadOnlyList{GpuEngineLoad}, bool)"/> in <paramref name="locale"/>.</summary>
+    public static string Caption(Locale locale, IReadOnlyList<GpuEngineLoad> loads, bool precise)
     {
         ArgumentNullException.ThrowIfNull(loads);
 
@@ -250,10 +257,26 @@ public static class GpuEngines
         }
 
         return precise
-            ? string.Create(CultureInfo.InvariantCulture, $"{Label(b.Kind)} {Math.Clamp(b.Percent, 0, 100):0.0}%")
-            : Label(b.Kind);
+            ? Strings.Format(locale, Str.WidgetsB_Gpu_EngineLoad, ("engine", Label(locale, b.Kind)), ("percent", LocaleFormat.Percent(locale, Math.Clamp(b.Percent, 0, 100), 1)))
+            : Label(locale, b.Kind);
     }
 
     /// <summary>The widest caption, in characters, so the layout does not hop as the busiest engine changes.</summary>
-    public static int CaptionCharacters(bool precise) => precise ? "Video processing 100.0%".Length : "Video processing".Length;
+    public static int CaptionCharacters(bool precise) => CaptionCharacters(Strings.Current, precise);
+
+    /// <summary><see cref="CaptionCharacters(bool)"/> in <paramref name="locale"/>: the longest engine name, with its widest figure when precise.</summary>
+    public static int CaptionCharacters(Locale locale, bool precise)
+    {
+        var widest = 0;
+        foreach (var kind in Enum.GetValues<GpuEngineKind>())
+        {
+            var label = Label(locale, kind);
+            var text = precise
+                ? Strings.Format(locale, Str.WidgetsB_Gpu_EngineLoad, ("engine", label), ("percent", LocaleFormat.Percent(locale, 100, 1)))
+                : label;
+            widest = Math.Max(widest, text.Length);
+        }
+
+        return widest;
+    }
 }

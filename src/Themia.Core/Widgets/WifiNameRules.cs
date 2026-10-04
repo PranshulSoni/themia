@@ -1,3 +1,6 @@
+
+using Themia.Core.Localization;
+
 namespace Themia.Core.Widgets;
 
 /// <summary>
@@ -54,7 +57,7 @@ public readonly record struct WifiNameDecision(WifiHintAction Action)
 public static class WifiNameRules
 {
     /// <summary>[S-1613] The hint's text, a link.</summary>
-    public const string Hint = "Allow location to show the network name";
+    public static string Hint => Str.WidgetsB_Network_WifiHint.Text();
 
     /// <summary>[S-1613] Settings › Privacy &amp; security › Location.</summary>
     public static readonly Uri PrivacyPage = new("ms-settings:privacy-location");

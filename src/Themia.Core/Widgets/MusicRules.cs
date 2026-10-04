@@ -1,4 +1,5 @@
 using System.Globalization;
+using Themia.Core.Localization;
 
 namespace Themia.Core.Widgets;
 
@@ -151,7 +152,10 @@ public static class MusicRules
     /// The track title. Collapsed to one line and capped: it comes from whatever app is playing,
     /// which makes it somebody else's string, and it is drawn and nothing else.
     /// </summary>
-    public static string Title(string? raw) => Line(raw) ?? "Unknown track";
+    public static string Title(string? raw) => Title(raw, Strings.Current);
+
+    /// <inheritdoc cref="Title(string?)"/>
+    public static string Title(string? raw, Locale locale) => Line(raw) ?? Strings.Get(locale, Str.WidgetsB_Music_UnknownTrack);
 
     /// <summary>
     /// The line under the title: the artist, the album, or both. Empty when the session offered
@@ -180,13 +184,30 @@ public static class MusicRules
         => string.Join('', Line(title) ?? string.Empty, Line(artist) ?? string.Empty, Line(album) ?? string.Empty);
 
     /// <summary>The sentence shown when there is nothing to draw. No state is a blank tile.</summary>
-    public static string StatusMessage(MusicState state) => state switch
+    public static string StatusMessage(MusicState state) => StatusMessage(state, Strings.Current);
+
+    /// <inheritdoc cref="StatusMessage(MusicState)"/>
+    public static string StatusMessage(MusicState state, Locale locale) => state switch
     {
-        MusicState.Loading => "Reading the media session",
-        MusicState.NoSession => "Nothing is playing on this PC",
-        MusicState.Idle => "Nothing playing",
+        MusicState.Loading => Strings.Get(locale, Str.WidgetsB_Music_Loading),
+        MusicState.NoSession => Strings.Get(locale, Str.WidgetsB_Music_NoSession),
+        MusicState.Idle => Strings.Get(locale, Str.WidgetsB_Music_Idle),
         _ => string.Empty,
     };
+
+    /// <summary>
+    /// The state line on the large tiles: "Playing" or "Paused", and the app it is playing in when
+    /// the session names one.
+    /// </summary>
+    public static string StateLine(bool playing, string source, Locale locale)
+    {
+        if (string.IsNullOrEmpty(source))
+        {
+            return Strings.Get(locale, playing ? Str.WidgetsB_Music_Playing : Str.WidgetsB_Music_Paused);
+        }
+
+        return Strings.Format(locale, playing ? Str.WidgetsB_Music_PlayingIn : Str.WidgetsB_Music_PausedIn, ("app", source));
+    }
 
     /// <summary>
     /// [S-1464] Whether the tile paints nothing. <see cref="MusicHideWhenIdle.NoSession"/> hides only

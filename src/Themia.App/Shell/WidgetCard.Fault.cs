@@ -4,6 +4,7 @@ using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Controls.Primitives;
 using Themia.App.Widgets;
 using Themia.Core.Diagnostics;
+using Themia.Core.Localization;
 using Themia.Core.Model;
 using Themia.Core.Widgets;
 
@@ -287,18 +288,24 @@ internal sealed partial class WidgetCard
         {
             Paused = paused;
 
-            var full = paused ? "Paused: Themia started in safe mode." : "This widget stopped working.";
-            var brief = paused ? "Paused (safe mode)." : "Stopped working.";
+            var full = paused ? Str.Shell_Card_Paused.Text() : Str.Shell_Card_Failed.Text();
+            var brief = paused ? Str.Shell_Card_PausedShort.Text() : Str.Shell_Card_FailedShort.Text();
             var message = new TextBlock { Text = full };
             var state = Fluent.EmptyState(paused ? Glyphs.Pause : Glyphs.Broken, message, out var icon);
 
             var retry = new Button
             {
-                Content = paused ? "Start" : "Retry",
+                Content = paused ? Str.Shell_Card_Start.Text() : Str.Common_Retry.Text(),
                 HorizontalAlignment = HorizontalAlignment.Center,
                 AllowFocusOnInteraction = false,
             };
             retry.Click += (_, _) => owner.Retry();
+
+            // The word is long in some languages ("Erneut versuchen"); on a tile too narrow for it the
+            // button keeps its job as the refresh mark, with the word as its name and tooltip.
+            var retryText = paused ? Str.Shell_Card_Start.Text() : Str.Common_Retry.Text();
+            ToolTipService.SetToolTip(retry, retryText);
+            Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(retry, retryText);
 
             var actions = new StackPanel
             {
@@ -313,7 +320,7 @@ internal sealed partial class WidgetCard
             {
                 var details = new HyperlinkButton
                 {
-                    Content = "Details",
+                    Content = Str.CtxMenu_Details.Text(),
                     AllowFocusOnInteraction = false,
                     VerticalAlignment = VerticalAlignment.Center,
                 };
@@ -336,13 +343,29 @@ internal sealed partial class WidgetCard
             {
                 var narrow = e.NewSize.Width < 150 || e.NewSize.Height < 110;
                 var low = e.NewSize.Height < 160;
+                icon.Visibility = low || narrow ? Visibility.Collapsed : Visibility.Visible;
+                message.Text = narrow ? brief : full;
+
+                // The buttons shed by what fits, not by a width guessed for English: the details
+                // link goes first, then the button's word gives way to its mark.
+                var room = e.NewSize.Width - (2 * Fluent.Space3);
+                retry.Content = retryText;
                 if (actions.Children.Count > 1)
                 {
                     actions.Children[1].Visibility = narrow ? Visibility.Collapsed : Visibility.Visible;
                 }
 
-                icon.Visibility = low || narrow ? Visibility.Collapsed : Visibility.Visible;
-                message.Text = narrow ? brief : full;
+                actions.Measure(new Windows.Foundation.Size(double.PositiveInfinity, double.PositiveInfinity));
+                if (actions.DesiredSize.Width > room && actions.Children.Count > 1)
+                {
+                    actions.Children[1].Visibility = Visibility.Collapsed;
+                    actions.Measure(new Windows.Foundation.Size(double.PositiveInfinity, double.PositiveInfinity));
+                }
+
+                if (!paused && (narrow || actions.DesiredSize.Width > room))
+                {
+                    retry.Content = new FontIcon { Glyph = Glyphs.Refresh, FontSize = FluentType.Body.FontSize };
+                }
             };
         }
 

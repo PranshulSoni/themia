@@ -3,6 +3,7 @@ using Microsoft.UI.Xaml.Controls;
 using Themia.App.Services.Web;
 using Themia.App.Widgets;
 using Themia.Core.Diagnostics;
+using Themia.Core.Localization;
 using Themia.Core.Widgets;
 using Windows.System;
 
@@ -54,7 +55,7 @@ internal static class PlaceSearch
 
         var box = new TextBox
         {
-            PlaceholderText = "City name",
+            PlaceholderText = Str.Shell_Place_CityName.Text(),
             Text = binding.Query,
             Width = 260,
             MaxLength = WebInput.MaxPlaceLength,
@@ -65,13 +66,13 @@ internal static class PlaceSearch
         var results = new ComboBox
         {
             Width = 260,
-            PlaceholderText = "Pick a place",
+            PlaceholderText = Str.Shell_Place_PickPlace.Text(),
             Visibility = Visibility.Collapsed,
         };
 
         var verdict = FluentLayout.Verdict();
 
-        var search = FluentLayout.FieldRow(Glyphs.Search, "Search", "Type a city; results appear as you type",
+        var search = FluentLayout.FieldRow(Glyphs.Search, Str.Common_Search.Text(), Str.Shell_Place_SearchDesc.Text(),
             new StackPanel
             {
                 Spacing = Fluent.Space1,
@@ -86,9 +87,9 @@ internal static class PlaceSearch
         chosen.TextTrimming = TextTrimming.CharacterEllipsis;
         chosen.MaxWidth = 260;
 
-        var change = new Button { Content = "Change" };
+        var change = new Button { Content = Str.Common_Change.Text() };
 
-        var location = FluentLayout.Row(Glyphs.Place, "Location", null, new StackPanel
+        var location = FluentLayout.Row(Glyphs.Place, Str.Shell_Place_Location.Text(), null, new StackPanel
         {
             Orientation = Orientation.Horizontal,
             Spacing = Fluent.Space2,
@@ -124,7 +125,7 @@ internal static class PlaceSearch
             lastQuery = query;
 
             Collapse();
-            FluentLayout.Confirm(verdict, "Searching…");
+            FluentLayout.Confirm(verdict, Str.Shell_Place_Searching.Text());
 
             try
             {
@@ -137,14 +138,14 @@ internal static class PlaceSearch
 
                 if (status == FetchStatus.Empty)
                 {
-                    FluentLayout.Confirm(verdict, "No locations found.");
+                    FluentLayout.Confirm(verdict, Str.Shell_Place_NoneFound.Text());
                     return;
                 }
 
                 if (status != FetchStatus.Ok)
                 {
                     Log.Warn(Scope, $"place search failed: {FetchState.Message(status)} {detail}".TrimEnd());
-                    FluentLayout.Refuse(verdict, "Search failed.");
+                    FluentLayout.Refuse(verdict, Str.Shell_Place_SearchFailed.Text());
                     return;
                 }
 
@@ -190,7 +191,7 @@ internal static class PlaceSearch
             {
                 // Under two characters is not yet a question; anything else implausible is said.
                 Collapse();
-                FluentLayout.Confirm(verdict, query.Length < 2 ? string.Empty : "Type a place name");
+                FluentLayout.Confirm(verdict, query.Length < 2 ? string.Empty : Str.Shell_Place_TypeName.Text());
                 return;
             }
 

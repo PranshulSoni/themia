@@ -1,3 +1,4 @@
+using Themia.Core.Localization;
 using Themia.Core.Widgets;
 using Xunit;
 
@@ -106,18 +107,25 @@ public class QuoteLayoutTests
 
     [Fact]
     public void A_quote_is_set_in_typographic_quotation_marks()
-        => Assert.Equal("“Done is better than perfect.”", QuoteLayout.Quoted("Done is better than perfect."));
+        => Assert.Equal("“Done is better than perfect.”", QuoteLayout.Quoted(Locale.En, "Done is better than perfect."));
+
+    [Theory]
+    [InlineData(Locale.De, "„Kurz.“")]
+    [InlineData(Locale.Fr, "« Kurz. »")]
+    [InlineData(Locale.Ja, "「Kurz.」")]
+    public void The_marks_are_the_languages_own(Locale locale, string expected)
+        => Assert.Equal(expected, QuoteLayout.Quoted(locale, " Kurz. "));
 
     [Fact]
     public void The_marks_are_added_round_the_words_and_not_round_the_padding()
-        => Assert.Equal("“Brevity.”", QuoteLayout.Quoted("   Brevity.   "));
+        => Assert.Equal("“Brevity.”", QuoteLayout.Quoted(Locale.En, "   Brevity.   "));
 
     [Theory]
     [InlineData(null)]
     [InlineData("")]
     [InlineData("   ")]
     public void Nothing_is_not_quoted_as_an_empty_pair_of_marks(string? text)
-        => Assert.Equal(string.Empty, QuoteLayout.Quoted(text));
+        => Assert.Equal(string.Empty, QuoteLayout.Quoted(Locale.De, text));
 
     [Fact]
     public void An_attribution_is_em_dashed()

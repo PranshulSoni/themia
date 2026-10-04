@@ -3,6 +3,7 @@ using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Shapes;
 using Themia.App.Shell;
+using Themia.Core.Localization;
 using Themia.Core.Widgets;
 
 namespace Themia.App.Widgets;
@@ -43,7 +44,7 @@ internal sealed partial class ContainerPlaceholder : Grid
         _icon = Fluent.Icon(glyph, "TextFillColorTertiaryBrush", Fluent.Space6);
         _icon.HorizontalAlignment = HorizontalAlignment.Center;
 
-        _addText = new TextBlock { Text = "Add widget", VerticalAlignment = VerticalAlignment.Center };
+        _addText = new TextBlock { VerticalAlignment = VerticalAlignment.Center };
         _add = new Button
         {
             Content = new StackPanel
@@ -54,11 +55,9 @@ internal sealed partial class ContainerPlaceholder : Grid
             },
             HorizontalAlignment = HorizontalAlignment.Center,
         };
-        ToolTipService.SetToolTip(_add, "Add a widget inside this one");
         _add.Click += (_, _) => add();
 
         _hint = Fluent.Text(FluentType.Caption, "TextFillColorSecondaryBrush");
-        _hint.Text = "or drag widgets in here";
         _hint.HorizontalAlignment = HorizontalAlignment.Center;
         _hint.TextAlignment = TextAlignment.Center;
         _hint.TextWrapping = TextWrapping.Wrap;
@@ -73,7 +72,21 @@ internal sealed partial class ContainerPlaceholder : Grid
             Children = { _icon, _add, _hint },
         });
 
+        ApplyTexts();
         Lay();
+
+        // [S-1109] Follows the language while it is on screen; a static event, so only then.
+        Loaded += (_, _) => Strings.Changed += OnLanguage;
+        Unloaded += (_, _) => Strings.Changed -= OnLanguage;
+    }
+
+    private void OnLanguage(Locale locale) => ApplyTexts();
+
+    private void ApplyTexts()
+    {
+        _addText.Text = Str.Group_AddChild.Text();
+        ToolTipService.SetToolTip(_add, Str.WidgetsA_Container_AddTooltip.Text());
+        _hint.Text = Str.WidgetsA_Container_DragHint.Text();
     }
 
     public void ApplyEditMode(bool editing)

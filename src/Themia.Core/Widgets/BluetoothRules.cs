@@ -1,3 +1,4 @@
+using Themia.Core.Localization;
 namespace Themia.Core.Widgets;
 
 /// <summary>
@@ -147,18 +148,18 @@ public static class BluetoothRules
     /// trust, and a row is one line tall whatever arrives in it.
     /// </para>
     /// </summary>
-    public static string DisplayName(string? raw)
+    public static string DisplayName(string? raw, Locale locale)
     {
         if (string.IsNullOrWhiteSpace(raw))
         {
-            return "Unknown device";
+            return Strings.Get(locale, Str.WidgetsA_Bluetooth_UnknownDevice);
         }
 
         var words = raw.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
 
         if (words.Length == 0)
         {
-            return "Unknown device";
+            return Strings.Get(locale, Str.WidgetsA_Bluetooth_UnknownDevice);
         }
 
         var collapsed = string.Join(' ', words);
@@ -172,8 +173,8 @@ public static class BluetoothRules
     /// out of spec. Both become no column rather than a percentage nobody should act on.
     /// </para>
     /// </summary>
-    public static string? BatteryLabel(int? percent)
-        => percent is >= 0 and <= 100 ? $"{percent}%" : null;
+    public static string? BatteryLabel(int? percent, Locale locale)
+        => percent is >= 0 and <= 100 ? LocaleFormat.Percent(locale, percent.Value) : null;
 
     /// <summary>
     /// [S-1256] The signal column, or null. Real RSSI sits between about -100 and -20 dBm; zero is
@@ -278,32 +279,32 @@ public static class BluetoothRules
     }
 
     /// <summary>[S-1255] What a device is, in words, for a two-line row's second line.</summary>
-    public static string KindLabel(BluetoothDeviceKind kind) => kind switch
+    public static string KindLabel(BluetoothDeviceKind kind, Locale locale) => Strings.Get(locale, kind switch
     {
-        BluetoothDeviceKind.Audio => "Audio",
-        BluetoothDeviceKind.Mouse => "Mouse",
-        BluetoothDeviceKind.Keyboard => "Keyboard",
-        BluetoothDeviceKind.Phone => "Phone",
-        BluetoothDeviceKind.Gamepad => "Controller",
-        BluetoothDeviceKind.Pen => "Pen",
-        BluetoothDeviceKind.Watch => "Watch",
-        _ => "Device",
-    };
+        BluetoothDeviceKind.Audio => Str.WidgetsA_Bluetooth_Kind_Audio,
+        BluetoothDeviceKind.Mouse => Str.WidgetsA_Bluetooth_Kind_Mouse,
+        BluetoothDeviceKind.Keyboard => Str.WidgetsA_Bluetooth_Kind_Keyboard,
+        BluetoothDeviceKind.Phone => Str.WidgetsA_Bluetooth_Kind_Phone,
+        BluetoothDeviceKind.Gamepad => Str.WidgetsA_Bluetooth_Kind_Controller,
+        BluetoothDeviceKind.Pen => Str.WidgetsA_Bluetooth_Kind_Pen,
+        BluetoothDeviceKind.Watch => Str.WidgetsA_Bluetooth_Kind_Watch,
+        _ => Str.WidgetsA_Bluetooth_Kind_Device,
+    });
 
     /// <summary>
     /// [S-1255] A two-line row's second line: what the device is, then each enabled fact the device
     /// actually reported ("Audio · Connected · 80%"). Nothing reported is left out, never "--".
     /// </summary>
-    public static string DetailLine(BluetoothDeviceEntry device, bool showConnection, bool showBattery, bool showSignal)
+    public static string DetailLine(BluetoothDeviceEntry device, bool showConnection, bool showBattery, bool showSignal, Locale locale)
     {
-        var parts = new List<string>(4) { KindLabel(device.Kind) };
+        var parts = new List<string>(4) { KindLabel(device.Kind, locale) };
 
         if (showConnection)
         {
-            parts.Add(ConnectionLabel(device.Connected));
+            parts.Add(ConnectionLabel(device.Connected, locale));
         }
 
-        if (showBattery && BatteryLabel(device.BatteryPercent) is { } battery)
+        if (showBattery && BatteryLabel(device.BatteryPercent, locale) is { } battery)
         {
             parts.Add(battery);
         }
@@ -317,21 +318,23 @@ public static class BluetoothRules
     }
 
     /// <summary>[S-1255] The header's summary at large sizes: "2 connected", or null when none is.</summary>
-    public static string? ConnectedSummary(int connected) => connected > 0 ? $"{connected} connected" : null;
+    public static string? ConnectedSummary(int connected, Locale locale)
+        => connected > 0 ? Strings.Plural(locale, Str.WidgetsA_Bluetooth_ConnectedCount, connected) : null;
 
     /// <summary>The connection state, in words. Carried by text as well as by the dot beside it.</summary>
-    public static string ConnectionLabel(bool connected) => connected ? "Connected" : "Paired";
+    public static string ConnectionLabel(bool connected, Locale locale)
+        => Strings.Get(locale, connected ? Str.WidgetsA_Bluetooth_Connected : Str.WidgetsA_Bluetooth_Paired);
 
     /// <summary>The sentence a tile with no rows shows. Every state names itself.</summary>
-    public static string StatusMessage(BluetoothStatus status) => status switch
+    public static string StatusMessage(BluetoothStatus status, Locale locale) => Strings.Get(locale, status switch
     {
-        BluetoothStatus.Loading => "Reading paired devices",
-        BluetoothStatus.NoRadio => "This PC has no Bluetooth radio",
-        BluetoothStatus.RadioOff => "Bluetooth is turned off",
-        BluetoothStatus.PermissionDenied => "Windows has not granted access to the radios",
-        BluetoothStatus.Failed => "Could not read the paired devices",
-        _ => "No paired devices",
-    };
+        BluetoothStatus.Loading => Str.WidgetsA_Bluetooth_Status_Loading,
+        BluetoothStatus.NoRadio => Str.WidgetsA_Bluetooth_Status_NoRadio,
+        BluetoothStatus.RadioOff => Str.WidgetsA_Bluetooth_Status_RadioOff,
+        BluetoothStatus.PermissionDenied => Str.WidgetsA_Bluetooth_Status_PermissionDenied,
+        BluetoothStatus.Failed => Str.WidgetsA_Bluetooth_Status_Failed,
+        _ => Str.WidgetsA_Bluetooth_Status_None,
+    });
 
     /// <summary>
     /// Merge, filter and order what the two enumerations returned.
@@ -349,7 +352,8 @@ public static class BluetoothRules
     public static List<BluetoothDeviceEntry> Arrange(
         IEnumerable<BluetoothDeviceEntry> devices,
         bool connectedOnly,
-        int maxCount)
+        int maxCount,
+        Locale locale)
     {
         ArgumentNullException.ThrowIfNull(devices);
 
@@ -357,7 +361,7 @@ public static class BluetoothRules
 
         foreach (var device in devices)
         {
-            var name = DisplayName(device.Name);
+            var name = DisplayName(device.Name, locale);
             var normalised = device with { Name = name, Kind = Classify(name) };
 
             // Nameless devices are not merged with each other: they all normalise to the same

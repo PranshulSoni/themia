@@ -1,5 +1,6 @@
 using Xunit;
 using Themia.Core.Astronomy;
+using Themia.Core.Localization;
 using Themia.Core.Model;
 using Themia.Core.Widgets;
 
@@ -54,7 +55,7 @@ public sealed class DeskParityTests
     public void S1480_a_chosen_zone_drives_the_reading()
     {
         var config = new ClockConfig { TimeZoneId = "Asia/Tokyo" };
-        var reading = ClockFormatter.Read(new DateTimeOffset(2026, 1, 15, 12, 0, 0, TimeSpan.Zero), config);
+        var reading = ClockFormatter.Read(new DateTimeOffset(2026, 1, 15, 12, 0, 0, TimeSpan.Zero), config, Locale.En);
 
         Assert.Equal("21:00", reading.Time);
     }
@@ -124,13 +125,13 @@ public sealed class DeskParityTests
     [InlineData(330, 120, ClockOffsetMode.Local, "+3:30h local")]
     [InlineData(120, 120, ClockOffsetMode.Local, "same as local")]
     public void S1485_the_offset_line_is_written_as_the_original_wrote_it(int zoneMinutes, int localMinutes, ClockOffsetMode mode, string expected)
-        => Assert.Equal(expected, ClockFormatter.OffsetText(TimeSpan.FromMinutes(zoneMinutes), TimeSpan.FromMinutes(localMinutes), mode));
+        => Assert.Equal(expected, ClockFormatter.OffsetText(TimeSpan.FromMinutes(zoneMinutes), TimeSpan.FromMinutes(localMinutes), mode, Locale.En));
 
     [Fact]
     public void S1485_no_offset_line_when_the_mode_is_none()
     {
-        Assert.Null(ClockFormatter.OffsetText(TimeSpan.FromHours(2), TimeSpan.Zero, ClockOffsetMode.None));
-        Assert.Null(ClockFormatter.OffsetLine(DateTimeOffset.UtcNow, new ClockConfig()));
+        Assert.Null(ClockFormatter.OffsetText(TimeSpan.FromHours(2), TimeSpan.Zero, ClockOffsetMode.None, Locale.En));
+        Assert.Null(ClockFormatter.OffsetLine(DateTimeOffset.UtcNow, new ClockConfig(), Locale.En));
     }
 
     [Fact]
@@ -243,7 +244,18 @@ public sealed class DeskParityTests
     [InlineData(-61, "−1m 1s")]
     [InlineData(0.4, "same as yesterday")]
     public void S1490_the_daylight_change_reads_as_minutes_and_seconds(double seconds, string expected)
-        => Assert.Equal(expected, SkyText.Change(TimeSpan.FromSeconds(seconds)));
+        => Assert.Equal(expected, SkyText.Change(Locale.En, TimeSpan.FromSeconds(seconds)));
+
+    [Fact]
+    public void S1490_the_sky_text_is_in_the_language_asked_for()
+    {
+        Assert.Equal("+2 min 14 s", SkyText.Change(Locale.De, TimeSpan.FromSeconds(134)));
+        Assert.Equal("wie gestern", SkyText.Change(Locale.De, TimeSpan.Zero));
+        Assert.Equal("in 6 h 45 min", SkyText.Countdown(Locale.De, TimeSpan.FromMinutes(405)));
+        Assert.Equal("6時間45分後", SkyText.Countdown(Locale.Ja, TimeSpan.FromMinutes(405)));
+        Assert.Equal("Mi., 7. Okt.", SkyText.ShortDate(Locale.De, new DateTimeOffset(2026, 10, 7, 9, 0, 0, TimeSpan.Zero)));
+        Assert.Equal("Vollmond", MoonPhase.Label(Locale.De, MoonPhaseName.FullMoon));
+    }
 
     [Theory]
     [InlineData(38.4, "38°")]
@@ -255,15 +267,15 @@ public sealed class DeskParityTests
     [Fact]
     public void S1490_daylight_and_countdown_text()
     {
-        Assert.Equal("24h", SkyText.Daylight(new SunTimes(null, null, PolarState.Day)));
-        Assert.Equal("0h", SkyText.Daylight(new SunTimes(null, null, PolarState.Night)));
+        Assert.Equal("24h", SkyText.Daylight(Locale.En, new SunTimes(null, null, PolarState.Day)));
+        Assert.Equal("0h", SkyText.Daylight(Locale.En, new SunTimes(null, null, PolarState.Night)));
 
         var rise = new DateTimeOffset(2026, 10, 4, 5, 28, 0, TimeSpan.Zero);
-        Assert.Equal("11h 33m", SkyText.Daylight(new SunTimes(rise, rise.AddMinutes(693), PolarState.None)));
+        Assert.Equal("11h 33m", SkyText.Daylight(Locale.En, new SunTimes(rise, rise.AddMinutes(693), PolarState.None)));
 
-        Assert.Equal("in 6h 45m", SkyText.Countdown(TimeSpan.FromMinutes(405)));
-        Assert.Equal("in 0m", SkyText.Countdown(TimeSpan.FromMinutes(-3)));
-        Assert.Equal("Wed 7 Oct", SkyText.ShortDate(new DateTimeOffset(2026, 10, 7, 9, 0, 0, TimeSpan.Zero)));
+        Assert.Equal("in 6h 45m", SkyText.Countdown(Locale.En, TimeSpan.FromMinutes(405)));
+        Assert.Equal("in 0m", SkyText.Countdown(Locale.En, TimeSpan.FromMinutes(-3)));
+        Assert.Equal("Wed, Oct 7", SkyText.ShortDate(Locale.En, new DateTimeOffset(2026, 10, 7, 9, 0, 0, TimeSpan.Zero)));
     }
 
     [Fact]

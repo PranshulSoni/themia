@@ -2,6 +2,7 @@ using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Themia.App.Services;
 using Themia.App.Widgets;
+using Themia.Core.Localization;
 using Themia.Core.Model;
 
 namespace Themia.App.Shell.Config;
@@ -21,12 +22,12 @@ internal static partial class WidgetSettings
 
         var accounts = AppServices.Drive?.Accounts ?? [];
 
-        rows.Add(FluentLayout.Header("Account"));
+        rows.Add(FluentLayout.Header(Str.WidgetUi_AccountLabel.Text()));
 
         var combo = new ComboBox { MinWidth = 260 };
         combo.Items.Add(new ComboBoxItem
         {
-            Content = accounts.Count > 0 ? $"First Microsoft account ({accounts[0].Label})" : "First Microsoft account to sign in",
+            Content = accounts.Count > 0 ? Str.WidgetsC_OneDrive_Settings_FirstAccountNamed.Format(("account", accounts[0].Label)) : Str.WidgetsC_OneDrive_Settings_FirstAccount.Text(),
             Tag = string.Empty,
         });
 
@@ -34,7 +35,7 @@ internal static partial class WidgetSettings
         {
             combo.Items.Add(new ComboBoxItem
             {
-                Content = account.Problem is null ? account.Label : $"{account.Label} — sign in again",
+                Content = account.Problem is null ? account.Label : Str.WidgetsC_OneDrive_Settings_AccountSignInAgain.Format(("account", account.Label)),
                 Tag = account.Id,
             });
         }
@@ -49,32 +50,32 @@ internal static partial class WidgetSettings
             }
         };
 
-        rows.Add(FluentLayout.Row(Glyphs.OneDrive, "OneDrive of",
-            accounts.Count == 0 ? "No Microsoft account is signed in" : "Personal, work or school",
+        rows.Add(FluentLayout.Row(Glyphs.OneDrive, Str.WidgetsC_OneDrive_Settings_OneDriveOf_Label.Text(),
+            (accounts.Count == 0 ? Str.WidgetsC_OneDrive_Settings_NoAccount : Str.WidgetsC_OneDrive_Settings_OneDriveOf_Desc).Text(),
             combo));
 
         if (accounts.Count == 0 || accounts.Any(a => a.Problem is not null))
         {
-            rows.Add(FluentLayout.NavRow(Glyphs.Contact, "Accounts",
-                accounts.Count == 0 ? "Sign in to a Microsoft account" : "An account needs you to sign in again",
+            rows.Add(FluentLayout.NavRow(Glyphs.Contact, Str.WidgetUi_AccountsLabel.Text(),
+                (accounts.Count == 0 ? Str.WidgetsC_OneDrive_Settings_SignInMicrosoft : Str.WidgetsC_OneDrive_Settings_AccountNeedsSignIn).Text(),
                 () => navigate(new ConfigTarget.App(AppPage.Accounts))));
         }
 
-        rows.Add(FluentLayout.Header("Files"));
+        rows.Add(FluentLayout.Header(Str.WidgetsC_OneDrive_Settings_Files.Text()));
 
-        rows.Add(FluentLayout.Row(Glyphs.Folder, "Start in", "Where the widget opens, and where Back returns to",
+        rows.Add(FluentLayout.Row(Glyphs.Folder, Str.WidgetsC_OneDrive_Settings_StartIn_Label.Text(), Str.WidgetsC_OneDrive_Settings_StartIn_Desc.Text(),
             FluentLayout.Choice<DriveStart>(
-                [(DriveStart.Recent, "Recent files"), (DriveStart.Root, "My files")],
+                [(DriveStart.Recent, Str.WidgetsC_OneDrive_RecentFiles.Text()), (DriveStart.Root, Str.WidgetsC_OneDrive_MyFiles.Text())],
                 config.StartIn,
                 value => { config.StartIn = value; save(); })));
 
-        rows.Add(FluentLayout.Row(Glyphs.Open, "Open files with", "Folders always open with a single click",
+        rows.Add(FluentLayout.Row(Glyphs.Open, Str.WidgetsC_OneDrive_Settings_OpenWith_Label.Text(), Str.WidgetsC_OneDrive_Settings_OpenWith_Desc.Text(),
             FluentLayout.Choice<ItemClickMode>(
-                [(ItemClickMode.Double, "Double click"), (ItemClickMode.Single, "Single click")],
+                [(ItemClickMode.Double, Str.WidgetsC_OneDrive_Settings_DoubleClick.Text()), (ItemClickMode.Single, Str.WidgetsC_OneDrive_Settings_SingleClick.Text())],
                 config.ClickMode,
                 value => { config.ClickMode = value; save(); })));
 
-        rows.Add(FluentLayout.Row(Glyphs.Count, "Items", "At least this many; a bigger widget lists more to fill its space",
+        rows.Add(FluentLayout.Row(Glyphs.Count, Str.WidgetsC_OneDrive_Settings_Items_Label.Text(), Str.WidgetsC_OneDrive_Settings_Items_Desc.Text(),
             FluentLayout.Slider(config.EffectiveFileCount, OneDriveConfig.MinFiles, OneDriveConfig.MaxFiles, 5, string.Empty,
                 value => { config.FileCount = (int)Math.Round(value); save(); })));
     }

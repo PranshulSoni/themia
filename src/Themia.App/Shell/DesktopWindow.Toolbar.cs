@@ -13,6 +13,7 @@ using Themia.App.Shell.Config;
 using Themia.App.Widgets;
 using Themia.Core.Diagnostics;
 using Themia.Core.Geometry;
+using Themia.Core.Localization;
 using Themia.Core.Model;
 using Themia.Core.Widgets;
 using Windows.Foundation;
@@ -31,7 +32,7 @@ internal sealed partial class DesktopWindow
     {
         var views = new DropDownButton
         {
-            Content = "View",
+            Content = Str.CtxMenu_View.Text(),
         };
 
         // Refilled every time it opens. Built once, it kept listing the views that existed when the
@@ -46,22 +47,22 @@ internal sealed partial class DesktopWindow
             {
                 Orientation = Orientation.Horizontal,
                 Spacing = 8,
-                Children = { new FontIcon { Glyph = Glyphs.Add, FontSize = 14 }, new TextBlock { Text = "Add widget" } },
+                Children = { new FontIcon { Glyph = Glyphs.Add, FontSize = 14 }, new TextBlock { Text = Str.Shell_Toolbar_AddWidget.Text() } },
             },
         };
 
-        Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(add, "Add widget");
+        Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(add, Str.Shell_Toolbar_AddWidget.Text());
         add.Flyout = BuildAddFlyout();
 
         // Quitting lives behind a second click, and away from Done. With no tray entry this is the
         // only place it is offered, but it is also the one button on the toolbar that cannot be
         // undone, and Done is the one right next to it that the user presses constantly.
         var more = new DropDownButton { Content = new FontIcon { Glyph = "\uE712", FontSize = 14 } };
-        ToolTipService.SetToolTip(more, "More");
+        ToolTipService.SetToolTip(more, Str.Shell_Toolbar_More.Text());
 
         // An icon-only button has no text for a screen reader to read, and none for anything
         // driving the app from outside to find it by either.
-        Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(more, "More");
+        Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(more, Str.Shell_Toolbar_More.Text());
         more.Loaded += (_, _) => more.Flyout = BuildMoreFlyout();
 
         var panel = new StackPanel
@@ -73,10 +74,10 @@ internal sealed partial class DesktopWindow
                 add,
                 views,
                 BuildSnapToggle(),
-                ToolbarButton("", "Settings", _host.ShowSettings),
+                ToolbarButton("", Str.Common_Settings.Text(), _host.ShowSettings),
                 more,
                 new AppBarSeparator(),
-                AccentButton("", "Done", () => _host.SetEditMode(false)),
+                AccentButton("", Str.Common_Done.Text(), () => _host.SetEditMode(false)),
             },
         };
 
@@ -108,12 +109,12 @@ internal sealed partial class DesktopWindow
             {
                 Orientation = Orientation.Horizontal,
                 Spacing = 8,
-                Children = { new FontIcon { Glyph = Glyphs.Grid, FontSize = 14 }, new TextBlock { Text = "Snap" } },
+                Children = { new FontIcon { Glyph = Glyphs.Grid, FontSize = 14 }, new TextBlock { Text = Str.Shell_Toolbar_Snap.Text() } },
             },
         };
 
-        ToolTipService.SetToolTip(toggle, "Snap widgets to the grid while moving and resizing");
-        Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(toggle, "Snap to grid");
+        ToolTipService.SetToolTip(toggle, Str.Shell_Toolbar_SnapTip.Text());
+        Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(toggle, Str.Shell_Toolbar_SnapName.Text());
         toggle.Click += (_, _) =>
         {
             var on = toggle.IsChecked == true;
@@ -151,7 +152,7 @@ internal sealed partial class DesktopWindow
         flyout.Items.Add(new MenuFlyoutSeparator());
 #endif
 
-        var exit = new MenuFlyoutItem { Text = "Exit Themia", Icon = new FontIcon { Glyph = "\uE7E8" } };
+        var exit = new MenuFlyoutItem { Text = Str.Shell_Toolbar_Exit.Text(), Icon = new FontIcon { Glyph = "\uE7E8" } };
         exit.Click += (_, _) => _host.RequestExit();
         flyout.Items.Add(exit);
 
@@ -182,7 +183,7 @@ internal sealed partial class DesktopWindow
 
         flyout.Items.Add(new MenuFlyoutSeparator());
 
-        var add = new MenuFlyoutItem { Text = "New view", Icon = new FontIcon { Glyph = "" } };
+        var add = new MenuFlyoutItem { Text = Str.Shell_View_New.Text(), Icon = new FontIcon { Glyph = "" } };
         add.Click += (_, _) =>
         {
             // [S-1065] The free-tier view limit; a refusal says why in a notice ([S-881]).
@@ -193,7 +194,7 @@ internal sealed partial class DesktopWindow
 
             _host.Mutate(state =>
             {
-                var created = ViewState.Create($"View {state.Views.Count + 1}");
+                var created = ViewState.Create(Str.App_ViewN.Format(("n", state.Views.Count + 1)));
                 state.Views.Add(created);
                 state.ShowViewOn(_monitor.Id, created.Id);
             }, undo: UndoAction.AddView);
@@ -202,7 +203,7 @@ internal sealed partial class DesktopWindow
         flyout.Items.Add(add);
 
         // [S-900] A copy of the view this display shows, shown here in its place.
-        var duplicate = new MenuFlyoutItem { Text = "Duplicate this view", Icon = new FontIcon { Glyph = Glyphs.Copy } };
+        var duplicate = new MenuFlyoutItem { Text = Str.Shell_View_DuplicateThis.Text(), Icon = new FontIcon { Glyph = Glyphs.Copy } };
         duplicate.Click += (_, _) => _host.DuplicateView(shownId, _monitor.Id);
         flyout.Items.Add(duplicate);
     }

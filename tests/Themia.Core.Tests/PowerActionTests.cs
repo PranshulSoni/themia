@@ -1,3 +1,4 @@
+using Themia.Core.Localization;
 using Themia.Core.Model;
 using Themia.Core.Storage;
 using Themia.Core.Widgets;
@@ -159,7 +160,11 @@ public class PowerActionTests
         {
             _ = PowerActionRules.Plan(action);
             Assert.False(string.IsNullOrWhiteSpace(PowerActionRules.Label(action)));
-            Assert.False(string.IsNullOrWhiteSpace(PowerActionRules.Verb(action)));
+            foreach (var locale in Enum.GetValues<Locale>())
+            {
+                Assert.False(string.IsNullOrWhiteSpace(PowerActionRules.Verb(locale, action)));
+                Assert.False(string.IsNullOrWhiteSpace(PowerActionRules.Label(locale, action)));
+            }
             Assert.Contains(action, PowerActionRules.All);
         }
     }
@@ -194,6 +199,16 @@ public class PowerActionTests
             PowerActionRules.FailureMessage(PowerAction.Restart, PowerOutcome.Error(87)));
         Assert.StartsWith("Could not shut down: this account is not allowed",
             PowerActionRules.FailureMessage(PowerAction.Shutdown, PowerActionRules.PrivilegeOutcome(true, PowerActionRules.NotAllAssigned)), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void S1246_Failures_are_in_the_language_and_codes_are_never_grouped()
+    {
+        Assert.Equal("Ruhezustand nicht möglich: der Ruhezustand ist auf diesem PC deaktiviert",
+            PowerActionRules.FailureMessage(Locale.De, PowerAction.Hibernate, PowerActionRules.SuspendOutcome(false, hibernate: true)));
+        Assert.Equal("Could not restart: Windows error 12345",
+            PowerActionRules.FailureMessage(Locale.En, PowerAction.Restart, PowerOutcome.Error(12345)));
+        Assert.Equal("Erneut klicken: Herunterfahren", PowerActionRules.ConfirmHint(Locale.De, PowerAction.Shutdown));
     }
 
     // ---- config and settings order ----------------------------------------------------------

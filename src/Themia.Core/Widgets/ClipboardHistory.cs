@@ -1,3 +1,4 @@
+using Themia.Core.Localization;
 namespace Themia.Core.Widgets;
 
 /// <summary>One thing that was on the clipboard.</summary>
@@ -241,7 +242,7 @@ public static class ClipboardFormatting
     /// What an entry is, in the few words a detail column has room for: how much text, and how many
     /// lines if it is more than one. Said rather than shown, because the row cannot show it.
     /// </summary>
-    public static string Describe(string? text)
+    public static string Describe(string? text, Locale locale)
     {
         if (string.IsNullOrEmpty(text))
         {
@@ -260,9 +261,9 @@ public static class ClipboardFormatting
 
         if (lines > 1)
         {
-            return $"{lines} lines";
+            return Strings.Plural(locale, Str.WidgetsA_Clipboard_Lines, lines);
         }
 
-        return text.Length == 1 ? "1 character" : $"{text.Length} characters";
+        return Strings.Plural(locale, Str.WidgetsA_Clipboard_Characters, text.Length);
     }
 }

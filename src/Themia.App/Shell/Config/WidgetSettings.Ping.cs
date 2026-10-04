@@ -1,5 +1,6 @@
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Themia.Core.Localization;
 using Themia.Core.Model;
 using Themia.Core.Widgets;
 
@@ -13,28 +14,28 @@ internal static partial class WidgetSettings
         ArgumentNullException.ThrowIfNull(config);
         ArgumentNullException.ThrowIfNull(save);
 
-        rows.Add(FluentLayout.Header("Ping"));
+        rows.Add(FluentLayout.Header(Str.Widget_Ping_Label.Text()));
 
         AddHostRow(rows, config, save);
         AddLabelRow(rows, config, save);
 
-        rows.Add(FluentLayout.Header("Show"));
+        rows.Add(FluentLayout.Header(Str.WidgetsB_Settings_Meters_Show.Text()));
 
-        rows.Add(FluentLayout.Row(Glyphs.Motion, "Jitter",
-            "How much one answer differs from the next",
+        rows.Add(FluentLayout.Row(Glyphs.Motion, Str.WidgetsB_Settings_Ping_Jitter_Label.Text(),
+            Str.WidgetsB_Settings_Ping_Jitter_Desc.Text(),
             FluentLayout.Toggle(config.ShowJitter, value => { config.ShowJitter = value; save(); })));
 
-        rows.Add(FluentLayout.Row(Glyphs.Warning, "Packet loss",
-            "The share of probes that got no answer",
+        rows.Add(FluentLayout.Row(Glyphs.Warning, Str.WidgetsB_Settings_Ping_Loss_Label.Text(),
+            Str.WidgetsB_Settings_Ping_Loss_Desc.Text(),
             FluentLayout.Toggle(config.ShowLoss, value => { config.ShowLoss = value; save(); }),
             "loss"));
 
-        rows.Add(FluentLayout.Row(Glyphs.Gauge, "Fastest, average, slowest",
-            "The range of answers over the chart's span",
+        rows.Add(FluentLayout.Row(Glyphs.Gauge, Str.WidgetsB_Settings_Ping_Range_Label.Text(),
+            Str.WidgetsB_Settings_Ping_Range_Desc.Text(),
             FluentLayout.Toggle(config.ShowMinAvgMax, value => { config.ShowMinAvgMax = value; save(); }),
             "min", "avg", "max", "minimum", "maximum"));
 
-        MeterRows(rows, config, save, "the host is probed");
+        MeterRows(rows, config, save, Str.WidgetsB_Settings_Ping_Refresh.Text());
     }
 
     /// <summary>
@@ -46,7 +47,7 @@ internal static partial class WidgetSettings
         var box = new TextBox
         {
             Text = config.HostLabel,
-            PlaceholderText = "Router, game server…",
+            PlaceholderText = Str.WidgetsB_Settings_Ping_Name_Placeholder.Text(),
             MaxLength = PingConfig.MaxLabelLength,
             MinWidth = 200,
         };
@@ -60,8 +61,8 @@ internal static partial class WidgetSettings
             }
         };
 
-        rows.Add(FluentLayout.Row(Glyphs.Tag, "Name",
-            "Shown as the title, with the address under the statistics", box, "label"));
+        rows.Add(FluentLayout.Row(Glyphs.Tag, Str.WidgetsB_Settings_Ping_Name_Label.Text(),
+            Str.WidgetsB_Settings_Ping_Name_Desc.Text(), box, "label"));
     }
 
     /// <summary>
@@ -96,7 +97,7 @@ internal static partial class WidgetSettings
 
             if (typed.Length == 0)
             {
-                FluentLayout.Confirm(verdict, $"Measuring {PingConfig.DefaultHost}");
+                FluentLayout.Confirm(verdict, Str.WidgetsB_Settings_Ping_Measuring.Format(("host", PingConfig.DefaultHost)));
 
                 if (writeThrough && config.Host.Length != 0)
                 {
@@ -109,7 +110,7 @@ internal static partial class WidgetSettings
 
             if (!HostAddress.IsPlausible(typed))
             {
-                FluentLayout.Refuse(verdict, "Not a host name or address");
+                FluentLayout.Refuse(verdict, Str.WidgetsB_Settings_Ping_NotAHost.Text());
                 return;
             }
 
@@ -131,7 +132,7 @@ internal static partial class WidgetSettings
         // untouched field must not be able to rewrite the config just by being shown.
         Judge(writeThrough: false);
 
-        rows.Add(FluentLayout.FieldRow(Glyphs.Link, "Host",
-            "A name or an IP address to measure against", box, verdict));
+        rows.Add(FluentLayout.FieldRow(Glyphs.Link, Str.WidgetsB_Settings_Ping_Host_Label.Text(),
+            Str.WidgetsB_Settings_Ping_Host_Desc.Text(), box, verdict));
     }
 }

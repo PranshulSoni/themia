@@ -1,6 +1,7 @@
 using System.Runtime.InteropServices;
 using Themia.Core.Diagnostics;
 using Themia.Core.Geometry;
+using Themia.Core.Localization;
 using Themia.Core.Model;
 
 namespace Themia.App.Interop;
@@ -41,7 +42,8 @@ internal readonly record struct MonitorTarget(
         get
         {
             var name = string.IsNullOrWhiteSpace(FriendlyName) ? Nickname() : FriendlyName;
-            return IsPrimary ? $"{name} (primary)" : name;
+            // "Main display" already says it is the primary one; only a product name needs the mark.
+            return IsPrimary && !string.IsNullOrWhiteSpace(FriendlyName) ? Str.Shell_Display_Primary.Format(("name", name)) : name;
         }
     }
 
@@ -49,7 +51,10 @@ internal readonly record struct MonitorTarget(
     public string Describe()
     {
         var name = string.IsNullOrWhiteSpace(FriendlyName) ? Nickname() : FriendlyName;
-        return $"{name} — {Bounds.Width} × {Bounds.Height}{(IsPrimary ? " (primary)" : string.Empty)}";
+        var size = Str.Shell_Display_Size.Format(("width", LocaleFormat.Integer(Bounds.Width)), ("height", LocaleFormat.Integer(Bounds.Height)));
+        return IsPrimary && !string.IsNullOrWhiteSpace(FriendlyName)
+            ? Str.Shell_Display_DescribePrimary.Format(("name", name), ("size", size))
+            : Str.Shell_Display_Describe.Format(("name", name), ("size", size));
     }
 
     private static PixelRect ToPixels(Win32.Rect r) => new(r.Left, r.Top, r.Width, r.Height);
@@ -62,10 +67,10 @@ internal readonly record struct MonitorTarget(
     {
         if (IsPrimary)
         {
-            return "Main display";
+            return Str.Shell_Display_Main.Text();
         }
 
-        return Bounds.Left < 0 ? "Left display" : Bounds.Left > 0 ? "Right display" : "Display";
+        return Bounds.Left < 0 ? Str.Shell_Display_Left.Text() : Bounds.Left > 0 ? Str.Shell_Display_Right.Text() : Str.App_MonitorLabelUnknown.Text();
     }
 }
 

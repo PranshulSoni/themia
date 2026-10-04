@@ -8,6 +8,7 @@ using Themia.App.Services;
 using Themia.App.Services.Web;
 using Themia.App.Shell;
 using Themia.Core.Diagnostics;
+using Themia.Core.Localization;
 using Themia.Core.Model;
 using Themia.Core.Widgets;
 using Windows.Foundation;
@@ -113,7 +114,7 @@ internal sealed partial class WebElementView : Grid, IWidgetView, IWidgetSurface
         // [S-1318] The XL footer: where the picture is from, how old it is, and a failed refresh.
         var warning = Fluent.Icon(Glyphs.Warning, "SystemFillColorCautionBrush", FluentType.Caption.FontSize);
         _footerFailedText.Foreground = _staleBrush;
-        _footerFailedText.Text = "Last refresh failed";
+        _footerFailedText.Text = Str.WidgetsC_WebElement_LastRefreshFailed.Text();
         _footerFailed = new StackPanel { Orientation = Orientation.Horizontal, Spacing = Fluent.Space1, Children = { warning, _footerFailedText } };
         _footerHost.TextTrimming = TextTrimming.CharacterEllipsis;
         _footer = new StackPanel
@@ -140,6 +141,8 @@ internal sealed partial class WebElementView : Grid, IWidgetView, IWidgetSurface
     {
         _ticker = ticker;
         _detached = false;
+        Strings.Changed -= OnLanguage;
+        Strings.Changed += OnLanguage;
         _shown ??= new ShownWatch(this, OnShownChanged);
         ApplyConfig(config);
 
@@ -185,6 +188,7 @@ internal sealed partial class WebElementView : Grid, IWidgetView, IWidgetSurface
         }
 
         _detached = true;
+        Strings.Changed -= OnLanguage;
         _shown?.Dispose();
         _shown = null;
         _subscription?.Dispose();
@@ -198,7 +202,7 @@ internal sealed partial class WebElementView : Grid, IWidgetView, IWidgetSurface
 
     /// <summary>[S-463] Re-render now, whatever the interval says.</summary>
     public IReadOnlyList<WidgetAction> ContextActions =>
-        [new WidgetAction(Glyphs.Refresh, "Refresh", RefreshNow)];
+        [new WidgetAction(Glyphs.Refresh, Str.Common_Refresh.Text(), RefreshNow)];
 
     public void ApplySize(WidgetArea area)
     {
@@ -422,7 +426,7 @@ internal sealed partial class WebElementView : Grid, IWidgetView, IWidgetSurface
         {
             Log.Warn(Scope, "could not show the rendered element", ex);
             _lastStatus = SnapshotStatus.Failed;
-            _lastDetail = "The page could not be captured";
+            _lastDetail = Str.WidgetsC_WebElement_CaptureFailed.Text();
             return false;
         }
     }
@@ -469,7 +473,7 @@ internal sealed partial class WebElementView : Grid, IWidgetView, IWidgetSurface
         if (!resolved.IsValid || _config.EffectiveSelector.Length == 0)
         {
             message = resolved.Problem is WebUrlProblem.None or WebUrlProblem.Empty
-                ? "Pick an element from a web page in settings"
+                ? Str.WidgetsC_WebElement_PickInSettings.Text()
                 : WebInput.Explain(resolved.Problem);
         }
         else if (_bitmap is not null)
@@ -479,15 +483,15 @@ internal sealed partial class WebElementView : Grid, IWidgetView, IWidgetSurface
         }
         else if (_lastStatus == SnapshotStatus.NotFound)
         {
-            message = "That element is not on the page any more. Pick it again in settings";
+            message = Str.WidgetsC_WebElement_NotOnPage.Text();
         }
         else if ((_lastStatus is SnapshotStatus.Failed or SnapshotStatus.Refused) && _inFlight is null)
         {
-            message = _lastDetail ?? "The page could not be rendered";
+            message = _lastDetail ?? Str.WidgetsC_WebElement_RenderFailed.Text();
         }
         else
         {
-            message = "Rendering the page…";
+            message = Str.WidgetsC_WebElement_Rendering.Text();
         }
 
         _fit.Visibility = message is null ? Visibility.Visible : Visibility.Collapsed;
@@ -597,6 +601,14 @@ internal sealed partial class WebElementView : Grid, IWidgetView, IWidgetSurface
     /// [S-1318] The render's age in the header (and the XL footer), in the caution colour while it is
     /// a saved picture not yet re-rendered, after a failed refresh, or past three intervals.
     /// </summary>
+    /// <summary>[S-1110] The fixed footer word, the message and the age line again.</summary>
+    private void OnLanguage(Locale locale)
+    {
+        _footerFailedText.Text = Str.WidgetsC_WebElement_LastRefreshFailed.Text();
+        Lay();
+        UpdateAge();
+    }
+
     private void UpdateAge()
     {
         if (_bitmap is null || _renderedAt == DateTimeOffset.MinValue)
@@ -615,16 +627,16 @@ internal sealed partial class WebElementView : Grid, IWidgetView, IWidgetSurface
         _freshness.Foreground = stale ? _staleBrush : _freshBrush;
 
         var explanation = failed
-            ? $"Last refresh failed: {_lastDetail}. Showing the render from {age.ToLowerInvariant()}."
+            ? Str.WidgetUi_RefreshFailedSince.Format(("reason", _lastDetail), ("time", age))
             : _restored
-                ? $"Saved render from {age.ToLowerInvariant()}; rendering again"
-                : $"Rendered {age.ToLowerInvariant()}";
+                ? Str.WidgetsC_WebElement_SavedRenderAgain.Format(("age", age))
+                : Str.WidgetsC_WebElement_Rendered.Format(("age", age));
 
         ToolTipService.SetToolTip(_freshness, explanation);
         ToolTipService.SetToolTip(_fit, explanation);
 
         _footerHost.Text = WebElementRules.Title(_config.Url);
-        _footerAge.Text = $"Rendered {age.ToLowerInvariant()}";
+        _footerAge.Text = Str.WidgetsC_WebElement_Rendered.Format(("age", age));
         _footerAge.Foreground = stale ? _staleBrush : _freshBrush;
         _footerFailed.Visibility = failed ? Visibility.Visible : Visibility.Collapsed;
         ToolTipService.SetToolTip(_footerFailed, failed ? _lastDetail : null);

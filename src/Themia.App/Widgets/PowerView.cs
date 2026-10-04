@@ -8,6 +8,7 @@ using Microsoft.UI.Xaml.Media;
 using Themia.App.Services;
 using Themia.App.Shell;
 using Themia.Core.Diagnostics;
+using Themia.Core.Localization;
 using Themia.Core.Model;
 using Themia.Core.Widgets;
 
@@ -40,6 +41,7 @@ internal sealed partial class PowerView : Grid, IWidgetView, IWidgetSizeAware, I
     private readonly StackPanel _strip = new() { Spacing = 0 };
     private readonly StackPanel _panel = new() { Spacing = 0 };
     private readonly StackPanel _empty;
+    private readonly TextBlock _emptyText = new();
     private readonly List<IDisposable> _hovers = [];
     private readonly Dictionary<PowerAction, Tile> _tiles = [];
     private readonly DispatcherQueueTimer? _disarmTimer;
@@ -78,7 +80,8 @@ internal sealed partial class PowerView : Grid, IWidgetView, IWidgetSizeAware, I
         _panel.VerticalAlignment = VerticalAlignment.Top;
         _panel.HorizontalAlignment = HorizontalAlignment.Right;
 
-        var message = new TextBlock { Text = "No actions selected" };
+        var message = _emptyText;
+        message.Text = Str.Power_Empty.Text();
         _empty = Fluent.EmptyState(Glyphs.Power, message, out _);
         _empty.Visibility = Visibility.Collapsed;
 
@@ -119,7 +122,7 @@ internal sealed partial class PowerView : Grid, IWidgetView, IWidgetSizeAware, I
     public IReadOnlyList<WidgetAction> ContextActions =>
     [
         // [S-1244] The original's one context toggle.
-        new WidgetAction(Glyphs.Tag, _config.ShowLabels ? "Hide labels" : "Show labels", ToggleLabels),
+        new WidgetAction(Glyphs.Tag, (_config.ShowLabels ? Str.WidgetsC_Power_HideLabels : Str.Power_LabelsLabel).Text(), ToggleLabels),
     ];
 
     private void ToggleLabels()
@@ -133,7 +136,22 @@ internal sealed partial class PowerView : Grid, IWidgetView, IWidgetSizeAware, I
     {
         _ticker = ticker;
         _detached = false;
+        Strings.Changed -= OnLanguage;
+        Strings.Changed += OnLanguage;
         ApplyConfig(config);
+    }
+
+    /// <summary>[S-1110] The fixed texts and every tile's name again, then the facts redrawn.</summary>
+    private void OnLanguage(Locale locale)
+    {
+        _emptyText.Text = Str.Power_Empty.Text();
+        foreach (var tile in _tiles.Values)
+        {
+            AutomationProperties.SetName(tile.Button, PowerActionRules.Label(tile.Action));
+        }
+
+        PaintArmed();
+        Lay();
     }
 
     public void ApplyConfig(WidgetConfig config)
@@ -297,7 +315,7 @@ internal sealed partial class PowerView : Grid, IWidgetView, IWidgetSizeAware, I
 
         if (_error is not null)
         {
-            facts.Add(new PowerFact(PowerFactKind.Error, "Error", _error, _error));
+            facts.Add(new PowerFact(PowerFactKind.Error, Str.WidgetsC_Power_Fact_Error.Text(), _error, _error));
         }
 
         facts.AddRange(PowerStrip.Facts(_snapshot, _config.ShowPlan, _config.ShowTimeRemaining, _config.ShowBatterySaver));
@@ -509,13 +527,13 @@ internal sealed partial class PowerView : Grid, IWidgetView, IWidgetSizeAware, I
 
         if (plans.Count > 0 && room.Take(FluentType.Caption.LineHeight + Fluent.Space3))
         {
-            _panel.Children.Add(PanelHeading("Power plans"));
+            _panel.Children.Add(PanelHeading(Str.WidgetsC_Power_Plans.Text()));
 
             var planRows = room.TakeRows(rowHeight, plans.Count);
 
             foreach (var plan in plans.Take(planRows))
             {
-                _panel.Children.Add(PanelRow(plan.Active ? Glyphs.Done : Glyphs.Lightning, plan.Name, plan.Active ? "Active" : string.Empty, false, compact: !huge, accent: plan.Active));
+                _panel.Children.Add(PanelRow(plan.Active ? Glyphs.Done : Glyphs.Lightning, plan.Name, plan.Active ? Str.WidgetsC_Power_PlanActive.Text() : string.Empty, false, compact: !huge, accent: plan.Active));
             }
         }
 
@@ -525,7 +543,7 @@ internal sealed partial class PowerView : Grid, IWidgetView, IWidgetSizeAware, I
             && Disclosure.WholeRows(room.Remaining - FluentType.Caption.LineHeight - Fluent.Space3, rowHeight) >= timeouts.Count
             && room.Take(FluentType.Caption.LineHeight + Fluent.Space3))
         {
-            _panel.Children.Add(PanelHeading("Screen and sleep"));
+            _panel.Children.Add(PanelHeading(Str.WidgetsC_Power_ScreenAndSleep.Text()));
 
             foreach (var fact in timeouts.Take(room.TakeRows(rowHeight, timeouts.Count)))
             {
@@ -716,7 +734,7 @@ internal sealed partial class PowerView : Grid, IWidgetView, IWidgetSizeAware, I
             }
 
             ToolTipService.SetToolTip(tile.Button, armed ? PowerActionRules.ConfirmHint(tile.Action) : name);
-            AutomationProperties.SetItemStatus(tile.Button, armed ? "Armed: click again to confirm" : string.Empty);
+            AutomationProperties.SetItemStatus(tile.Button, armed ? Str.WidgetsC_Power_ArmedStatus.Text() : string.Empty);
         }
     }
 
@@ -731,6 +749,7 @@ internal sealed partial class PowerView : Grid, IWidgetView, IWidgetSizeAware, I
     public void Detach()
     {
         _detached = true;
+        Strings.Changed -= OnLanguage;
         _arm.Disarm();
 
         if (_disarmTimer is not null)

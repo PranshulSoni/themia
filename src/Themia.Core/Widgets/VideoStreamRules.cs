@@ -1,3 +1,4 @@
+using Themia.Core.Localization;
 using Themia.Core.Model;
 
 namespace Themia.Core.Widgets;
@@ -279,45 +280,61 @@ public static class StreamChromeRules
     /// [S-1313] The status words: "LIVE" for an open stream, "every 10 s" for an interval grab,
     /// "reconnecting 3" after the third failure in a row, "connecting" before the first frame.
     /// </summary>
-    public static string Status(bool live, int reconnects, int refreshSeconds)
+    public static string Status(bool live, int reconnects, int refreshSeconds) => Status(Strings.Current, live, reconnects, refreshSeconds);
+
+    /// <summary><see cref="Status(bool, int, int)"/> in an explicit language.</summary>
+    public static string Status(Locale locale, bool live, int reconnects, int refreshSeconds)
     {
         if (live)
         {
             return refreshSeconds > VideoStreamRules.LiveRefreshSeconds
-                ? $"every {VideoStreamRules.ClampRefreshSeconds(refreshSeconds)} s"
-                : "LIVE";
+                ? Strings.Format(locale, Str.WidgetsC_VideoStream_Status_Every, ("seconds", VideoStreamRules.ClampRefreshSeconds(refreshSeconds)))
+                : Strings.Get(locale, Str.WidgetsC_VideoStream_Status_Live);
         }
 
-        return reconnects > 0 ? $"reconnecting {reconnects}" : "connecting";
+        return reconnects > 0
+            ? Strings.Format(locale, Str.WidgetsC_VideoStream_Status_Reconnecting, ("count", reconnects))
+            : Strings.Get(locale, Str.WidgetsC_VideoStream_Status_Connecting);
     }
 
     /// <summary>[S-1313] How old the picture on screen is: "now", "4 s ago", "2 min ago", "3 h ago".</summary>
-    public static string FrameAge(TimeSpan age)
+    public static string FrameAge(TimeSpan age) => FrameAge(Strings.Current, age);
+
+    /// <summary><see cref="FrameAge(TimeSpan)"/> in an explicit language.</summary>
+    public static string FrameAge(Locale locale, TimeSpan age)
     {
         if (age < TimeSpan.FromSeconds(1))
         {
-            return "now";
+            return Strings.Get(locale, Str.WidgetsC_VideoStream_Age_Now);
         }
 
         if (age < TimeSpan.FromMinutes(1))
         {
-            return $"{(int)age.TotalSeconds} s ago";
+            return Strings.Format(locale, Str.WidgetsC_VideoStream_Age_Seconds, ("value", (long)age.TotalSeconds));
         }
 
-        return age < TimeSpan.FromHours(1) ? $"{(int)age.TotalMinutes} min ago" : $"{(int)age.TotalHours} h ago";
+        return age < TimeSpan.FromHours(1)
+            ? Strings.Format(locale, Str.WidgetsC_VideoStream_Age_Minutes, ("value", (long)age.TotalMinutes))
+            : Strings.Format(locale, Str.WidgetsC_VideoStream_Age_Hours, ("value", (long)age.TotalHours));
     }
 
     /// <summary>[S-1313] "12 fps", "2.5 fps"; empty when there is no rate (interval mode, one snapshot, a video).</summary>
-    public static string Rate(double? framesPerSecond)
+    public static string Rate(double? framesPerSecond) => Rate(Strings.Current, framesPerSecond);
+
+    /// <summary><see cref="Rate(double?)"/> in an explicit language, with its decimal mark.</summary>
+    public static string Rate(Locale locale, double? framesPerSecond)
     {
         if (framesPerSecond is not { } fps || !double.IsFinite(fps) || fps <= 0)
         {
             return string.Empty;
         }
 
-        return fps >= 10
-            ? $"{Math.Round(fps).ToString("0", System.Globalization.CultureInfo.InvariantCulture)} fps"
-            : $"{fps.ToString("0.#", System.Globalization.CultureInfo.InvariantCulture)} fps";
+        // Whole from ten; under it one decimal, dropped when it is a zero ("2 fps", not "2.0 fps").
+        var tenths = Math.Round(fps, 1, MidpointRounding.AwayFromZero);
+        var value = fps >= 10
+            ? LocaleFormat.Number(locale, Math.Round(fps, MidpointRounding.AwayFromZero), 0)
+            : LocaleFormat.Number(locale, tenths, tenths == Math.Floor(tenths) ? 0 : 1);
+        return Strings.Format(locale, Str.WidgetsC_VideoStream_Fps, ("value", value));
     }
 
     /// <summary>[S-1313] "1280×720" for the camera's own size; empty when unknown.</summary>
@@ -330,8 +347,8 @@ public static class StreamChromeRules
     public static string Transport(StreamTransport transport) => transport switch
     {
         StreamTransport.Mjpeg => "MJPEG",
-        StreamTransport.Image => "Snapshot",
-        StreamTransport.Video => "Video",
+        StreamTransport.Image => Str.WidgetsC_VideoStream_Transport_Snapshot.Text(),
+        StreamTransport.Video => Str.WidgetsC_VideoStream_Transport_Video.Text(),
         StreamTransport.Hls => "HLS",
         _ => string.Empty,
     };

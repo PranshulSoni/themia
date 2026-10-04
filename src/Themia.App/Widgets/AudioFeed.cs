@@ -1,6 +1,7 @@
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Themia.App.Services;
+using Themia.Core.Localization;
 using Themia.Core.Widgets;
 
 namespace Themia.App.Widgets;
@@ -129,7 +130,7 @@ internal static class AudioDeviceMenu
         {
             var follow = new MenuFlyoutItem
             {
-                Text = "Follow the default output",
+                Text = Str.WidgetsA_Audio_FollowDefault.Text(),
                 Icon = new FontIcon { Glyph = Shell.Glyphs.Speakers },
             };
             follow.Click += (_, _) => pick(null);
@@ -147,8 +148,8 @@ internal static class AudioDeviceMenu
                 IsChecked = string.Equals(device.Id, shown, StringComparison.OrdinalIgnoreCase),
             };
             ToolTipService.SetToolTip(item, string.Equals(device.Id, snapshot.DefaultId, StringComparison.OrdinalIgnoreCase)
-                ? $"{name} (Windows default)"
-                : $"Make {name} the default output");
+                ? Str.WidgetsA_Audio_IsDefault.Format(("name", name))
+                : Str.WidgetsA_Audio_MakeDefault.Format(("name", name)));
             item.Click += (_, _) => pick(device);
             menu.Items.Add(item);
         }

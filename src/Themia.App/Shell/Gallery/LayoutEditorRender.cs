@@ -61,7 +61,15 @@ internal static class LayoutEditorRender
             view.Widgets.Add(widget);
 
             var statePath = Path.Combine(Path.GetTempPath(), "themia-layout-editor-render", "state.json");
-            host = new AppHost(dispatcher, AppStateStore.Detached(statePath), new AppState { Views = [view], ActiveViewId = view.Id });
+            var state = new AppState { Views = [view], ActiveViewId = view.Id };
+
+            // [S-1109] --lang: the host applies the state's language, so the demo state carries it.
+            if (RenderLanguage.Setting(Environment.GetCommandLineArgs()) is { } language)
+            {
+                state.Preferences.Language = language;
+            }
+
+            host = new AppHost(dispatcher, AppStateStore.Detached(statePath), state);
 
             editor = new LayoutEditorWindow(host);
             var window = editor.DebugWindow;

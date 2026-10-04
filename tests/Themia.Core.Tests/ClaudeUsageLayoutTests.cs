@@ -1,3 +1,4 @@
+using Themia.Core.Localization;
 using Themia.Core.Developer;
 using Themia.Core.Widgets;
 using Xunit;
@@ -89,14 +90,14 @@ public sealed class ClaudeUsageLayoutTests
         Assert.Equal(UsagePace.Ahead, ClaudeUsageRules.Pace(60, 0.4));
         Assert.Equal(UsagePace.On, ClaudeUsageRules.Pace(43, 0.4));
         Assert.Equal(UsagePace.Under, ClaudeUsageRules.Pace(10, 0.4));
-        Assert.Equal("ahead of pace", ClaudeUsageRules.PaceText(UsagePace.Ahead));
+        Assert.Equal("ahead of pace", ClaudeUsageRules.PaceText(UsagePace.Ahead, Locale.En));
     }
 
     [Fact]
     public void S793_the_reset_clock_names_the_day_only_when_it_is_not_today()
     {
-        Assert.Equal("14:20", ClaudeUsageRules.ResetClock(Now.AddHours(2).AddMinutes(20), Now, TimeZoneInfo.Utc));
-        Assert.Equal("Wed 16:00", ClaudeUsageRules.ResetClock(Now.AddDays(3).AddHours(4), Now, TimeZoneInfo.Utc));
+        Assert.Equal("2:20 PM", ClaudeUsageRules.ResetClock(Now.AddHours(2).AddMinutes(20), Now, TimeZoneInfo.Utc, Locale.En));
+        Assert.Equal("Wed 4:00 PM", ClaudeUsageRules.ResetClock(Now.AddDays(3).AddHours(4), Now, TimeZoneInfo.Utc, Locale.En));
     }
 
     [Fact]

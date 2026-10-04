@@ -7,6 +7,7 @@ using Microsoft.UI.Xaml.Documents;
 using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Shapes;
 using Themia.App.Shell;
+using Themia.Core.Localization;
 using Themia.Core.Office;
 using Themia.Core.Widgets;
 
@@ -68,7 +69,7 @@ internal sealed partial class CalendarView
         for (var c = 0; c < 7; c++)
         {
             var label = Fluent.Text(FluentType.Caption, "TextFillColorTertiaryBrush");
-            label.Text = names ? CalendarText.WeekdayName(order[c])[..3] : CalendarText.WeekdayInitial(order[c]);
+            label.Text = names ? CalendarText.WeekdayShort(order[c]) : CalendarText.WeekdayInitial(order[c]);
             label.HorizontalAlignment = names ? HorizontalAlignment.Left : HorizontalAlignment.Center;
             label.Margin = names ? new Thickness(3, 0, 0, 0) : new Thickness(0);
             SetColumn(label, c);
@@ -284,17 +285,17 @@ internal sealed partial class CalendarView
 
     private static string DayTooltip(DateOnly day, IReadOnlyList<DayItem> items)
     {
-        var lines = new List<string> { $"{CalendarText.WeekdayName(day.DayOfWeek)} {Formatting.ShortDate(day)}" };
+        var lines = new List<string> { Str.WidgetsA_Clock_Date.Format(("weekday", CalendarText.WeekdayName(day.DayOfWeek)), ("date", Formatting.ShortDate(day))) };
 
         foreach (var item in items)
         {
             if (item.Birthday is { } b)
             {
-                lines.Add($"Birthday: {BirthdayRules.Label(b, day)}");
+                lines.Add(Str.WidgetsA_Calendar_BirthdayOf.Format(("name", BirthdayRules.Label(b, day))));
             }
             else if (item.Event is { } e)
             {
-                lines.Add(e.AllDay ? $"All day  {Title(e)}" : $"{Clock(e.Start)}  {Title(e)}");
+                lines.Add($"{(e.AllDay ? Str.Calendar_AllDay.Text() : Clock(e.Start))}  {Title(e)}");
             }
         }
 

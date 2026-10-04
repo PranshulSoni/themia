@@ -1,4 +1,5 @@
 using Themia.Core.Accounts;
+using Themia.Core.Localization;
 
 namespace Themia.Core.Office;
 
@@ -7,6 +8,13 @@ namespace Themia.Core.Office;
 /// because each needs a different thing from the user: signing in again and granting access are
 /// done on the Accounts page, the network ones fix themselves, and the rest go to the log.
 /// </summary>
+/// <summary>What a <see cref="SyncProblem"/> message is about: the one word in it that differs per widget.</summary>
+public enum SyncSubject
+{
+    Calendar,
+    Contacts,
+}
+
 public enum SyncProblem
 {
     None,
@@ -59,18 +67,26 @@ public static class SyncProblems
         _ => TimeSpan.Zero,
     };
 
-    /// <summary>One sentence for the widget, naming what is wrong for <paramref name="what"/> ("calendar", "contacts").</summary>
-    public static string Message(SyncProblem problem, string what) => problem switch
+    /// <summary>
+    /// One sentence for the widget, naming what is wrong for <paramref name="subject"/>, in
+    /// <paramref name="locale"/>. The refusal is one whole sentence per subject, not a noun glued in.
+    /// </summary>
+    public static string Message(SyncProblem problem, SyncSubject subject, Locale locale) => problem switch
     {
         SyncProblem.None => string.Empty,
-        SyncProblem.NoAccount => "That account is no longer signed in.",
-        SyncProblem.SignInRequired => "Sign in again to see this.",
-        SyncProblem.Forbidden => $"Access to the {what} was not granted.",
-        SyncProblem.Offline => "No network",
-        SyncProblem.Unreachable => "Can't reach the service",
-        SyncProblem.TimedOut => "The service timed out",
-        SyncProblem.RateLimited => "Asked too often — waiting a while",
-        SyncProblem.ServerError => "The service is having trouble",
-        _ => "The service sent something unexpected",
+        SyncProblem.Forbidden => Strings.Get(locale, subject == SyncSubject.Contacts
+            ? Str.WidgetsA_Office_Problem_ForbiddenContacts
+            : Str.WidgetsA_Office_Problem_ForbiddenCalendar),
+        _ => Strings.Get(locale, problem switch
+        {
+            SyncProblem.NoAccount => Str.WidgetsA_Office_Problem_NoAccount,
+            SyncProblem.SignInRequired => Str.WidgetsA_Office_Problem_SignIn,
+            SyncProblem.Offline => Str.WidgetsA_Office_Problem_Offline,
+            SyncProblem.Unreachable => Str.WidgetsA_Office_Problem_Unreachable,
+            SyncProblem.TimedOut => Str.WidgetsA_Office_Problem_TimedOut,
+            SyncProblem.RateLimited => Str.WidgetsA_Office_Problem_RateLimited,
+            SyncProblem.ServerError => Str.WidgetsA_Office_Problem_ServerError,
+            _ => Str.WidgetsA_Office_Problem_BadResponse,
+        }),
     };
 }

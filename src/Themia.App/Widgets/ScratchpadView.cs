@@ -8,6 +8,7 @@ using Microsoft.UI.Xaml.Shapes;
 using Themia.App.Services;
 using Themia.App.Shell;
 using Themia.Core.Diagnostics;
+using Themia.Core.Localization;
 using Themia.Core.Model;
 using Themia.Core.Widgets;
 using Windows.Foundation;
@@ -55,6 +56,7 @@ internal sealed partial class ScratchpadView : Grid, IWidgetView, IWidgetSurface
 
     private readonly Canvas _pad = new();
     private readonly StackPanel _hint;
+    private readonly TextBlock _hintText = new();
 
     /// <summary>One visual per committed stroke, in the same order, so an erase can remove both together.</summary>
     private readonly List<UIElement> _visuals = [];
@@ -78,14 +80,14 @@ internal sealed partial class ScratchpadView : Grid, IWidgetView, IWidgetSurface
     {
         RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
 
-        _eraser = ToggleCommand(Glyphs.Clear, "Erase strokes");
+        _eraser = ToggleCommand(Glyphs.Clear, Str.WidgetsC_Scratchpad_EraseStrokes.Text());
         _eraser.Checked += OnEraserToggled;
         _eraser.Unchecked += OnEraserToggled;
 
-        _undoButton = CommandButton(Glyphs.Reset, "Undo");
+        _undoButton = CommandButton(Glyphs.Reset, Str.WidgetsC_Scratchpad_Undo.Text());
         _undoButton.Click += OnUndoClicked;
 
-        _clearButton = CommandButton(Glyphs.Delete, "Clear the drawing");
+        _clearButton = CommandButton(Glyphs.Delete, Str.WidgetsC_Scratchpad_ClearDrawing.Text());
         _clearButton.Flyout = BuildClearConfirmation();
 
         _tools = new StackPanel
@@ -101,9 +103,10 @@ internal sealed partial class ScratchpadView : Grid, IWidgetView, IWidgetSurface
         // for its own drag area.
         _pad.Background = FluentLayout.Themed("SubtleFillColorTransparentBrush", Colors.Transparent);
 
+        _hintText.Text = Str.Scratchpad_DrawHere.Text();
         _hint = Fluent.EmptyState(
             WidgetCatalog.Definition(WidgetKind.Scratchpad).Glyph,
-            new TextBlock { Text = "Draw here" },
+            _hintText,
             out _);
 
         // [S-07] The hint never intercepts the pointer: the first stroke has to land on the pad
@@ -213,12 +216,12 @@ internal sealed partial class ScratchpadView : Grid, IWidgetView, IWidgetSurface
     private Flyout BuildClearConfirmation()
     {
         var message = Fluent.Text(FluentType.Body);
-        message.Text = "Clear the whole drawing?";
+        message.Text = Str.WidgetsC_Scratchpad_ClearConfirm.Text();
         message.TextWrapping = TextWrapping.Wrap;
         message.TextTrimming = TextTrimming.None;
 
-        var confirm = new Button { Content = "Clear" };
-        var cancel = new Button { Content = "Cancel" };
+        var confirm = new Button { Content = Str.Common_Clear.Text() };
+        var cancel = new Button { Content = Str.Common_Cancel.Text() };
 
         var flyout = new Flyout
         {
@@ -267,7 +270,19 @@ internal sealed partial class ScratchpadView : Grid, IWidgetView, IWidgetSurface
     public void Attach(Ticker ticker, WidgetConfig config)
     {
         // Nothing to tick: a drawing changes when it is drawn on.
+        Strings.Changed += OnLanguage;
         ApplyConfig(config);
+    }
+
+    /// <summary>[S-1110] Re-read the texts set once at construction; the drawing is untouched.</summary>
+    private void OnLanguage(Locale locale)
+    {
+        ToolTipService.SetToolTip(_undoButton, Str.WidgetsC_Scratchpad_Undo.Text());
+        ToolTipService.SetToolTip(_clearButton, Str.WidgetsC_Scratchpad_ClearDrawing.Text());
+        _clearButton.Flyout = BuildClearConfirmation();
+        _hintText.Text = Str.Scratchpad_DrawHere.Text();
+        ApplyBarTips();
+        UpdateCommands();
     }
 
     public void ApplyConfig(WidgetConfig config)
@@ -301,6 +316,7 @@ internal sealed partial class ScratchpadView : Grid, IWidgetView, IWidgetSurface
         // The last stroke has no other copy: commit it before anything is unhooked.
         CommitStroke();
         _detached = true;
+        Strings.Changed -= OnLanguage;
 
         ReleaseCapture();
 
@@ -688,7 +704,7 @@ internal sealed partial class ScratchpadView : Grid, IWidgetView, IWidgetSurface
     {
         _undoButton.IsEnabled = _undo.Count > 0;
         _clearButton.IsEnabled = _config.Strokes.Count > 0;
-        ToolTipService.SetToolTip(_eraser, _eraser.IsChecked == true ? "Draw" : "Erase strokes");
+        ToolTipService.SetToolTip(_eraser, _eraser.IsChecked == true ? Str.WidgetsC_Scratchpad_Draw.Text() : Str.WidgetsC_Scratchpad_EraseStrokes.Text());
         UpdateBar();
     }
 

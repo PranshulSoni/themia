@@ -1,3 +1,4 @@
+using Themia.Core.Localization;
 using Themia.Core.Model;
 using Themia.Core.Widgets;
 using Xunit;
@@ -121,7 +122,7 @@ public sealed class AppWidgetsTests
     {
         var apps = new List<InstalledApp> { App("Alpha"), App("Beta", "Zed"), App("Gamma", "accessories"), App("Delta", "zed") };
 
-        var sections = InstalledAppRules.Sections(apps, group: true);
+        var sections = InstalledAppRules.Sections(apps, group: true, Locale.En);
 
         Assert.Equal(["accessories", "Zed", "Other"], sections.Select(s => s.Title));
         Assert.Equal(["Beta", "Delta"], sections[1].Apps.Select(a => a.Name));
@@ -133,10 +134,10 @@ public sealed class AppWidgetsTests
     {
         var apps = new List<InstalledApp> { App("Alpha"), App("Beta", "Zed") };
 
-        var flat = Assert.Single(InstalledAppRules.Sections(apps, group: false));
+        var flat = Assert.Single(InstalledAppRules.Sections(apps, group: false, Locale.En));
         Assert.Equal(string.Empty, flat.Title);
         Assert.Equal(2, flat.Apps.Count);
-        Assert.Empty(InstalledAppRules.Sections([], group: true));
+        Assert.Empty(InstalledAppRules.Sections([], group: true, Locale.En));
     }
 
     [Fact]
@@ -145,8 +146,9 @@ public sealed class AppWidgetsTests
         var apps = new List<InstalledApp> { App("A"), App("B", "Games"), App("C", "games"), App("D", "Accessories") };
 
         Assert.Equal(["Accessories", "Games", ""], InstalledAppRules.Categories(apps));
-        Assert.Equal("Other", InstalledAppRules.CategoryTitle(""));
-        Assert.Equal("Games", InstalledAppRules.CategoryTitle("Games"));
+        Assert.Equal("Other", InstalledAppRules.CategoryTitle("", Locale.En));
+        Assert.Equal("Sonstige", InstalledAppRules.CategoryTitle("", Locale.De));
+        Assert.Equal("Games", InstalledAppRules.CategoryTitle("Games", Locale.De));
     }
 
     [Theory]
@@ -424,7 +426,7 @@ public sealed class AppWidgetsTests
     [InlineData(HelpTab.Customize, "Find a setting")]
     public void S1532_the_guide_describes_the_app_as_it_is(HelpTab tab, string phrase)
     {
-        var page = HelpGuide.Page(tab);
+        var page = HelpGuide.Page(tab, Locale.En);
         var text = string.Join(" ", new[] { page.Intro }.Concat(page.Sections.SelectMany(s => s.Bullets)));
 
         Assert.Contains(phrase, text, StringComparison.Ordinal);
@@ -433,8 +435,8 @@ public sealed class AppWidgetsTests
     [Fact]
     public void S1531_the_keys_card_starts_with_edit_mode_and_every_key_says_what_it_does()
     {
-        Assert.Equal("Ctrl+Alt+W", HelpGuide.Keys[0].Keys);
-        Assert.All(HelpGuide.Keys, key =>
+        Assert.Equal("Ctrl+Alt+W", HelpGuide.KeysIn(Locale.En)[0].Keys);
+        Assert.All(HelpGuide.KeysIn(Locale.En), key =>
         {
             Assert.False(string.IsNullOrWhiteSpace(key.Meaning));
             Assert.DoesNotContain('*', key.Keys + key.Meaning);

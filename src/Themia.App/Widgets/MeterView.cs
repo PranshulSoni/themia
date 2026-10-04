@@ -6,6 +6,7 @@ using Themia.App.Services;
 using Themia.App.Shell;
 using Themia.App.Widgets.Meters;
 using Themia.Core.Diagnostics;
+using Themia.Core.Localization;
 using Themia.Core.Model;
 using Themia.Core.Widgets;
 
@@ -64,8 +65,12 @@ internal sealed partial class MeterView : Grid, IWidgetView, IWidgetSizeAware, I
     /// </summary>
     private const int ListPromise = 3;
 
-    /// <summary>Characters a composition legend needs ("In use 12.3 GB  Cached 10.1 GB  Free 3.4 GB").</summary>
-    private const double LegendCharacters = 44;
+    /// <summary>
+    /// Characters a composition legend needs ("In use 12.3 GB  Cached 10.1 GB  Free 3.4 GB"): the
+    /// three labels in the current language, plus the figures and the gaps between them (28).
+    /// </summary>
+    private static double LegendCharacters
+        => Str.WidgetsB_Memory_InUse.Text().Length + Str.WidgetsB_Memory_Cached.Text().Length + Str.WidgetsB_Meters_Free.Text().Length + 28;
 
     private enum Arrangement
     {
@@ -286,7 +291,7 @@ internal sealed partial class MeterView : Grid, IWidgetView, IWidgetSizeAware, I
         _scale.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         _scale.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         _top.HorizontalAlignment = HorizontalAlignment.Right;
-        _top.Text = "100%";
+        _top.Text = LocaleFormat.Percent(Strings.Current, 100);
         Grid.SetColumn(_top, 1);
         _scale.Children.Add(_span);
         _scale.Children.Add(_top);
@@ -338,7 +343,7 @@ internal sealed partial class MeterView : Grid, IWidgetView, IWidgetSizeAware, I
         icon.HorizontalAlignment = HorizontalAlignment.Center;
 
         var text = Fluent.Text(FluentType.Body, "TextFillColorSecondaryBrush");
-        text.Text = "No battery";
+        text.Text = Str.WidgetsB_Battery_None.Text();
         text.HorizontalAlignment = HorizontalAlignment.Center;
 
         var panel = new StackPanel
@@ -360,7 +365,7 @@ internal sealed partial class MeterView : Grid, IWidgetView, IWidgetSizeAware, I
     /// </summary>
     private void BuildTiles()
     {
-        string[] labels = ["Average", "Peak", "Low"];
+        string[] labels = [Str.WidgetsB_Meters_Average.Text(), Str.WidgetsB_Meters_Peak.Text(), Str.WidgetsB_Meters_Low.Text()];
         _tiles.VerticalAlignment = VerticalAlignment.Center;
         _tiles.Visibility = Visibility.Collapsed;
 
@@ -964,7 +969,7 @@ internal sealed partial class MeterView : Grid, IWidgetView, IWidgetSizeAware, I
             // A share's chart tops out at 100%; a rate's at the window's peak, which is worth saying.
             _top.Text = _part.Scale.FollowsWindow
                 ? MeterHistory.Format(_unit, _part.Scale.Ceiling(visible, _seconds.ToArray().AsSpan(Math.Max(0, _seconds.Count - _window))))
-                : "100%";
+                : LocaleFormat.Percent(Strings.Current, 100);
         }
 
         if (line)
@@ -982,9 +987,9 @@ internal sealed partial class MeterView : Grid, IWidgetView, IWidgetSizeAware, I
         }
         else if (tiles)
         {
-            _tileLabels[0].Text = "Average";
-            _tileLabels[1].Text = "Peak";
-            _tileLabels[2].Text = "Low";
+            _tileLabels[0].Text = Str.WidgetsB_Meters_Average.Text();
+            _tileLabels[1].Text = Str.WidgetsB_Meters_Peak.Text();
+            _tileLabels[2].Text = Str.WidgetsB_Meters_Low.Text();
             _tileValues[0].Text = summary is { } a ? MeterHistory.Format(_unit, a.Average) : "--";
             _tileValues[1].Text = summary is { } b ? MeterHistory.Format(_unit, b.Max) : "--";
             _tileValues[2].Text = summary is { } c ? MeterHistory.Format(_unit, c.Min) : "--";
@@ -1061,7 +1066,7 @@ internal sealed partial class MeterView : Grid, IWidgetView, IWidgetSizeAware, I
             // A meter that cannot read its counter shows that it cannot, rather than taking the
             // whole surface down from inside a tick.
             Log.Error(Scope, $"could not sample {_kind}", ex);
-            Present(MeterReading.Unavailable("error"));
+            Present(MeterReading.Unavailable(Str.WidgetsB_Meters_Error.Text()));
         }
     }
 

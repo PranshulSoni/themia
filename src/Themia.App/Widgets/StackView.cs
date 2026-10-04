@@ -3,6 +3,7 @@ using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
 using Themia.App.Services;
 using Themia.App.Shell;
+using Themia.Core.Localization;
 using Themia.Core.Model;
 using Themia.Core.Widgets;
 
@@ -57,7 +58,14 @@ internal sealed partial class StackView : Grid, IWidgetView, IWidgetContainerVie
     /// <inheritdoc />
     public void Bind(IWidgetSurface surface) => _surface = surface;
 
-    public void Attach(Ticker ticker, WidgetConfig config) => ApplyConfig(config);
+    public void Attach(Ticker ticker, WidgetConfig config)
+    {
+        Strings.Changed += OnLanguage;
+        ApplyConfig(config);
+    }
+
+    /// <summary>[S-1109] The rows carry catalogue names, which follow the language.</summary>
+    private void OnLanguage(Locale locale) => Rebuild();
 
     public void ApplyConfig(WidgetConfig config)
     {
@@ -192,7 +200,7 @@ internal sealed partial class StackView : Grid, IWidgetView, IWidgetContainerVie
     private Border Row(FrameworkElement child, bool isOpen, bool icons, int index)
     {
         var card = child as WidgetCard;
-        var name = card is null ? "Widget"
+        var name = card is null ? Str.Settings_Style_Widget.Text()
             : string.IsNullOrWhiteSpace(card.Model.Label) ? WidgetCatalog.Definition(card.Model.Kind).Label
             : card.Model.Label;
 
@@ -259,12 +267,12 @@ internal sealed partial class StackView : Grid, IWidgetView, IWidgetContainerVie
         var id = card.Model.Id;
         return
         [
-            new(Glyphs.Settings, "Configure…", () => container.ChildAction(id, ContainerChildAction.Configure)),
+            new(Glyphs.Settings, Str.ViewSwitcher_Configure.Text(), () => container.ChildAction(id, ContainerChildAction.Configure)),
             ItemMenuEntry.Separator,
-            new(Glyphs.MoveUp, "Move up", () => container.ChildAction(id, ContainerChildAction.MoveUp), Disabled: !container.CanMoveChild(id, -1)),
-            new(Glyphs.MoveDown, "Move down", () => container.ChildAction(id, ContainerChildAction.MoveDown), Disabled: !container.CanMoveChild(id, 1)),
+            new(Glyphs.MoveUp, Str.Stack_MoveUp.Text(), () => container.ChildAction(id, ContainerChildAction.MoveUp), Disabled: !container.CanMoveChild(id, -1)),
+            new(Glyphs.MoveDown, Str.Stack_MoveDown.Text(), () => container.ChildAction(id, ContainerChildAction.MoveDown), Disabled: !container.CanMoveChild(id, 1)),
             ItemMenuEntry.Separator,
-            new(Glyphs.TakeOut, "Take out of the stack", () => container.ChildAction(id, ContainerChildAction.TakeOut)),
+            new(Glyphs.TakeOut, Str.WidgetsA_Stack_TakeOut.Text(), () => container.ChildAction(id, ContainerChildAction.TakeOut)),
         ];
     }
 
@@ -351,6 +359,7 @@ internal sealed partial class StackView : Grid, IWidgetView, IWidgetContainerVie
 
     public void Detach()
     {
+        Strings.Changed -= OnLanguage;
         ClearRows();
 
         // A child left collapsed would be invisible on the desktop with nothing to reveal it.

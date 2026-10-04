@@ -58,6 +58,9 @@ public partial class App : Application
         LogFiles.InstallBasics();
 
 #if DEBUG
+        // [S-1109] --lang <code> draws any render below in that language.
+        Shell.Gallery.RenderLanguage.Apply(Environment.GetCommandLineArgs());
+
         // The widget gallery runs instead of the app, never alongside it: no state file, no
         // single-instance hand-off, so it can render while the user's own copy keeps running.
         if (Shell.Gallery.WidgetGallery.TryRunFromCommandLine(this, Environment.GetCommandLineArgs()))

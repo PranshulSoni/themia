@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Text.Json.Serialization;
+using Themia.Core.Localization;
 
 namespace Themia.Core.Widgets;
 
@@ -40,25 +41,29 @@ public readonly record struct HabitCadence(HabitPeriod Period, int CustomMinutes
     /// a nearby value: "0" is refused rather than read as one minute.
     /// </summary>
     public static bool TryParseMinutes(string? text, out int minutes, out string? refusal)
+        => TryParseMinutes(Strings.Current, text, out minutes, out refusal);
+
+    /// <summary><see cref="TryParseMinutes(string?, out int, out string?)"/>, the refusal in <paramref name="locale"/>.</summary>
+    public static bool TryParseMinutes(Locale locale, string? text, out int minutes, out string? refusal)
     {
         minutes = 0;
         var trimmed = (text ?? string.Empty).Trim();
 
         if (trimmed.Length == 0)
         {
-            refusal = "Enter a number of minutes.";
+            refusal = Strings.Get(locale, Str.WidgetsB_Habits_Minutes_Empty);
             return false;
         }
 
         if (!int.TryParse(trimmed, NumberStyles.None, CultureInfo.InvariantCulture, out var value))
         {
-            refusal = "Whole minutes only, like 30.";
+            refusal = Strings.Get(locale, Str.WidgetsB_Habits_Minutes_NotWhole);
             return false;
         }
 
         if (value is < MinCustomMinutes or > MaxCustomMinutes)
         {
-            refusal = $"Between {MinCustomMinutes} and {MaxCustomMinutes} minutes (one day).";
+            refusal = Strings.Format(locale, Str.WidgetsB_Habits_Minutes_Range, ("min", MinCustomMinutes), ("max", MaxCustomMinutes));
             return false;
         }
 
@@ -93,12 +98,6 @@ public readonly record struct HabitBucket(string Key, DateTimeOffset Start);
 /// </summary>
 public static class HabitPeriods
 {
-    private static readonly string[] MonthNames =
-    [
-        "January", "February", "March", "April", "May", "June",
-        "July", "August", "September", "October", "November", "December",
-    ];
-
     /// <summary>The period <paramref name="moment"/> falls in.</summary>
     public static HabitBucket At(DateTimeOffset moment, HabitCadence cadence, TimeZoneInfo zone)
     {
@@ -254,45 +253,51 @@ public static class HabitPeriods
     /// [S-1426] A period in words, for a history dot's tooltip: in the cadence's own units, so a
     /// weekly dot reads as a week and an hourly one names its hour.
     /// </summary>
-    public static string Describe(HabitBucket bucket, HabitCadence cadence)
+    public static string Describe(HabitBucket bucket, HabitCadence cadence) => Describe(Strings.Current, bucket, cadence);
+
+    /// <summary><see cref="Describe(HabitBucket, HabitCadence)"/> in <paramref name="locale"/>.</summary>
+    public static string Describe(Locale locale, HabitBucket bucket, HabitCadence cadence)
     {
         var start = bucket.Start;
         var day = LocalDay.From(start);
+        var date = LocaleFormat.Date(locale, day.Date, DateStyle.Full);
 
         return cadence.Period switch
         {
-            HabitPeriod.Hourly => $"{Clock(start)}, {CalendarText.FullDate(day)}",
-            HabitPeriod.Weekly => $"Week of {CalendarText.FullDate(day)}",
-            HabitPeriod.Monthly => $"{MonthNames[day.Month - 1]} {day.Year.ToString(CultureInfo.InvariantCulture)}",
-            HabitPeriod.Custom => $"{Clock(start)} to {Clock(start.AddMinutes(cadence.Minutes))}, {CalendarText.FullDate(day)}",
-            _ => CalendarText.FullDate(day),
+            HabitPeriod.Hourly => Strings.Format(locale, Str.WidgetsB_Habits_Describe_Hourly, ("time", Clock(locale, start)), ("date", date)),
+            HabitPeriod.Weekly => Strings.Format(locale, Str.WidgetsB_Habits_Describe_Weekly, ("date", date)),
+            HabitPeriod.Monthly => LocaleFormat.Date(locale, day.Date, DateStyle.MonthYear),
+            HabitPeriod.Custom => Strings.Format(locale, Str.WidgetsB_Habits_Describe_Custom,
+                ("start", Clock(locale, start)), ("end", Clock(locale, start.AddMinutes(cadence.Minutes))), ("date", date)),
+            _ => date,
         };
     }
 
     /// <summary>[S-1422] "today", "this week" — the period a tick lands in, for the box's spoken name.</summary>
-    public static string CurrentNoun(HabitPeriod period) => period switch
+    public static string CurrentNoun(HabitPeriod period) => CurrentNoun(Strings.Current, period);
+
+    /// <summary><see cref="CurrentNoun(HabitPeriod)"/> in <paramref name="locale"/>, in the form that follows "done" there.</summary>
+    public static string CurrentNoun(Locale locale, HabitPeriod period) => Strings.Get(locale, period switch
     {
-        HabitPeriod.Hourly => "this hour",
-        HabitPeriod.Weekly => "this week",
-        HabitPeriod.Monthly => "this month",
-        HabitPeriod.Custom => "this interval",
-        _ => "today",
-    };
+        HabitPeriod.Hourly => Str.WidgetsB_Habits_Now_Hour,
+        HabitPeriod.Weekly => Str.WidgetsB_Habits_Now_Week,
+        HabitPeriod.Monthly => Str.WidgetsB_Habits_Now_Month,
+        HabitPeriod.Custom => Str.WidgetsB_Habits_Now_Interval,
+        _ => Str.WidgetsB_Habits_Now_Day,
+    });
 
     /// <summary>The unit a run is counted in, singular and plural: "1 day", "3 weeks".</summary>
-    public static string Units(HabitPeriod period, int count)
-    {
-        var unit = period switch
-        {
-            HabitPeriod.Hourly => "hour",
-            HabitPeriod.Weekly => "week",
-            HabitPeriod.Monthly => "month",
-            HabitPeriod.Custom => "interval",
-            _ => "day",
-        };
+    public static string Units(HabitPeriod period, int count) => Units(Strings.Current, period, count);
 
-        return count == 1 ? $"1 {unit}" : $"{count.ToString(CultureInfo.InvariantCulture)} {unit}s";
-    }
+    /// <summary><see cref="Units(HabitPeriod, int)"/> in <paramref name="locale"/>, with its plural rules.</summary>
+    public static string Units(Locale locale, HabitPeriod period, int count) => Strings.Plural(locale, period switch
+    {
+        HabitPeriod.Hourly => Str.WidgetsB_Habits_Units_Hours,
+        HabitPeriod.Weekly => Str.WidgetsB_Habits_Units_Weeks,
+        HabitPeriod.Monthly => Str.WidgetsB_Habits_Units_Months,
+        HabitPeriod.Custom => Str.WidgetsB_Habits_Units_Intervals,
+        _ => Str.WidgetsB_Habits_Units_Days,
+    }, count);
 
     /// <summary>
     /// How often the widget re-reads the clock so a box ticked in a past period clears without being
@@ -334,8 +339,8 @@ public static class HabitPeriods
         return new DateTimeOffset(wall, offset);
     }
 
-    private static string Clock(DateTimeOffset moment)
-        => $"{moment.Hour.ToString("D2", CultureInfo.InvariantCulture)}:{moment.Minute.ToString("D2", CultureInfo.InvariantCulture)}";
+    private static string Clock(Locale locale, DateTimeOffset moment)
+        => LocaleFormat.Time(locale, new TimeOnly(moment.Hour, moment.Minute));
 
     private static bool TryNumber(ReadOnlySpan<char> digits, out int value)
     {

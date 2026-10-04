@@ -3,6 +3,7 @@ using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
 using Themia.App.Widgets;
+using Themia.Core.Localization;
 using Themia.Core.Model;
 using Themia.Core.Settings;
 using Themia.Core.Widgets;
@@ -32,16 +33,16 @@ internal static partial class WidgetSettings
         ArgumentNullException.ThrowIfNull(config);
         ArgumentNullException.ThrowIfNull(save);
 
-        rows.Add(FluentLayout.Header("Pen"));
+        rows.Add(FluentLayout.Header(Str.Scratchpad_PenTab.Text()));
 
-        rows.Add(FluentLayout.ColorPickerRow(Glyphs.Palette, "Ink", "What the pen draws with",
+        rows.Add(FluentLayout.ColorPickerRow(Glyphs.Palette, Str.Scratchpad_PenColorLabel.Text(), Str.Scratchpad_PenColorDesc.Text(),
             config.EffectivePenColor,
             value => { config.PenColor = value; save(); },
-            new ColorChoiceOptions { Presets = PenColors, PresetsTitle = "Inks" }));
+            new ColorChoiceOptions { Presets = PenColors, PresetsTitle = Str.WidgetsC_Scratchpad_Settings_Inks.Text() }));
 
         // The width is in pixels and stays in pixels however the widget is resized: a pen has a
         // nib, so a bigger pad shows more drawing rather than a fatter line.
-        rows.Add(FluentLayout.Row(Glyphs.Scratchpad, "Width", "How thick the line is, in pixels",
+        rows.Add(FluentLayout.Row(Glyphs.Scratchpad, Str.Scratchpad_PenSizeLabel.Text(), Str.Scratchpad_PenSizeDesc.Text(),
             FluentLayout.Slider(
                 config.EffectivePenWidth,
                 InkGeometry.MinWidth,
@@ -50,10 +51,10 @@ internal static partial class WidgetSettings
                 "px",
                 value => { config.PenWidth = value; save(); })));
 
-        rows.Add(FluentLayout.Header("Tools"));
+        rows.Add(FluentLayout.Header(Str.WidgetsC_Scratchpad_Settings_Tools.Text()));
 
-        rows.Add(FluentLayout.Row(Glyphs.Edit, "Show tools",
-            "The eraser, undo and clear buttons in the widget's header",
+        rows.Add(FluentLayout.Row(Glyphs.Edit, Str.WidgetsC_Scratchpad_Settings_ShowTools_Label.Text(),
+            Str.WidgetsC_Scratchpad_Settings_ShowTools_Desc.Text(),
             FluentLayout.Toggle(config.ShowTools, value => { config.ShowTools = value; save(); })));
     }
 }

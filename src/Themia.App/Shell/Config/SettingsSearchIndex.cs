@@ -4,6 +4,7 @@ using Microsoft.UI.Xaml.Controls;
 using Themia.App.Services;
 using Themia.App.Widgets;
 using Themia.Core.Diagnostics;
+using Themia.Core.Localization;
 using Themia.Core.Model;
 using Themia.Core.Settings;
 
@@ -160,11 +161,11 @@ internal sealed class SettingsSearchIndex(AppHost host)
     public string PathOf(ConfigTarget target) => target switch
     {
         ConfigTarget.App app => ConfigPages.AppPages.FirstOrDefault(p => p.Page == app.Page)?.Title ?? app.Page.ToString(),
-        ConfigTarget.View view => host.State.FindView(view.ViewId)?.Name ?? "View",
-        ConfigTarget.Display display => host.FindDisplay(display.MonitorId)?.ShortName ?? "Display",
+        ConfigTarget.View view => host.State.FindView(view.ViewId)?.Name ?? Str.CtxMenu_View.Text(),
+        ConfigTarget.Display display => host.FindDisplay(display.MonitorId)?.ShortName ?? Str.App_MonitorLabelUnknown.Text(),
         ConfigTarget.Widget widget when host.Find(widget.WidgetId) is var (view, instance) && instance is not null =>
             $"{view.Name} › {Label(instance)}",
-        _ => "Settings",
+        _ => Str.Common_Settings.Text(),
     };
 
     private string Glyph(ConfigTarget target) => target switch

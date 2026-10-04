@@ -1,4 +1,5 @@
 using Themia.Core.Accounts;
+using Themia.Core.Localization;
 using Themia.Core.Model;
 using Themia.Core.Office;
 using Themia.Core.Widgets;
@@ -99,7 +100,7 @@ public sealed class CalendarFitTests
     {
         Assert.Equal((Today, Today.AddDays(3)), CalendarFit.Range(CalendarLayout.Strip, CalendarViewMode.Month, Today, Today, WeekStartDay.Monday, 4));
         Assert.Equal(Today.AddDays(4), CalendarFit.Step(CalendarLayout.Strip, Today, 1, 4));
-        Assert.Equal("4 Oct – 7 Oct", CalendarFit.Title(CalendarLayout.Strip, CalendarViewMode.Month, Today, WeekStartDay.Monday, 4));
+        Assert.Equal("Oct 4 – Oct 7", CalendarFit.Title(CalendarLayout.Strip, CalendarViewMode.Month, Today, WeekStartDay.Monday, 4, Locale.En));
 
         // A week strip is the week holding the anchor, Monday first.
         Assert.Equal((new DateOnly(2026, 9, 28), Today), CalendarFit.Range(CalendarLayout.Strip, CalendarViewMode.Week, Today, Today, WeekStartDay.Monday, 7));
@@ -113,7 +114,7 @@ public sealed class CalendarFitTests
         var month = CalendarRules.ViewRange(CalendarViewMode.Month, Today, Today, WeekStartDay.Monday);
         Assert.Equal(month, CalendarFit.Range(CalendarLayout.MonthAgendaBelow, CalendarViewMode.Month, Today, Today, WeekStartDay.Monday, 0));
         Assert.Equal(new DateOnly(2026, 11, 4), CalendarFit.Step(CalendarLayout.MonthAgendaBeside, Today, 1, 0));
-        Assert.Equal("October 2026", CalendarFit.Title(CalendarLayout.MonthAgendaBelow, CalendarViewMode.Month, Today, WeekStartDay.Monday, 0));
+        Assert.Equal("October 2026", CalendarFit.Title(CalendarLayout.MonthAgendaBelow, CalendarViewMode.Month, Today, WeekStartDay.Monday, 0, Locale.En));
         Assert.Equal(24, CalendarFit.SquareCell(120));
         Assert.Equal(28, CalendarFit.SquareCell(196));
         Assert.Equal(32, CalendarFit.SquareCell(800));

@@ -1,3 +1,5 @@
+using Themia.Core.Localization;
+
 namespace Themia.Core.Widgets;
 
 /// <summary>
@@ -33,15 +35,19 @@ public static class MixerFill
     /// The caption under an app's name: "Playing", "Silent", "Muted"; the master and the
     /// system-sounds rows say what they are. The session count is the pill beside the name already.
     /// </summary>
-    public static string Detail(MixerRow row)
+    public static string Detail(MixerRow row) => Detail(row, Strings.Current);
+
+    /// <inheritdoc cref="Detail(MixerRow)"/>
+    public static string Detail(MixerRow row, Locale locale)
     {
         ArgumentNullException.ThrowIfNull(row);
 
-        if (row.IsMaster)
-        {
-            return "All apps on this device";
-        }
+        var id = row.IsMaster ? Str.WidgetsB_Mixer_Detail_Master
+            : row.Muted ? Str.WidgetsB_Mixer_Detail_Muted
+            : row.IsSystem ? Str.WidgetsB_Mixer_Detail_System
+            : row.Active ? Str.WidgetsB_Mixer_Detail_Playing
+            : Str.WidgetsB_Mixer_Detail_Silent;
 
-        return row.Muted ? "Muted" : row.IsSystem ? "Windows sounds" : row.Active ? "Playing" : "Silent";
+        return Strings.Get(locale, id);
     }
 }

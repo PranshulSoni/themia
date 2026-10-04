@@ -1,3 +1,4 @@
+using Themia.Core.Localization;
 using Themia.Core.Shell;
 using Xunit;
 
@@ -231,11 +232,11 @@ public sealed class DesktopIntegrationTests
         var outcome = AutostartRules.Outcome(wanted, reached, "detail");
         Assert.Equal(problem, outcome.Problem);
         Assert.Equal("detail", outcome.Detail);
-        Assert.False(string.IsNullOrWhiteSpace(AutostartRules.Advice(outcome.Problem)));
+        Assert.False(string.IsNullOrWhiteSpace(AutostartRules.Advice(Locale.En, outcome.Problem)));
     }
 
     [Fact]
-    public void S935_no_problem_no_advice() => Assert.Null(AutostartRules.Advice(AutostartProblem.None));
+    public void S935_no_problem_no_advice() => Assert.Null(AutostartRules.Advice(Locale.En, AutostartProblem.None));
 
     [Fact]
     public void S934_launch_source_from_the_flag_or_the_activation()

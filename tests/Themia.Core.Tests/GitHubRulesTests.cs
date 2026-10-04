@@ -1,4 +1,5 @@
 using System.Text.Json;
+using Themia.Core.Localization;
 using Themia.Core.Developer;
 using Themia.Core.Model;
 using Xunit;
@@ -262,12 +263,12 @@ public sealed class GitHubRulesTests
     {
         foreach (var reason in Enum.GetValues<NotificationReason>())
         {
-            var label = GitHubRules.ReasonLabel(reason);
+            var label = GitHubRules.ReasonLabel(reason, Locale.En);
             Assert.InRange(label.Length, 2, 10);
         }
 
         Assert.Equal(NotificationReason.Other, GitHubRules.ParseReason("brand_new_reason"));
-        Assert.Equal("review", GitHubRules.ReasonLabel(NotificationReason.ReviewRequested));
+        Assert.Equal("review", GitHubRules.ReasonLabel(NotificationReason.ReviewRequested, Locale.En));
     }
 
     [Fact]
@@ -304,7 +305,7 @@ public sealed class GitHubRulesTests
     [InlineData(null, "Update")]
     [InlineData("SomethingNew", "Update")]
     public void S617_subject_types_read_as_words(string? type, string expected)
-        => Assert.Equal(expected, GitHubRules.SubjectLabel(type));
+        => Assert.Equal(expected, GitHubRules.SubjectLabel(type, Locale.En));
 
     // ---- [S-622] merging accounts --------------------------------------------------------------
 
@@ -380,13 +381,13 @@ public sealed class GitHubRulesTests
     [Fact]
     public void S629_relative_times()
     {
-        Assert.Equal("now", GitHubRules.Ago(Now.AddSeconds(-20), Now));
-        Assert.Equal("now", GitHubRules.Ago(Now.AddMinutes(3), Now)); // provider clock ahead
-        Assert.Equal("5m", GitHubRules.Ago(Now.AddMinutes(-5), Now));
-        Assert.Equal("3h", GitHubRules.Ago(Now.AddHours(-3), Now));
-        Assert.Equal("2d", GitHubRules.Ago(Now.AddDays(-2), Now));
-        Assert.Equal("4 Mar", GitHubRules.Ago(new DateTimeOffset(2026, 3, 4, 9, 0, 0, TimeSpan.Zero), Now));
-        Assert.Equal("Mar 2025", GitHubRules.Ago(new DateTimeOffset(2025, 3, 4, 9, 0, 0, TimeSpan.Zero), Now));
-        Assert.Equal(string.Empty, GitHubRules.Ago(null, Now));
+        Assert.Equal("now", GitHubRules.Ago(Now.AddSeconds(-20), Now, Locale.En));
+        Assert.Equal("now", GitHubRules.Ago(Now.AddMinutes(3), Now, Locale.En)); // provider clock ahead
+        Assert.Equal("5m", GitHubRules.Ago(Now.AddMinutes(-5), Now, Locale.En));
+        Assert.Equal("3h", GitHubRules.Ago(Now.AddHours(-3), Now, Locale.En));
+        Assert.Equal("2d", GitHubRules.Ago(Now.AddDays(-2), Now, Locale.En));
+        Assert.Equal("Mar 4", GitHubRules.Ago(new DateTimeOffset(2026, 3, 4, 9, 0, 0, TimeSpan.Zero), Now, Locale.En));
+        Assert.Equal("Mar 2025", GitHubRules.Ago(new DateTimeOffset(2025, 3, 4, 9, 0, 0, TimeSpan.Zero), Now, Locale.En));
+        Assert.Equal(string.Empty, GitHubRules.Ago(null, Now, Locale.En));
     }
 }

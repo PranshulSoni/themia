@@ -1,4 +1,5 @@
 using System.Globalization;
+using Themia.Core.Localization;
 using Themia.Core.Model;
 
 namespace Themia.Core.Widgets;
@@ -7,8 +8,8 @@ namespace Themia.Core.Widgets;
 public readonly record struct ClockReading(string Time, string? Meridiem, string? Date, double HourAngle, double MinuteAngle, double SecondAngle);
 
 /// <summary>[S-665] What a larger clock adds under its date.</summary>
-/// <param name="ShortDate">"Sun 4 Oct": the date for a tile too narrow for the long one.</param>
-/// <param name="Week">"Week 40 · Day 278".</param>
+/// <param name="ShortDate">"Sun, Oct 4" / "So., 4. Okt.": the date for a tile too narrow for the long one.</param>
+/// <param name="Week">"Week 40 · Day 278" / "KW 40 · Tag 278".</param>
 /// <param name="Zone">"UTC+02:00 · W. Europe Daylight Time".</param>
 public readonly record struct ClockDetails(string ShortDate, string Week, string Zone);
 
@@ -19,10 +20,15 @@ public readonly record struct ClockDetails(string ShortDate, string Week, string
 /// <c>InvariantGlobalization</c> (no ICU, a large part of why the AOT binary stays small), so
 /// "h:mm tt" would render with invariant-culture quirks instead of following the config.
 /// </para>
+/// <para>
+/// [S-1106] Names, dates and the meridiem come from the locale the caller passes (<see cref="LocaleFormat"/>),
+/// not from <see cref="Strings.Current"/>, so a test pins the language. The
+/// digits stay the clock's own: its 12/24-hour switch is a widget setting, not the language's.
+/// </para>
 /// </summary>
 public static class ClockFormatter
 {
-    public static ClockReading Read(DateTimeOffset utcNow, ClockConfig config)
+    public static ClockReading Read(DateTimeOffset utcNow, ClockConfig config, Locale locale)
     {
         ArgumentNullException.ThrowIfNull(config);
 
@@ -36,8 +42,9 @@ public static class ClockFormatter
             ? $"{Pad(hour, config.Use24Hour)}:{local.Minute:D2}:{local.Second:D2}"
             : $"{Pad(hour, config.Use24Hour)}:{local.Minute:D2}";
 
-        var meridiem = config.Use24Hour ? null : (hour24 < 12 ? "AM" : "PM");
-        var date = config.ShowDate ? FormatDate(local) : null;
+        var data = LocaleData.For(locale);
+        var meridiem = config.Use24Hour ? null : (hour24 < 12 ? data.Am : data.Pm);
+        var date = config.ShowDate ? FormatDate(local, locale) : null;
 
         // Hands sweep rather than step, so an analog face reads correctly between ticks.
         var secondAngle = local.Second * 6.0;
@@ -52,15 +59,17 @@ public static class ClockFormatter
     /// narrow tile, the week and day of the year, and the time zone. Read once per render rather than
     /// folded into <see cref="ClockReading"/>, because a small clock never draws them.
     /// </summary>
-    public static ClockDetails Details(DateTimeOffset utcNow, ClockConfig config)
+    public static ClockDetails Details(DateTimeOffset utcNow, ClockConfig config, Locale locale)
     {
         ArgumentNullException.ThrowIfNull(config);
 
         var zone = config.ResolveTimeZone();
         var local = TimeZoneInfo.ConvertTime(utcNow, zone);
 
-        var shortDate = $"{DayNames[(int)local.DayOfWeek][..3]} {local.Day} {MonthNames[local.Month - 1][..3]}";
-        var week = $"Week {ISOWeek.GetWeekOfYear(local.DateTime)} · Day {local.DayOfYear}";
+        var shortDate = LocaleFormat.Date(locale, DateOnly.FromDateTime(local.DateTime), DateStyle.WeekdayMonthDayShort);
+        var week = Strings.Format(locale, Str.WidgetsA_Clock_WeekAndDay,
+            ("week", LocaleFormat.Integer(locale, ISOWeek.GetWeekOfYear(local.DateTime))),
+            ("day", LocaleFormat.Integer(locale, local.DayOfYear)));
         var name = zone.IsDaylightSavingTime(local) ? zone.DaylightName : zone.StandardName;
         var offset = Offset(local.Offset);
         var zoneLine = string.IsNullOrWhiteSpace(name) || name == offset ? offset : $"{offset} · {name}";
@@ -89,20 +98,20 @@ public static class ClockFormatter
     }
 
     /// <summary>[S-1485] The offset line for this instant, or null when the mode is None.</summary>
-    public static string? OffsetLine(DateTimeOffset utcNow, ClockConfig config)
+    public static string? OffsetLine(DateTimeOffset utcNow, ClockConfig config, Locale locale)
     {
         ArgumentNullException.ThrowIfNull(config);
 
         return config.OffsetMode == ClockOffsetMode.None
             ? null
-            : OffsetText(config.ResolveTimeZone().GetUtcOffset(utcNow), TimeZoneInfo.Local.GetUtcOffset(utcNow), config.OffsetMode);
+            : OffsetText(config.ResolveTimeZone().GetUtcOffset(utcNow), TimeZoneInfo.Local.GetUtcOffset(utcNow), config.OffsetMode, locale);
     }
 
     /// <summary>
     /// [S-1485] "UTC+2", "UTC+5:30", "UTC−3" from UTC; "+8h local", "−5:30h local", "same as local"
     /// from the machine's zone. Minus is U+2212, the typographic sign, as the original wrote it.
     /// </summary>
-    public static string? OffsetText(TimeSpan zoneOffset, TimeSpan localOffset, ClockOffsetMode mode)
+    public static string? OffsetText(TimeSpan zoneOffset, TimeSpan localOffset, ClockOffsetMode mode, Locale locale)
     {
         switch (mode)
         {
@@ -111,7 +120,9 @@ public static class ClockFormatter
 
             case ClockOffsetMode.Local:
                 var difference = zoneOffset - localOffset;
-                return difference == TimeSpan.Zero ? "same as local" : $"{Signed(difference)}h local";
+                return difference == TimeSpan.Zero
+                    ? Strings.Get(locale, Str.WidgetsA_Clock_Offset_SameAsLocal)
+                    : Strings.Format(locale, Str.WidgetsA_Clock_Offset_FromLocal, ("offset", Signed(difference)));
 
             default:
                 return null;
@@ -154,12 +165,9 @@ public static class ClockFormatter
     private static string Pad(int hour, bool use24Hour)
         => use24Hour ? hour.ToString("D2", CultureInfo.InvariantCulture) : hour.ToString(CultureInfo.InvariantCulture);
 
-    private static string FormatDate(DateTimeOffset local)
-        => $"{DayNames[(int)local.DayOfWeek]}, {local.Day} {MonthNames[local.Month - 1]}";
-
-    private static readonly string[] DayNames =
-        ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
-
-    private static readonly string[] MonthNames =
-        ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+    /// <summary>"Monday, March 9" / "Montag, 9. März": the weekday and the day, in the language's order.</summary>
+    private static string FormatDate(DateTimeOffset local, Locale locale)
+        => Strings.Format(locale, Str.WidgetsA_Clock_Date,
+            ("weekday", LocaleFormat.WeekdayName(locale, local.DayOfWeek)),
+            ("date", LocaleFormat.Date(locale, DateOnly.FromDateTime(local.DateTime), DateStyle.MonthDay)));
 }

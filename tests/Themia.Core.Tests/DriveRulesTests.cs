@@ -1,4 +1,5 @@
 using System.Text.Json;
+using Themia.Core.Localization;
 using Themia.Core.Model;
 using Themia.Core.Widgets;
 using Xunit;
@@ -55,23 +56,34 @@ public sealed class DriveRulesTests
     [Fact]
     public void S606_a_file_says_size_and_age_a_folder_only_age()
     {
-        Assert.Equal("2.0 KB · 3h ago", DriveRules.Meta(File("a.txt"), Now));
-        Assert.Equal("3h ago", DriveRules.Meta(File("a.txt") with { IsFolder = true }, Now));
-        Assert.Equal("2.0 KB", DriveRules.Meta(File("a.txt") with { Modified = null }, Now));
+        Assert.Equal("2.0 KB · 3h ago", DriveRules.Meta(Locale.En, File("a.txt"), Now));
+        Assert.Equal("3h ago", DriveRules.Meta(Locale.En, File("a.txt") with { IsFolder = true }, Now));
+        Assert.Equal("2.0 KB", DriveRules.Meta(Locale.En, File("a.txt") with { Modified = null }, Now));
     }
 
     [Theory]
-    [InlineData(-5, "Just now")] // a provider clock ahead of this one
-    [InlineData(30, "Just now")]
+    [InlineData(-5, "just now")] // a provider clock ahead of this one
+    [InlineData(30, "just now")]
     [InlineData(5 * 60, "5m ago")]
     [InlineData(3 * 3600, "3h ago")]
     [InlineData(2 * 86400, "2d ago")]
     public void S606_relative_time(int secondsAgo, string expected)
-        => Assert.Equal(expected, DriveRules.Ago(Now.AddSeconds(-secondsAgo), Now));
+        => Assert.Equal(expected, DriveRules.Ago(Locale.En, Now.AddSeconds(-secondsAgo), Now));
+
+    [Fact]
+    public void S606_ages_are_in_the_language()
+    {
+        Assert.Equal("vor 3 Std.", DriveRules.Ago(Locale.De, Now.AddHours(-3), Now));
+        Assert.Equal("gerade eben", DriveRules.Ago(Locale.De, Now.AddSeconds(-5), Now));
+    }
 
     [Fact]
     public void S606_older_than_a_week_is_a_date()
-        => Assert.Matches(@"^\d{1,2} [A-Z][a-z]{2}$", DriveRules.Ago(Now.AddDays(-20), Now));
+    {
+        Assert.Matches(@"^[A-Z][a-z]{2} \d{1,2}$", DriveRules.Ago(Locale.En, Now.AddDays(-20), Now));
+        Assert.Matches(@"^\d{1,2}\. \w+\.?$", DriveRules.Ago(Locale.De, Now.AddDays(-20), Now));
+        Assert.Matches(@"^[A-Z][a-z]{2} \d{1,2}, 2025$", DriveRules.Ago(Locale.En, Now.AddDays(-400), Now));
+    }
 
     [Fact]
     public void S609_the_trail_walks_in_and_back_to_the_configured_start()

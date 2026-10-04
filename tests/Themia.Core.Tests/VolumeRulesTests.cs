@@ -1,3 +1,4 @@
+using Themia.Core.Localization;
 using Themia.Core.Widgets;
 using Xunit;
 
@@ -84,5 +85,9 @@ public class VolumeRulesTests
 
     [Fact]
     public void S220_The_readout_is_the_percentage_and_nothing_else()
-        => Assert.Equal("42%", VolumeRules.Readout(0.42));
+        => Assert.Equal("42%", VolumeRules.Readout(Locale.En, 0.42));
+
+    [Fact]
+    public void The_readout_uses_the_languages_percent_sign()
+        => Assert.Equal("42\u00A0%", VolumeRules.Readout(Locale.De, 0.42));
 }

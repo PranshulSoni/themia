@@ -2,6 +2,7 @@ using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Themia.App.Services;
 using Themia.Core.Diagnostics;
+using Themia.Core.Localization;
 using Themia.Core.Settings;
 
 namespace Themia.App.Shell.Config;
@@ -50,11 +51,12 @@ internal sealed partial class ConfigWindow
 
         _window = new Window
         {
-            Title = "Themia settings",
+            Title = Str.Settings_Title.Text(),
             Content = BuildChrome(),
         };
 
         ConfigureWindow();
+        UiLanguage.Apply(_window.Content as FrameworkElement);
 
         _structure = StructureSignature();
         RebuildNavigation();
@@ -152,7 +154,7 @@ internal sealed partial class ConfigWindow
         {
             // A page that cannot be built must not take the settings window down with it.
             Log.Error(Scope, $"could not build the page for {_target}", ex);
-            page = new SettingsPage(NavTitle(_target)).With([FluentLayout.Note("This page could not be shown. See themia.log.")]);
+            page = new SettingsPage(NavTitle(_target)).With([FluentLayout.Note(Str.Shell_Settings_PageFailed.Text())]);
         }
 
         _pageColumn.Child = page;

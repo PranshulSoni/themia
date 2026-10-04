@@ -3,6 +3,7 @@ using Themia.App.Interop;
 using Themia.App.Shell;
 using Themia.App.Shell.Config;
 using Themia.Core.Diagnostics;
+using Themia.Core.Localization;
 using Themia.Core.Model;
 using Themia.Core.Storage;
 
@@ -109,7 +110,7 @@ internal sealed partial class AppHost
         if (SettingsTransfer.WriteFile(State, backup) is { } problem)
         {
             Log.Error(Scope, $"{occasion} cancelled: could not keep the current settings at {backup}");
-            return $"The settings you have now couldn't be kept, so nothing was changed. {problem}";
+            return Str.Shell_Notice_BackupFailed.Format(("reason", problem));
         }
 
         Select(null);
@@ -173,7 +174,7 @@ internal sealed partial class AppHost
         // [S-881] No confirmation: the notice offers the way back.
         if (name is not null && State.FindView(viewId) is null)
         {
-            OfferUndo($"Deleted view “{name}”");
+            OfferUndo(Str.Shell_Undo_DeletedView.Format(("name", name)));
         }
     }
 

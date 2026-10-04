@@ -1,4 +1,5 @@
 using System.Text;
+using Themia.Core.Localization;
 
 namespace Themia.Core.Accounts;
 
@@ -120,8 +121,12 @@ public static class ImapProtocol
 /// <param name="Name">What it is called.</param>
 /// <param name="Host">The IMAP host.</param>
 /// <param name="Port">The implicit-TLS port.</param>
-/// <param name="Note">What the user has to do first, when the provider refuses an account password.</param>
-public sealed record ImapPreset(string Name, string Host, int Port, string? Note);
+/// <param name="NoteId">What the user has to do first, when the provider refuses an account password.</param>
+public sealed record ImapPreset(string Name, string Host, int Port, Str? NoteId)
+{
+    /// <summary>The provider's sign-in advice in the current language, read when shown (the catalog is static).</summary>
+    public string? Note => NoteId?.Text();
+}
 
 /// <summary>
 /// [S-522] Filling the IMAP server from the address the user typed. A shortcut, never a cage: every
@@ -134,22 +139,22 @@ public sealed record ImapPreset(string Name, string Host, int Port, string? Note
 /// </summary>
 public static class ImapPresets
 {
-    private const string AppPasswordNote = "This provider refuses your normal password here. Create an app password in its security settings and use that.";
+    private const Str AppPasswordNote = Str.Shell_Accounts_Imap_AppPassword;
 
     private static readonly (string[] Domains, ImapPreset Preset)[] Catalog =
     [
         (["gmail.com", "googlemail.com"], new ImapPreset("Gmail", "imap.gmail.com", 993,
-            "Google refuses your normal password. Turn on 2-Step Verification, create an app password, and paste that.")),
+            Str.Shell_Accounts_Imap_Gmail)),
         (["yahoo.com", "yahoo.co.uk", "yahoo.de", "yahoo.fr", "ymail.com", "rocketmail.com"],
             new ImapPreset("Yahoo Mail", "imap.mail.yahoo.com", 993, AppPasswordNote)),
         (["icloud.com", "me.com", "mac.com"], new ImapPreset("iCloud Mail", "imap.mail.me.com", 993,
-            "Apple requires an app-specific password, created under Sign-In and Security in your Apple Account.")),
+            Str.Shell_Accounts_Imap_ICloud)),
         (["fastmail.com", "fastmail.fm", "messagingengine.com"], new ImapPreset("Fastmail", "imap.fastmail.com", 993, AppPasswordNote)),
         (["zoho.com", "zohomail.com"], new ImapPreset("Zoho Mail", "imap.zoho.com", 993, AppPasswordNote)),
         (["aol.com", "aim.com"], new ImapPreset("AOL Mail", "imap.aol.com", 993, AppPasswordNote)),
         (["gmx.com", "gmx.net", "gmx.de", "gmx.at", "gmx.ch"], new ImapPreset("GMX", "imap.gmx.net", 993,
-            "Turn on IMAP access in the GMX web mail settings first.")),
-        (["web.de"], new ImapPreset("WEB.DE", "imap.web.de", 993, "Turn on IMAP access in the WEB.DE web mail settings first.")),
+            Str.Shell_Accounts_Imap_Gmx)),
+        (["web.de"], new ImapPreset("WEB.DE", "imap.web.de", 993, Str.Shell_Accounts_Imap_WebDe)),
         (["posteo.de", "posteo.net"], new ImapPreset("Posteo", "posteo.de", 993, null)),
         (["mailbox.org"], new ImapPreset("mailbox.org", "imap.mailbox.org", 993, null)),
         (["yandex.com", "yandex.ru", "ya.ru"], new ImapPreset("Yandex Mail", "imap.yandex.com", 993, AppPasswordNote)),

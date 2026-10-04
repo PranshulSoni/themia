@@ -1,6 +1,7 @@
 using System.Buffers.Binary;
 using System.Text;
 using Themia.Core.Files;
+using Themia.Core.Localization;
 using Xunit;
 
 namespace Themia.Core.Tests;
@@ -75,17 +76,17 @@ public sealed class SurfaceDropTests
     [Fact]
     public void S1024_captions_use_the_shells_words_with_the_place_inserted()
     {
-        Assert.Equal(new DropFeedback(DropEffect.Move, "Move to %1", "Desktop"), SurfaceDrops.Feedback(DropEffect.Move, "Desktop"));
-        Assert.Equal(new DropFeedback(DropEffect.Copy, "Copy to %1", "Docs"), SurfaceDrops.Feedback(DropEffect.Copy, "Docs"));
-        Assert.Equal("Create link in %1", SurfaceDrops.Feedback(DropEffect.Link, "Docs").Message);
-        Assert.Equal(DropFeedback.Refused, SurfaceDrops.Feedback(DropEffect.None, "Docs"));
+        Assert.Equal(new DropFeedback(DropEffect.Move, "Move to %1", "Desktop"), SurfaceDrops.Feedback(Locale.En, DropEffect.Move, "Desktop"));
+        Assert.Equal(new DropFeedback(DropEffect.Copy, "Copy to %1", "Docs"), SurfaceDrops.Feedback(Locale.En, DropEffect.Copy, "Docs"));
+        Assert.Equal("Create link in %1", SurfaceDrops.Feedback(Locale.En, DropEffect.Link, "Docs").Message);
+        Assert.Equal(DropFeedback.Refused, SurfaceDrops.Feedback(Locale.En, DropEffect.None, "Docs"));
     }
 
     [Fact]
     public void S1024_a_refused_drag_clears_the_description()
     {
         Assert.Equal(DropImage.Invalid, DropFeedback.Refused.Image);
-        Assert.Equal(DropImage.Move, SurfaceDrops.Feedback(DropEffect.Move, "x").Image);
+        Assert.Equal(DropImage.Move, SurfaceDrops.Feedback(Locale.En, DropEffect.Move, "x").Image);
     }
 
     [Theory]

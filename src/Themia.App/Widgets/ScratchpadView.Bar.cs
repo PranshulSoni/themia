@@ -4,6 +4,7 @@ using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Shapes;
 using Themia.App.Shell;
+using Themia.Core.Localization;
 using Themia.Core.Widgets;
 
 namespace Themia.App.Widgets;
@@ -35,6 +36,7 @@ internal sealed partial class ScratchpadView
     private readonly List<(Ink Ink, Ellipse Ring)> _inkRings = [];
     private readonly List<(double Width, Ellipse Ring)> _nibRings = [];
     private readonly List<(Button Button, RoutedEventHandler Handler)> _barHandlers = [];
+    private readonly List<(Button Button, Func<string> Tip)> _barTips = [];
 
     private WidgetArea _area;
 
@@ -53,7 +55,8 @@ internal sealed partial class ScratchpadView
 
         foreach (var ink in InkPalette.Inks)
         {
-            var (button, mark) = BarChoice(InkBrush(ink.Hex), 14, ring, ink.Name);
+            var (button, mark) = BarChoice(InkBrush(ink.Hex), 14, ring, ink.Name.Text());
+            _barTips.Add((button, () => ink.Name.Text()));
             _inkRings.Add((ink, mark));
             _inks.Children.Add(button);
             OnBarClick(button, () => PickInk(ink));
@@ -61,7 +64,8 @@ internal sealed partial class ScratchpadView
 
         foreach (var width in InkPalette.Widths)
         {
-            var (button, mark) = BarChoice(nib, width + 2, ring, $"Pen size {width}px");
+            var (button, mark) = BarChoice(nib, width + 2, ring, NibTip(width));
+            _barTips.Add((button, () => NibTip(width)));
             _nibRings.Add((width, mark));
             _nibs.Children.Add(button);
             OnBarClick(button, () => PickNib(width));
@@ -82,6 +86,18 @@ internal sealed partial class ScratchpadView
         RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         SetRow(_barRow, 1);
         Children.Add(_barRow);
+    }
+
+    private static string NibTip(double width)
+        => Str.WidgetsC_Scratchpad_PenSizeTip.Format(("size", LocaleFormat.Number(width, 0)));
+
+    /// <summary>[S-1110] The bar's tooltips again, in the language now current.</summary>
+    private void ApplyBarTips()
+    {
+        foreach (var (button, tip) in _barTips)
+        {
+            ToolTipService.SetToolTip(button, tip());
+        }
     }
 
     /// <summary>A round swatch or nib with a hairline ring that marks the current choice.</summary>
@@ -177,7 +193,7 @@ internal sealed partial class ScratchpadView
         }
 
         var strokes = _config.Strokes.Count;
-        _count.Text = strokes == 1 ? "1 stroke" : $"{strokes} strokes";
+        _count.Text = Str.WidgetsC_Scratchpad_Strokes.Plural(strokes);
     }
 
     private static Visibility Shown(bool shown)

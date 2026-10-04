@@ -6,6 +6,7 @@ using Microsoft.UI.Xaml.Shapes;
 using Themia.App.Services;
 using Themia.App.Shell;
 using Themia.Core.Diagnostics;
+using Themia.Core.Localization;
 using Themia.Core.Model;
 using Themia.Core.Widgets;
 
@@ -111,9 +112,9 @@ internal sealed partial class PomodoroView : Grid, IWidgetView, IWidgetSizeAware
         _ringArc.StrokeStartLineCap = PenLineCap.Round;
         _ringArc.StrokeEndLineCap = PenLineCap.Round;
 
-        Button(_runButton, _runIcon, Glyphs.Play, "Start");
-        Button(_resetButton, new FontIcon(), Glyphs.Reset, "Reset");
-        Button(_skipButton, new FontIcon(), Glyphs.Next, "Skip to the next phase");
+        Button(_runButton, _runIcon, Glyphs.Play, Str.WidgetsC_Pomodoro_Start.Text());
+        Button(_resetButton, new FontIcon(), Glyphs.Reset, Str.Pomodoro_Reset.Text());
+        Button(_skipButton, new FontIcon(), Glyphs.Next, Str.WidgetsC_Pomodoro_Skip.Text());
 
         _runButton.Click += (_, _) => SetRunning(!_running);
         _resetButton.Click += (_, _) => Reset();
@@ -187,7 +188,17 @@ internal sealed partial class PomodoroView : Grid, IWidgetView, IWidgetSizeAware
     public void Attach(Ticker ticker, WidgetConfig config)
     {
         _ticker = ticker;
+        Strings.Changed -= OnLanguage;
+        Strings.Changed += OnLanguage;
         ApplyConfig(config);
+    }
+
+    /// <summary>[S-1110] The two fixed tooltips again; <see cref="Render"/> re-reads the rest.</summary>
+    private void OnLanguage(Locale locale)
+    {
+        ToolTipService.SetToolTip(_resetButton, Str.Pomodoro_Reset.Text());
+        ToolTipService.SetToolTip(_skipButton, Str.WidgetsC_Pomodoro_Skip.Text());
+        Render();
     }
 
     public void ApplyConfig(WidgetConfig config)
@@ -296,7 +307,7 @@ internal sealed partial class PomodoroView : Grid, IWidgetView, IWidgetSizeAware
         _phaseIcon.Glyph = work ? Glyphs.Pomodoro : Glyphs.Timer;
         _progress.Value = fraction * 100;
         _next.Text = PomodoroCycle.NextLine(_state.Phase, _config);
-        _sessions.Text = _completed == 1 ? "1 session done" : $"{_completed} sessions done";
+        _sessions.Text = Str.WidgetsC_Pomodoro_SessionsDone.Plural(_completed);
 
         // Which phase you are in is the first thing to read off this widget, so it is carried by
         // colour as well as by the word: accent text for focus, the success colour for a break.
@@ -313,7 +324,7 @@ internal sealed partial class PomodoroView : Grid, IWidgetView, IWidgetSizeAware
         _ringArc.Stroke = fill;
 
         _runIcon.Glyph = _running ? Glyphs.Pause : Glyphs.Play;
-        ToolTipService.SetToolTip(_runButton, _running ? "Pause" : "Start");
+        ToolTipService.SetToolTip(_runButton, (_running ? Str.WidgetsC_Pomodoro_Pause : Str.WidgetsC_Pomodoro_Start).Text());
 
         RenderDots(fill);
 
@@ -730,6 +741,7 @@ internal sealed partial class PomodoroView : Grid, IWidgetView, IWidgetSizeAware
 
     public void Detach()
     {
+        Strings.Changed -= OnLanguage;
         _subscription?.Dispose();
         _subscription = null;
         _running = false;

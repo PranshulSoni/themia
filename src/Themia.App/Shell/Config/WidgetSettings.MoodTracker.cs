@@ -1,5 +1,6 @@
 using System.Globalization;
 using Microsoft.UI.Xaml;
+using Themia.Core.Localization;
 using Themia.Core.Model;
 
 namespace Themia.App.Shell.Config;
@@ -26,32 +27,32 @@ internal static partial class WidgetSettings
         ArgumentNullException.ThrowIfNull(config);
         ArgumentNullException.ThrowIfNull(save);
 
-        rows.Add(FluentLayout.Header("Mood"));
+        rows.Add(FluentLayout.Header(Str.MoodTracker_MoodSection.Text()));
 
-        rows.Add(FluentLayout.Row(Glyphs.Calendar, "Heatmap shows",
-            "A rolling window, or one calendar month at a time",
+        rows.Add(FluentLayout.Row(Glyphs.Calendar, Str.WidgetsB_Settings_Mood_Span_Label.Text(),
+            Str.WidgetsB_Settings_Mood_Span_Desc.Text(),
             FluentLayout.Choice(
-                [(MoodSpan.Rolling, "Recent weeks"), (MoodSpan.Month, "This month")],
+                [(MoodSpan.Rolling, Str.WidgetsB_Settings_Mood_RecentWeeks.Text()), (MoodSpan.Month, Str.WidgetsB_Settings_Mood_ThisMonth.Text())],
                 config.Span,
                 value => { config.Span = value; save(); })));
 
-        rows.Add(FluentLayout.Row(Glyphs.Sort, "Week starts on",
-            "Which weekday the heatmap's first column is",
+        rows.Add(FluentLayout.Row(Glyphs.Sort, Str.WidgetsB_Settings_Mood_WeekStart_Label.Text(),
+            Str.WidgetsB_Settings_Mood_WeekStart_Desc.Text(),
             FluentLayout.Choice(
-                [(MoodWeekStart.Monday, "Monday"), (MoodWeekStart.Sunday, "Sunday"), (MoodWeekStart.Saturday, "Saturday")],
+                [(MoodWeekStart.Monday, LocaleFormat.WeekdayName(Strings.Current, DayOfWeek.Monday)), (MoodWeekStart.Sunday, LocaleFormat.WeekdayName(Strings.Current, DayOfWeek.Sunday)), (MoodWeekStart.Saturday, LocaleFormat.WeekdayName(Strings.Current, DayOfWeek.Saturday))],
                 config.WeekStart,
                 value => { config.WeekStart = value; save(); })));
 
-        rows.Add(FluentLayout.Row(Glyphs.Note, "Show the thought box",
-            "A line about today's mood, kept with it",
+        rows.Add(FluentLayout.Row(Glyphs.Note, Str.WidgetsB_Settings_Mood_Note_Label.Text(),
+            Str.WidgetsB_Settings_Mood_Note_Desc.Text(),
             FluentLayout.Toggle(config.ShowNote, value => { config.ShowNote = value; save(); })));
 
-        rows.Add(FluentLayout.Row(Glyphs.Preview, "Show the run and average",
-            "Hidden automatically when the widget is too short for it",
+        rows.Add(FluentLayout.Row(Glyphs.Preview, Str.WidgetsB_Settings_Mood_Stats_Label.Text(),
+            Str.WidgetsB_Settings_Mood_Stats_Desc.Text(),
             FluentLayout.Toggle(config.ShowStats, value => { config.ShowStats = value; save(); })));
 
-        rows.Add(FluentLayout.Row(Glyphs.Count, "Weeks of history",
-            "The most the rolling heatmap shows; a small widget shows fewer",
+        rows.Add(FluentLayout.Row(Glyphs.Count, Str.WidgetsB_Settings_Mood_Weeks_Label.Text(),
+            Str.WidgetsB_Settings_Mood_Weeks_Desc.Text(),
             FluentLayout.Slider(
                 config.EffectiveHistoryWeeks,
                 MoodTrackerConfig.MinHistoryWeeks,
@@ -62,13 +63,13 @@ internal static partial class WidgetSettings
 
         rows.Add(FluentLayout.ConfirmRow(
             Glyphs.Clear,
-            "Clear history",
-            "Deletes every mood logged in this widget. This cannot be undone",
-            "Clear",
-            "Clear every mood?",
+            Str.MoodTracker_ClearBtn.Text(),
+            Str.WidgetsB_Settings_Mood_Clear_Desc.Text(),
+            Str.Common_Clear.Text(),
+            Str.WidgetsB_Settings_Mood_Clear_Question.Text(),
             () => config.Entries.Count == 0
                 ? null
-                : $"All {config.Entries.Count.ToString(CultureInfo.InvariantCulture)} logged moods and their notes are deleted. This cannot be undone.",
+                : Str.WidgetsB_Settings_Mood_Clear_Detail.Plural(config.Entries.Count),
             () =>
             {
                 // Cleared in place rather than replaced: the list is the config's own and a new one

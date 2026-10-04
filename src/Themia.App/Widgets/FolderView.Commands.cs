@@ -6,6 +6,7 @@ using Themia.App.Services.Files;
 using Themia.App.Shell;
 using Themia.Core.Diagnostics;
 using Themia.Core.Files;
+using Themia.Core.Localization;
 using Themia.Core.Model;
 using Themia.Core.Widgets;
 
@@ -189,9 +190,11 @@ internal sealed partial class FolderView
                 return;
             }
 
-            var what = paths.Count == 1 ? $"\"{Path.GetFileName(paths[0])}\"" : $"these {paths.Count} items";
+            var question = paths.Count == 1
+                ? Str.WidgetsB_Folder_RecycleOne.Format(("name", Path.GetFileName(paths[0])))
+                : Str.WidgetsB_Folder_RecycleMany.Plural(paths.Count);
 
-            if (!await ConfirmAsync($"Move {what} to the Recycle Bin?", "Delete").ConfigureAwait(true))
+            if (!await ConfirmAsync(question, Str.Common_Delete.Text()).ConfigureAwait(true))
             {
                 return;
             }
@@ -223,7 +226,7 @@ internal sealed partial class FolderView
         text.MaxWidth = 260;
 
         var yes = new Button { Content = action, Style = Application.Current.Resources["AccentButtonStyle"] as Style };
-        var no = new Button { Content = "Cancel" };
+        var no = new Button { Content = Str.Common_Cancel.Text() };
 
         var flyout = new Flyout
         {
@@ -470,48 +473,48 @@ internal sealed partial class FolderView
         var selected = SelectedEntries();
         var paths = selected.Select(e => e.FullPath).ToList();
         var count = selected.Count;
-        var several = count > 1 ? $" ({count})" : string.Empty;
+        var several = count > 1;
         var single = count == 1 ? selected[0] : (FolderEntry?)null;
         var hasCloud = selected.Any(e => CloudBadges.State(e.Attributes) != CloudState.None);
 
         var entries = new List<ItemMenuEntry>
         {
-            new(Glyphs.Open, "Open", OpenSelection),
+            new(Glyphs.Open, Str.CtxMenu_Open.Text(), OpenSelection),
         };
 
         if (single is { IsDirectory: false } file)
         {
-            entries.Add(new(Glyphs.OpenWith, "Open with…", () => ShellFileOps.OpenWith(file.FullPath)));
+            entries.Add(new(Glyphs.OpenWith, Str.Folder_OpenWith.Text(), () => ShellFileOps.OpenWith(file.FullPath)));
         }
 
-        entries.Add(new(Glyphs.Folder, "Show in Explorer", () => ShellFileOps.ShowInExplorer(paths)));
+        entries.Add(new(Glyphs.Folder, Str.WidgetsB_Folder_ShowInExplorer.Text(), () => ShellFileOps.ShowInExplorer(paths)));
         entries.Add(ItemMenuEntry.Separator);
-        entries.Add(new(Glyphs.Cut, "Cut" + several, () => CopySelection(cut: true)));
-        entries.Add(new(Glyphs.Copy, "Copy" + several, () => CopySelection(cut: false)));
+        entries.Add(new(Glyphs.Cut, several ? Str.WidgetsB_Folder_CutCount.Format(("count", count)) : Str.CtxMenu_Cut.Text(), () => CopySelection(cut: true)));
+        entries.Add(new(Glyphs.Copy, several ? Str.WidgetsB_Folder_CopyCount.Format(("count", count)) : Str.CtxMenu_Copy.Text(), () => CopySelection(cut: false)));
 
         // Paste into the folder that was right-clicked, as Explorer's "Paste" on a folder does.
         var pasteTarget = single is { IsDirectory: true } folder ? folder.FullPath : CurrentPath;
-        entries.Add(new(Glyphs.Paste, "Paste", () => _ = PasteAsync(pasteTarget), Disabled: !FileClipboard.HasFiles || pasteTarget.Length == 0));
-        entries.Add(new(Glyphs.Link, "Copy path", () => CopyPaths(paths)));
+        entries.Add(new(Glyphs.Paste, Str.CtxMenu_Paste.Text(), () => _ = PasteAsync(pasteTarget), Disabled: !FileClipboard.HasFiles || pasteTarget.Length == 0));
+        entries.Add(new(Glyphs.Link, Str.Folder_CopyPath.Text(), () => CopyPaths(paths)));
         entries.Add(ItemMenuEntry.Separator);
 
         if (single is { } one && _visuals.FirstOrDefault(v => v.Entry.FullPath == one.FullPath) is { } visual)
         {
-            entries.Add(new(Glyphs.Rename, "Rename", () => BeginRename(visual)));
+            entries.Add(new(Glyphs.Rename, Str.WidgetsB_Folder_Rename.Text(), () => BeginRename(visual)));
         }
 
-        entries.Add(new(Glyphs.Delete, "Delete" + several, () => _ = DeleteSelectionAsync(), Danger: true));
+        entries.Add(new(Glyphs.Delete, several ? Str.WidgetsB_Folder_DeleteCount.Format(("count", count)) : Str.Common_Delete.Text(), () => _ = DeleteSelectionAsync(), Danger: true));
 
         if (hasCloud)
         {
             entries.Add(ItemMenuEntry.Separator);
-            entries.Add(new(Glyphs.Pin, "Always keep on this device", () => ShellFileOps.SetCloudPin(paths, CloudPin.Pin)));
-            entries.Add(new(Glyphs.Unpin, "Free up space", () => ShellFileOps.SetCloudPin(paths, CloudPin.Unpin)));
+            entries.Add(new(Glyphs.Pin, Str.WidgetsB_Folder_KeepOnDevice.Text(), () => ShellFileOps.SetCloudPin(paths, CloudPin.Pin)));
+            entries.Add(new(Glyphs.Unpin, Str.WidgetsB_Folder_FreeUpSpace.Text(), () => ShellFileOps.SetCloudPin(paths, CloudPin.Unpin)));
         }
 
         entries.Add(ItemMenuEntry.Separator);
-        entries.Add(new(Glyphs.Info, "Properties", () => ShellFileOps.Properties(paths)));
-        entries.Add(new(Glyphs.More, "Show more options", () => ShowShellMenu(paths)));
+        entries.Add(new(Glyphs.Info, Str.Folder_Properties.Text(), () => ShellFileOps.Properties(paths)));
+        entries.Add(new(Glyphs.More, Str.WidgetsB_Folder_MoreOptions.Text(), () => ShowShellMenu(paths)));
         return entries;
     }
 
@@ -522,7 +525,7 @@ internal sealed partial class FolderView
         var available = here.Length > 0 && _snapshot.Status is FolderListingStatus.Ok or FolderListingStatus.Empty;
 
         var templates = ShellNewTemplates.GetAsync() is { IsCompletedSuccessfully: true } done ? done.Result : [];
-        var newItems = new List<ItemMenuEntry> { new(Glyphs.NewFolder, "Folder", NewFolder) };
+        var newItems = new List<ItemMenuEntry> { new(Glyphs.NewFolder, Str.CtxMenu_Folder.Text(), NewFolder) };
 
         if (templates.Count > 0)
         {
@@ -532,27 +535,27 @@ internal sealed partial class FolderView
 
         var entries = new List<ItemMenuEntry>
         {
-            new(Glyphs.Paste, "Paste", () => _ = PasteAsync(here), Disabled: !available || !FileClipboard.HasFiles),
-            new(Glyphs.Done, "Select all", () =>
+            new(Glyphs.Paste, Str.CtxMenu_Paste.Text(), () => _ = PasteAsync(here), Disabled: !available || !FileClipboard.HasFiles),
+            new(Glyphs.Done, Str.WidgetsB_Folder_SelectAll.Text(), () =>
             {
                 _selection.SelectAll();
                 RefreshSelectionVisuals();
             }, Disabled: _shown.Count == 0),
-            new(Glyphs.Link, "Copy path", () => CopyPaths([here]), Disabled: here.Length == 0),
+            new(Glyphs.Link, Str.Folder_CopyPath.Text(), () => CopyPaths([here]), Disabled: here.Length == 0),
             ItemMenuEntry.Separator,
-            new(Glyphs.Add, "New", null, Disabled: !available, Children: newItems),
+            new(Glyphs.Add, Str.WidgetsB_Folder_New.Text(), null, Disabled: !available, Children: newItems),
             ItemMenuEntry.Separator,
         };
 
         if (Navigates && _history.CanGoUp)
         {
-            entries.Add(new(Glyphs.MoveUp, "Up", GoUp));
+            entries.Add(new(Glyphs.MoveUp, Str.WidgetsB_Folder_Up.Text(), GoUp));
         }
 
-        entries.Add(new(Glyphs.OpenExternal, "Open in Explorer", () => ShellFileOps.Open(here), Disabled: here.Length == 0));
-        entries.Add(new(Glyphs.Info, "Properties", () => ShellFileOps.Properties([here]), Disabled: here.Length == 0));
-        entries.Add(new(Glyphs.Refresh, "Refresh", () => Reload(force: false)));
-        entries.Add(new(Glyphs.More, "Show more options", () => ShowShellMenu(null), Disabled: here.Length == 0));
+        entries.Add(new(Glyphs.OpenExternal, Str.Folder_OpenInExplorer.Text(), () => ShellFileOps.Open(here), Disabled: here.Length == 0));
+        entries.Add(new(Glyphs.Info, Str.Folder_Properties.Text(), () => ShellFileOps.Properties([here]), Disabled: here.Length == 0));
+        entries.Add(new(Glyphs.Refresh, Str.Common_Refresh.Text(), () => Reload(force: false)));
+        entries.Add(new(Glyphs.More, Str.WidgetsB_Folder_MoreOptions.Text(), () => ShowShellMenu(null), Disabled: here.Length == 0));
         return entries;
     }
 
@@ -578,42 +581,47 @@ internal sealed partial class FolderView
         {
             var actions = new List<WidgetAction>
             {
-                new(Glyphs.OpenExternal, "Open in Explorer", () => ShellFileOps.Open(CurrentPath)),
-                new(Glyphs.Refresh, "Refresh", () => Reload(force: false)),
+                new(Glyphs.OpenExternal, Str.Folder_OpenInExplorer.Text(), () => ShellFileOps.Open(CurrentPath)),
+                new(Glyphs.Refresh, Str.Common_Refresh.Text(), () => Reload(force: false)),
             };
 
             foreach (var (mode, label, glyph) in new[]
             {
-                (FolderViewMode.List, "List", Glyphs.ListLayout),
-                (FolderViewMode.Details, "Details", Glyphs.ColumnsLayout),
-                (FolderViewMode.Grid, "Grid", Glyphs.GridLayout),
-                (FolderViewMode.Icons, "Icons", Glyphs.Apps),
+                (FolderViewMode.List, Str.WidgetsB_Folder_ListView.Text(), Glyphs.ListLayout),
+                (FolderViewMode.Details, Str.WidgetsB_Folder_DetailsView.Text(), Glyphs.ColumnsLayout),
+                (FolderViewMode.Grid, Str.WidgetsB_Folder_GridView.Text(), Glyphs.GridLayout),
+                (FolderViewMode.Icons, Str.WidgetsB_Folder_IconsView.Text(), Glyphs.Apps),
             })
             {
-                actions.Add(new(_config.View == mode ? Glyphs.Done : glyph, label + " view", () => Edit(c => c.View = mode)));
+                actions.Add(new(_config.View == mode ? Glyphs.Done : glyph, label, () => Edit(c => c.View = mode)));
             }
 
             if (_config.View is FolderViewMode.Grid or FolderViewMode.Icons)
             {
-                foreach (var (size, label) in new[] { (FolderTileSize.Small, "Small"), (FolderTileSize.Medium, "Medium"), (FolderTileSize.Large, "Large") })
+                foreach (var (size, label) in new[]
                 {
-                    actions.Add(new(_config.TileSize == size ? Glyphs.Done : Glyphs.Scale, $"{label} tiles", () => Edit(c => c.TileSize = size)));
+                    (FolderTileSize.Small, Str.WidgetsB_Folder_SmallTiles.Text()),
+                    (FolderTileSize.Medium, Str.WidgetsB_Folder_MediumTiles.Text()),
+                    (FolderTileSize.Large, Str.WidgetsB_Folder_LargeTiles.Text()),
+                })
+                {
+                    actions.Add(new(_config.TileSize == size ? Glyphs.Done : Glyphs.Scale, label, () => Edit(c => c.TileSize = size)));
                 }
             }
             else
             {
                 foreach (var (size, label) in new[]
                 {
-                    (FolderItemSize.ExtraSmall, "Extra small"), (FolderItemSize.Small, "Small"),
-                    (FolderItemSize.Medium, "Medium"), (FolderItemSize.Large, "Large"),
+                    (FolderItemSize.ExtraSmall, Str.WidgetsB_Folder_ExtraSmallRows.Text()), (FolderItemSize.Small, Str.WidgetsB_Folder_SmallRows.Text()),
+                    (FolderItemSize.Medium, Str.WidgetsB_Folder_MediumRows.Text()), (FolderItemSize.Large, Str.WidgetsB_Folder_LargeRows.Text()),
                 })
                 {
-                    actions.Add(new(_config.ItemSize == size ? Glyphs.Done : Glyphs.TextSize, $"{label} rows", () => Edit(c => c.ItemSize = size)));
+                    actions.Add(new(_config.ItemSize == size ? Glyphs.Done : Glyphs.TextSize, label, () => Edit(c => c.ItemSize = size)));
                 }
             }
 
-            actions.Add(new(_config.ShowHidden ? Glyphs.Done : Glyphs.Hidden, "Show hidden items", () => Edit(c => c.ShowHidden = !c.ShowHidden)));
-            actions.Add(new(_config.ShowExtensions ? Glyphs.Done : Glyphs.File, "Show file extensions", () => Edit(c => c.ShowExtensions = !c.ShowExtensions)));
+            actions.Add(new(_config.ShowHidden ? Glyphs.Done : Glyphs.Hidden, Str.WidgetsB_Folder_ShowHiddenItems.Text(), () => Edit(c => c.ShowHidden = !c.ShowHidden)));
+            actions.Add(new(_config.ShowExtensions ? Glyphs.Done : Glyphs.File, Str.Folder_ShowExtMenu.Text(), () => Edit(c => c.ShowExtensions = !c.ShowExtensions)));
             return actions;
         }
     }

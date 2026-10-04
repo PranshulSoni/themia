@@ -1,3 +1,4 @@
+using Glyphs = Themia.App.Shell.Glyphs;
 using Microsoft.UI;
 using Microsoft.UI.Text;
 using Microsoft.UI.Xaml;
@@ -8,8 +9,8 @@ using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Shapes;
 using Themia.App.Shell;
+using Themia.Core.Localization;
 using Themia.Core.Widgets;
-using Glyphs = Themia.App.Shell.Glyphs;
 
 namespace Themia.App.Widgets;
 
@@ -109,7 +110,7 @@ internal sealed class LevelRow
     {
         _muted = muted;
         var percent = muted ? 0 : VolumeRules.Percent(level);
-        _percent.Text = $"{percent}%";
+        _percent.Text = LocaleFormat.Percent(Strings.Current, percent);
         _muteIcon.Glyph = _glyph(level, muted);
         ToolTipService.SetToolTip(_mute, muteTip);
 

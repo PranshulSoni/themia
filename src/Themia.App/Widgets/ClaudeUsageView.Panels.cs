@@ -5,6 +5,7 @@ using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Shapes;
 using Themia.App.Shell;
+using Themia.Core.Localization;
 using Themia.Core.Developer;
 using Themia.Core.Widgets;
 using Windows.Foundation;
@@ -132,7 +133,7 @@ internal sealed partial class ClaudeUsageView
                     StrokeThickness = Fluent.Hairline * 2,
                     Stroke = FluentLayout.Themed("TextFillColorPrimaryBrush", Colors.White),
                 };
-                ToolTipService.SetToolTip(tick, "Where usage would be if spread evenly over the window");
+                ToolTipService.SetToolTip(tick, Str.WidgetsA_Claude_PaceTick.Text());
                 ring.Children.Add(tick);
             }
         }
@@ -146,12 +147,12 @@ internal sealed partial class ClaudeUsageView
         value.TextTrimming = TextTrimming.None;
         reading.Children.Add(value);
 
-        if (ClaudeUsageRules.ResetLabel(bar.Window.ResetsAt, now) is { Length: > 0 } reset)
+        if (ClaudeUsageRules.ResetLabel(bar.Window.ResetsAt, now, Strings.Current) is { Length: > 0 } reset)
         {
             var countdown = Fluent.Text(FluentType.Caption, "TextFillColorSecondaryBrush");
             countdown.Text = side >= 240
-                ? $"{reset} · {ClaudeUsageRules.ResetClock(bar.Window.ResetsAt!.Value, now, TimeZoneInfo.Local)}"
-                : ClaudeUsageRules.ResetLabel(bar.Window.ResetsAt, now, brief: true);
+                ? $"{reset} · {ClaudeUsageRules.ResetClock(bar.Window.ResetsAt!.Value, now, TimeZoneInfo.Local, Strings.Current)}"
+                : ClaudeUsageRules.ResetLabel(bar.Window.ResetsAt, now, Strings.Current, brief: true);
             countdown.HorizontalAlignment = HorizontalAlignment.Center;
             reading.Children.Add(countdown);
         }
@@ -168,9 +169,9 @@ internal sealed partial class ClaudeUsageView
         var roomy = width >= 240;
         pace.Text = elapsed is { } e
             ? roomy
-                ? $"{ClaudeUsageRules.PaceText(ClaudeUsageRules.Pace(percent, e))} · {Math.Round(e * 100).ToString("0", CultureInfo.InvariantCulture)}% of the window gone"
-                : ClaudeUsageRules.PaceText(ClaudeUsageRules.Pace(percent, e))
-            : roomy ? "Nothing used in this window yet" : "Unused";
+                ? $"{ClaudeUsageRules.PaceText(ClaudeUsageRules.Pace(percent, e), Strings.Current)} · {WindowGone(e)}"
+                : ClaudeUsageRules.PaceText(ClaudeUsageRules.Pace(percent, e), Strings.Current)
+            : (roomy ? Str.WidgetsA_Claude_NothingUsed : Str.WidgetsA_Claude_Unused).Text();
         pace.HorizontalAlignment = HorizontalAlignment.Center;
 
         var stack = new StackPanel { VerticalAlignment = VerticalAlignment.Center, Children = { ring, label, pace } };

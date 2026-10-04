@@ -1,3 +1,4 @@
+using Themia.Core.Localization;
 namespace Themia.Core.Widgets;
 
 /// <summary>Where the machine's power is coming from right now.</summary>
@@ -149,16 +150,16 @@ public static class PowerRules
     }
 
     /// <summary>The power source, in words.</summary>
-    public static string SourceLabel(PowerSnapshot snapshot) => snapshot.Source switch
+    public static string SourceLabel(PowerSnapshot snapshot) => (snapshot.Source switch
     {
-        PowerSource.Mains => "Plugged in",
-        PowerSource.Battery => "On battery",
-        _ => "Unknown",
-    };
+        PowerSource.Mains => Str.WidgetsC_Power_Source_Mains,
+        PowerSource.Battery => Str.WidgetsC_Power_Source_Battery,
+        _ => Str.WidgetsC_Power_Source_Unknown,
+    }).Text();
 
     /// <summary>The hero readout: the charge, or a dash when there is nothing to charge.</summary>
     public static string BatteryReadout(PowerSnapshot snapshot)
-        => snapshot.Percent is { } percent ? $"{percent}%" : "--";
+        => snapshot.Percent is { } percent ? LocaleFormat.Percent(Strings.Current, percent) : "--";
 
     /// <summary>
     /// The line under the charge: how long is left, or which way it is going. Never both, because
@@ -168,32 +169,32 @@ public static class PowerRules
     {
         if (!snapshot.HasBattery)
         {
-            return "No battery";
+            return Str.WidgetsC_Power_NoBattery.Text();
         }
 
         if (snapshot.Source == PowerSource.Mains)
         {
-            return snapshot.Percent >= 100 ? "Fully charged" : "Charging";
+            return (snapshot.Percent >= 100 ? Str.WidgetsC_Power_FullyCharged : Str.WidgetsC_Power_Charging).Text();
         }
 
         if (showRemaining && snapshot.Remaining is { } remaining)
         {
-            return $"{Formatting.Duration(remaining)} left";
+            return Str.WidgetsC_Power_Left.Format(("duration", Formatting.Duration(remaining)));
         }
 
-        return snapshot.Source == PowerSource.Battery ? "On battery" : "Unknown";
+        return (snapshot.Source == PowerSource.Battery ? Str.WidgetsC_Power_Source_Battery : Str.WidgetsC_Power_Source_Unknown).Text();
     }
 
     /// <summary>Battery saver, in words rather than in a colour alone.</summary>
-    public static string SaverLabel(PowerSnapshot snapshot) => snapshot.BatterySaver ? "On" : "Off";
+    public static string SaverLabel(PowerSnapshot snapshot) => (snapshot.BatterySaver ? Str.Common_On : Str.Common_Off).Text();
 
     /// <summary>The plan row's value. Says it could not be read rather than showing an empty row.</summary>
-    public static string PlanLabel(PowerSnapshot snapshot) => snapshot.PlanName ?? "Unavailable";
+    public static string PlanLabel(PowerSnapshot snapshot) => snapshot.PlanName ?? Str.WidgetsC_Power_Unavailable.Text();
 
     /// <summary>
     /// The sentence a tile shows when there is nothing else to show. Only ever reached when Windows
     /// would not answer at all: a desktop with no battery still has a power source and a plan, so it
     /// is a full widget, not an empty one.
     /// </summary>
-    public static string UnreadableMessage => "Windows would not report the power state";
+    public static string UnreadableMessage => Str.WidgetsC_Power_Unreadable.Text();
 }

@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Text.Json;
 using Themia.Core.Diagnostics;
+using Themia.Core.Localization;
 using Themia.Core.Model;
 
 namespace Themia.Core.Storage;
@@ -74,8 +75,8 @@ public static class SettingsTransfer
             }
 
             return ex is UnauthorizedAccessException
-                ? "Themia isn't allowed to write there."
-                : $"The file couldn't be written: {ex.Message}";
+                ? Str.Shell_Transfer_NotAllowed.Text()
+                : Str.Shell_Transfer_WriteFailed.Format(("reason", ex.Message));
         }
     }
 
@@ -94,11 +95,11 @@ public static class SettingsTransfer
         }
         catch (FileNotFoundException ex)
         {
-            return ParseResult.Refused(ParseRefusal.Unreadable, "The file isn't there any more.", ex);
+            return ParseResult.Refused(ParseRefusal.Unreadable, Str.Shell_Transfer_Gone.Text(), ex);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
-            return ParseResult.Refused(ParseRefusal.Unreadable, $"The file couldn't be read: {ex.Message}", ex);
+            return ParseResult.Refused(ParseRefusal.Unreadable, Str.Shell_Transfer_ReadFailed.Format(("reason", ex.Message)), ex);
         }
 
         return Read(json, path);
@@ -151,14 +152,17 @@ public static class SettingsTransfer
     }
 
     /// <summary>The store's reason, said the way the import dialog says it.</summary>
-    public static string Explain(ParseRefusal refusal) => refusal switch
+    public static string Explain(ParseRefusal refusal) => Explain(Strings.Current, refusal);
+
+    /// <summary><see cref="Explain(ParseRefusal)"/> in <paramref name="locale"/>.</summary>
+    public static string Explain(Locale locale, ParseRefusal refusal) => Strings.Get(locale, refusal switch
     {
-        ParseRefusal.Empty => "The file is empty.",
-        ParseRefusal.NotJson => "This isn't a Themia settings file: it isn't valid JSON.",
-        ParseRefusal.NotState => "This isn't a Themia settings file.",
-        ParseRefusal.NewerSchema => "These settings come from a newer version of Themia. Update Themia, then import them.",
-        _ => "The file couldn't be read as Themia settings.",
-    };
+        ParseRefusal.Empty => Str.Shell_Transfer_Empty,
+        ParseRefusal.NotJson => Str.Shell_Transfer_NotJson,
+        ParseRefusal.NotState => Str.Shell_Transfer_NotState,
+        ParseRefusal.NewerSchema => Str.Shell_Transfer_Newer,
+        _ => Str.Shell_Transfer_Unrecognised,
+    });
 
     /// <summary>The occasion an import's backup is named for: <c>state.before-import-….json</c>.</summary>
     public const string ImportOccasion = "import";
@@ -227,6 +231,15 @@ public static class SettingsTransfer
         AppState incoming,
         IReadOnlyList<string> repairs,
         IReadOnlyCollection<string> connectedDisplays)
+        => Compare(Strings.Current, current, incoming, repairs, connectedDisplays);
+
+    /// <summary>The same preview, worded in <paramref name="locale"/>.</summary>
+    public static ImportPreview Compare(
+        Locale locale,
+        AppState current,
+        AppState incoming,
+        IReadOnlyList<string> repairs,
+        IReadOnlyCollection<string> connectedDisplays)
     {
         ArgumentNullException.ThrowIfNull(current);
         ArgumentNullException.ThrowIfNull(incoming);
@@ -234,36 +247,34 @@ public static class SettingsTransfer
         ArgumentNullException.ThrowIfNull(connectedDisplays);
 
         var changes = new List<string>();
-        CompareViews(current, incoming, changes);
-        CompareDesign(current.Design, incoming.Design, changes);
-        ComparePreferences(current.Preferences, incoming.Preferences, changes);
+        CompareViews(locale, current, incoming, changes);
+        CompareDesign(locale, current.Design, incoming.Design, changes);
+        ComparePreferences(locale, current.Preferences, incoming.Preferences, changes);
 
         var notes = new List<string>();
 
         var elsewhere = incoming.MonitorViews.Keys.Count(id => !connectedDisplays.Contains(id));
         if (elsewhere > 0)
         {
-            notes.Add(elsewhere == 1
-                ? "One display named in the file isn't connected. Its view is kept, and comes back when it is."
-                : $"{elsewhere} displays named in the file aren't connected. Their views are kept, and come back when they are.");
+            notes.Add(Strings.Plural(locale, Str.Shell_Transfer_DisplaysAway, elsewhere));
         }
 
         if (repairs.Count > 0)
         {
             notes.Add(repairs.Count == 1
-                ? $"One thing in the file had to be repaired to be read: {repairs[0]}."
-                : $"{repairs.Count} things in the file had to be repaired to be read.");
+                ? Strings.Format(locale, Str.Shell_Transfer_RepairedOne, ("detail", repairs[0]))
+                : Strings.Plural(locale, Str.Shell_Transfer_Repaired, repairs.Count));
         }
 
         if (current.Design.RunAtStartup != incoming.Design.RunAtStartup)
         {
-            notes.Add("Start with Windows stays as it is on this PC.");
+            notes.Add(Strings.Get(locale, Str.Shell_Transfer_StartupKept));
         }
 
         return new ImportPreview(changes, notes);
     }
 
-    private static void CompareViews(AppState current, AppState incoming, List<string> changes)
+    private static void CompareViews(Locale locale, AppState current, AppState incoming, List<string> changes)
     {
         var unmatched = new List<ViewState>(current.Views);
         var pairs = new List<(ViewState Old, ViewState New)>();
@@ -302,31 +313,31 @@ public static class SettingsTransfer
         {
             if (!string.Equals(old.Name, @new.Name, StringComparison.Ordinal))
             {
-                changes.Add($"Renames the view “{old.Name}” to “{@new.Name}”");
+                changes.Add(Strings.Format(locale, Str.Shell_Transfer_Renames, ("old", old.Name), ("new", @new.Name)));
             }
 
-            var detail = CompareWidgets(old, @new);
+            var detail = CompareWidgets(locale, old, @new);
             if (detail is not null)
             {
-                changes.Add($"“{@new.Name}”: {detail}");
+                changes.Add(Strings.Format(locale, Str.Shell_Transfer_ViewDetail, ("name", @new.Name), ("detail", detail)));
             }
         }
 
         foreach (var view in added)
         {
-            changes.Add($"Adds the view “{view.Name}” with {Count(view.Widgets.Count, "widget")}");
+            changes.Add(Strings.Plural(locale, Str.Shell_Transfer_AddsView, view.Widgets.Count, ("name", view.Name)));
         }
 
         foreach (var view in unmatched)
         {
             changes.Add(view.Widgets.Count == 0
-                ? $"Removes the view “{view.Name}”"
-                : $"Removes the view “{view.Name}” and its {Count(view.Widgets.Count, "widget")}");
+                ? Strings.Format(locale, Str.Shell_Transfer_RemovesView, ("name", view.Name))
+                : Strings.Plural(locale, Str.Shell_Transfer_RemovesViewWidgets, view.Widgets.Count, ("name", view.Name)));
         }
     }
 
     /// <summary>Added, removed and changed widgets between two versions of one view, or null when equal.</summary>
-    private static string? CompareWidgets(ViewState old, ViewState @new)
+    private static string? CompareWidgets(Locale locale, ViewState old, ViewState @new)
     {
         var before = old.Widgets.ToDictionary(w => w.Id, StringComparer.Ordinal);
         var addedCount = 0;
@@ -351,89 +362,120 @@ public static class SettingsTransfer
         var parts = new List<string>(3);
         if (addedCount > 0)
         {
-            parts.Add($"{Count(addedCount, "widget")} added");
+            parts.Add(Strings.Plural(locale, Str.Shell_Transfer_WidgetsAdded, addedCount));
         }
 
         if (removedCount > 0)
         {
-            parts.Add($"{Count(removedCount, "widget")} removed");
+            parts.Add(Strings.Plural(locale, Str.Shell_Transfer_WidgetsRemoved, removedCount));
         }
 
         if (changedCount > 0)
         {
-            parts.Add($"{Count(changedCount, "widget")} changed");
+            parts.Add(Strings.Plural(locale, Str.Shell_Transfer_WidgetsChanged, changedCount));
         }
 
-        return parts.Count == 0 ? null : string.Join(", ", parts);
+        return parts.Count == 0 ? null : string.Join(Strings.Get(locale, Str.Shell_Transfer_ListSeparator), parts);
     }
 
     private static string Fingerprint(WidgetInstance widget)
         => JsonSerializer.Serialize(widget, AppStateJsonContext.Default.WidgetInstance);
 
-    private static void CompareDesign(DesignState old, DesignState @new, List<string> changes)
+    private static void CompareDesign(Locale locale, DesignState old, DesignState @new, List<string> changes)
     {
-        void Line<T>(string label, T before, T after, Func<T, string> say)
+        void Line<T>(Str label, T before, T after, Func<T, string> say)
         {
             if (!EqualityComparer<T>.Default.Equals(before, after))
             {
-                changes.Add($"{label}: {say(before)} → {say(after)}");
+                changes.Add(Strings.Format(locale, Str.Shell_Transfer_Change,
+                    ("label", Strings.Get(locale, label)), ("before", say(before)), ("after", say(after))));
             }
         }
 
-        static string Colour(string hex) => string.IsNullOrEmpty(hex) ? "theme" : hex;
-        static string Px(double value) => $"{value.ToString("0.#", CultureInfo.InvariantCulture)}px";
-        static string Percent(double value) => $"{(value * 100).ToString("0", CultureInfo.InvariantCulture)}%";
-        static string Font(string family) => family == "system" ? "system default" : family;
+        string Colour(string hex) => string.IsNullOrEmpty(hex) ? Strings.Get(locale, Str.Shell_Transfer_ThemeColour) : hex;
+        string Px(double value) => Strings.Format(locale, Str.Shell_Transfer_Px, ("value", LocaleFormat.Number(locale, value, value % 1 == 0 ? 0 : 1)));
+        string Percent(double value) => LocaleFormat.Percent(locale, Math.Round(value * 100));
+        string Ms(double ms) => Strings.Format(locale, Str.Shell_Transfer_Ms, ("value", LocaleFormat.Integer(locale, (long)Math.Round(ms))));
+        string Font(string family) => family == "system" ? Strings.Get(locale, Str.Shell_Appearance_SystemFont) : family;
+        string OnOff(bool on) => Strings.Get(locale, on ? Str.Toggle_On : Str.Toggle_Off);
+        string Theme(AppTheme theme) => Strings.Get(locale, theme switch
+        {
+            AppTheme.Light => Str.Settings_Theme_Light,
+            AppTheme.Dark => Str.Settings_Theme_Dark,
+            _ => Str.Settings_Theme_System,
+        });
+        string Border(WidgetBorderStyle style) => Strings.Get(locale, style switch
+        {
+            WidgetBorderStyle.Solid => Str.Settings_Style_Solid,
+            WidgetBorderStyle.Dashed => Str.Settings_Style_Dashed,
+            WidgetBorderStyle.Dotted => Str.Settings_Style_Dotted,
+            _ => Str.Settings_Style_None,
+        });
+        string Intro(IntroAnimation animation) => Strings.Get(locale, animation switch
+        {
+            IntroAnimation.Fade => Str.Settings_Style_StartupAnim_Fade,
+            IntroAnimation.Scale => Str.Settings_Style_StartupAnim_Scale,
+            IntroAnimation.Slide => Str.Shell_Motion_Slide,
+            IntroAnimation.Sides => Str.Shell_Motion_Sides,
+            IntroAnimation.TopBottom => Str.Shell_Motion_TopBottom,
+            IntroAnimation.Flip => Str.Settings_Style_StartupAnim_Flip,
+            IntroAnimation.Blur => Str.Settings_Style_StartupAnim_Blur,
+            IntroAnimation.Hyperspace => Str.Settings_Style_StartupAnim_Hyperspace,
+            IntroAnimation.Hacker => Str.Settings_Style_StartupAnim_Hacker,
+            _ => Str.Settings_Style_StartupAnim_None,
+        });
 
-        Line("Theme", old.Theme, @new.Theme, t => t.ToString());
-        Line("Accent colour", old.PrimaryColor, @new.PrimaryColor, Colour);
-        Line("Widget background", old.WidgetBackgroundColor, @new.WidgetBackgroundColor, Colour);
-        Line("Widget opacity", old.SurfaceOpacity, @new.SurfaceOpacity, Percent);
-        Line("Corner radius", old.CornerRadiusPx, @new.CornerRadiusPx, Px);
-        Line("Border", old.BorderStyle, @new.BorderStyle, b => b.ToString());
-        Line("Border width", old.BorderWidthPx, @new.BorderWidthPx, Px);
-        Line("Border colour", old.BorderColor, @new.BorderColor, Colour);
-        Line("Border opacity", old.BorderOpacity, @new.BorderOpacity, Percent);
-        Line("Font", old.FontFamily, @new.FontFamily, Font);
-        Line("Text size", old.FontScale, @new.FontScale, Percent);
-        Line("Widget scale", old.UiScale, @new.UiScale, Percent);
-        Line("Intro animation", old.IntroAnimation, @new.IntroAnimation, a => a.ToString());
-        Line("Animation length", old.IntroAnimationMs, @new.IntroAnimationMs,
-            ms => $"{ms.ToString("0", CultureInfo.InvariantCulture)}ms");
-        Line("Gap between widgets", old.WidgetGapPx, @new.WidgetGapPx, Px);
-        Line("Snap to grid", old.GridSnap, @new.GridSnap, on => on ? "on" : "off");
-        Line("Header background", old.HeaderBackgroundColor, @new.HeaderBackgroundColor, Colour);
-        Line("Header opacity", old.HeaderOpacity, @new.HeaderOpacity, Percent);
-        Line("View change animation", old.TransitionAnimation, @new.TransitionAnimation, a => a.ToString());
-        Line("View change animation length", old.TransitionAnimationMs, @new.TransitionAnimationMs,
-            ms => $"{ms.ToString("0", CultureInfo.InvariantCulture)}ms");
-        Line("Unlock animation", old.UnlockAnimation, @new.UnlockAnimation, a => a.ToString());
-        Line("Unlock animation length", old.UnlockAnimationMs, @new.UnlockAnimationMs,
-            ms => $"{ms.ToString("0", CultureInfo.InvariantCulture)}ms");
-        Line("Startup sound", old.StartupSound, @new.StartupSound, on => on ? "on" : "off");
+        Line(Str.Settings_Theme_Label, old.Theme, @new.Theme, Theme);
+        Line(Str.Shell_Transfer_Accent, old.PrimaryColor, @new.PrimaryColor, Colour);
+        Line(Str.Settings_Style_WidgetBg_Label, old.WidgetBackgroundColor, @new.WidgetBackgroundColor, Colour);
+        Line(Str.Settings_Style_WidgetOpacity_Label, old.SurfaceOpacity, @new.SurfaceOpacity, Percent);
+        Line(Str.Settings_Style_CornerRadius_Label, old.CornerRadiusPx, @new.CornerRadiusPx, Px);
+        Line(Str.Settings_Style_Border, old.BorderStyle, @new.BorderStyle, Border);
+        Line(Str.Settings_Style_BorderWidth_Label, old.BorderWidthPx, @new.BorderWidthPx, Px);
+        Line(Str.Shell_Appearance_BorderColour, old.BorderColor, @new.BorderColor, Colour);
+        Line(Str.Settings_Style_BorderOpacity_Label, old.BorderOpacity, @new.BorderOpacity, Percent);
+        Line(Str.Settings_Font_FamilyLabel, old.FontFamily, @new.FontFamily, Font);
+        Line(Str.Shell_Appearance_TextSize, old.FontScale, @new.FontScale, Percent);
+        Line(Str.Display_WidgetScale_Label, old.UiScale, @new.UiScale, Percent);
+        Line(Str.Shell_Motion_Startup, old.IntroAnimation, @new.IntroAnimation, Intro);
+        Line(Str.Shell_Transfer_StartupLength, old.IntroAnimationMs, @new.IntroAnimationMs, Ms);
+        Line(Str.Shell_Layout_Gap, old.WidgetGapPx, @new.WidgetGapPx, Px);
+        Line(Str.Settings_Style_GridSnap_Label, old.GridSnap, @new.GridSnap, OnOff);
+        Line(Str.Settings_Style_HeaderBg_Label, old.HeaderBackgroundColor, @new.HeaderBackgroundColor, Colour);
+        Line(Str.Settings_Style_HeaderOpacity_Label, old.HeaderOpacity, @new.HeaderOpacity, Percent);
+        Line(Str.Shell_Motion_Transition, old.TransitionAnimation, @new.TransitionAnimation, Intro);
+        Line(Str.Shell_Transfer_TransitionLength, old.TransitionAnimationMs, @new.TransitionAnimationMs, Ms);
+        Line(Str.Shell_Motion_Unlock, old.UnlockAnimation, @new.UnlockAnimation, Intro);
+        Line(Str.Shell_Transfer_UnlockLength, old.UnlockAnimationMs, @new.UnlockAnimationMs, Ms);
+        Line(Str.Settings_Style_StartupSound_Label, old.StartupSound, @new.StartupSound, OnOff);
     }
 
-    private static void ComparePreferences(AppPreferences old, AppPreferences @new, List<string> changes)
+    private static void ComparePreferences(Locale locale, AppPreferences old, AppPreferences @new, List<string> changes)
     {
-        void Toggle(string label, bool before, bool after)
+        string OnOff(bool on) => Strings.Get(locale, on ? Str.Toggle_On : Str.Toggle_Off);
+
+        void Toggle(Str label, bool before, bool after)
         {
             if (before != after)
             {
-                changes.Add($"{label}: {(before ? "on" : "off")} → {(after ? "on" : "off")}");
+                changes.Add(Strings.Format(locale, Str.Shell_Transfer_Change,
+                    ("label", Strings.Get(locale, label)), ("before", OnOff(before)), ("after", OnOff(after))));
             }
         }
 
         if (old.Language != @new.Language)
         {
-            changes.Add($"Language: {old.Language} → {@new.Language}");
+            changes.Add(Strings.Format(locale, Str.Shell_Transfer_Change,
+                ("label", Strings.Get(locale, Str.Settings_Language_Label)),
+                ("before", old.Language.ToString()),
+                ("after", @new.Language.ToString())));
         }
 
-        Toggle("Hide widgets in full-screen apps", old.GameModeSuspend, @new.GameModeSuspend);
-        Toggle("Desktop icons", old.DesktopIconsVisible, @new.DesktopIconsVisible);
-        Toggle("Local network access", old.AllowPrivateNetwork, @new.AllowPrivateNetwork);
-        Toggle("Developer mode", old.DevMode, @new.DevMode);
-        Toggle("Verbose logging", old.VerboseLogging, @new.VerboseLogging);
+        Toggle(Str.Shell_Settings_General_GameMode, old.GameModeSuspend, @new.GameModeSuspend);
+        Toggle(Str.Settings_DesktopIcons_Label, old.DesktopIconsVisible, @new.DesktopIconsVisible);
+        Toggle(Str.Shell_Settings_General_LocalNetwork, old.AllowPrivateNetwork, @new.AllowPrivateNetwork);
+        Toggle(Str.Shell_Settings_General_DevMode, old.DevMode, @new.DevMode);
+        Toggle(Str.Shell_Logs_Verbose, old.VerboseLogging, @new.VerboseLogging);
     }
 
-    private static string Count(int n, string noun) => $"{n} {noun}{(n == 1 ? string.Empty : "s")}";
 }

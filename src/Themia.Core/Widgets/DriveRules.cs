@@ -1,5 +1,5 @@
-using System.Globalization;
 using System.Text.Json.Serialization;
+using Themia.Core.Localization;
 using Themia.Core.Model;
 
 namespace Themia.Core.Widgets;
@@ -159,10 +159,8 @@ public static class DriveRules
 
     private const string Select = "$select=id,name,size,lastModifiedDateTime,webUrl,file,folder,remoteItem,lastModifiedBy,parentReference";
 
-    /// <summary>The words for the top of the drive, as OneDrive itself names it.</summary>
-    public const string RootName = "My files";
-
-    private static readonly string[] MonthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+    /// <summary>The words for the top of the drive, as OneDrive itself names it, in the current language.</summary>
+    public static string RootName => Str.WidgetsC_OneDrive_MyFiles.Text();
 
     private static readonly HashSet<string> Images = new(StringComparer.OrdinalIgnoreCase) { "png", "jpg", "jpeg", "gif", "svg", "webp", "bmp", "heic", "tif", "tiff" };
     private static readonly HashSet<string> Videos = new(StringComparer.OrdinalIgnoreCase) { "mp4", "mkv", "avi", "mov", "wmv", "webm" };
@@ -255,14 +253,20 @@ public static class DriveRules
     }
 
     /// <summary>[S-1294] "12.4 GB of 1 TB used".</summary>
-    public static string QuotaText(DriveQuota quota) => $"{Formatting.Bytes(quota.Used)} of {Formatting.Bytes(quota.Total)} used";
+    public static string QuotaText(DriveQuota quota) => QuotaText(Strings.Current, quota);
+
+    /// <summary><see cref="QuotaText(DriveQuota)"/> in an explicit language.</summary>
+    public static string QuotaText(Locale locale, DriveQuota quota)
+        => Strings.Format(locale, Str.WidgetsC_OneDrive_Quota, ("used", Formatting.Bytes(locale, quota.Used)), ("total", Formatting.Bytes(locale, quota.Total)));
 
     /// <summary>[S-1293] A folder's size column: how many items it holds ("1 item", "12 items"), or nothing.</summary>
-    public static string ChildCountText(long? count) => count switch
+    public static string ChildCountText(long? count) => ChildCountText(Strings.Current, count);
+
+    /// <summary><see cref="ChildCountText(long?)"/> in an explicit language.</summary>
+    public static string ChildCountText(Locale locale, long? count) => count switch
     {
         null or < 0 => string.Empty,
-        1 => "1 item",
-        _ => $"{count.Value.ToString(CultureInfo.InvariantCulture)} items",
+        _ => Strings.Plural(locale, Str.WidgetsC_OneDrive_Items, count.Value),
     };
 
     private static string? Blank(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
@@ -313,51 +317,59 @@ public static class DriveRules
     /// [S-606] The line under a name: <c>size · when</c> for a file, just <c>when</c> for a folder
     /// (a folder's size is the sum of things the row is not about).
     /// </summary>
-    public static string Meta(DriveItem item, DateTimeOffset now)
+    public static string Meta(DriveItem item, DateTimeOffset now) => Meta(Strings.Current, item, now);
+
+    /// <summary><see cref="Meta(DriveItem, DateTimeOffset)"/> in an explicit language.</summary>
+    public static string Meta(Locale locale, DriveItem item, DateTimeOffset now)
     {
         ArgumentNullException.ThrowIfNull(item);
 
-        var when = item.Modified is { } modified ? Ago(modified, now) : string.Empty;
+        var when = item.Modified is { } modified ? Ago(locale, modified, now) : string.Empty;
 
         if (item.IsFolder)
         {
             return when;
         }
 
-        var size = Formatting.Bytes(item.Size);
+        var size = Formatting.Bytes(locale, item.Size);
         return when.Length == 0 ? size : $"{size} · {when}";
     }
 
-    /// <summary>[S-606] "Just now", "5m ago", "3h ago", "2d ago", then the date.</summary>
-    public static string Ago(DateTimeOffset when, DateTimeOffset now)
+    /// <summary>[S-606] "just now", "5m ago", "3h ago", "2d ago", then the date.</summary>
+    public static string Ago(DateTimeOffset when, DateTimeOffset now) => Ago(Strings.Current, when, now);
+
+    /// <summary>
+    /// <see cref="Ago(DateTimeOffset, DateTimeOffset)"/> in an explicit language: the original's
+    /// compact ages (its own translated keys), then the language's short date, with the year only
+    /// when it is not this one.
+    /// </summary>
+    public static string Ago(Locale locale, DateTimeOffset when, DateTimeOffset now)
     {
         var age = now - when;
 
         if (age < TimeSpan.FromMinutes(1))
         {
             // A provider clock ahead of this one is not the future.
-            return "Just now";
+            return Strings.Get(locale, Str.Onedrive_TimeJustNow);
         }
 
         if (age < TimeSpan.FromHours(1))
         {
-            return $"{(int)age.TotalMinutes}m ago";
+            return Strings.Format(locale, Str.Onedrive_TimeMinutes, ("n", (long)age.TotalMinutes));
         }
 
         if (age < TimeSpan.FromDays(1))
         {
-            return $"{(int)age.TotalHours}h ago";
+            return Strings.Format(locale, Str.Onedrive_TimeHours, ("n", (long)age.TotalHours));
         }
 
         if (age < TimeSpan.FromDays(7))
         {
-            return $"{(int)age.TotalDays}d ago";
+            return Strings.Format(locale, Str.Onedrive_TimeDays, ("n", (long)age.TotalDays));
         }
 
         var local = when.ToLocalTime();
-        return local.Year == now.ToLocalTime().Year
-            ? $"{local.Day} {MonthNames[local.Month - 1]}"
-            : $"{local.Day} {MonthNames[local.Month - 1]} {local.Year.ToString(CultureInfo.InvariantCulture)}";
+        return LocaleFormat.Date(locale, DateOnly.FromDateTime(local.DateTime), local.Year == now.ToLocalTime().Year ? DateStyle.MonthDayShort : DateStyle.Medium);
     }
 
     // ---- the folder trail ------------------------------------------------------------------------

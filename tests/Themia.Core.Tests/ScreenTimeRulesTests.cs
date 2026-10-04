@@ -1,3 +1,4 @@
+using Themia.Core.Localization;
 using Themia.Core.Model;
 using Themia.Core.Widgets;
 using Xunit;
@@ -120,7 +121,8 @@ public sealed class ScreenTimeRulesTests
             .ToList();
 
         Assert.Equal("7-day average 1h 34m · busiest Tue 5h 0m", ScreenTimeRules.StatsLine(week, 9, ScreenTimePeriod.Day));
-        Assert.Equal("busiest Tue 29 Sep 5h 0m · 9 apps", ScreenTimeRules.StatsLine(week, 9, ScreenTimePeriod.Week));
+        Assert.Equal("busiest Tue, Sep 29 5h 0m · 9 apps", ScreenTimeRules.StatsLine(week, 9, ScreenTimePeriod.Week));
+        Assert.Equal("Spitze Di., 29. Sept. 5 h 0 min · 9 Apps", ScreenTimeRules.StatsLine(Locale.De, week, 9, ScreenTimePeriod.Week));
         Assert.Equal(string.Empty, ScreenTimeRules.StatsLine([(monday, 0L)], 0, ScreenTimePeriod.Day));
     }
 
@@ -468,13 +470,23 @@ public sealed class ScreenTimeRulesTests
     }
 
     [Fact]
+    public void S1210_durations_are_worded_per_language()
+    {
+        Assert.Equal("3 h 24 min", ScreenTimeRules.FormatDuration(Locale.De, (3 * 3600) + (24 * 60)));
+        Assert.Equal("4,6 h", ScreenTimeRules.CompactDuration(Locale.De, (4 * 3600) + (37 * 60)));
+        Assert.Equal("4 h", ScreenTimeRules.FormatLimit(Locale.De, 4 * 3600));
+        Assert.Equal("<1m", ScreenTimeRules.FormatDuration(Locale.En, 5));
+    }
+
+    [Fact]
     public void S454_labels()
     {
         var today = new LocalDay(new DateOnly(2026, 7, 2));
 
         Assert.Equal("Today", ScreenTimeRules.DayLabel(null, today));
         Assert.Equal("Yesterday", ScreenTimeRules.DayLabel("2026-07-01", today));
-        Assert.Equal("Tue 30 Jun", ScreenTimeRules.DayLabel("2026-06-30", today));
+        Assert.Equal("Tue, Jun 30", ScreenTimeRules.DayLabel(Locale.En, "2026-06-30", today));
+        Assert.Equal("Gestern", ScreenTimeRules.DayLabel(Locale.De, "2026-07-01", today));
         Assert.Equal("Last 7 days", ScreenTimeRules.PeriodLabel(ScreenTimePeriod.Week));
         Assert.Equal("Last 30 days", ScreenTimeRules.PeriodLabel(ScreenTimePeriod.Month));
     }

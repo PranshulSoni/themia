@@ -6,6 +6,7 @@ using Microsoft.UI.Xaml.Documents;
 using Microsoft.UI.Xaml.Media;
 using Themia.App.Services;
 using Themia.App.Shell;
+using Themia.Core.Localization;
 using Themia.Core.Widgets;
 
 namespace Themia.App.Widgets.Meters;
@@ -126,7 +127,7 @@ internal sealed class MeterCellStrip
             Typography.SetNumeralAlignment(_label, FontNumeralAlignment.Tabular);
 
             Host = new StackPanel { Children = { _track, _label } };
-            ToolTipService.SetToolTip(Host, $"Processor {index}");
+            ToolTipService.SetToolTip(Host, Str.WidgetsB_Cpu_Processor.Format(("index", index)));
         }
 
         public StackPanel Host { get; }

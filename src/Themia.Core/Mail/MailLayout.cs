@@ -1,4 +1,4 @@
-using System.Globalization;
+using Themia.Core.Localization;
 using Themia.Core.Model;
 
 namespace Themia.Core.Mail;
@@ -103,7 +103,10 @@ public static class MailLayout
     /// when any account that answered has not said its folder's counts — a total missing one
     /// account's mail would be a wrong number, not a smaller one.
     /// </summary>
-    public static string? Footer(IReadOnlyList<MailAccountOutcome> outcomes, MailFolder folder)
+    public static string? Footer(IReadOnlyList<MailAccountOutcome> outcomes, MailFolder folder) => Footer(Strings.Current, outcomes, folder);
+
+    /// <summary><see cref="Footer(IReadOnlyList{MailAccountOutcome}, MailFolder)"/> in <paramref name="locale"/>.</summary>
+    public static string? Footer(Locale locale, IReadOnlyList<MailAccountOutcome> outcomes, MailFolder folder)
     {
         ArgumentNullException.ThrowIfNull(outcomes);
 
@@ -115,11 +118,9 @@ public static class MailLayout
 
         var total = answered.Sum(o => o.Folder!.Value.Total);
         var unread = answered.Sum(o => o.Folder!.Value.Unread);
-        var culture = CultureInfo.CurrentCulture;
-
         return unread > 0
-            ? $"{unread.ToString("N0", culture)} unread of {total.ToString("N0", culture)} in {folder.Label()}"
-            : $"{total.ToString("N0", culture)} in {folder.Label()}, all read";
+            ? Strings.Format(locale, Str.WidgetsB_Email_FooterUnread, ("unread", unread), ("total", total), ("folder", folder.Label(locale)))
+            : Strings.Format(locale, Str.WidgetsB_Email_FooterAllRead, ("total", total), ("folder", folder.Label(locale)));
     }
 
     /// <summary>The narrowest each column can be and still say anything.</summary>

@@ -6,6 +6,7 @@ using Themia.App.Services;
 using Themia.App.Services.Notes;
 using Themia.App.Shell;
 using Themia.Core.Diagnostics;
+using Themia.Core.Localization;
 using Themia.Core.Model;
 using Themia.Core.Notes;
 using Themia.Core.Widgets;
@@ -211,7 +212,26 @@ internal sealed partial class NotesView : Grid, IWidgetView, IWidgetSurfaceAware
             _pool.SaveStateChanged += OnSaveStateChanged;
         }
 
+        Strings.Changed += OnLanguage;
         ApplyConfig(config);
+    }
+
+    /// <summary>[S-1110] Re-read every text this view set; the note itself is the user's and stays.</summary>
+    private void OnLanguage(Locale locale)
+    {
+        _editor.RefreshTexts();
+        ApplyPickerTexts();
+        if (_newRowText is not null)
+        {
+            _newRowText.Text = Str.Notes_NewNote.Text();
+        }
+
+        UpdateMessage();
+        UpdateStatus();
+        if (_plan.List)
+        {
+            RebuildList();
+        }
     }
 
     public void ApplyConfig(WidgetConfig config)
@@ -282,7 +302,7 @@ internal sealed partial class NotesView : Grid, IWidgetView, IWidgetSurfaceAware
 
         if (string.IsNullOrEmpty(_config.NoteId) && _surface is { IsPreview: false } surface)
         {
-            _config.NoteId = _pool.Create(string.IsNullOrWhiteSpace(surface.Label) ? "Note" : surface.Label);
+            _config.NoteId = _pool.Create(string.IsNullOrWhiteSpace(surface.Label) ? Str.Notes_NewName.Text() : surface.Label);
             surface.RequestSave();
         }
 
@@ -351,9 +371,9 @@ internal sealed partial class NotesView : Grid, IWidgetView, IWidgetSurfaceAware
     {
         _messageText.Text = _state switch
         {
-            NoteState.Deleted => _plan.List ? "This note was deleted.\nPick another one in the list." : "This note was deleted.\nPick another one in settings.",
-            NoteState.Unreadable => "This note could not be read.",
-            NoteState.Unavailable => "Notes are not available.",
+            NoteState.Deleted => _plan.List ? Str.WidgetsC_Notes_DeletedPickInList.Text() : Str.Notes_NoteGone.Text(),
+            NoteState.Unreadable => Str.WidgetsC_Notes_Unreadable.Text(),
+            NoteState.Unavailable => Str.WidgetsC_Notes_Unavailable.Text(),
             _ => string.Empty,
         };
 
@@ -504,6 +524,7 @@ internal sealed partial class NotesView : Grid, IWidgetView, IWidgetSurfaceAware
         // Before anything is unhooked: this is the last chance the last sentence has.
         Flush();
         _detached = true;
+        Strings.Changed -= OnLanguage;
 
         if (_saveTimer is not null)
         {

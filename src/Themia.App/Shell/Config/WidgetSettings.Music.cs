@@ -1,4 +1,5 @@
 using Microsoft.UI.Xaml;
+using Themia.Core.Localization;
 using Themia.Core.Model;
 
 namespace Themia.App.Shell.Config;
@@ -21,33 +22,33 @@ internal static partial class WidgetSettings
         ArgumentNullException.ThrowIfNull(config);
         ArgumentNullException.ThrowIfNull(save);
 
-        rows.Add(FluentLayout.Header("Now playing"));
+        rows.Add(FluentLayout.Header(Str.WidgetsB_Settings_Music_Header.Text()));
 
-        rows.Add(FluentLayout.Row(Glyphs.Gallery, "Show album art",
-            "Only when the player offers one",
+        rows.Add(FluentLayout.Row(Glyphs.Gallery, Str.Music_AlbumArtLabel.Text(),
+            Str.WidgetsB_Settings_Music_AlbumArt_Desc.Text(),
             FluentLayout.Toggle(config.ShowAlbumArt, value => { config.ShowAlbumArt = value; save(); })));
 
-        rows.Add(FluentLayout.Row(Glyphs.Play, "Show the transport",
-            "Previous, play or pause, next",
+        rows.Add(FluentLayout.Row(Glyphs.Play, Str.WidgetsB_Settings_Music_Transport_Label.Text(),
+            Str.WidgetsB_Settings_Music_Transport_Desc.Text(),
             FluentLayout.Toggle(config.ShowTransport, value => { config.ShowTransport = value; save(); })));
 
-        rows.Add(FluentLayout.Row(Glyphs.Motion, "Show progress",
-            "The seek bar, and the elapsed and total times",
+        rows.Add(FluentLayout.Row(Glyphs.Motion, Str.WidgetsB_Settings_Music_Progress_Label.Text(),
+            Str.WidgetsB_Settings_Music_Progress_Desc.Text(),
             FluentLayout.Toggle(config.ShowProgress, value => { config.ShowProgress = value; save(); })));
 
         // [S-1470] System-wide: the bars show whatever the PC is playing, not only this player.
-        rows.Add(FluentLayout.Row(SpectrumGlyph, "Show the spectrum",
-            "Bars that move with the sound this PC is playing",
+        rows.Add(FluentLayout.Row(SpectrumGlyph, Str.WidgetsB_Settings_Music_Spectrum_Label.Text(),
+            Str.WidgetsB_Settings_Music_Spectrum_Desc.Text(),
             FluentLayout.Toggle(config.ShowSpectrum, value => { config.ShowSpectrum = value; save(); })));
 
         // [S-1464] Edit mode always shows a hidden widget, so it can still be found and changed.
-        rows.Add(FluentLayout.Row(Glyphs.Hide, "Hide when idle",
-            "The widget disappears from the desktop; edit mode still shows it",
+        rows.Add(FluentLayout.Row(Glyphs.Hide, Str.Music_HideWhenIdle_Label.Text(),
+            Str.WidgetsB_Settings_Music_HideWhenIdle_Desc.Text(),
             FluentLayout.Choice<MusicHideWhenIdle>(
                 [
-                    (MusicHideWhenIdle.Never, "Never"),
-                    (MusicHideWhenIdle.NoSession, "When no player is open"),
-                    (MusicHideWhenIdle.NotPlaying, "When nothing is playing"),
+                    (MusicHideWhenIdle.Never, Str.Music_HideWhenIdle_Never.Text()),
+                    (MusicHideWhenIdle.NoSession, Str.WidgetsB_Settings_Music_HideWhenIdle_NoSession.Text()),
+                    (MusicHideWhenIdle.NotPlaying, Str.WidgetsB_Settings_Music_HideWhenIdle_NotPlaying.Text()),
                 ],
                 config.HideWhenIdle,
                 value => { config.HideWhenIdle = value; save(); })));

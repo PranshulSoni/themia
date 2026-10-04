@@ -1,5 +1,6 @@
 using Themia.App.Services;
 using Themia.App.Shell;
+using Themia.Core.Localization;
 using Themia.Core.Model;
 using Themia.Core.Widgets;
 
@@ -96,7 +97,7 @@ internal sealed class DiskMeter : MeterPart
     public override IReadOnlyList<WidgetAction> ContextActions(IMeterHost host)
     {
         var root = _primary ?? DiskMetrics.SystemRoot;
-        return [new WidgetAction(Glyphs.Folder, $"Open {DiskRules.Instance(root)} in Explorer", () => Open(root))];
+        return [new WidgetAction(Glyphs.Folder, Str.WidgetsB_Disk_OpenInExplorer.Format(("drive", DiskRules.Instance(root))), () => Open(root))];
     }
 
     public override void Sample(MeterDemand demand, IMeterHost host)
@@ -109,11 +110,11 @@ internal sealed class DiskMeter : MeterPart
         if (Volume(root) is not { UsedFraction: { } fraction } volume)
         {
             host.SetTitle(DiskRules.Instance(root));
-            host.Present(MeterReading.Unavailable($"{DiskRules.Instance(root)} unavailable"));
+            host.Present(MeterReading.Unavailable(Str.WidgetsB_Disk_Unavailable.Format(("drive", DiskRules.Instance(root)))));
             return;
         }
 
-        host.SetTitle(_roots.Count > 1 ? "Disks" : DiskRules.Title(volume));
+        host.SetTitle(_roots.Count > 1 ? Str.WidgetsB_Disk_Disks.Text() : DiskRules.Title(volume));
 
         var activity = Activity();
         var rates = activity is { } a ? DiskRules.Charted(_config.IoScope, root, _config.IoDrive, a.Rates) : null;
@@ -121,7 +122,7 @@ internal sealed class DiskMeter : MeterPart
         // [S-1163] With a chart, the caption is the chart's: the rates now. Without one, the space.
         var caption = !_config.ShowGraph ? DiskRules.FreeOfTotal(volume)
             : rates is { } now ? DiskRules.RatesText(now)
-            : "R -- · W --";
+            : DiskRules.NoRatesText(Strings.Current);
 
         host.Present(new MeterReading(
             fraction,
@@ -134,9 +135,9 @@ internal sealed class DiskMeter : MeterPart
             Value: rates?.Read ?? double.NaN,
             Facts:
             [
-                new MeterFact("Used", Formatting.Bytes(volume.Used)),
-                new MeterFact("Free", Formatting.Bytes(volume.Free)),
-                new MeterFact("Total", Formatting.Bytes(volume.Total)),
+                new MeterFact(Str.WidgetsB_Meters_Used.Text(), Formatting.Bytes(volume.Used)),
+                new MeterFact(Str.WidgetsB_Meters_Free.Text(), Formatting.Bytes(volume.Free)),
+                new MeterFact(Str.WidgetsB_Meters_Total.Text(), Formatting.Bytes(volume.Total)),
             ],
             Second: rates?.Write,
             Details: demand.Details ? Details(volume, activity) : null,
@@ -151,23 +152,23 @@ internal sealed class DiskMeter : MeterPart
         // The caption carries the rates when there is a chart, so the space moves down here.
         if (_config.ShowGraph)
         {
-            lines.Add(new MeterFact("Space", DiskRules.FreeOfTotal(volume)));
+            lines.Add(new MeterFact(Str.WidgetsB_Disk_Space.Text(), DiskRules.FreeOfTotal(volume)));
 
             // Only when the chart is not about the drive the reading is: otherwise it goes without saying.
             if (_config.IoScope != DiskIoScope.Reading)
             {
-                lines.Add(new MeterFact("Chart", $"reads and writes, {DiskRules.ChartedName(_config.IoScope, volume.Root, _config.IoDrive)}"));
+                lines.Add(new MeterFact(Str.WidgetsB_Disk_Chart.Text(), Str.WidgetsB_Disk_ChartOf.Format(("drive", DiskRules.ChartedName(_config.IoScope, volume.Root, _config.IoDrive)))));
             }
         }
 
         if (_config.ShowIops && activity is { Reads: { } reads, Writes: { } writes })
         {
-            lines.Add(new MeterFact("IOPS", DiskRules.OperationsText(reads, writes)));
+            lines.Add(new MeterFact(Str.WidgetsB_Disk_Iops.Text(), DiskRules.OperationsText(reads, writes)));
         }
 
         if (_config.ShowVolume)
         {
-            lines.Add(new MeterFact("Volume", DiskRules.VolumeText(volume)));
+            lines.Add(new MeterFact(Str.WidgetsB_Disk_Volume.Text(), DiskRules.VolumeText(volume)));
         }
 
         return lines;
@@ -183,7 +184,7 @@ internal sealed class DiskMeter : MeterPart
         {
             if (Volume(root) is not { } volume)
             {
-                shown.Add(new MeterRow(DiskRules.Instance(root), "--", null, $"{DiskRules.Instance(root)} is not answering"));
+                shown.Add(new MeterRow(DiskRules.Instance(root), "--", null, Str.WidgetsB_Disk_NotAnswering.Format(("drive", DiskRules.Instance(root)))));
                 continue;
             }
 
@@ -197,7 +198,7 @@ internal sealed class DiskMeter : MeterPart
                 () => Open(volume.Root)));
         }
 
-        return new MeterList("Drives", shown);
+        return new MeterList(Str.WidgetsB_Disk_Drives.Text(), shown);
     }
 
     /// <summary>Which drives the list holds, from the last walk: cheap enough for a layout pass.</summary>

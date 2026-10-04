@@ -1,4 +1,4 @@
-using System.Globalization;
+using Themia.Core.Localization;
 
 namespace Themia.Core.Widgets;
 
@@ -21,16 +21,19 @@ public readonly record struct PowerTimeouts(uint? ScreenOffSeconds, uint? SleepS
 public static class PowerTimeoutRules
 {
     /// <summary>A timeout as Settings shows it: "Never", "45 s", "5 min", "1 h", "1 h 30 min".</summary>
-    public static string Duration(uint seconds)
+    public static string Duration(uint seconds) => Duration(Strings.Current, seconds);
+
+    /// <summary><see cref="Duration(uint)"/> in an explicit language: "5 min", "5 Min.", "5 分".</summary>
+    public static string Duration(Locale locale, uint seconds)
     {
         if (seconds == 0)
         {
-            return "Never";
+            return Strings.Get(locale, Str.WidgetsC_Power_Timeout_Never);
         }
 
         if (seconds < 60)
         {
-            return string.Create(CultureInfo.InvariantCulture, $"{seconds} s");
+            return Strings.Format(locale, Str.WidgetsC_Power_Timeout_Seconds, ("value", (long)seconds));
         }
 
         var minutes = seconds / 60;
@@ -38,19 +41,19 @@ public static class PowerTimeoutRules
         var rest = minutes % 60;
 
         return hours == 0
-            ? string.Create(CultureInfo.InvariantCulture, $"{minutes} min")
+            ? Strings.Format(locale, Str.WidgetsC_Power_Timeout_Minutes, ("value", (long)minutes))
             : rest == 0
-                ? string.Create(CultureInfo.InvariantCulture, $"{hours} h")
-                : string.Create(CultureInfo.InvariantCulture, $"{hours} h {rest} min");
+                ? Strings.Format(locale, Str.WidgetsC_Power_Timeout_Hours, ("value", (long)hours))
+                : Strings.Format(locale, Str.WidgetsC_Power_Timeout_HoursMinutes, ("hours", (long)hours), ("minutes", (long)rest));
     }
 
     /// <summary>The section's rows, in Settings' order; a value that could not be read has no row.</summary>
     public static IReadOnlyList<PowerFact> Facts(PowerTimeouts timeouts)
     {
         var facts = new List<PowerFact>(3);
-        Add(facts, PowerFactKind.ScreenOff, "Screen off after", timeouts.ScreenOffSeconds);
-        Add(facts, PowerFactKind.Sleep, "Sleep after", timeouts.SleepSeconds);
-        Add(facts, PowerFactKind.Hibernate, "Hibernate after", timeouts.HibernateSeconds);
+        Add(facts, PowerFactKind.ScreenOff, Str.WidgetsC_Power_Timeout_ScreenOff.Text(), timeouts.ScreenOffSeconds);
+        Add(facts, PowerFactKind.Sleep, Str.WidgetsC_Power_Timeout_Sleep.Text(), timeouts.SleepSeconds);
+        Add(facts, PowerFactKind.Hibernate, Str.WidgetsC_Power_Timeout_Hibernate.Text(), timeouts.HibernateSeconds);
         return facts;
     }
 
@@ -58,7 +61,7 @@ public static class PowerTimeoutRules
     public static PowerFact Uptime(TimeSpan up)
     {
         var value = CpuRules.Uptime(up);
-        return new PowerFact(PowerFactKind.Uptime, "Up for", value, $"Up for {value}");
+        return new PowerFact(PowerFactKind.Uptime, Str.WidgetsC_Power_UpFor.Text(), value, Str.WidgetsC_Power_UpForLine.Format(("value", value)));
     }
 
     private static void Add(List<PowerFact> facts, PowerFactKind kind, string label, uint? seconds)
@@ -66,7 +69,7 @@ public static class PowerTimeoutRules
         if (seconds is { } value)
         {
             var text = Duration(value);
-            facts.Add(new PowerFact(kind, label, text, $"{label} {text}"));
+            facts.Add(new PowerFact(kind, label, text, Str.WidgetsC_Power_Timeout_Line.Format(("label", label), ("value", text))));
         }
     }
 }

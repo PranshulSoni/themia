@@ -3,6 +3,7 @@ using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Themia.App.Services;
 using Themia.App.Shell;
+using Themia.Core.Localization;
 using Themia.Core.Model;
 using Themia.Core.Widgets;
 
@@ -78,7 +79,14 @@ internal sealed partial class TabsView : Grid, IWidgetView, IWidgetContainerView
     /// <inheritdoc />
     public void Bind(IWidgetSurface surface) => _surface = surface;
 
-    public void Attach(Ticker ticker, WidgetConfig config) => ApplyConfig(config);
+    public void Attach(Ticker ticker, WidgetConfig config)
+    {
+        Strings.Changed += OnLanguage;
+        ApplyConfig(config);
+    }
+
+    /// <summary>[S-1109] The tabs carry catalogue names, which follow the language.</summary>
+    private void OnLanguage(Locale locale) => Rebuild();
 
     public void ApplyConfig(WidgetConfig config)
     {
@@ -120,7 +128,7 @@ internal sealed partial class TabsView : Grid, IWidgetView, IWidgetContainerView
 
     private static string ChildName(FrameworkElement child) => child is WidgetCard card
         ? (string.IsNullOrWhiteSpace(card.Model.Label) ? WidgetCatalog.Definition(card.Model.Kind).Label : card.Model.Label)
-        : "Widget";
+        : Str.Settings_Style_Widget.Text();
 
     /// <summary>[S-869] How the tabs are labelled at this width; names are measured at their worst case (Body Strong).</summary>
     private TabLabels Labels()
@@ -237,12 +245,12 @@ internal sealed partial class TabsView : Grid, IWidgetView, IWidgetContainerView
         var id = card.Model.Id;
         return
         [
-            new(Glyphs.Settings, "Configure…", () => container.ChildAction(id, ContainerChildAction.Configure)),
+            new(Glyphs.Settings, Str.ViewSwitcher_Configure.Text(), () => container.ChildAction(id, ContainerChildAction.Configure)),
             ItemMenuEntry.Separator,
-            new(Glyphs.MoveUp, "Move left", () => container.ChildAction(id, ContainerChildAction.MoveUp), Disabled: !container.CanMoveChild(id, -1)),
-            new(Glyphs.MoveDown, "Move right", () => container.ChildAction(id, ContainerChildAction.MoveDown), Disabled: !container.CanMoveChild(id, 1)),
+            new(Glyphs.MoveUp, Str.WidgetsA_Tabs_MoveLeft.Text(), () => container.ChildAction(id, ContainerChildAction.MoveUp), Disabled: !container.CanMoveChild(id, -1)),
+            new(Glyphs.MoveDown, Str.WidgetsA_Tabs_MoveRight.Text(), () => container.ChildAction(id, ContainerChildAction.MoveDown), Disabled: !container.CanMoveChild(id, 1)),
             ItemMenuEntry.Separator,
-            new(Glyphs.TakeOut, "Take out of the tabs", () => container.ChildAction(id, ContainerChildAction.TakeOut)),
+            new(Glyphs.TakeOut, Str.WidgetsA_Tabs_TakeOut.Text(), () => container.ChildAction(id, ContainerChildAction.TakeOut)),
         ];
     }
 
@@ -309,6 +317,7 @@ internal sealed partial class TabsView : Grid, IWidgetView, IWidgetContainerView
 
     public void Detach()
     {
+        Strings.Changed -= OnLanguage;
         ClearTabs();
 
         foreach (var child in _children)

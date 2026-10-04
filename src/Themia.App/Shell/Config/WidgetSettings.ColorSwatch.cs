@@ -3,6 +3,7 @@ using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
 using Themia.App.Widgets;
+using Themia.Core.Localization;
 using Themia.Core.Model;
 using Themia.Core.Settings;
 using Themia.Core.Widgets;
@@ -39,15 +40,15 @@ internal static partial class WidgetSettings
             Show(palette, config.Mode == SwatchMode.Palette);
         }
 
-        rows.Add(FluentLayout.Header("Colour swatch"));
+        rows.Add(FluentLayout.Header(Str.Widget_ColorSwatch_Label.Text()));
 
         // [S-1500] One widget, three shapes; the block is the original and the default.
-        rows.Add(FluentLayout.Row(Glyphs.Color, "Show as", "A block of one colour, a gradient, or a palette to copy from",
+        rows.Add(FluentLayout.Row(Glyphs.Color, Str.WidgetsA_ColorSwatch_Settings_Mode_Label.Text(), Str.WidgetsA_ColorSwatch_Settings_Mode_Desc.Text(),
             FluentLayout.Choice(
                 [
-                    (SwatchMode.Solid, "Solid colour"),
-                    (SwatchMode.Gradient, "Gradient"),
-                    (SwatchMode.Palette, "Palette"),
+                    (SwatchMode.Solid, Str.Group_Bg_Solid.Text()),
+                    (SwatchMode.Gradient, Str.ColorSwatch_ModeGradient.Text()),
+                    (SwatchMode.Palette, Str.WidgetsA_ColorSwatch_Palette.Text()),
                 ],
                 config.Mode,
                 value =>
@@ -59,7 +60,7 @@ internal static partial class WidgetSettings
 
         // ---- solid ----------------------------------------------------------------------------
 
-        solid.Add(FluentLayout.ColorPickerRow(Glyphs.Palette, "Colour", "Fills the whole widget",
+        solid.Add(FluentLayout.ColorPickerRow(Glyphs.Palette, Str.ColorSwatch_ColorLabel.Text(), Str.WidgetsA_ColorSwatch_Settings_Color_Desc.Text(),
             config.Color,
             value =>
             {
@@ -68,7 +69,7 @@ internal static partial class WidgetSettings
             },
             AccentDefault()));
 
-        solid.Add(OpacityRow("Opacity", "How much of what is behind shows through", config.Alpha, value =>
+        solid.Add(OpacityRow(Str.Settings_Style_OpacityLabel.Text(), Str.WidgetsA_ColorSwatch_Settings_Opacity_Desc.Text(), config.Alpha, value =>
         {
             config.Alpha = value;
             save();
@@ -76,7 +77,7 @@ internal static partial class WidgetSettings
 
         // ---- gradient -------------------------------------------------------------------------
 
-        gradient.Add(FluentLayout.ColorPickerRow(Glyphs.Palette, "Start colour", "Where the gradient begins",
+        gradient.Add(FluentLayout.ColorPickerRow(Glyphs.Palette, Str.ColorSwatch_StartColorLabel.Text(), Str.WidgetsA_ColorSwatch_Settings_Start_Desc.Text(),
             config.StartColor,
             value =>
             {
@@ -85,13 +86,13 @@ internal static partial class WidgetSettings
             },
             AccentDefault()));
 
-        gradient.Add(OpacityRow("Start opacity", null, config.StartAlpha, value =>
+        gradient.Add(OpacityRow(Str.WidgetsA_ColorSwatch_Settings_StartOpacity_Label.Text(), null, config.StartAlpha, value =>
         {
             config.StartAlpha = value;
             save();
         }));
 
-        gradient.Add(FluentLayout.ColorPickerRow(Glyphs.Palette, "End colour", "Where the gradient ends",
+        gradient.Add(FluentLayout.ColorPickerRow(Glyphs.Palette, Str.ColorSwatch_EndColorLabel.Text(), Str.WidgetsA_ColorSwatch_Settings_End_Desc.Text(),
             config.EndColor,
             value =>
             {
@@ -100,14 +101,14 @@ internal static partial class WidgetSettings
             },
             new ColorChoiceOptions()));
 
-        gradient.Add(OpacityRow("End opacity", null, config.EndAlpha, value =>
+        gradient.Add(OpacityRow(Str.WidgetsA_ColorSwatch_Settings_EndOpacity_Label.Text(), null, config.EndAlpha, value =>
         {
             config.EndAlpha = value;
             save();
         }));
 
         // [S-1503] CSS's convention, as the original: 0° runs upwards, 90° to the right.
-        gradient.Add(FluentLayout.Row(Glyphs.Rotate, "Angle", "The direction it runs: 0° upwards, 90° to the right",
+        gradient.Add(FluentLayout.Row(Glyphs.Rotate, Str.ColorSwatch_Angle_Label.Text(), Str.WidgetsA_ColorSwatch_Settings_Angle_Desc.Text(),
             FluentLayout.Slider(GradientAxis.NormaliseAngle(config.Angle), 0, 359, 1, "°", value =>
             {
                 config.Angle = GradientAxis.NormaliseAngle(Math.Round(value));
@@ -116,11 +117,11 @@ internal static partial class WidgetSettings
 
         // [S-1505] The original's "layer: behind / in front" is the widget menu's Bring to front /
         // Send to back now, which every widget has; said here so it is found from the old place.
-        block.Add(FluentLayout.Note("To use it as a backdrop, right-click the widget and choose Send to back."));
+        block.Add(FluentLayout.Note(Str.WidgetsA_ColorSwatch_Settings_BackdropNote.Text()));
 
         // ---- palette --------------------------------------------------------------------------
 
-        palette.Add(FluentLayout.Header("Palette"));
+        palette.Add(FluentLayout.Header(Str.WidgetsA_ColorSwatch_Palette.Text()));
 
         rows.AddRange(solid);
         rows.AddRange(gradient);
@@ -133,11 +134,11 @@ internal static partial class WidgetSettings
         {
             Items = config.Swatches,
             Save = save,
-            EmptyText = "This palette is empty. The widget will say so until a colour is added.",
-            AddTitle = "Add a colour",
-            AddDescription = "Pick a colour, and give it a name if you want one",
-            AddAction = "Add",
-            RemoveTooltip = "Remove colour",
+            EmptyText = Str.WidgetsA_ColorSwatch_Settings_PaletteEmpty.Text(),
+            AddTitle = Str.WidgetsA_ColorSwatch_Settings_Add_Label.Text(),
+            AddDescription = Str.WidgetsA_ColorSwatch_Settings_Add_Desc.Text(),
+            AddAction = Str.Common_Add.Text(),
+            RemoveTooltip = Str.WidgetsA_ColorSwatch_Settings_Remove.Text(),
             Capacity = SwatchPalette.MaxSwatches,
 
             // A new row starts as a real colour rather than as a blank the widget would drop on
@@ -146,13 +147,13 @@ internal static partial class WidgetSettings
             Body = item => SwatchBody(item, save),
         });
 
-        rows.Add(FluentLayout.Row(Glyphs.Rename, "Show names", "The name beside each colour",
+        rows.Add(FluentLayout.Row(Glyphs.Rename, Str.WidgetsA_ColorSwatch_Settings_ShowNames_Label.Text(), Str.WidgetsA_ColorSwatch_Settings_ShowNames_Desc.Text(),
             FluentLayout.Toggle(config.ShowNames, value => { config.ShowNames = value; save(); })));
 
-        rows.Add(FluentLayout.Row(Glyphs.Preview, "Show values", "The text a click will copy",
+        rows.Add(FluentLayout.Row(Glyphs.Preview, Str.WidgetsA_ColorSwatch_Settings_ShowValues_Label.Text(), Str.WidgetsA_ColorSwatch_Settings_ShowValues_Desc.Text(),
             FluentLayout.Toggle(config.ShowValues, value => { config.ShowValues = value; save(); })));
 
-        rows.Add(FluentLayout.Row(Glyphs.Copy, "Copy as", ColorFormats.Describe(config.CopyAs),
+        rows.Add(FluentLayout.Row(Glyphs.Copy, Str.WidgetsA_ColorSwatch_Settings_CopyAs_Label.Text(), ColorFormats.Describe(config.CopyAs),
             FluentLayout.Choice(
                 [
                     (ColorNotation.Hex, "Hex"),
@@ -179,7 +180,7 @@ internal static partial class WidgetSettings
     /// <summary>The picker's options for a colour whose default is the accent (the original's default).</summary>
     private static ColorChoiceOptions AccentDefault() => new()
     {
-        DefaultLabel = "Accent colour",
+        DefaultLabel = Str.WidgetsA_ColorSwatch_Settings_Accent.Text(),
         DefaultColor = () => (FluentLayout.Themed("AccentFillColorDefaultBrush", Colors.DodgerBlue) as SolidColorBrush)?.Color,
     };
 
@@ -207,8 +208,8 @@ internal static partial class WidgetSettings
                 item.Value = value;
                 save();
             },
-            new ColorChoiceOptions { Presets = ColorPresets.Surfaces, PresetsTitle = "Colours" },
-            string.IsNullOrWhiteSpace(item.Name) ? "Colour" : item.Name);
+            new ColorChoiceOptions { Presets = ColorPresets.Surfaces, PresetsTitle = Str.WidgetsA_ColorSwatch_Settings_Presets.Text() },
+            string.IsNullOrWhiteSpace(item.Name) ? Str.ColorSwatch_ColorLabel.Text() : item.Name);
 
         color.VerticalAlignment = VerticalAlignment.Center;
         Grid.SetColumn(color, 0);
@@ -217,7 +218,7 @@ internal static partial class WidgetSettings
         {
             Text = item.Name,
             MinWidth = 110,
-            PlaceholderText = "Name",
+            PlaceholderText = Str.View_Name_Label.Text(),
             Margin = new Thickness(Fluent.Space2, 0, 0, 0),
             VerticalAlignment = VerticalAlignment.Center,
         };

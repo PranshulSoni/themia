@@ -1,3 +1,5 @@
+using Themia.Core.Localization;
+
 namespace Themia.Core.Widgets;
 
 /// <summary>One sample of the chart: when (epoch seconds) and the price then.</summary>
@@ -185,14 +187,16 @@ public static class MarketSearch
     }
 
     /// <summary>"Shares", "Crypto"…: the label shown beside a symbol for its class.</summary>
-    public static string Label(AssetClass asset) => asset switch
+    public static string Label(AssetClass asset) => Label(Strings.Current, asset);
+
+    public static string Label(Locale locale, AssetClass asset) => Strings.Get(locale, asset switch
     {
-        AssetClass.Crypto => "Crypto",
-        AssetClass.Currency => "Currency",
-        AssetClass.Commodity => "Commodity",
-        AssetClass.Index => "Index",
-        _ => "Shares",
-    };
+        AssetClass.Crypto => Str.WidgetsC_Stocks_Asset_Crypto,
+        AssetClass.Currency => Str.WidgetsC_Stocks_Asset_Currency,
+        AssetClass.Commodity => Str.WidgetsC_Stocks_Asset_Commodity,
+        AssetClass.Index => Str.WidgetsC_Stocks_Asset_Index,
+        _ => Str.WidgetsC_Stocks_Asset_Shares,
+    });
 
     private static string? FirstText(params string?[] values)
     {

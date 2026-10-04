@@ -9,6 +9,7 @@ using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Media.Imaging;
 using Themia.App.Interop;
 using Themia.Core.Diagnostics;
+using Themia.Core.Localization;
 using Themia.Core.Model;
 using Windows.Graphics;
 
@@ -139,14 +140,11 @@ internal sealed partial class ConfigWindow
     private void BuildTitleBar()
     {
         _back.Content = new FontIcon { Glyph = Glyphs.Back, FontSize = 12 };
-        ToolTipService.SetToolTip(_back, "Back");
-        AutomationProperties.SetName(_back, "Back");
         _back.Click += (_, _) => GoBack();
 
         _paneToggle.Content = new FontIcon { Glyph = "", FontSize = 14 };
-        ToolTipService.SetToolTip(_paneToggle, "Navigation");
-        AutomationProperties.SetName(_paneToggle, "Open navigation");
         _paneToggle.Visibility = Visibility.Collapsed;
+        ApplyChromeText();
         _paneToggle.Click += (_, _) => _nav.IsPaneOpen = !_nav.IsPaneOpen;
 
         foreach (var button in new[] { _back, _paneToggle })
@@ -331,7 +329,7 @@ internal sealed partial class ConfigWindow
             }
         }
 
-        return "Settings";
+        return Str.Common_Settings.Text();
     }
 
     // -----------------------------------------------------------------------------------------

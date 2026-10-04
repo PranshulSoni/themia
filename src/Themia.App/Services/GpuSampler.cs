@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Runtime.InteropServices;
 using Themia.Core.Diagnostics;
+using Themia.Core.Localization;
 using Themia.Core.Widgets;
 
 namespace Themia.App.Services;
@@ -282,13 +283,13 @@ internal static partial class GpuSampler
             // The kernel (pid 4) has no image path but does use the GPU (its scheduler's copies).
             if (pid == 4)
             {
-                return "System";
+                return Str.Shell_Process_System.Text();
             }
 
             // A protected or already-exited process has no path to read; it is still a process.
             if (ProcessNames.ExePath((uint)pid) is not { } path)
             {
-                return $"Process {pid}";
+                return Str.Shell_Process_Pid.Format(("pid", pid.ToString(System.Globalization.CultureInfo.InvariantCulture)));
             }
 
             return ProcessNames.DisplayName(path) ?? Path.GetFileNameWithoutExtension(path);

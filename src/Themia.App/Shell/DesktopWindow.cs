@@ -13,6 +13,7 @@ using Themia.App.Shell.Config;
 using Themia.App.Widgets;
 using Themia.Core.Diagnostics;
 using Themia.Core.Geometry;
+using Themia.Core.Localization;
 using Themia.Core.Model;
 using Themia.Core.Widgets;
 using Windows.Foundation;
@@ -131,6 +132,10 @@ internal sealed partial class DesktopWindow : IWidgetCardHost
         _host.EditModeChanged += OnEditModeChanged;
         _host.SelectionChanged += OnSelectionChanged;
         _host.PlacementChanged += OnPlacementChanged;
+
+        // [S-1110] One central redraw when the language changes; no card follows it on its own.
+        UiLanguage.Apply(_root);
+        Strings.Changed += OnLanguageChanged;
     }
 
     // -----------------------------------------------------------------------------------------

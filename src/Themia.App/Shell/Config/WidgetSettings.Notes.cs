@@ -4,6 +4,7 @@ using Themia.App.Services;
 using Themia.App.Services.Notes;
 using Themia.App.Widgets;
 using Themia.Core.Diagnostics;
+using Themia.Core.Localization;
 using Themia.Core.Model;
 using Themia.Core.Notes;
 using Themia.Core.Widgets;
@@ -30,13 +31,13 @@ internal static partial class WidgetSettings
         ArgumentNullException.ThrowIfNull(config);
         ArgumentNullException.ThrowIfNull(save);
 
-        rows.Add(FluentLayout.Header("Note"));
+        rows.Add(FluentLayout.Header(Str.WidgetsC_Notes_Settings_Note.Text()));
 
         var pool = AppServices.Notes;
 
         if (pool is null)
         {
-            rows.Add(FluentLayout.Note("Notes are not available."));
+            rows.Add(FluentLayout.Note(Str.WidgetsC_Notes_Unavailable.Text()));
         }
         else
         {
@@ -69,29 +70,29 @@ internal static partial class WidgetSettings
             Rebuild();
         }
 
-        rows.Add(FluentLayout.Header("Display"));
+        rows.Add(FluentLayout.Header(Str.ConfigTabs_Display.Text()));
 
         // [S-05] The note's base size; headings are drawn larger than this.
-        rows.Add(FluentLayout.Row(Glyphs.TextSize, "Text size", "How big the note is written",
+        rows.Add(FluentLayout.Row(Glyphs.TextSize, Str.Notes_FontSizeLabel.Text(), Str.Notes_FontSizeDesc.Text(),
             // The full range the config clamps to, so the slider can never sit at 32 while the
             // stored size is 40 and the note is drawn at neither of the two.
             FluentLayout.Slider(config.EffectiveFontSizePx, 8, 48, 1, "px",
                 value => { config.FontSizePx = value; save(); })));
 
-        rows.Add(FluentLayout.Row(Glyphs.Wrap, "Wrap lines",
-            "Off scrolls sideways instead of breaking long lines",
+        rows.Add(FluentLayout.Row(Glyphs.Wrap, Str.WidgetsC_Notes_Settings_Wrap_Label.Text(),
+            Str.WidgetsC_Notes_Settings_Wrap_Desc.Text(),
             FluentLayout.Toggle(config.WrapText, value => { config.WrapText = value; save(); })));
 
         // [S-130] Empties the note's text for good — there is no undo, no bin, no second copy — so
         // it asks first. The note itself stays, with its title.
         rows.Add(FluentLayout.ConfirmRow(
             Glyphs.Clear,
-            "Clear note",
-            "Empties the note this widget shows, for every widget showing it",
-            "Clear",
-            "Clear this note?",
+            Str.WidgetsC_Notes_Settings_Clear_Label.Text(),
+            Str.WidgetsC_Notes_Settings_Clear_Desc.Text(),
+            Str.Common_Clear.Text(),
+            Str.WidgetsC_Notes_Settings_Clear_ConfirmTitle.Text(),
             () => pool?.Find(config.NoteId) is not null && pool.Read(config.NoteId).Text.Length > 0
-                ? "Everything written in it is deleted. This cannot be undone."
+                ? Str.WidgetsC_Notes_Settings_Clear_ConfirmBody.Text()
                 : null,
             () =>
             {
@@ -111,7 +112,7 @@ internal static partial class WidgetSettings
     {
         if (config.NoteId is { } shown && pool.Find(shown) is null)
         {
-            yield return FluentLayout.Note("The note this widget showed was deleted. Pick another one, or make a new one.");
+            yield return FluentLayout.Note(Str.WidgetsC_Notes_Settings_ShownDeleted.Text());
         }
 
         var now = DateTimeOffset.Now;
@@ -140,7 +141,7 @@ internal static partial class WidgetSettings
             var title = new TextBox
             {
                 Text = note.Title,
-                PlaceholderText = "Note title",
+                PlaceholderText = Str.Notes_NamePlaceholder.Text(),
                 MinWidth = 160,
                 VerticalAlignment = VerticalAlignment.Center,
             };
@@ -167,7 +168,7 @@ internal static partial class WidgetSettings
             edited.Text = Formatting.Ago(DateTimeOffset.FromUnixTimeSeconds(note.UpdatedAt).ToLocalTime(), now);
             edited.VerticalAlignment = VerticalAlignment.Center;
 
-            var remove = FluentLayout.IconCommand(Glyphs.Delete, "Delete this note");
+            var remove = FluentLayout.IconCommand(Glyphs.Delete, Str.Notes_DeleteTitle.Text());
             remove.Click += async (_, _) =>
             {
                 try
@@ -176,9 +177,9 @@ internal static partial class WidgetSettings
                     // the title being typed in.
                     if (!await FluentLayout.ConfirmAsync(
                             remove,
-                            "Delete this note?",
-                            $"\"{note.Title}\" will be deleted from this PC, for every widget showing it. Its text cannot be recovered.",
-                            "Delete").ConfigureAwait(true))
+                            Str.WidgetsC_Notes_DeleteConfirmTitle.Text(),
+                            Str.WidgetsC_Notes_DeleteConfirmBody.Format(("name", note.Title)),
+                            Str.Common_Delete.Text()).ConfigureAwait(true))
                     {
                         return;
                     }
@@ -218,13 +219,13 @@ internal static partial class WidgetSettings
 
         if (pool.Notes.Count == 0)
         {
-            yield return FluentLayout.Note("No notes on this PC yet.");
+            yield return FluentLayout.Note(Str.WidgetsC_Notes_Settings_NoNotes.Text());
         }
 
-        var add = new Button { Content = "New note" };
+        var add = new Button { Content = Str.Notes_NewNote.Text() };
         add.Click += (_, _) =>
         {
-            config.NoteId = pool.Create("Note");
+            config.NoteId = pool.Create(Str.Notes_NewName.Text());
             save();
             rebuild();
         };

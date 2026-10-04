@@ -5,6 +5,7 @@ using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
 using Themia.App.Widgets;
 using Themia.Core.Diagnostics;
+using Themia.Core.Localization;
 using Themia.Core.Widgets;
 using Windows.System;
 
@@ -44,8 +45,24 @@ internal sealed partial class WidgetPicker : Grid
     /// <summary>Width of a name in the search results: the longest catalogue label, with room.</summary>
     private const double ResultNameWidth = 150;
 
-    /// <summary>The search index, built once: the catalogue does not change while the app runs.</summary>
-    private static readonly Lazy<(IndexedWidget Index, WidgetDefinition Definition)[]> SearchIndex = new(BuildIndex);
+    /// <summary>
+    /// The search index, built once per language: the catalogue does not change while the app runs,
+    /// but its names do when the language does ([S-1109]). UI thread only.
+    /// </summary>
+    private static (Locale Locale, (IndexedWidget Index, WidgetDefinition Definition)[] Entries)? _searchIndex;
+
+    private static (IndexedWidget Index, WidgetDefinition Definition)[] SearchIndex()
+    {
+        var locale = Strings.Current;
+        if (_searchIndex is { } built && built.Locale == locale)
+        {
+            return built.Entries;
+        }
+
+        var entries = BuildIndex();
+        _searchIndex = (locale, entries);
+        return entries;
+    }
 
     private readonly IReadOnlyList<WidgetDefinition> _offered;
     private readonly IReadOnlyList<PickerTarget> _targets;
@@ -94,12 +111,12 @@ internal sealed partial class WidgetPicker : Grid
 
         _search = new TextBox
         {
-            PlaceholderText = "Search widgets",
+            PlaceholderText = Str.Shell_Picker_Search.Text(),
             MinWidth = 240,
             IsSpellCheckEnabled = false,
             IsTextPredictionEnabled = false,
         };
-        AutomationProperties.SetName(_search, "Search widgets");
+        AutomationProperties.SetName(_search, Str.Shell_Picker_Search.Text());
         _search.TextChanged += (_, _) => Refresh();
         _search.PreviewKeyDown += OnSearchKeyDown;
 
@@ -142,22 +159,16 @@ internal sealed partial class WidgetPicker : Grid
     internal void SetQuery(string text) => _search.Text = text;
 
     private static (IndexedWidget, WidgetDefinition)[] BuildIndex()
-        => [.. WidgetCatalog.All.Select(d => (WidgetSearch.Index(new WidgetSearchDoc(
-            d.Kind.ToString(),
-            [d.Label],
-            WidgetKeywords.For(d.Kind),
-            [d.Description],
-            [WidgetCatalog.Title(d.Category)],
-            WidgetKeywords.Providers(d.Kind))), d))];
+        => [.. WidgetCatalog.All.Select(d => (WidgetSearch.Index(WidgetCatalog.SearchDoc(d)), d))];
 
     private FrameworkElement BuildTargetChoice()
     {
         var label = Fluent.Text(FluentType.Body, "TextFillColorSecondaryBrush");
-        label.Text = "Add to";
+        label.Text = Str.Shell_Picker_AddTo.Text();
         label.VerticalAlignment = VerticalAlignment.Center;
 
         var choice = new ComboBox { MinWidth = 160, VerticalAlignment = VerticalAlignment.Center };
-        AutomationProperties.SetName(choice, "Add to");
+        AutomationProperties.SetName(choice, Str.Shell_Picker_AddTo.Text());
 
         foreach (var target in _targets)
         {
@@ -270,13 +281,13 @@ internal sealed partial class WidgetPicker : Grid
         _resultsHost.Visibility = Visibility.Visible;
         _results.Children.Clear();
 
-        var offered = SearchIndex.Value.Where(entry => _offered.Contains(entry.Definition));
+        var offered = SearchIndex().Where(entry => _offered.Contains(entry.Definition));
         var ranked = WidgetSearch.Rank(offered.Select(entry => (entry.Index, entry.Definition)), query);
 
         if (ranked.Count == 0)
         {
             var none = Fluent.Text(FluentType.Body, "TextFillColorSecondaryBrush");
-            none.Text = $"No widget matches “{query.Trim()}”";
+            none.Text = Str.Shell_Picker_NoMatch.Format(("query", query.Trim()));
             none.Margin = new Thickness(Fluent.Space3, Fluent.Space2, Fluent.Space3, Fluent.Space2);
             _results.Children.Add(none);
             MoveCursor(-1);

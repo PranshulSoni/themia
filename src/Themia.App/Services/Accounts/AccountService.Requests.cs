@@ -4,6 +4,7 @@ using System.Text.Json;
 using System.Text.Json.Serialization.Metadata;
 using Themia.Core.Accounts;
 using Themia.Core.Diagnostics;
+using Themia.Core.Localization;
 
 namespace Themia.App.Services.Accounts;
 
@@ -37,7 +38,7 @@ internal sealed partial class AccountService
                 throw new AccountException(AccountError.Refused, $"{account.Label} signs in with a password, not a token.");
 
             case AccountAuth.BearerToken:
-                return (OpenOrThrow(account, account.SealedAccessToken, "token"), account.SealedAccessToken);
+                return (OpenOrThrow(account, account.SealedAccessToken, SecretKind.Token), account.SealedAccessToken);
         }
 
         if (TokenExpiry.IsUsable(account.ExpiresAt, Now)
@@ -75,8 +76,8 @@ internal sealed partial class AccountService
             if (refresh is not { State: SecretState.Open, Value: { } refreshToken })
             {
                 var problem = refresh.State == SecretState.Absent
-                    ? "The sign-in has run out and there is no way to renew it. Sign in again."
-                    : "The sign-in cannot be read on this PC or by this Windows user. Sign in again.";
+                    ? Str.Shell_Accounts_SignInExpired.Text()
+                    : SecretProblem(SecretKind.SignIn, refresh.State);
                 MarkProblem(accountId, problem);
                 throw new AccountException(AccountError.SignInRequired, problem);
             }
@@ -102,7 +103,7 @@ internal sealed partial class AccountService
                 var index = list.FindIndex(a => a.Id == accountId);
                 if (index < 0)
                 {
-                    throw new AccountException(AccountError.UnknownAccount, "The account was signed out while its sign-in was being renewed.");
+                    throw new AccountException(AccountError.UnknownAccount, Str.Shell_Accounts_SignedOutWhileRenewing.Text());
                 }
 
                 list[index] = list[index] with
@@ -162,7 +163,9 @@ internal sealed partial class AccountService
 
         if (RefreshRules.NeedsUser(reply.Status, code))
         {
-            var problem = $"{account.Provider.Label()} wants you to sign in again{(said is null ? "." : $": {said}")}";
+            var problem = said is null
+                ? Str.Shell_Accounts_SignInAgain.Format(("provider", account.Provider.Label()))
+                : Str.Shell_Accounts_SignInAgainReason.Format(("provider", account.Provider.Label()), ("reason", said));
             MarkProblem(account.Id, problem);
             return new AccountException(AccountError.SignInRequired, problem, reply.Status);
         }
@@ -177,7 +180,7 @@ internal sealed partial class AccountService
 
         return new AccountException(
             error,
-            $"Renewing the {account.Provider.Label()} sign-in failed: {said ?? $"HTTP {reply.Status}"}",
+            Str.Shell_Accounts_RenewFailed.Format(("provider", account.Provider.Label()), ("reason", said ?? $"HTTP {reply.Status}")),
             reply.Status);
     }
 
@@ -224,14 +227,14 @@ internal sealed partial class AccountService
             error = AccountError.RateLimited;
         }
         var message = said is null
-            ? $"{reply.FinalUrl.Host} answered HTTP {reply.Status}."
-            : $"{reply.FinalUrl.Host} answered HTTP {reply.Status}: {said}";
+            ? Str.Shell_Net_Answered.Format(("host", reply.FinalUrl.Host), ("status", $"HTTP {reply.Status}"))
+            : Str.Shell_Net_AnsweredReason.Format(("host", reply.FinalUrl.Host), ("status", $"HTTP {reply.Status}"), ("reason", said));
 
         if (error == AccountError.SignInRequired)
         {
             MarkProblem(account.Id, account.Provider.Auth() == AccountAuth.Password
-                ? "The server refused the user name or password. Sign in again."
-                : $"{account.Provider.Label()} refused the sign-in. Sign in again.");
+                ? Str.Shell_Accounts_PasswordRefused.Text()
+                : Str.Shell_Accounts_ProviderRefused.Format(("provider", account.Provider.Label())));
         }
 
         throw new AccountException(error, message, reply.Status)
@@ -341,15 +344,15 @@ internal sealed partial class AccountService
 
         if (account.Provider != AccountProvider.Imap || account.Host is null || account.Port is not { } port || account.Username is null)
         {
-            throw new AccountException(AccountError.Refused, $"{account.Label} is not a mail server account.");
+            throw new AccountException(AccountError.Refused, Str.Shell_Accounts_NotMailServer.Format(("name", account.Label)));
         }
 
-        return new ImapCredentials(account.Host, port, account.Username, OpenOrThrow(account, account.SealedPassword, "password"));
+        return new ImapCredentials(account.Host, port, account.Username, OpenOrThrow(account, account.SealedPassword, SecretKind.Password));
     }
 
     /// <summary>Tell the service an IMAP server refused the stored password, so the account says so.</summary>
     public void ReportImapLoginRefused(string accountId)
-        => MarkProblem(accountId, "The mail server refused the user name or password. Sign in again.");
+        => MarkProblem(accountId, Str.Shell_Accounts_MailPasswordRefused.Text());
 
     // -----------------------------------------------------------------------------------------
     // Plumbing
@@ -359,7 +362,7 @@ internal sealed partial class AccountService
     {
         if (account.Provider.Auth() == AccountAuth.Password)
         {
-            return (CredentialKind.Basic, OpenOrThrow(account, account.SealedPassword, "password"), account.SealedPassword);
+            return (CredentialKind.Basic, OpenOrThrow(account, account.SealedPassword, SecretKind.Password), account.SealedPassword);
         }
 
         var (token, sealedToken) = await TokenAsync(account, cancellation).ConfigureAwait(false);
@@ -394,7 +397,7 @@ internal sealed partial class AccountService
         request.Headers.Authorization = new("Bearer", secret);
     }
 
-    private string OpenOrThrow(Account account, string? sealedSecret, string what)
+    private string OpenOrThrow(Account account, string? sealedSecret, SecretKind what)
     {
         var opened = Dpapi.Open(sealedSecret);
         if (opened is { State: SecretState.Open, Value: { } value })
@@ -402,12 +405,32 @@ internal sealed partial class AccountService
             return value;
         }
 
-        var problem = opened.State == SecretState.Absent
-            ? $"No {what} is stored. Sign in again."
-            : $"The {what} cannot be read on this PC or by this Windows user. Sign in again.";
+        var problem = SecretProblem(what, opened.State);
         MarkProblem(account.Id, problem);
         throw new AccountException(AccountError.SignInRequired, problem);
     }
+
+    /// <summary>What a stored secret is, for the sentence that says why it cannot be used.</summary>
+    private enum SecretKind
+    {
+        SignIn,
+        Token,
+        Password,
+    }
+
+    /// <summary>Why a stored secret cannot be used, one whole sentence per kind and state.</summary>
+    private static string SecretProblem(SecretKind kind, SecretState state) => (state, kind) switch
+    {
+        (SecretState.Absent, SecretKind.SignIn) => Str.Shell_Secret_AbsentSignIn.Text(),
+        (SecretState.Absent, SecretKind.Token) => Str.Shell_Secret_AbsentToken.Text(),
+        (SecretState.Absent, _) => Str.Shell_Secret_AbsentPassword.Text(),
+        (SecretState.Plaintext, SecretKind.SignIn) => Str.Shell_Secret_PlainSignIn.Text(),
+        (SecretState.Plaintext, SecretKind.Token) => Str.Shell_Secret_PlainToken.Text(),
+        (SecretState.Plaintext, _) => Str.Shell_Secret_PlainPassword.Text(),
+        (_, SecretKind.SignIn) => Str.Shell_Secret_UnreadableSignIn.Text(),
+        (_, SecretKind.Token) => Str.Shell_Secret_UnreadableToken.Text(),
+        _ => Str.Shell_Secret_UnreadablePassword.Text(),
+    };
 
     private async Task<IReadOnlyList<T>> PagesAsync<T>(
         string accountId,

@@ -7,6 +7,7 @@ using Microsoft.UI.Xaml.Controls.Primitives;
 using Microsoft.UI.Xaml.Media;
 using Themia.App.Widgets;
 using Themia.Core.Diagnostics;
+using Themia.Core.Localization;
 using Themia.Core.Settings;
 using Themia.Core.Widgets;
 
@@ -19,7 +20,7 @@ internal sealed class ColorChoiceOptions
     public IReadOnlyList<ColorPreset> Presets { get; init; } = ColorPresets.Windows;
 
     /// <summary>The heading over the swatches.</summary>
-    public string PresetsTitle { get; init; } = "Windows colours";
+    public string PresetsTitle { get; init; } = Str.Shell_Color_WindowsColours.Text();
 
     /// <summary>
     /// The label of the "use the default" choice, e.g. "Windows accent colour" — or null when the
@@ -169,10 +170,10 @@ internal static class ColorChoice
     {
         if (hex.Length == 0)
         {
-            return options.DefaultLabel ?? "None";
+            return options.DefaultLabel ?? Str.Common_None.Text();
         }
 
-        return ColorPresets.Find(options.Presets, hex)?.Name ?? "Custom";
+        return ColorPresets.Find(options.Presets, hex)?.Name ?? Str.Settings_Style_Preset_Custom.Text();
     }
 
     private static void PaintSwatch(Border swatch, string hex, ColorChoiceOptions options)
@@ -258,8 +259,8 @@ internal static class ColorChoice
             FluentLayout.ApplyStyle(mine, "SettingsSwatchBorderStyle");
             PaintSwatch(mine, current, options);
 
-            var title = new TextBlock { Text = "Custom colour", VerticalAlignment = VerticalAlignment.Center };
-            var view = new Button { Content = "View colours" };
+            var title = new TextBlock { Text = Str.Shell_Color_Custom.Text(), VerticalAlignment = VerticalAlignment.Center };
+            var view = new Button { Content = Str.Shell_Color_ViewColours.Text() };
             view.Click += (_, _) => custom();
 
             Grid.SetColumn(title, 1);
@@ -389,10 +390,10 @@ internal static class ColorChoice
         {
             XamlRoot = root,
             RequestedTheme = source.ActualTheme,
-            Title = "Pick a custom colour",
+            Title = Str.Shell_Color_PickCustom.Text(),
             Content = picker,
-            PrimaryButtonText = "Done",
-            CloseButtonText = "Cancel",
+            PrimaryButtonText = Str.Common_Done.Text(),
+            CloseButtonText = Str.Common_Cancel.Text(),
             DefaultButton = ContentDialogButton.Primary,
         };
 

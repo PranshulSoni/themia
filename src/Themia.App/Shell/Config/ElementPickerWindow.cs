@@ -8,6 +8,7 @@ using Themia.App.Interop;
 using Themia.App.Services.Web;
 using Themia.App.Widgets;
 using Themia.Core.Diagnostics;
+using Themia.Core.Localization;
 using Themia.Core.Widgets;
 using Windows.Graphics;
 
@@ -140,7 +141,7 @@ internal sealed class ElementPickerWindow
             IsEnabled = false,
             VerticalAlignment = VerticalAlignment.Center,
         };
-        ToolTipService.SetToolTip(_back, "Back");
+        ToolTipService.SetToolTip(_back, Str.Common_Back.Text());
         _back.Click += (_, _) =>
         {
             if (_web.CoreWebView2 is { CanGoBack: true } core)
@@ -161,7 +162,7 @@ internal sealed class ElementPickerWindow
             {
                 Orientation = Orientation.Horizontal,
                 Spacing = Fluent.Space2,
-                Children = { new FontIcon { Glyph = Glyphs.Pick, FontSize = 14 }, new TextBlock { Text = "Pick element" } },
+                Children = { new FontIcon { Glyph = Glyphs.Pick, FontSize = 14 }, new TextBlock { Text = Str.Shell_Picker_PickElement.Text() } },
             },
             IsEnabled = false,
             VerticalAlignment = VerticalAlignment.Center,
@@ -169,7 +170,7 @@ internal sealed class ElementPickerWindow
         _pick.Checked += (_, _) => _ = ApplyPickModeAsync();
         _pick.Unchecked += (_, _) => _ = ApplyPickModeAsync();
 
-        var cancel = new Button { Content = "Cancel", VerticalAlignment = VerticalAlignment.Center };
+        var cancel = new Button { Content = Str.Common_Cancel.Text(), VerticalAlignment = VerticalAlignment.Center };
         cancel.Click += (_, _) => _window?.Close();
 
         var toolbar = new Grid
@@ -205,7 +206,7 @@ internal sealed class ElementPickerWindow
             Children = { toolbar, _web },
         };
 
-        _window = new Window { Title = "Pick an element - Themia", Content = root };
+        _window = new Window { Title = Str.Shell_Picker_ElementWindowTitle.Text(), Content = root };
         _window.Closed += (_, _) =>
         {
             _closed = true;
@@ -263,7 +264,7 @@ internal sealed class ElementPickerWindow
 
             if (environment is null || _closed)
             {
-                _hint.Text = environment is null ? "The WebView2 runtime is not available" : string.Empty;
+                _hint.Text = environment is null ? Str.Shell_Picker_NoWebView.Text() : string.Empty;
                 return;
             }
 
@@ -305,7 +306,7 @@ internal sealed class ElementPickerWindow
         catch (Exception ex) when (ex is System.Runtime.InteropServices.COMException or InvalidOperationException or ArgumentException)
         {
             Log.Error(Scope, "could not start the element picker", ex);
-            _hint.Text = "The page could not be opened";
+            _hint.Text = Str.Shell_Picker_PageFailed.Text();
         }
     }
 
@@ -320,8 +321,8 @@ internal sealed class ElementPickerWindow
     private void SetHint()
     {
         _hint.Text = _refusal ?? (_pick.IsChecked == true
-            ? "Click an element to pin it. Esc to keep browsing"
-            : "Browse freely, then Pick element");
+            ? Str.Shell_Picker_PickHint.Text()
+            : Str.Shell_Picker_BrowseHint.Text());
         _hint.Foreground = FluentLayout.Themed(_refusal is null ? "TextFillColorTertiaryBrush" : "SystemFillColorCautionBrush", Microsoft.UI.Colors.Gray);
     }
 
@@ -336,7 +337,7 @@ internal sealed class ElementPickerWindow
         if (!NavigationGate.TryTarget(args.Uri, out var target))
         {
             args.Cancel = true;
-            Refuse("Only http and https pages can be opened here");
+            Refuse(Str.Shell_Picker_HttpOnly.Text());
             return;
         }
 
@@ -367,7 +368,7 @@ internal sealed class ElementPickerWindow
         }
 
         Log.Info(Scope, $"the picker refused {target.Host}");
-        Refuse(verdict.Reason ?? "That page was refused");
+        Refuse(verdict.Reason ?? Str.Shell_Picker_PageRefused.Text());
     }
 
     private void Refuse(string reason)

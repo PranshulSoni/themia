@@ -5,6 +5,7 @@ using Themia.App.Services;
 using Themia.App.Services.Files;
 using Themia.App.Widgets;
 using Themia.Core.Diagnostics;
+using Themia.Core.Localization;
 using Themia.Core.Model;
 using Themia.Core.Widgets;
 
@@ -30,7 +31,7 @@ internal static partial class WidgetSettings
         ArgumentNullException.ThrowIfNull(config);
         ArgumentNullException.ThrowIfNull(save);
 
-        rows.Add(FluentLayout.Header("Folder"));
+        rows.Add(FluentLayout.Header(Str.Folder_Label_Label.Text()));
 
         var verdict = FluentLayout.Verdict();
 
@@ -43,7 +44,7 @@ internal static partial class WidgetSettings
             PlaceholderText = ProfilePlaceholder(),
         };
 
-        var browse = new Button { Content = "Browse…" };
+        var browse = new Button { Content = Str.WidgetsB_Settings_Folder_Browse.Text() };
 
         void Commit()
         {
@@ -80,8 +81,8 @@ internal static partial class WidgetSettings
 
         ShowFolderVerdict(verdict, config, config.Path, FolderPath.Resolve(config.Path, string.Empty));
 
-        rows.Add(FluentLayout.FieldRow(Glyphs.Folder, "Folder",
-            "Which folder to list. Leave it empty for your user folder",
+        rows.Add(FluentLayout.FieldRow(Glyphs.Folder, Str.Folder_Label_Label.Text(),
+            Str.WidgetsB_Settings_Folder_Folder_Desc.Text(),
             new StackPanel
             {
                 Orientation = Orientation.Horizontal,
@@ -90,35 +91,35 @@ internal static partial class WidgetSettings
             },
             verdict));
 
-        rows.Add(FluentLayout.Header("View"));
+        rows.Add(FluentLayout.Header(Str.Folder_View_Label.Text()));
 
-        rows.Add(FluentLayout.Row(Glyphs.View, "Layout", "Rows, a table with columns, labelled tiles, or icons alone",
+        rows.Add(FluentLayout.Row(Glyphs.View, Str.WidgetsB_Settings_Folder_Layout_Label.Text(), Str.WidgetsB_Settings_Folder_Layout_Desc.Text(),
             FluentLayout.Choice(
-                [(FolderViewMode.List, "List"), (FolderViewMode.Details, "Details"), (FolderViewMode.Grid, "Grid"), (FolderViewMode.Icons, "Icons")],
+                [(FolderViewMode.List, Str.CtxMenu_List.Text()), (FolderViewMode.Details, Str.CtxMenu_Details.Text()), (FolderViewMode.Grid, Str.CtxMenu_Grid.Text()), (FolderViewMode.Icons, Str.WidgetsB_Settings_Folder_Icons.Text())],
                 config.View,
                 value => { config.View = value; save(); }),
             "view mode", "grid", "details", "icons"));
 
-        rows.Add(FluentLayout.Row(Glyphs.TextSize, "Row size", "How tall list and details rows are",
+        rows.Add(FluentLayout.Row(Glyphs.TextSize, Str.WidgetsB_Settings_Folder_RowSize_Label.Text(), Str.WidgetsB_Settings_Folder_RowSize_Desc.Text(),
             FluentLayout.Choice(
-                [(FolderItemSize.ExtraSmall, "Extra small"), (FolderItemSize.Small, "Small"), (FolderItemSize.Medium, "Medium"), (FolderItemSize.Large, "Large")],
+                [(FolderItemSize.ExtraSmall, Str.WidgetsB_Settings_Folder_ExtraSmall.Text()), (FolderItemSize.Small, Str.Folder_Small.Text()), (FolderItemSize.Medium, Str.Folder_Medium.Text()), (FolderItemSize.Large, Str.Folder_Large.Text())],
                 config.ItemSize,
                 value => { config.ItemSize = value; save(); }),
             "density", "item size"));
 
-        rows.Add(FluentLayout.Expander(Glyphs.GridLayout, "Tile size", "How big grid and icon tiles are",
+        rows.Add(FluentLayout.Expander(Glyphs.GridLayout, Str.WidgetsB_Settings_Folder_TileSize_Label.Text(), Str.WidgetsB_Settings_Folder_TileSize_Desc.Text(),
             FluentLayout.Choice(
-                [(FolderTileSize.Small, "Small"), (FolderTileSize.Medium, "Medium"), (FolderTileSize.Large, "Large")],
+                [(FolderTileSize.Small, Str.Folder_Small.Text()), (FolderTileSize.Medium, Str.Folder_Medium.Text()), (FolderTileSize.Large, Str.Folder_Large.Text())],
                 config.TileSize,
                 value => { config.TileSize = value; save(); }),
             [
-                FluentLayout.Row(Glyphs.Fit, "Stretch tiles to fill",
-                    "When every tile fits, rows share the widget's height",
+                FluentLayout.Row(Glyphs.Fit, Str.WidgetsB_Settings_Folder_Stretch_Label.Text(),
+                    Str.WidgetsB_Settings_Folder_Stretch_Desc.Text(),
                     FluentLayout.Toggle(config.StretchTiles, value => { config.StretchTiles = value; save(); })),
             ]));
 
-        rows.Add(FluentLayout.Expander(Glyphs.ColumnsLayout, "Details columns",
-            "Shown after the name, in this order, as far as the widget is wide",
+        rows.Add(FluentLayout.Expander(Glyphs.ColumnsLayout, Str.WidgetsB_Settings_Folder_Columns_Label.Text(),
+            Str.WidgetsB_Settings_Folder_Columns_Desc.Text(),
             null,
             [.. FolderColumns.All.Select(column => FluentLayout.Row(Glyphs.ColumnsLayout, FolderColumns.Title(column), ColumnHint(column),
                 FluentLayout.Toggle(config.Columns.Contains(column), value =>
@@ -130,22 +131,22 @@ internal static partial class WidgetSettings
                     }
                 })))]));
 
-        rows.Add(FluentLayout.Header("Contents"));
+        rows.Add(FluentLayout.Header(Str.WidgetsB_Settings_Folder_Contents.Text()));
 
-        rows.Add(FluentLayout.Row(Glyphs.Sort, "Sort by", "Which column the list is ordered on",
+        rows.Add(FluentLayout.Row(Glyphs.Sort, Str.WidgetsB_Settings_Folder_SortBy_Label.Text(), Str.WidgetsB_Settings_Folder_SortBy_Desc.Text(),
             FluentLayout.Choice(
-                [(FolderSort.Name, "Name"), (FolderSort.Modified, "Date modified"), (FolderSort.Size, "Size")],
+                [(FolderSort.Name, Str.Folder_ColName.Text()), (FolderSort.Modified, Str.WidgetsB_Settings_Folder_DateModified.Text()), (FolderSort.Size, Str.Folder_ColSize.Text())],
                 config.Sort,
                 value => { config.Sort = value; save(); })));
 
-        rows.Add(FluentLayout.Row(Glyphs.MoveDown, "Reverse order",
-            "Z to A, newest or largest first, depending on the sort",
+        rows.Add(FluentLayout.Row(Glyphs.MoveDown, Str.WidgetsB_Settings_Folder_Reverse_Label.Text(),
+            Str.WidgetsB_Settings_Folder_Reverse_Desc.Text(),
             FluentLayout.Toggle(config.Descending, value => { config.Descending = value; save(); })));
 
-        rows.Add(FluentLayout.Row(Glyphs.Folder, "Folders first", "Group folders above files, as Explorer does",
+        rows.Add(FluentLayout.Row(Glyphs.Folder, Str.WidgetsB_Settings_Folder_FoldersFirst_Label.Text(), Str.WidgetsB_Settings_Folder_FoldersFirst_Desc.Text(),
             FluentLayout.Toggle(config.FoldersFirst, value => { config.FoldersFirst = value; save(); })));
 
-        var filter = new TextBox { Text = config.Filter, Width = 260, PlaceholderText = "e.g. report, .pdf" };
+        var filter = new TextBox { Text = config.Filter, Width = 260, PlaceholderText = Str.Folder_FilterPlaceholder.Text() };
         filter.LostFocus += (_, _) =>
         {
             if (filter.Text != config.Filter)
@@ -155,37 +156,37 @@ internal static partial class WidgetSettings
             }
         };
 
-        rows.Add(FluentLayout.Row(Glyphs.Search, "Filter",
-            "Only names containing one of these words; separate them with commas",
+        rows.Add(FluentLayout.Row(Glyphs.Search, Str.Folder_Filter_Label.Text(),
+            Str.WidgetsB_Settings_Folder_Filter_Desc.Text(),
             filter, "keywords", "match"));
 
-        rows.Add(FluentLayout.Row(Glyphs.Hidden, "Show hidden items",
-            "Include what Windows marks hidden or system",
+        rows.Add(FluentLayout.Row(Glyphs.Hidden, Str.WidgetsB_Folder_ShowHiddenItems.Text(),
+            Str.WidgetsB_Settings_Folder_Hidden_Desc.Text(),
             FluentLayout.Toggle(config.ShowHidden, value => { config.ShowHidden = value; save(); })));
 
-        rows.Add(FluentLayout.Row(Glyphs.File, "Show file extensions",
-            "\"report.docx\" rather than \"report\"",
+        rows.Add(FluentLayout.Row(Glyphs.File, Str.Folder_ShowExtMenu.Text(),
+            Str.WidgetsB_Settings_Folder_Extensions_Desc.Text(),
             FluentLayout.Toggle(config.ShowExtensions, value => { config.ShowExtensions = value; save(); })));
 
-        rows.Add(FluentLayout.Header("Opening"));
+        rows.Add(FluentLayout.Header(Str.WidgetsB_Settings_Folder_Opening.Text()));
 
-        rows.Add(FluentLayout.Row(Glyphs.Open, "Open items with",
-            "A double click, as on the desktop, or a single click, as on a web page",
+        rows.Add(FluentLayout.Row(Glyphs.Open, Str.WidgetsB_Settings_Folder_OpenWith_Label.Text(),
+            Str.WidgetsB_Settings_Folder_OpenWith_Desc.Text(),
             FluentLayout.Choice(
-                [(ItemClickMode.Double, "Double click"), (ItemClickMode.Single, "Single click")],
+                [(ItemClickMode.Double, Str.WidgetsB_Settings_Folder_DoubleClick.Text()), (ItemClickMode.Single, Str.WidgetsB_Settings_Folder_SingleClick.Text())],
                 config.ClickMode,
                 value => { config.ClickMode = value; save(); }),
             "click mode"));
 
-        rows.Add(FluentLayout.Row(Glyphs.Back, "Open folders",
-            "In Explorer, or inside the widget with Back, Forward and Up",
+        rows.Add(FluentLayout.Row(Glyphs.Back, Str.WidgetsB_Settings_Folder_OpenFolders_Label.Text(),
+            Str.WidgetsB_Settings_Folder_OpenFolders_Desc.Text(),
             FluentLayout.Choice(
-                [(FolderNavigation.Explorer, "In Explorer"), (FolderNavigation.Navigate, "Inside the widget")],
+                [(FolderNavigation.Explorer, Str.WidgetsB_Settings_Folder_InExplorer.Text()), (FolderNavigation.Navigate, Str.WidgetsB_Settings_Folder_InsideWidget.Text())],
                 config.Navigation,
                 value => { config.Navigation = value; save(); }),
             "navigation", "browse"));
 
-        var open = new Button { Content = "Open in Explorer" };
+        var open = new Button { Content = Str.Folder_OpenInExplorer.Text() };
         open.Click += (_, _) =>
         {
             var result = FolderPath.Resolve(config.Path, ProfilePlaceholder());
@@ -196,18 +197,18 @@ internal static partial class WidgetSettings
             }
         };
 
-        rows.Add(FluentLayout.Row(Glyphs.OpenExternal, "Explorer",
-            "Delete always goes to the Recycle Bin, and asks first", open));
+        rows.Add(FluentLayout.Row(Glyphs.OpenExternal, Str.Folder_NavExplorer.Text(),
+            Str.WidgetsB_Settings_Folder_Explorer_Desc.Text(), open));
     }
 
     private static string ColumnHint(FolderColumn column) => column switch
     {
-        FolderColumn.Size => "A file's size",
-        FolderColumn.Modified => "When it last changed",
-        FolderColumn.Type => "\"Text Document\", \"File folder\"",
-        FolderColumn.Cloud => "OneDrive and other sync status",
-        FolderColumn.Git => "The item's git status, inside a repository",
-        FolderColumn.ItemCount => "How many items a folder holds",
+        FolderColumn.Size => Str.WidgetsB_Settings_Folder_ColSize.Text(),
+        FolderColumn.Modified => Str.WidgetsB_Settings_Folder_ColModified.Text(),
+        FolderColumn.Type => Str.WidgetsB_Settings_Folder_ColType.Text(),
+        FolderColumn.Cloud => Str.WidgetsB_Settings_Folder_ColCloud.Text(),
+        FolderColumn.Git => Str.WidgetsB_Settings_Folder_ColGit.Text(),
+        FolderColumn.ItemCount => Str.WidgetsB_Settings_Folder_ColItems.Text(),
         _ => string.Empty,
     };
 
@@ -215,13 +216,13 @@ internal static partial class WidgetSettings
     {
         if (typed.Trim().Length == 0)
         {
-            FluentLayout.Confirm(verdict, $"Empty: listing {ProfilePlaceholder()}");
+            FluentLayout.Confirm(verdict, Str.WidgetsB_Settings_Folder_ListingDefault.Format(("folder", ProfilePlaceholder())));
             return;
         }
 
         if (result.IsValid)
         {
-            FluentLayout.Confirm(verdict, $"Listing {FolderPath.DisplayName(config.Path)}");
+            FluentLayout.Confirm(verdict, Str.WidgetsB_Settings_Folder_Listing.Format(("folder", FolderPath.DisplayName(config.Path))));
             return;
         }
 

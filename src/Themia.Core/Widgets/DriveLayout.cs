@@ -1,3 +1,4 @@
+using Themia.Core.Localization;
 namespace Themia.Core.Widgets;
 
 /// <summary>[S-1290] How a OneDrive row is drawn at the tile's size.</summary>
@@ -67,13 +68,16 @@ public static class DriveLayout
     };
 
     /// <summary>The column header's words.</summary>
-    public static string Label(DriveColumn column) => column switch
+    public static string Label(DriveColumn column) => Label(Strings.Current, column);
+
+    /// <summary><see cref="Label(DriveColumn)"/> in an explicit language.</summary>
+    public static string Label(Locale locale, DriveColumn column) => Strings.Get(locale, column switch
     {
-        DriveColumn.Modified => "Modified",
-        DriveColumn.Size => "Size",
-        DriveColumn.ModifiedBy => "Modified by",
-        _ => "Location",
-    };
+        DriveColumn.Modified => Str.WidgetsC_OneDrive_Col_Modified,
+        DriveColumn.Size => Str.WidgetsC_OneDrive_Col_Size,
+        DriveColumn.ModifiedBy => Str.WidgetsC_OneDrive_Col_ModifiedBy,
+        _ => Str.WidgetsC_OneDrive_Col_Location,
+    });
 
     /// <param name="textWidth">The width the row's text shares: the row less its padding and icon.</param>
     /// <param name="height">The list's height.</param>

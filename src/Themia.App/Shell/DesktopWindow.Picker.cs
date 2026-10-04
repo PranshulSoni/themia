@@ -13,6 +13,7 @@ using Themia.App.Shell.Config;
 using Themia.App.Widgets;
 using Themia.Core.Diagnostics;
 using Themia.Core.Geometry;
+using Themia.Core.Localization;
 using Themia.Core.Model;
 using Themia.Core.Widgets;
 using Windows.Foundation;
@@ -82,7 +83,7 @@ internal sealed partial class DesktopWindow
     /// </summary>
     private (List<PickerTarget> Targets, int Initial) PickerTargets()
     {
-        var targets = new List<PickerTarget> { new(null, "Desktop") };
+        var targets = new List<PickerTarget> { new(null, Str.Shell_Picker_TargetDesktop.Text()) };
         var initial = 0;
         var view = ViewForThisMonitor(_host.State);
         var seen = new Dictionary<string, int>(StringComparer.CurrentCultureIgnoreCase);
@@ -99,7 +100,7 @@ internal sealed partial class DesktopWindow
             seen[name] = seen.TryGetValue(name, out var count) ? count + 1 : 1;
             if (seen[name] > 1)
             {
-                name = $"{name} {seen[name]}";
+                name = Str.Shell_Picker_NumberedName.Format(("name", name), ("n", seen[name]));
             }
 
             if (string.Equals(widget.Id, _host.SelectedWidgetId, StringComparison.Ordinal))
@@ -341,7 +342,7 @@ internal sealed partial class DesktopWindow
         if (placing is not null)
         {
             EndLasso();
-            _placementHintText.Text = $"{PlacementVerb(placing)}  ·  Right-click or Esc to cancel";
+            _placementHintText.Text = Str.Shell_Place_Hint.Format(("action", PlacementVerb(placing)));
             _placementHint.Visibility = Visibility.Visible;
             _toolbar.Visibility = Visibility.Collapsed;
 
@@ -367,12 +368,22 @@ internal sealed partial class DesktopWindow
     /// <summary>What the click will do, in words: "Click to place Clock", "Click to move 3 widgets".</summary>
     private static string PlacementVerb(PlacementPayload payload)
     {
-        var what = payload.SingleKind is { } kind ? WidgetCatalog.Definition(kind).Label : $"{payload.Count} widgets";
+        if (payload.SingleKind is { } kind)
+        {
+            var name = WidgetCatalog.Definition(kind).Label;
+            return payload.Mode switch
+            {
+                PlacementMode.Move => Str.Shell_Place_MoveOne.Format(("name", name)),
+                PlacementMode.Copy => Str.Shell_Place_CopyOne.Format(("name", name)),
+                _ => Str.Shell_Place_PlaceOne.Format(("name", name)),
+            };
+        }
+
         return payload.Mode switch
         {
-            PlacementMode.Move => $"Click to move {what}",
-            PlacementMode.Copy => $"Click to place a copy of {what}",
-            _ => $"Click to place {what}",
+            PlacementMode.Move => Str.Shell_Place_MoveMany.Plural(payload.Count),
+            PlacementMode.Copy => Str.Shell_Place_CopyMany.Plural(payload.Count),
+            _ => Str.Shell_Place_PlaceMany.Plural(payload.Count),
         };
     }
 

@@ -1,3 +1,4 @@
+using Themia.Core.Localization;
 namespace Themia.Core.Widgets;
 
 /// <summary>One feed's part of a refresh: what it returned, or why it did not.</summary>
@@ -37,7 +38,7 @@ public static class FeedAggregate
             if (FetchState.IsFailure(part.Status))
             {
                 var reason = string.IsNullOrWhiteSpace(part.Detail) ? FetchState.Message(part.Status) : part.Detail!;
-                failures.Add($"{Name(part)}: {reason}");
+                failures.Add(Str.WidgetsC_Rss_Failure.Format(("name", Name(part)), ("reason", reason)));
             }
 
             foreach (var entry in part.Document?.Entries ?? [])
@@ -68,17 +69,18 @@ public static class FeedAggregate
     /// When an item was published, as the original's list said it (S-06): "Just now", "5m ago",
     /// "3h ago", "6d ago", then the date ("Mar 4", with the year once it is not this year's).
     /// </summary>
-    public static string Age(DateTimeOffset published, DateTimeOffset now)
+    public static string Age(DateTimeOffset published, DateTimeOffset now) => Age(Strings.Current, published, now);
+
+    /// <summary><see cref="Age(DateTimeOffset, DateTimeOffset)"/> in an explicit language.</summary>
+    public static string Age(Locale locale, DateTimeOffset published, DateTimeOffset now)
     {
         if (now - published < TimeSpan.FromDays(7))
         {
-            return FetchState.Freshness(published, now);
+            return FetchState.Freshness(locale, published, now);
         }
 
         var local = published.ToOffset(now.Offset);
-        return local.Year == now.Year
-            ? local.ToString("MMM d", System.Globalization.CultureInfo.InvariantCulture)
-            : local.ToString("MMM d, yyyy", System.Globalization.CultureInfo.InvariantCulture);
+        return LocaleFormat.Date(locale, DateOnly.FromDateTime(local.DateTime), local.Year == now.Year ? DateStyle.MonthDayShort : DateStyle.Medium);
     }
 
     /// <summary>

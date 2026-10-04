@@ -1,3 +1,4 @@
+using Themia.Core.Localization;
 using Themia.Core.Model;
 using Themia.Core.Widgets;
 using Xunit;
@@ -14,10 +15,10 @@ public class CountdownFormatterTests
     private static readonly DateTimeOffset Now = new(2026, 6, 15, 12, 0, 0, TimeSpan.Zero);
 
     private static string Ahead(TimeSpan distance, CountdownFormat format = CountdownFormat.Auto)
-        => CountdownFormatter.Read(Now + distance, Now, format).Text;
+        => CountdownFormatter.Read(Now + distance, Now, format, Locale.En).Text;
 
     private static string Behind(TimeSpan distance, CountdownFormat format = CountdownFormat.Auto)
-        => CountdownFormatter.Read(Now - distance, Now, format).Text;
+        => CountdownFormatter.Read(Now - distance, Now, format, Locale.En).Text;
 
     // -----------------------------------------------------------------------------------------
     // [C-30] auto thresholds, approaching
@@ -86,12 +87,12 @@ public class CountdownFormatterTests
     [Fact]
     public void C40_the_target_instant_itself_counts_as_elapsed()
     {
-        var atTarget = CountdownFormatter.Read(Now, Now, CountdownFormat.Auto);
+        var atTarget = CountdownFormatter.Read(Now, Now, CountdownFormat.Auto, Locale.En);
         Assert.True(atTarget.Elapsed);
         Assert.Equal("just now", atTarget.Text);
 
         // One tick earlier it is still ahead, and says so.
-        var justBefore = CountdownFormatter.Read(Now + TimeSpan.FromMilliseconds(1), Now, CountdownFormat.Auto);
+        var justBefore = CountdownFormatter.Read(Now + TimeSpan.FromMilliseconds(1), Now, CountdownFormat.Auto, Locale.En);
         Assert.False(justBefore.Elapsed);
         Assert.Equal("in a moment", justBefore.Text);
     }
@@ -104,7 +105,7 @@ public class CountdownFormatterTests
     [InlineData(90000, "1d 1h ago")]
     public void C41_auto_says_just_now_under_a_minute_and_ago_beyond_it(int secondsPast, string expected)
     {
-        var reading = CountdownFormatter.Read(Now - TimeSpan.FromSeconds(secondsPast), Now, CountdownFormat.Auto);
+        var reading = CountdownFormatter.Read(Now - TimeSpan.FromSeconds(secondsPast), Now, CountdownFormat.Auto, Locale.En);
         Assert.True(reading.Elapsed);
         Assert.Equal(expected, reading.Text);
     }
@@ -133,8 +134,8 @@ public class CountdownFormatterTests
                  })
         {
             Assert.Equal($"{Ahead(distance)} ago", Behind(distance));
-            Assert.False(CountdownFormatter.Read(Now + distance, Now, CountdownFormat.Auto).Elapsed);
-            Assert.True(CountdownFormatter.Read(Now - distance, Now, CountdownFormat.Auto).Elapsed);
+            Assert.False(CountdownFormatter.Read(Now + distance, Now, CountdownFormat.Auto, Locale.En).Elapsed);
+            Assert.True(CountdownFormatter.Read(Now - distance, Now, CountdownFormat.Auto, Locale.En).Elapsed);
         }
     }
 
@@ -166,25 +167,25 @@ public class CountdownFormatterTests
         var target = new DateTimeOffset(2026, 6, 15, 22, 30, 0, TimeSpan.Zero);
         var east = TimeZoneInfo.CreateCustomTimeZone("Test/East", TimeSpan.FromHours(3), "East", "East");
 
-        Assert.Equal("15 Jun, 22:30", CountdownFormatter.TargetLabel(target, Now, TimeZoneInfo.Utc));
+        Assert.Equal("Jun 15, 10:30 PM", CountdownFormatter.TargetLabel(target, Now, TimeZoneInfo.Utc, Locale.En));
 
         // Three hours east the same instant is the small hours of the next day, and the row has to
         // say so — otherwise the subtitle contradicts the duration beside it.
-        Assert.Equal("16 Jun, 01:30", CountdownFormatter.TargetLabel(target, Now, east));
+        Assert.Equal("Jun 16, 1:30 AM", CountdownFormatter.TargetLabel(target, Now, east, Locale.En));
     }
 
     [Fact]
     public void C03_the_year_appears_only_when_it_is_not_this_one()
     {
-        Assert.Equal("15 Jun, 12:00", CountdownFormatter.TargetLabel(Now, Now, TimeZoneInfo.Utc));
+        Assert.Equal("Jun 15, 12:00 PM", CountdownFormatter.TargetLabel(Now, Now, TimeZoneInfo.Utc, Locale.En));
 
         var nextYear = new DateTimeOffset(2027, 1, 2, 9, 5, 0, TimeSpan.Zero);
-        Assert.Equal("2 Jan 2027, 09:05", CountdownFormatter.TargetLabel(nextYear, Now, TimeZoneInfo.Utc));
+        Assert.Equal("Jan 2, 2027, 9:05 AM", CountdownFormatter.TargetLabel(nextYear, Now, TimeZoneInfo.Utc, Locale.En));
     }
 
     [Fact]
     public void C05_the_tooltip_spells_the_whole_instant_out()
-        => Assert.Equal("Mon, 15 Jun 2026 at 12:00", CountdownFormatter.FullTargetLabel(Now, TimeZoneInfo.Utc));
+        => Assert.Equal("Monday, June 15, 2026 at 12:00 PM", CountdownFormatter.FullTargetLabel(Now, TimeZoneInfo.Utc, Locale.En));
 
     // -----------------------------------------------------------------------------------------
     // [C-53]/[C-55] editing the target

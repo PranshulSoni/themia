@@ -1,4 +1,5 @@
 using System.Globalization;
+using Themia.Core.Localization;
 
 namespace Themia.Core.Accounts;
 
@@ -171,7 +172,7 @@ public readonly record struct PastedCode(string Code, string? State, string? Err
 
         if (text.Length == 0)
         {
-            return new PastedCode(string.Empty, null, "Paste the code shown after you sign in.");
+            return new PastedCode(string.Empty, null, Str.Shell_Accounts_PasteCode.Text());
         }
 
         var hash = text.IndexOf('#', StringComparison.Ordinal);
@@ -184,7 +185,7 @@ public readonly record struct PastedCode(string Code, string? State, string? Err
         var state = text[(hash + 1)..].Trim();
 
         return code.Length == 0
-            ? new PastedCode(string.Empty, null, "That code looks incomplete. Copy the whole value the page shows.")
+            ? new PastedCode(string.Empty, null, Str.Shell_Accounts_CodeIncomplete.Text())
             : new PastedCode(code, state.Length == 0 ? null : state, null);
     }
 }

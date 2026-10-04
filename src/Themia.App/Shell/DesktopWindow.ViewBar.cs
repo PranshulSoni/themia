@@ -4,6 +4,7 @@ using Microsoft.UI.Xaml.Input;
 using Themia.App.Shell.Config;
 using Themia.App.Widgets;
 using Themia.Core.Geometry;
+using Themia.Core.Localization;
 using Themia.Core.Model;
 using Windows.Foundation;
 
@@ -130,8 +131,8 @@ internal sealed partial class DesktopWindow : IViewBarOwner
         var monitorId = _monitor.Id;
         ItemMenu.Show(chip, args,
         [
-            new ItemMenuEntry(Glyphs.Copy, "Duplicate view", () => _host.DuplicateView(viewId, monitorId)),
-            new ItemMenuEntry(Glyphs.Settings, "View settings", () => _host.ShowConfig(new ConfigTarget.View(viewId))),
+            new ItemMenuEntry(Glyphs.Copy, Str.App_DuplicateView.Text(), () => _host.DuplicateView(viewId, monitorId)),
+            new ItemMenuEntry(Glyphs.Settings, Str.App_ViewSettingsBtn.Text(), () => _host.ShowConfig(new ConfigTarget.View(viewId))),
         ]);
     }
 

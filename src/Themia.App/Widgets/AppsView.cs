@@ -5,6 +5,7 @@ using Microsoft.UI.Xaml.Controls.Primitives;
 using Microsoft.UI.Xaml.Input;
 using Themia.App.Services;
 using Themia.App.Shell;
+using Themia.Core.Localization;
 using Themia.Core.Model;
 using Themia.Core.Widgets;
 
@@ -90,7 +91,7 @@ internal sealed partial class AppsView : Grid, IWidgetView, IWidgetSurfaceAware,
         _busy.IsActive = false;
         _busy.Visibility = Visibility.Collapsed;
 
-        _filter.PlaceholderText = "Filter";
+        _filter.PlaceholderText = Str.Apps_FilterTab.Text();
         _filter.IsSpellCheckEnabled = false;
         _filter.IsTextPredictionEnabled = false;
         _filter.CornerRadius = new CornerRadius(Fluent.ControlRadius);
@@ -160,7 +161,16 @@ internal sealed partial class AppsView : Grid, IWidgetView, IWidgetSurfaceAware,
     public void Attach(Ticker ticker, WidgetConfig config)
     {
         _ticker = ticker;
+        Strings.Changed += OnLanguage;
         ApplyConfig(config);
+    }
+
+    /// <summary>[S-1109] The texts follow the language; the scan is not repeated.</summary>
+    private void OnLanguage(Locale locale)
+    {
+        _filter.PlaceholderText = Str.Apps_FilterTab.Text();
+        _dirty = true;
+        Lay();
     }
 
     public void ApplyConfig(WidgetConfig config)
@@ -349,7 +359,7 @@ internal sealed partial class AppsView : Grid, IWidgetView, IWidgetSurfaceAware,
         _scroll.Visibility = Visibility.Visible;
 
         var view = _config.View;
-        var sections = InstalledAppRules.Sections(visible, _config.GroupByFolder && view != AppsViewMode.Compact);
+        var sections = InstalledAppRules.Sections(visible, _config.GroupByFolder && view != AppsViewMode.Compact, Strings.Current);
         var headers = AppsLayout.Headers(area, view, sections.Count);
 
         var inset = Inset(view);
@@ -400,12 +410,12 @@ internal sealed partial class AppsView : Grid, IWidgetView, IWidgetSurfaceAware,
         _shape = default;
 
         _emptyText.Text = !_everLoaded || _inFlight is not null
-            ? "Looking for your apps…"
+            ? Str.WidgetsA_Apps_Scanning.Text()
             : _apps.Count == 0
-                ? "No apps found in your Start menu."
+                ? Str.WidgetsA_Apps_NoneFound.Text()
                 : InstalledAppRules.HiddenCount(_apps, _config.HiddenApps, _config.HiddenCategories) == _apps.Count
-                    ? "Every app is hidden. Show them again in this widget's settings."
-                    : "Nothing matches that.";
+                    ? Str.WidgetsA_Apps_AllHidden.Text()
+                    : Str.WidgetsA_Apps_NoMatch.Text();
 
         // The icon goes on a tile too short to carry it: an icon alone says less than the sentence.
         _emptyIcon.Visibility = area.HeightClass >= SizeClass.Regular ? Visibility.Visible : Visibility.Collapsed;
@@ -425,12 +435,12 @@ internal sealed partial class AppsView : Grid, IWidgetView, IWidgetSurfaceAware,
         var total = _apps.Count - hidden;
         var parts = new List<string>
         {
-            shown == total ? (total == 1 ? "1 app" : $"{total} apps") : $"{shown} of {total}",
+            shown == total ? Str.WidgetsA_Apps_Count.Plural(total) : Str.WidgetsA_Apps_ShownOf.Format(("shown", shown), ("total", total)),
         };
 
         if (hidden > 0)
         {
-            parts.Add($"{hidden} hidden");
+            parts.Add(Str.WidgetsA_Apps_HiddenCount.Plural(hidden));
         }
 
         _footer.Text = string.Join(" · ", parts);
@@ -454,11 +464,11 @@ internal sealed partial class AppsView : Grid, IWidgetView, IWidgetSurfaceAware,
             return;
         }
 
-        _chips.Children.Add(Chip("All", null));
+        _chips.Children.Add(Chip(Str.App_PickerAll.Text(), null));
 
         foreach (var category in categories)
         {
-            _chips.Children.Add(Chip(InstalledAppRules.CategoryTitle(category), category));
+            _chips.Children.Add(Chip(InstalledAppRules.CategoryTitle(category, Strings.Current), category));
         }
     }
 
@@ -593,24 +603,24 @@ internal sealed partial class AppsView : Grid, IWidgetView, IWidgetSurfaceAware,
     {
         get
         {
-            var actions = new List<WidgetAction> { new(Glyphs.Refresh, "Refresh", Reload) };
+            var actions = new List<WidgetAction> { new(Glyphs.Refresh, Str.Common_Refresh.Text(), Reload) };
 
             foreach (var mode in (AppsViewMode[])[AppsViewMode.Grid, AppsViewMode.List, AppsViewMode.Compact])
             {
                 if (mode != _config.View)
                 {
-                    actions.Add(new WidgetAction(ModeGlyph(mode), $"Show as {ModeName(mode)}", () => SetConfig(c => c.View = mode)));
+                    actions.Add(new WidgetAction(ModeGlyph(mode), ModeAction(mode), () => SetConfig(c => c.View = mode)));
                 }
             }
 
             if (_config.View != AppsViewMode.Compact)
             {
-                actions.Add(new WidgetAction(Glyphs.Folder, _config.GroupByFolder ? "Don't group by folder" : "Group by folder",
+                actions.Add(new WidgetAction(Glyphs.Folder, (_config.GroupByFolder ? Str.WidgetsA_Apps_Ungroup : Str.WidgetsA_Apps_Group).Text(),
                     () => SetConfig(c => c.GroupByFolder = !c.GroupByFolder)));
             }
 
             actions.Add(new WidgetAction(Glyphs.Open,
-                _config.ClickMode == ItemClickMode.Double ? "Open on single click" : "Open on double click",
+                (_config.ClickMode == ItemClickMode.Double ? Str.WidgetsA_Apps_OpenSingle : Str.WidgetsA_Apps_OpenDouble).Text(),
                 () => SetConfig(c => c.ClickMode = c.ClickMode == ItemClickMode.Double ? ItemClickMode.Single : ItemClickMode.Double)));
 
             return actions;
@@ -626,12 +636,13 @@ internal sealed partial class AppsView : Grid, IWidgetView, IWidgetSurfaceAware,
         Lay();
     }
 
-    private static string ModeName(AppsViewMode mode) => mode switch
+    /// <summary>"Show as list": one key per mode, since a mode name glued into a sentence does not translate.</summary>
+    private static string ModeAction(AppsViewMode mode) => (mode switch
     {
-        AppsViewMode.List => "list",
-        AppsViewMode.Compact => "compact list",
-        _ => "tiles",
-    };
+        AppsViewMode.List => Str.WidgetsA_Apps_ShowAsList,
+        AppsViewMode.Compact => Str.WidgetsA_Apps_ShowAsCompact,
+        _ => Str.WidgetsA_Apps_ShowAsTiles,
+    }).Text();
 
     private static string ModeGlyph(AppsViewMode mode) => mode switch
     {
@@ -648,6 +659,7 @@ internal sealed partial class AppsView : Grid, IWidgetView, IWidgetSurfaceAware,
         }
 
         _detached = true;
+        Strings.Changed -= OnLanguage;
 
         _filter.TextChanged -= OnFilterChanged;
         _filter.KeyDown -= OnFilterKeyDown;

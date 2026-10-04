@@ -4,6 +4,7 @@ using Themia.App.Interop;
 using Themia.App.Services;
 using Themia.App.Widgets;
 using Themia.Core.Diagnostics;
+using Themia.Core.Localization;
 using Themia.Core.Model;
 using Themia.Core.Widgets;
 using Windows.System;
@@ -25,24 +26,25 @@ internal static partial class WidgetSettings
 {
     private const string LauncherScope = "shortcut-settings";
 
-    private static readonly (ShortcutViewMode, string)[] ShortcutViews =
+    // Built per page, not cached: the labels follow the language the page is built in.
+    private static (ShortcutViewMode, string)[] ShortcutViews() =>
     [
-        (ShortcutViewMode.Grid, "Tiles"),
-        (ShortcutViewMode.List, "List"),
-        (ShortcutViewMode.Details, "Details"),
+        (ShortcutViewMode.Grid, Str.WidgetsC_Shortcuts_Settings_View_Tiles.Text()),
+        (ShortcutViewMode.List, Str.CtxMenu_List.Text()),
+        (ShortcutViewMode.Details, Str.CtxMenu_Details.Text()),
     ];
 
-    private static readonly (ShortcutItemSize, string)[] ShortcutSizes =
+    private static (ShortcutItemSize, string)[] ShortcutSizes() =>
     [
-        (ShortcutItemSize.Small, "Small"),
-        (ShortcutItemSize.Medium, "Medium"),
-        (ShortcutItemSize.Large, "Large"),
+        (ShortcutItemSize.Small, Str.Folder_Small.Text()),
+        (ShortcutItemSize.Medium, Str.Folder_Medium.Text()),
+        (ShortcutItemSize.Large, Str.Folder_Large.Text()),
     ];
 
-    private static readonly (ItemClickMode, string)[] ShortcutClicks =
+    private static (ItemClickMode, string)[] ShortcutClicks() =>
     [
-        (ItemClickMode.Double, "Double click"),
-        (ItemClickMode.Single, "Single click"),
+        (ItemClickMode.Double, Str.WidgetsC_Shortcuts_Settings_OpenWith_Double.Text()),
+        (ItemClickMode.Single, Str.WidgetsC_Shortcuts_Settings_OpenWith_Single.Text()),
     ];
 
     public static void Shortcuts(List<FrameworkElement> rows, ShortcutsConfig config, Action save)
@@ -51,35 +53,35 @@ internal static partial class WidgetSettings
         ArgumentNullException.ThrowIfNull(config);
         ArgumentNullException.ThrowIfNull(save);
 
-        rows.Add(FluentLayout.Header("Display"));
+        rows.Add(FluentLayout.Header(Str.ConfigTabs_Display.Text()));
 
-        rows.Add(FluentLayout.Row(Glyphs.GridLayout, "View",
-            "Tiles with the name under the icon, a list, or a table with the target",
-            FluentLayout.Choice(ShortcutViews, config.View, value => { config.View = value; save(); })));
+        rows.Add(FluentLayout.Row(Glyphs.GridLayout, Str.Apps_ViewLabel.Text(),
+            Str.WidgetsC_Shortcuts_Settings_View_Desc.Text(),
+            FluentLayout.Choice(ShortcutViews(), config.View, value => { config.View = value; save(); })));
 
-        rows.Add(FluentLayout.Row(Glyphs.Scale, "Tile size",
-            "Tiles. A large widget steps up one size on its own",
-            FluentLayout.Choice(ShortcutSizes, config.GridSize, value => { config.GridSize = value; save(); })));
+        rows.Add(FluentLayout.Row(Glyphs.Scale, Str.WidgetsC_Shortcuts_Settings_TileSize_Label.Text(),
+            Str.WidgetsC_Shortcuts_Settings_TileSize_Desc.Text(),
+            FluentLayout.Choice(ShortcutSizes(), config.GridSize, value => { config.GridSize = value; save(); })));
 
-        rows.Add(FluentLayout.Row(Glyphs.TextSize, "Row size",
-            "List and details",
-            FluentLayout.Choice(ShortcutSizes, config.ListSize, value => { config.ListSize = value; save(); })));
+        rows.Add(FluentLayout.Row(Glyphs.TextSize, Str.WidgetsC_Shortcuts_Settings_RowSize_Label.Text(),
+            Str.WidgetsC_Shortcuts_Settings_RowSize_Desc.Text(),
+            FluentLayout.Choice(ShortcutSizes(), config.ListSize, value => { config.ListSize = value; save(); })));
 
-        rows.Add(FluentLayout.Row(Glyphs.Preview, "Icons only",
-            "Tiles show just the icon; the name is in its tooltip",
+        rows.Add(FluentLayout.Row(Glyphs.Preview, Str.CtxMenu_IconOnly.Text(),
+            Str.WidgetsC_Shortcuts_Settings_IconsOnly_Desc.Text(),
             FluentLayout.Toggle(config.GridIconOnly, value => { config.GridIconOnly = value; save(); })));
 
-        rows.Add(FluentLayout.Row(Glyphs.Fit, "Stretch tiles to fill",
-            "Tiles share out the widget's height when they all fit",
+        rows.Add(FluentLayout.Row(Glyphs.Fit, Str.WidgetsC_Shortcuts_Settings_Stretch_Label.Text(),
+            Str.WidgetsC_Shortcuts_Settings_Stretch_Desc.Text(),
             FluentLayout.Toggle(config.GridStretchHeight, value => { config.GridStretchHeight = value; save(); })));
 
-        rows.Add(FluentLayout.Row(Glyphs.File, "Show file extensions",
-            "A name you gave a shortcut is shown as you typed it",
+        rows.Add(FluentLayout.Row(Glyphs.File, Str.Folder_ShowExtMenu.Text(),
+            Str.WidgetsC_Shortcuts_Settings_ShowExtensions_Desc.Text(),
             FluentLayout.Toggle(config.ShowFileExtension, value => { config.ShowFileExtension = value; save(); })));
 
-        rows.Add(FluentLayout.Row(Glyphs.Open, "Open with",
-            "A double click is harder to do by accident on the desktop",
-            FluentLayout.Choice(ShortcutClicks, config.ClickMode, value => { config.ClickMode = value; save(); })));
+        rows.Add(FluentLayout.Row(Glyphs.Open, Str.WidgetsC_Shortcuts_Settings_OpenWith_Label.Text(),
+            Str.WidgetsC_Shortcuts_Settings_OpenWith_Desc.Text(),
+            FluentLayout.Choice(ShortcutClicks(), config.ClickMode, value => { config.ClickMode = value; save(); })));
 
         // The list editor is built last (it sits at the bottom) but the location switches above it
         // refresh it, and it refreshes them: each reflects what the other changed.
@@ -100,16 +102,16 @@ internal static partial class WidgetSettings
             }
         }
 
-        rows.Add(FluentLayout.Header("Add"));
+        rows.Add(FluentLayout.Header(Str.Common_Add.Text()));
 
-        var file = new Button { Content = "File…" };
-        var folder = new Button { Content = "Folder…" };
+        var file = new Button { Content = Str.WidgetsC_Shortcuts_Settings_Pick_File.Text() };
+        var folder = new Button { Content = Str.WidgetsC_Shortcuts_Settings_Pick_Folder.Text() };
 
         file.Click += (_, _) => _ = PickFileAsync(() => list);
         folder.Click += (_, _) => _ = PickFolderAsync(() => list);
 
-        rows.Add(FluentLayout.Row(Glyphs.Folder, "Pick from this PC",
-            "Browse for a file or a folder instead of typing its path",
+        rows.Add(FluentLayout.Row(Glyphs.Folder, Str.WidgetsC_Shortcuts_Settings_Pick_Label.Text(),
+            Str.WidgetsC_Shortcuts_Settings_Pick_Desc.Text(),
             new StackPanel
             {
                 Orientation = Orientation.Horizontal,
@@ -118,7 +120,7 @@ internal static partial class WidgetSettings
             }));
 
         // [S-1411] An app layout: added, then straight into its editor (original S-55).
-        var layout = new Button { Content = "New layout" };
+        var layout = new Button { Content = Str.Shortcut_NewLayout.Text() };
         layout.IsEnabled = AppServices.EditAppLayout is not null;
         layout.Click += (_, _) =>
         {
@@ -131,8 +133,8 @@ internal static partial class WidgetSettings
             }
         };
 
-        rows.Add(FluentLayout.Row(Glyphs.AppLayout, "App layout",
-            "Open several apps at once, each in its own part of the screen",
+        rows.Add(FluentLayout.Row(Glyphs.AppLayout, ShortcutRules.LayoutKindLabel(),
+            Str.WidgetsC_Shortcuts_Settings_AppLayout_Desc.Text(),
             layout));
 
         // [S-1388] One switch per Windows location, with the icon Explorer shows for it: on adds it,
@@ -157,17 +159,17 @@ internal static partial class WidgetSettings
             rows.Add(row);
         }
 
-        rows.Add(FluentLayout.Header("Shortcuts"));
+        rows.Add(FluentLayout.Header(Str.WidgetsC_Shortcuts_Settings_List_Header.Text()));
 
         list = FluentLayout.ListEditor(rows, new ListEditorOptions<ShortcutItem>
         {
             Items = config.Items,
             Save = SaveAndSync,
-            EmptyText = "No shortcuts yet.",
-            AddTitle = "Add a shortcut",
-            AddDescription = "An empty row you can point at a web address, a file or a folder",
-            AddAction = "Add",
-            RemoveTooltip = "Remove shortcut",
+            EmptyText = Str.WidgetsC_Shortcuts_Settings_List_Empty.Text(),
+            AddTitle = Str.Shortcut_AddTitle.Text(),
+            AddDescription = Str.WidgetsC_Shortcuts_Settings_List_AddDesc.Text(),
+            AddAction = Str.Common_Add.Text(),
+            RemoveTooltip = Str.WidgetsC_Shortcuts_Settings_List_Remove.Text(),
             Create = () => ShortcutItem.Create(string.Empty, string.Empty),
             Body = item => ShortcutBody(item, save),
         });
@@ -235,7 +237,7 @@ internal static partial class WidgetSettings
         {
             if (item.Target.Trim().Length == 0)
             {
-                FluentLayout.Confirm(verdict, "Not pointing anywhere yet.");
+                FluentLayout.Confirm(verdict, Str.WidgetsC_Shortcuts_Settings_Verdict_None.Text());
                 return;
             }
 
@@ -251,9 +253,9 @@ internal static partial class WidgetSettings
             // accepted but opens something else is the failure this check exists to prevent.
             FluentLayout.Confirm(verdict, classified.Kind switch
             {
-                LaunchKind.Web => $"Opens {classified.Value} in your browser.",
-                LaunchKind.ShellNamespace => $"Opens {LaunchTargets.ShellDisplayName(classified.Value)}.",
-                _ => $"Opens {classified.Value}.",
+                LaunchKind.Web => Str.WidgetsC_Shortcuts_Settings_Verdict_Web.Format(("target", classified.Value)),
+                LaunchKind.ShellNamespace => Str.WidgetsC_Shortcuts_Settings_Verdict_Open.Format(("target", LaunchTargets.ShellDisplayName(classified.Value))),
+                _ => Str.WidgetsC_Shortcuts_Settings_Verdict_Open.Format(("target", classified.Value)),
             });
         }
 
@@ -326,7 +328,7 @@ internal static partial class WidgetSettings
         var label = new TextBox
         {
             Text = item.Label,
-            PlaceholderText = ShortcutRules.LayoutKindLabel,
+            PlaceholderText = ShortcutRules.LayoutKindLabel(),
             HorizontalAlignment = HorizontalAlignment.Stretch,
         };
 
@@ -352,10 +354,10 @@ internal static partial class WidgetSettings
         };
 
         var summary = Fluent.Text(FluentType.Caption, "TextFillColorSecondaryBrush");
-        summary.Text = $"{ShortcutRules.LayoutKindLabel} · {LayoutPlan.Summary(item.Layout)}";
+        summary.Text = Str.WidgetsC_Shortcuts_AppLayout_Summary.Format(("apps", LayoutPlan.Summary(item.Layout)));
         summary.VerticalAlignment = VerticalAlignment.Center;
 
-        var edit = new Button { Content = "Edit layout…", IsEnabled = AppServices.EditAppLayout is not null };
+        var edit = new Button { Content = Str.Shortcut_EditLayoutMenu.Text(), IsEnabled = AppServices.EditAppLayout is not null };
         edit.Click += (_, _) => AppServices.EditAppLayout?.Invoke(item.Id);
 
         var line = new Grid { Margin = new Thickness(0, Fluent.Space2, 0, 0) };
@@ -370,7 +372,7 @@ internal static partial class WidgetSettings
 
     /// <summary>What the name box suggests when it is empty: whatever the target is called.</summary>
     private static string NameHint(string target)
-        => LaunchTargets.DisplayName(null, target) is { Length: > 0 } derived ? derived : "Name";
+        => LaunchTargets.DisplayName(null, target) is { Length: > 0 } derived ? derived : Str.Connect_Field_Name.Text();
 
 
     /// <summary>

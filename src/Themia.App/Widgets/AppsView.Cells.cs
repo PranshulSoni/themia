@@ -6,6 +6,7 @@ using Microsoft.UI.Xaml.Media;
 using Themia.App.Services;
 using Themia.App.Shell;
 using Themia.Core.Diagnostics;
+using Themia.Core.Localization;
 using Themia.Core.Model;
 using Themia.Core.Widgets;
 
@@ -187,7 +188,7 @@ internal sealed partial class AppsView
         if (plan.SecondLine)
         {
             var folder = Fluent.Text(FluentType.Caption, "TextFillColorSecondaryBrush");
-            folder.Text = InstalledAppRules.CategoryTitle(app.Category);
+            folder.Text = InstalledAppRules.CategoryTitle(app.Category, Strings.Current);
             folder.TextTrimming = TextTrimming.CharacterEllipsis;
             folder.TextWrapping = TextWrapping.NoWrap;
             nameBlock = new StackPanel { VerticalAlignment = VerticalAlignment.Center, Children = { name, folder } };
@@ -470,12 +471,12 @@ internal sealed partial class AppsView
     {
         var app = cell.App;
 
-        yield return new ItemMenuEntry(Glyphs.Open, "Open", () => Open(cell));
-        yield return new ItemMenuEntry(Glyphs.Folder, "Open file location", () => Reveal(app));
-        yield return new ItemMenuEntry(Glyphs.Copy, "Copy path", () => Copy(app.Target));
+        yield return new ItemMenuEntry(Glyphs.Open, Str.Common_Open.Text(), () => Open(cell));
+        yield return new ItemMenuEntry(Glyphs.Folder, Str.Shortcut_OpenFileLocation.Text(), () => Reveal(app));
+        yield return new ItemMenuEntry(Glyphs.Copy, Str.Apps_CopyPath.Text(), () => Copy(app.Target));
         yield return ItemMenuEntry.Separator;
-        yield return new ItemMenuEntry(Glyphs.Hide, "Hide from list", () => Hide(app, folder: false));
-        yield return new ItemMenuEntry(Glyphs.Hide, $"Hide the folder “{InstalledAppRules.CategoryTitle(app.Category)}”",
+        yield return new ItemMenuEntry(Glyphs.Hide, Str.Apps_HideFromList.Text(), () => Hide(app, folder: false));
+        yield return new ItemMenuEntry(Glyphs.Hide, Str.WidgetsA_Apps_HideFolder.Format(("folder", InstalledAppRules.CategoryTitle(app.Category, Strings.Current))),
             () => Hide(app, folder: true));
     }
 

@@ -6,6 +6,7 @@ using Themia.App.Services.Accounts;
 using Themia.App.Services.Net;
 using Themia.App.Services.Web;
 using Themia.Core.Accounts;
+using Themia.Core.Localization;
 using Themia.Core.Mail;
 
 namespace Themia.App.Services.Mail;
@@ -154,7 +155,7 @@ internal static class ImapMailClient
         }
         catch (AuthenticationException ex)
         {
-            throw new AccountException(AccountError.Unreachable, $"The secure connection to {login.Host}:{login.Port} failed.", 0, ex);
+            throw new AccountException(AccountError.Unreachable, Str.Shell_Net_TlsFailed.Format(("host", $"{login.Host}:{login.Port}")), 0, ex);
         }
         catch (SocketException ex)
         {
@@ -162,7 +163,7 @@ internal static class ImapMailClient
                 && !System.Net.NetworkInformation.NetworkInterface.GetIsNetworkAvailable()
                     ? AccountError.Offline
                     : AccountError.Unreachable;
-            throw new AccountException(error, $"Could not connect to {login.Host}:{login.Port} ({ex.SocketErrorCode}).", 0, ex);
+            throw new AccountException(error, Str.Shell_Net_CouldNotConnectCode.Format(("host", $"{login.Host}:{login.Port}"), ("code", ex.SocketErrorCode.ToString())), 0, ex);
         }
         catch (NetRefusedException ex)
         {
@@ -174,7 +175,7 @@ internal static class ImapMailClient
         }
         catch (IOException ex)
         {
-            throw new AccountException(AccountError.Unreachable, $"The connection to {login.Host} dropped.", 0, ex);
+            throw new AccountException(AccountError.Unreachable, Str.Shell_Net_Dropped.Format(("host", login.Host)), 0, ex);
         }
     }
 
@@ -246,8 +247,8 @@ internal static class ImapMailClient
             var text = string.Join(' ', tagged.Values.Select(v => v.Text).OfType<string>().Skip(1));
             var error = ImapRules.LoginRefusal(text);
             return new AccountException(error, error == AccountError.SignInRequired
-                ? $"The mail server refused the user name or password{(text.Length > 0 ? $": {text}" : ".")}"
-                : $"The mail server is not taking logins right now: {text}");
+                ? (text.Length > 0 ? Str.Shell_Mail_LoginRefusedReason.Format(("reason", text)) : Str.Shell_Mail_LoginRefused.Text())
+                : Str.Shell_Mail_NoLogins.Format(("reason", text)));
         }
 
         /// <summary>The mailbox for a folder: INBOX directly, anything else through one LIST, cached for the session.</summary>
@@ -292,7 +293,7 @@ internal static class ImapMailClient
             if (!id.StillValidIn(opened.UidValidity))
             {
                 throw new AccountException(AccountError.Refused,
-                    $"The {id.Folder.Label()} folder changed on the server since the list was read (UIDVALIDITY {id.UidValidity} → {opened.UidValidity}); refusing to {action} a message that may now be a different one. Refresh and try again.");
+                    Str.Shell_Mail_FolderChanged.Format(("folder", id.Folder.Label())));
             }
         }
 

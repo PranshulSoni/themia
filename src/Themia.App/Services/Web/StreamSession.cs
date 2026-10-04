@@ -5,6 +5,7 @@ using System.Net.Http.Headers;
 using System.Runtime.InteropServices.WindowsRuntime;
 using Microsoft.UI.Dispatching;
 using Themia.Core.Diagnostics;
+using Themia.Core.Localization;
 using Themia.Core.Model;
 using Themia.Core.Widgets;
 using Windows.Graphics.Imaging;
@@ -199,7 +200,7 @@ internal sealed class StreamSession : IDisposable
             // Nothing should reach here; if something does, the widget says so instead of the
             // process going down on an unobserved task.
             Log.Error(Scope, "the stream loop failed", ex);
-            Post(() => _sink.OnPhase(StreamPhase.Retrying, "Something went wrong"));
+            Post(() => _sink.OnPhase(StreamPhase.Retrying, Str.Shell_Stream_Unexpected.Text()));
         }
     }
 
@@ -235,11 +236,11 @@ internal sealed class StreamSession : IDisposable
         }
         catch (OperationCanceledException) when (!token.IsCancellationRequested)
         {
-            return (Outcome.Failed, "The camera did not answer");
+            return (Outcome.Failed, Str.Shell_Stream_NoAnswer.Text());
         }
         catch (HttpRequestException ex)
         {
-            return (Outcome.Failed, ex.InnerException is System.Net.Sockets.SocketException socket ? $"Can't reach the camera ({socket.SocketErrorCode})" : "Can't reach the camera");
+            return (Outcome.Failed, ex.InnerException is System.Net.Sockets.SocketException socket ? Str.Shell_Stream_UnreachableCode.Format(("code", socket.SocketErrorCode.ToString())) : Str.Shell_Stream_Unreachable.Text());
         }
 
         using (response)
@@ -250,8 +251,8 @@ internal sealed class StreamSession : IDisposable
 
                 // A wrong path or a login page will not fix itself on a timer.
                 return response.StatusCode is HttpStatusCode.NotFound or HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden
-                    ? (Outcome.Unsupported, $"The camera refused it ({line})")
-                    : (Outcome.Failed, $"The camera answered {line}");
+                    ? (Outcome.Unsupported, Str.Shell_Stream_Refused.Format(("status", line)))
+                    : (Outcome.Failed, Str.Shell_Stream_Answered.Format(("status", line)));
             }
 
             var contentType = response.Content.Headers.ContentType;
@@ -274,20 +275,20 @@ internal sealed class StreamSession : IDisposable
                         return (Outcome.Done, null);
 
                     default:
-                        return (Outcome.Unsupported, $"Not a camera stream ({contentType?.MediaType ?? "no content type"})");
+                        return (Outcome.Unsupported, Str.Shell_Stream_NotStream.Format(("type", contentType?.MediaType ?? "?")));
                 }
             }
             catch (OperationCanceledException) when (!token.IsCancellationRequested)
             {
-                return (Outcome.Failed, "The stream stalled");
+                return (Outcome.Failed, Str.Shell_Stream_Stalled.Text());
             }
             catch (IOException)
             {
-                return (Outcome.Failed, "The stream dropped");
+                return (Outcome.Failed, Str.Shell_Stream_Dropped.Text());
             }
             catch (HttpRequestException)
             {
-                return (Outcome.Failed, "The stream dropped");
+                return (Outcome.Failed, Str.Shell_Stream_Dropped.Text());
             }
         }
     }
@@ -310,7 +311,7 @@ internal sealed class StreamSession : IDisposable
                 {
                     // The camera closed a stream that is meant to run forever: a reboot, a restart
                     // of its server, a cap on stream length. Reconnect.
-                    return (Outcome.Failed, "The camera closed the stream");
+                    return (Outcome.Failed, Str.Shell_Stream_Closed.Text());
                 }
 
                 reader.Append(buffer.AsSpan(0, read));
@@ -333,7 +334,7 @@ internal sealed class StreamSession : IDisposable
 
                     if (_undecodable > 20 && !_gotFrame)
                     {
-                        return (Outcome.Unsupported, "The stream's frames are not pictures");
+                        return (Outcome.Unsupported, Str.Shell_Stream_NotPictures.Text());
                     }
                 }
 
@@ -353,7 +354,7 @@ internal sealed class StreamSession : IDisposable
     {
         if (response.Content.Headers.ContentLength is > MaxImageBytes)
         {
-            return (Outcome.Unsupported, "The snapshot is too large");
+            return (Outcome.Unsupported, Str.Shell_Stream_TooLarge.Text());
         }
 
         await using var stream = await response.Content.ReadAsStreamAsync(token).ConfigureAwait(false);
@@ -371,7 +372,7 @@ internal sealed class StreamSession : IDisposable
 
             if (body.Length + read > MaxImageBytes)
             {
-                return (Outcome.Unsupported, "The snapshot is too large");
+                return (Outcome.Unsupported, Str.Shell_Stream_TooLarge.Text());
             }
 
             body.Write(chunk, 0, read);
@@ -379,7 +380,7 @@ internal sealed class StreamSession : IDisposable
 
         if (!await PresentAsync(body.ToArray(), StreamTransport.Image, token).ConfigureAwait(false))
         {
-            return (Outcome.Unsupported, "The snapshot is not a picture");
+            return (Outcome.Unsupported, Str.Shell_Stream_NotPicture.Text());
         }
 
         // Live mode on a snapshot endpoint shows the one picture and stops, as an image would; an

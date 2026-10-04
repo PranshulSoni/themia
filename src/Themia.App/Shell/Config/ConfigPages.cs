@@ -6,6 +6,7 @@ using Microsoft.UI.Xaml.Media;
 using Themia.App.Services;
 using Themia.App.Widgets;
 using Themia.Core.Diagnostics;
+using Themia.Core.Localization;
 using Themia.Core.Model;
 using Themia.Core.Widgets;
 
@@ -32,13 +33,13 @@ internal static partial class ConfigPages
     /// </summary>
     public static IReadOnlyList<AppPageEntry> AppPages { get; } =
     [
-        new(AppPage.General, "General", Glyphs.Settings, NavIcon.Settings, AppPageSlot.Main, BuildGeneral),
-        new(AppPage.Appearance, "Appearance", Glyphs.Palette, NavIcon.PaintBrush, AppPageSlot.Main, BuildAppearance),
-        new(AppPage.Layout, "Layout", Glyphs.Grid, NavIcon.Apps, AppPageSlot.Main, BuildLayout),
-        new(AppPage.Accounts, "Accounts", Glyphs.Contact, NavIcon.Person, AppPageSlot.Main, _ => AccountsPage.Build()),
-        new(AppPage.License, "License", Glyphs.Certificate, NavIcon.Premium, AppPageSlot.Footer, BuildLicense),
-        new(AppPage.Logs, "Logs", Glyphs.Document, NavIcon.DocumentText, AppPageSlot.Footer, BuildLogs, s => s.Preferences.DevMode),
-        new(AppPage.About, "About", Glyphs.Info, NavIcon.QuestionCircle, AppPageSlot.Footer, BuildAbout),
+        new(AppPage.General, Str.Settings_Nav_General, Glyphs.Settings, NavIcon.Settings, AppPageSlot.Main, BuildGeneral),
+        new(AppPage.Appearance, Str.Settings_Section_Appearance, Glyphs.Palette, NavIcon.PaintBrush, AppPageSlot.Main, BuildAppearance),
+        new(AppPage.Layout, Str.Shell_Settings_Nav_Layout, Glyphs.Grid, NavIcon.Apps, AppPageSlot.Main, BuildLayout),
+        new(AppPage.Accounts, Str.Shell_Settings_Nav_Accounts, Glyphs.Contact, NavIcon.Person, AppPageSlot.Main, _ => AccountsPage.Build()),
+        new(AppPage.License, Str.Settings_Nav_License, Glyphs.Certificate, NavIcon.Premium, AppPageSlot.Footer, BuildLicense),
+        new(AppPage.Logs, Str.Settings_Nav_Logs, Glyphs.Document, NavIcon.DocumentText, AppPageSlot.Footer, BuildLogs, s => s.Preferences.DevMode),
+        new(AppPage.About, Str.Settings_Section_About, Glyphs.Info, NavIcon.QuestionCircle, AppPageSlot.Footer, BuildAbout),
     ];
 
     public static FrameworkElement Build(AppHost host, ConfigTarget target, Action<ConfigTarget> navigate) => target switch
@@ -47,7 +48,7 @@ internal static partial class ConfigPages
         ConfigTarget.View view => BuildView(host, view.ViewId, navigate),
         ConfigTarget.Display display => BuildDisplay(host, display.MonitorId),
         ConfigTarget.Widget widget => BuildWidget(host, widget.WidgetId, navigate),
-        _ => Page("Settings", []),
+        _ => Page(Str.Common_Settings.Text(), []),
     };
 
     private static FrameworkElement BuildApp(AppHost host, AppPage page)
@@ -62,7 +63,7 @@ internal static partial class ConfigPages
 
         // A reserved page nobody has built yet: say so in the log rather than throw from the window.
         Log.Warn(Scope, $"no settings page is registered for {page}");
-        return Page("Settings", []);
+        return Page(Str.Common_Settings.Text(), []);
     }
 
     // -----------------------------------------------------------------------------------------

@@ -5,6 +5,7 @@ using Microsoft.UI.Xaml.Controls.Primitives;
 using Microsoft.UI.Xaml.Input;
 using Themia.App.Shell;
 using Themia.Core.Diagnostics;
+using Themia.Core.Localization;
 using Themia.Core.Notes;
 using Themia.Core.Widgets;
 using Windows.System;
@@ -25,6 +26,7 @@ internal sealed partial class NotesView
     private StackPanel _listPanel = null!;
     private ScrollViewer _listScroll = null!;
     private Border _newRow = null!;
+    private TextBlock? _newRowText;
     private IDisposable? _newRowHover;
 
     /// <summary>The open rename box (in the list or the header's flyout), or null.</summary>
@@ -51,9 +53,14 @@ internal sealed partial class NotesView
             Visibility = Visibility.Collapsed,
         };
 
-        ToolTipService.SetToolTip(_picker, "Notes");
-        Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(_picker, "Choose a note");
+        ApplyPickerTexts();
         _picker.Click += OnPickerClick;
+    }
+
+    private void ApplyPickerTexts()
+    {
+        ToolTipService.SetToolTip(_picker, Str.Notes_NotesLabel.Text());
+        Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(_picker, Str.WidgetsC_Notes_ChooseNote.Text());
     }
 
     /// <summary>
@@ -78,12 +85,12 @@ internal sealed partial class NotesView
         }
 
         entries.Add(ItemMenuEntry.Separator);
-        entries.Add(new ItemMenuEntry(Glyphs.Add, "New note", NewNote));
+        entries.Add(new ItemMenuEntry(Glyphs.Add, Str.Notes_NewNote.Text(), NewNote));
 
         if (_state == NoteState.Ready && _shownId is { } shown)
         {
-            entries.Add(new ItemMenuEntry(Glyphs.Rename, "Rename…", () => RenameInFlyout(shown)));
-            entries.Add(new ItemMenuEntry(Glyphs.Delete, "Delete note…", () => _ = DeleteAsync(shown), Danger: true));
+            entries.Add(new ItemMenuEntry(Glyphs.Rename, Str.WidgetsC_Notes_RenameEllipsis.Text(), () => RenameInFlyout(shown)));
+            entries.Add(new ItemMenuEntry(Glyphs.Delete, Str.WidgetsC_Notes_DeleteNoteEllipsis.Text(), () => _ = DeleteAsync(shown), Danger: true));
         }
 
         ItemMenu.Build(entries).ShowAt(_picker);
@@ -97,7 +104,7 @@ internal sealed partial class NotesView
             return;
         }
 
-        var box = new TextBox { Text = note.Title, MinWidth = 200, PlaceholderText = "Note title" };
+        var box = new TextBox { Text = note.Title, MinWidth = 200, PlaceholderText = Str.Notes_NamePlaceholder.Text() };
         var flyout = new Flyout { Content = box, Placement = FlyoutPlacementMode.Bottom };
         var cancelled = false;
 
@@ -158,7 +165,7 @@ internal sealed partial class NotesView
             return;
         }
 
-        Pick(_pool.Create("Note"));
+        Pick(_pool.Create(Str.Notes_NewName.Text()));
 
         if (_state == NoteState.Ready)
         {
@@ -181,9 +188,9 @@ internal sealed partial class NotesView
 
             var confirmed = await FluentLayout.ConfirmAsync(
                 this,
-                "Delete this note?",
-                $"\"{note.Title}\" will be deleted from this PC, for every widget showing it. Its text cannot be recovered.",
-                "Delete").ConfigureAwait(true);
+                Str.WidgetsC_Notes_DeleteConfirmTitle.Text(),
+                Str.WidgetsC_Notes_DeleteConfirmBody.Format(("name", note.Title)),
+                Str.Common_Delete.Text()).ConfigureAwait(true);
 
             if (confirmed && !_detached)
             {
@@ -222,7 +229,8 @@ internal sealed partial class NotesView
         var add = new StackPanel { Orientation = Orientation.Horizontal, Spacing = Fluent.Space2 };
         add.Children.Add(Fluent.Icon(Glyphs.Add, "TextFillColorSecondaryBrush", 14));
         var addText = Fluent.Text(FluentType.Body, "TextFillColorSecondaryBrush");
-        addText.Text = "New note";
+        addText.Text = Str.Notes_NewNote.Text();
+        _newRowText = addText;
         add.Children.Add(addText);
 
         _newRow = Fluent.Row(add, compact: true);
@@ -345,7 +353,7 @@ internal sealed partial class NotesView
         if (_rows.Count == 0)
         {
             var none = Fluent.Text(FluentType.Caption, "TextFillColorTertiaryBrush");
-            none.Text = "No notes yet.";
+            none.Text = Str.WidgetsC_Notes_NoNotes.Text();
             _listPanel.Children.Add(Fluent.Row(none, compact: true));
         }
 
@@ -361,10 +369,10 @@ internal sealed partial class NotesView
 
     private IEnumerable<ItemMenuEntry> RowMenu(string id) =>
     [
-        new ItemMenuEntry(Glyphs.Open, "Open", () => Pick(id), Disabled: id == _shownId),
-        new ItemMenuEntry(Glyphs.Rename, "Rename", () => BeginRename(id)),
+        new ItemMenuEntry(Glyphs.Open, Str.Common_Open.Text(), () => Pick(id), Disabled: id == _shownId),
+        new ItemMenuEntry(Glyphs.Rename, Str.Common_Rename.Text(), () => BeginRename(id)),
         ItemMenuEntry.Separator,
-        new ItemMenuEntry(Glyphs.Delete, "Delete…", () => _ = DeleteAsync(id), Danger: true),
+        new ItemMenuEntry(Glyphs.Delete, Str.Common_DeleteEllipsis.Text(), () => _ = DeleteAsync(id), Danger: true),
     ];
 
     /// <summary>[S-1367] Rename in the row: Enter or leaving the box commits, Escape does not.</summary>
@@ -376,7 +384,7 @@ internal sealed partial class NotesView
             return;
         }
 
-        var box = new TextBox { Text = note.Title, MinWidth = 0, PlaceholderText = "Note title" };
+        var box = new TextBox { Text = note.Title, MinWidth = 0, PlaceholderText = Str.Notes_NamePlaceholder.Text() };
         var done = false;
 
         void Finish(bool commit)

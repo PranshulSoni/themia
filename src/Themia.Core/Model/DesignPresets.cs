@@ -1,4 +1,5 @@
 using Themia.Core.Widgets;
+using Themia.Core.Localization;
 
 namespace Themia.Core.Model;
 
@@ -32,7 +33,11 @@ public sealed record DesignPresetValues(
     double WidgetGapPx);
 
 /// <summary>One named look.</summary>
-public sealed record DesignPreset(DesignPresetId Id, string Label, DesignPresetValues Values);
+public sealed record DesignPreset(DesignPresetId Id, Str LabelId, DesignPresetValues Values)
+{
+    /// <summary>The preset's name in the current language (the list is static, so it is read when shown).</summary>
+    public string Label => LabelId.Text();
+}
 
 /// <summary>
 /// Named bundles of appearance settings, applied in one write — the original's six
@@ -52,30 +57,30 @@ public static class DesignPresets
     /// </summary>
     public static IReadOnlyList<DesignPreset> All { get; } =
     [
-        new(DesignPresetId.Default, "Default", ValuesOf(new DesignState())),
+        new(DesignPresetId.Default, Str.Settings_Style_Preset_Name_Default, ValuesOf(new DesignState())),
 
         // Near-black, tight, high contrast.
-        new(DesignPresetId.Midnight, "Midnight", new(
+        new(DesignPresetId.Midnight, Str.Settings_Style_Preset_Name_Midnight, new(
             AppTheme.Dark, "#7C8CFF", DesignLook.SystemFont, "#0B0B0F", 0.96, "#131320", 0.96,
             WidgetBorderStyle.Solid, 1, "#7C8CFF", 0.18, 6, 10)),
 
         // Light theme, soft and airy.
-        new(DesignPresetId.Daylight, "Daylight", new(
+        new(DesignPresetId.Daylight, Str.Settings_Style_Preset_Name_Daylight, new(
             AppTheme.Light, "#0078D4", DesignLook.SystemFont, "#FFFFFF", 0.86, "#F3F4F8", 0.92,
             WidgetBorderStyle.Solid, 1, "#000000", 0.1, 12, 14)),
 
         // Heavy glass: very translucent, borderless, generously rounded.
-        new(DesignPresetId.Glass, "Glass", new(
+        new(DesignPresetId.Glass, Str.Settings_Style_Preset_Name_Glass, new(
             AppTheme.Dark, "#8AD8FF", DesignLook.SystemFont, "#1B2030", 0.55, "#1B2030", 0.35,
             WidgetBorderStyle.None, 0, "#FFFFFF", 0.25, 18, 16)),
 
         // Monospace, square, phosphor green.
-        new(DesignPresetId.Terminal, "Terminal", new(
+        new(DesignPresetId.Terminal, Str.Settings_Style_Preset_Name_Terminal, new(
             AppTheme.Dark, "#3DDC84", DesignLook.MonoFont, "#050D07", 0.97, "#050D07", 0.97,
             WidgetBorderStyle.Solid, 1, "#3DDC84", 0.45, 0, 8)),
 
         // Light, serif, printed-page feel: opaque cards, hairline rules.
-        new(DesignPresetId.Paper, "Paper", new(
+        new(DesignPresetId.Paper, Str.Settings_Style_Preset_Name_Paper, new(
             AppTheme.Light, "#8A5A2B", DesignLook.SerifFont, "#FAF7F0", 1, "#F0E9DC", 1,
             WidgetBorderStyle.Solid, 1, "#8A5A2B", 0.22, 4, 12)),
     ];

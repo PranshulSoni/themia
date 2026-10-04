@@ -1,4 +1,5 @@
 using Themia.Core.Model;
+using Themia.Core.Localization;
 
 namespace Themia.Core.Widgets;
 
@@ -191,8 +192,8 @@ public static class MoodLayout
         }
 
         return plan.Weeks <= 1
-            ? "This week"
-            : string.Create(System.Globalization.CultureInfo.InvariantCulture, $"Last {plan.Weeks} weeks");
+            ? Str.WidgetsB_Mood_ThisWeek.Text()
+            : Str.WidgetsB_Mood_LastWeeks.Plural(plan.Weeks);
     }
 
     /// <summary>The height of <paramref name="weeks"/> rows of <paramref name="cell"/>-sized squares.</summary>

@@ -1,5 +1,6 @@
 using Themia.Core.Diagnostics;
 using Themia.Core.Habits;
+using Themia.Core.Localization;
 using Themia.Core.Storage;
 
 namespace Themia.App.Services.Habits;
@@ -41,8 +42,8 @@ internal sealed class HabitPool
         Writable = load.Writable;
         Problem = load.Outcome == LoadOutcome.Recovered
             ? load.Writable
-                ? $"The habit lists on this PC could not be read ({load.Detail}). The old file was kept beside the new one."
-                : $"The habit lists on this PC could not be read ({load.Detail}). They cannot be changed until Themia restarts."
+                ? Str.Shell_Store_HabitsRecovered.Format(("detail", load.Detail))
+                : Str.Shell_Store_HabitsReadOnly.Format(("detail", load.Detail))
             : null;
 
         Log.Info(Scope, $"{_lists.Count} habit list(s) loaded from {store.Path}");

@@ -1,7 +1,13 @@
+using Themia.Core.Localization;
+
 namespace Themia.Core.Settings;
 
 /// <summary>A preset in the colour picker: the stored <c>#RRGGBB</c> and the name a screen reader says.</summary>
-public readonly record struct ColorPreset(string Hex, string Name);
+public readonly record struct ColorPreset(string Hex, Str NameId)
+{
+    /// <summary>The colour's name in the current language (the palette is static, so it is read when shown).</summary>
+    public string Name => NameId.Text();
+}
 
 /// <summary>
 /// The swatches the shared colour picker offers before "Custom colour". [S-1549]
@@ -20,23 +26,23 @@ public static class ColorPresets
     /// <summary>Windows' accent palette, row by row.</summary>
     public static IReadOnlyList<ColorPreset> Windows { get; } =
     [
-        new("#FFB900", "Yellow gold"), new("#FF8C00", "Gold"), new("#F7630C", "Orange bright"), new("#CA5010", "Orange dark"),
-        new("#DA3B01", "Rust"), new("#EF6950", "Pale rust"), new("#D13438", "Brick red"), new("#FF4343", "Mod red"),
+        new("#FFB900", Str.Shell_Color_YellowGold), new("#FF8C00", Str.Shell_Color_Gold), new("#F7630C", Str.Shell_Color_OrangeBright), new("#CA5010", Str.Shell_Color_OrangeDark),
+        new("#DA3B01", Str.Shell_Color_Rust), new("#EF6950", Str.Shell_Color_PaleRust), new("#D13438", Str.Shell_Color_BrickRed), new("#FF4343", Str.Shell_Color_ModRed),
 
-        new("#E74856", "Pale red"), new("#E81123", "Red"), new("#EA005E", "Rose bright"), new("#C30052", "Rose"),
-        new("#E3008C", "Plum light"), new("#BF0077", "Plum"), new("#C239B3", "Orchid light"), new("#9A0089", "Orchid"),
+        new("#E74856", Str.Shell_Color_PaleRed), new("#E81123", Str.Shell_Color_Red), new("#EA005E", Str.Shell_Color_RoseBright), new("#C30052", Str.Shell_Color_Rose),
+        new("#E3008C", Str.Shell_Color_PlumLight), new("#BF0077", Str.Shell_Color_Plum), new("#C239B3", Str.Shell_Color_OrchidLight), new("#9A0089", Str.Shell_Color_Orchid),
 
-        new("#0078D4", "Default blue"), new("#0063B1", "Navy blue"), new("#8E8CD8", "Purple shadow"), new("#6B69D6", "Purple shadow dark"),
-        new("#8764B8", "Iris pastel"), new("#744DA9", "Iris spring"), new("#B146C2", "Violet red light"), new("#881798", "Violet red"),
+        new("#0078D4", Str.Shell_Color_DefaultBlue), new("#0063B1", Str.Shell_Color_NavyBlue), new("#8E8CD8", Str.Shell_Color_PurpleShadow), new("#6B69D6", Str.Shell_Color_PurpleShadowDark),
+        new("#8764B8", Str.Shell_Color_IrisPastel), new("#744DA9", Str.Shell_Color_IrisSpring), new("#B146C2", Str.Shell_Color_VioletRedLight), new("#881798", Str.Shell_Color_VioletRed),
 
-        new("#0099BC", "Cool blue bright"), new("#2D7D9A", "Cool blue"), new("#00B7C3", "Seafoam"), new("#038387", "Seafoam teal"),
-        new("#00B294", "Mint light"), new("#018574", "Mint dark"), new("#00CC6A", "Turf green"), new("#10893E", "Sport green"),
+        new("#0099BC", Str.Shell_Color_CoolBlueBright), new("#2D7D9A", Str.Shell_Color_CoolBlue), new("#00B7C3", Str.Shell_Color_Seafoam), new("#038387", Str.Shell_Color_SeafoamTeal),
+        new("#00B294", Str.Shell_Color_MintLight), new("#018574", Str.Shell_Color_MintDark), new("#00CC6A", Str.Shell_Color_TurfGreen), new("#10893E", Str.Shell_Color_SportGreen),
 
-        new("#7A7574", "Gray"), new("#5D5A58", "Gray brown"), new("#68768A", "Steel blue"), new("#515C6B", "Metal blue"),
-        new("#567C73", "Pale moss"), new("#486860", "Moss"), new("#498205", "Meadow green"), new("#107C10", "Green"),
+        new("#7A7574", Str.Shell_Color_Gray), new("#5D5A58", Str.Shell_Color_GrayBrown), new("#68768A", Str.Shell_Color_SteelBlue), new("#515C6B", Str.Shell_Color_MetalBlue),
+        new("#567C73", Str.Shell_Color_PaleMoss), new("#486860", Str.Shell_Color_Moss), new("#498205", Str.Shell_Color_MeadowGreen), new("#107C10", Str.Shell_Color_Green),
 
-        new("#767676", "Overcast"), new("#4C4A48", "Storm"), new("#69797E", "Blue gray"), new("#4A5459", "Gray dark"),
-        new("#647C64", "Liddy green"), new("#525E54", "Sage"), new("#847545", "Camouflage desert"), new("#7E735F", "Camouflage"),
+        new("#767676", Str.Shell_Color_Overcast), new("#4C4A48", Str.Shell_Color_Storm), new("#69797E", Str.Shell_Color_BlueGray), new("#4A5459", Str.Shell_Color_GrayDark),
+        new("#647C64", Str.Shell_Color_LiddyGreen), new("#525E54", Str.Shell_Color_Sage), new("#847545", Str.Shell_Color_CamouflageDesert), new("#7E735F", Str.Shell_Color_Camouflage),
     ];
 
     /// <summary>
@@ -45,8 +51,8 @@ public static class ColorPresets
     /// </summary>
     public static IReadOnlyList<ColorPreset> Neutrals { get; } =
     [
-        new("#000000", "Black"), new("#191919", "Charcoal"), new("#202020", "Dark gray"), new("#2C2C2C", "Graphite"),
-        new("#454545", "Slate"), new("#E5E5E5", "Light gray"), new("#F3F3F3", "Mist"), new("#FFFFFF", "White"),
+        new("#000000", Str.Shell_Color_Black), new("#191919", Str.Shell_Color_Charcoal), new("#202020", Str.Shell_Color_DarkGray), new("#2C2C2C", Str.Shell_Color_Graphite),
+        new("#454545", Str.Shell_Color_Slate), new("#E5E5E5", Str.Shell_Color_LightGray), new("#F3F3F3", Str.Shell_Color_Mist), new("#FFFFFF", Str.Shell_Color_White),
     ];
 
     /// <summary>The surface picker's swatches: the neutrals, then the accent palette.</summary>

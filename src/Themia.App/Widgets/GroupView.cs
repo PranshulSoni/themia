@@ -4,6 +4,7 @@ using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
 using Themia.App.Services;
 using Themia.App.Shell;
+using Themia.Core.Localization;
 using Themia.Core.Model;
 using Themia.Core.Widgets;
 
@@ -64,7 +65,14 @@ internal sealed partial class GroupView : Grid, IWidgetView, IWidgetContainerVie
 
     private IContainerSurface? Container => _surface as IContainerSurface;
 
-    public void Attach(Ticker ticker, WidgetConfig config) => ApplyConfig(config);
+    public void Attach(Ticker ticker, WidgetConfig config)
+    {
+        Strings.Changed += OnLanguage;
+        ApplyConfig(config);
+    }
+
+    /// <summary>[S-1109] The toggle's tooltip and name follow the language.</summary>
+    private void OnLanguage(Locale locale) => ApplyCollapse();
 
     /// <inheritdoc />
     public void Bind(IWidgetSurface surface) => _surface = surface;
@@ -120,8 +128,8 @@ internal sealed partial class GroupView : Grid, IWidgetView, IWidgetContainerVie
         var towardsBody = header is HeaderPlacement.Bottom or HeaderPlacement.Right ? Glyphs.ChevronUp : Glyphs.ChevronDown;
         var towardsBar = header is HeaderPlacement.Bottom or HeaderPlacement.Right ? Glyphs.ChevronDown : Glyphs.ChevronUp;
         _toggleIcon.Glyph = collapsed ? towardsBody : towardsBar;
-        ToolTipService.SetToolTip(_toggle, collapsed ? "Show these widgets" : "Hide these widgets");
-        Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(_toggle, collapsed ? "Expand group" : "Collapse group");
+        ToolTipService.SetToolTip(_toggle, (collapsed ? Str.WidgetsA_Group_ShowWidgets : Str.WidgetsA_Group_HideWidgets).Text());
+        Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(_toggle, (collapsed ? Str.Group_Expand : Str.Group_Collapse).Text());
 
         foreach (var child in _children)
         {
@@ -159,6 +167,8 @@ internal sealed partial class GroupView : Grid, IWidgetView, IWidgetContainerVie
 
     public void Detach()
     {
+        Strings.Changed -= OnLanguage;
+
         // Leaving the desktop must not leave a dozen widgets invisible with nothing left to un-hide
         // them.
         Reveal();

@@ -6,6 +6,7 @@ using Microsoft.UI.Xaml.Media;
 using Themia.App.Services;
 using Themia.App.Shell;
 using Themia.Core.Diagnostics;
+using Themia.Core.Localization;
 using Themia.Core.Model;
 using Themia.Core.Widgets;
 
@@ -45,6 +46,7 @@ internal sealed partial class ViewSwitcherView : Grid, IWidgetView, IWidgetSurfa
     };
 
     private readonly StackPanel _empty;
+    private readonly TextBlock _emptyText = new() { Text = Str.WidgetsC_ViewSwitcher_Empty.Text() };
 
     /// <summary>The drawn cells in reading order: the button and its view (or <see cref="OverflowKey"/>).</summary>
     private readonly List<(Button Button, string Key)> _cells = [];
@@ -65,7 +67,7 @@ internal sealed partial class ViewSwitcherView : Grid, IWidgetView, IWidgetSurfa
 
     public ViewSwitcherView()
     {
-        _empty = Fluent.EmptyState(Glyphs.View, new TextBlock { Text = "Place it on the desktop to switch views" }, out _);
+        _empty = Fluent.EmptyState(Glyphs.View, _emptyText, out _);
         _empty.Visibility = Visibility.Collapsed;
 
         Children.Add(_track);
@@ -77,7 +79,21 @@ internal sealed partial class ViewSwitcherView : Grid, IWidgetView, IWidgetSurfa
     public void Attach(Ticker ticker, WidgetConfig config)
     {
         _detached = false;
+        Strings.Changed -= OnLanguage;
+        Strings.Changed += OnLanguage;
         ApplyConfig(config);
+    }
+
+    /// <summary>The language changed: the empty text, and the buttons rebuilt for their tooltips and counts.</summary>
+    private void OnLanguage(Locale locale)
+    {
+        if (_detached)
+        {
+            return;
+        }
+
+        _emptyText.Text = Str.WidgetsC_ViewSwitcher_Empty.Text();
+        Lay(force: true);
     }
 
     /// <summary>
@@ -102,7 +118,7 @@ internal sealed partial class ViewSwitcherView : Grid, IWidgetView, IWidgetSurfa
     [
         new WidgetAction(
             _config.IconOnly ? Glyphs.Rename : Glyphs.Hidden,
-            _config.IconOnly ? "Show names" : "Initials only",
+            _config.IconOnly ? Str.CtxMenu_ShowLabels.Text() : Str.WidgetsC_ViewSwitcher_InitialsOnly.Text(),
             () =>
             {
                 _config.IconOnly = !_config.IconOnly;
@@ -241,9 +257,11 @@ internal sealed partial class ViewSwitcherView : Grid, IWidgetView, IWidgetSurfa
 
         Paint(button, choice.Shown);
 
-        ToolTipService.SetToolTip(button, choice.Shown ? $"{choice.Name} (showing)" : $"Show {choice.Name} on this display");
+        ToolTipService.SetToolTip(button, choice.Shown
+            ? Str.WidgetsC_ViewSwitcher_Tooltip_Showing.Format(("name", choice.Name))
+            : Str.WidgetsC_ViewSwitcher_Tooltip_Show.Format(("name", choice.Name)));
         AutomationProperties.SetName(button, choice.Name);
-        AutomationProperties.SetItemStatus(button, choice.Shown ? "Showing" : string.Empty);
+        AutomationProperties.SetItemStatus(button, choice.Shown ? Str.WidgetsC_ViewSwitcher_Status_Showing.Text() : string.Empty);
 
         var id = choice.Id;
         button.Click += (_, _) => Switch(id);
@@ -255,7 +273,7 @@ internal sealed partial class ViewSwitcherView : Grid, IWidgetView, IWidgetSurfa
     private Button BuildOverflow(int hidden, CellSize cell)
     {
         var text = Fluent.Text(MarkStep(cell), "TextFillColorSecondaryBrush");
-        text.Text = "+" + hidden.ToString(System.Globalization.CultureInfo.CurrentCulture);
+        text.Text = "+" + LocaleFormat.Integer(hidden);
         text.TextTrimming = TextTrimming.None;
         text.VerticalAlignment = VerticalAlignment.Center;
 
@@ -263,7 +281,7 @@ internal sealed partial class ViewSwitcherView : Grid, IWidgetView, IWidgetSurfa
         button.HorizontalContentAlignment = HorizontalAlignment.Center;
         Paint(button, shown: false);
 
-        var label = hidden == 1 ? "1 more view" : $"{hidden} more views";
+        var label = Str.WidgetsC_ViewSwitcher_MoreViews.Plural(hidden);
         ToolTipService.SetToolTip(button, label);
         AutomationProperties.SetName(button, label);
         button.Click += (_, _) => ShowOverflow(button);
@@ -581,14 +599,14 @@ internal sealed partial class ViewSwitcherView : Grid, IWidgetView, IWidgetSurfa
 
         return
         [
-            new ItemMenuEntry(Glyphs.View, "Show on this display", () => Switch(viewId), Disabled: shown),
+            new ItemMenuEntry(Glyphs.View, Str.WidgetsC_ViewSwitcher_Menu_Show.Text(), () => Switch(viewId), Disabled: shown),
             ItemMenuEntry.Separator,
-            new ItemMenuEntry(Glyphs.MoveUp, "Move earlier", () => display.MoveView(viewId, -1), Disabled: index == 0),
-            new ItemMenuEntry(Glyphs.MoveDown, "Move later", () => display.MoveView(viewId, +1), Disabled: index == views.Count - 1),
-            new ItemMenuEntry(Glyphs.Copy, "Duplicate view", () => display.DuplicateView(viewId)),
-            new ItemMenuEntry(Glyphs.Settings, "View settings", () => display.OpenViewSettings(viewId)),
+            new ItemMenuEntry(Glyphs.MoveUp, Str.WidgetsC_ViewSwitcher_Menu_MoveEarlier.Text(), () => display.MoveView(viewId, -1), Disabled: index == 0),
+            new ItemMenuEntry(Glyphs.MoveDown, Str.WidgetsC_ViewSwitcher_Menu_MoveLater.Text(), () => display.MoveView(viewId, +1), Disabled: index == views.Count - 1),
+            new ItemMenuEntry(Glyphs.Copy, Str.App_DuplicateView.Text(), () => display.DuplicateView(viewId)),
+            new ItemMenuEntry(Glyphs.Settings, Str.App_ViewSettingsBtn.Text(), () => display.OpenViewSettings(viewId)),
             ItemMenuEntry.Separator,
-            new ItemMenuEntry(Glyphs.Delete, "Delete view", () => display.DeleteView(viewId), Danger: true, Disabled: views.Count <= 1),
+            new ItemMenuEntry(Glyphs.Delete, Str.App_DeleteView.Text(), () => display.DeleteView(viewId), Danger: true, Disabled: views.Count <= 1),
         ];
     }
 
@@ -709,6 +727,7 @@ internal sealed partial class ViewSwitcherView : Grid, IWidgetView, IWidgetSurfa
     public void Detach()
     {
         _detached = true;
+        Strings.Changed -= OnLanguage;
         _cursor = null;
         Clear();
         _built = string.Empty;

@@ -1,4 +1,5 @@
 using Themia.Core.Geometry;
+using Themia.Core.Localization;
 
 namespace Themia.Core.Model;
 
@@ -174,7 +175,7 @@ public static class WidgetTransfer
 
             if (free is null)
             {
-                free = ViewState.Create($"Display {state.Views.Count + 1}");
+                free = ViewState.Create(Str.App_MonitorLabel.Format(("n", state.Views.Count + 1)));
                 state.Views.Add(free);
                 created++;
             }

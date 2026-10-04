@@ -1,6 +1,7 @@
 using System.Globalization;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Themia.Core.Localization;
 using Themia.Core.Model;
 
 namespace Themia.App.Shell.Config;
@@ -22,10 +23,10 @@ internal static partial class WidgetSettings
         ArgumentNullException.ThrowIfNull(config);
         ArgumentNullException.ThrowIfNull(save);
 
-        rows.Add(FluentLayout.Header("Location"));
+        rows.Add(FluentLayout.Header(Str.SunMoon_LocationTab.Text()));
 
         // Built before the search so a pick can show its coordinates in them at once.
-        var place = new TextBox { Text = config.Place, MinWidth = 200, PlaceholderText = "Zurich" };
+        var place = new TextBox { Text = config.Place, MinWidth = 200, PlaceholderText = Str.SunMoon_Place_Placeholder.Text() };
         var latitude = new TextBox { MinWidth = 120, HorizontalAlignment = HorizontalAlignment.Right };
         var longitude = new TextBox { MinWidth = 120, HorizontalAlignment = HorizontalAlignment.Right };
 
@@ -47,7 +48,7 @@ internal static partial class WidgetSettings
             },
             () => { }));
 
-        rows.Add(FluentLayout.Header("Exact coordinates"));
+        rows.Add(FluentLayout.Header(Str.WidgetsC_SunMoon_Settings_ExactCoordinates.Text()));
 
         // On lost focus, not per keystroke: the widget behind this window redraws on every write,
         // and a half-typed place name is not a place name.
@@ -64,12 +65,12 @@ internal static partial class WidgetSettings
             save();
         };
 
-        rows.Add(FluentLayout.Row(Glyphs.Place, "Name", "The name in the header", place));
+        rows.Add(FluentLayout.Row(Glyphs.Place, Str.SunMoon_Place_Label.Text(), Str.SunMoon_Place_Desc.Text(), place));
 
         rows.Add(CoordinateRow(
             latitude,
-            "Latitude",
-            "Degrees north, -90 to 90",
+            Str.SunMoon_Latitude_Label.Text(),
+            Str.SunMoon_Latitude_Desc.Text(),
             config.Latitude,
             -90,
             90,
@@ -77,27 +78,27 @@ internal static partial class WidgetSettings
 
         rows.Add(CoordinateRow(
             longitude,
-            "Longitude",
-            "Degrees east, -180 to 180",
+            Str.SunMoon_Longitude_Label.Text(),
+            Str.SunMoon_Longitude_Desc.Text(),
             config.Longitude,
             -180,
             180,
             value => { config.Longitude = value; save(); }));
 
-        rows.Add(FluentLayout.Header("Sky"));
+        rows.Add(FluentLayout.Header(Str.WidgetsC_SunMoon_Settings_Sky.Text()));
 
-        rows.Add(FluentLayout.Row(Glyphs.Sun, "Sun path", "The curve of the sun's real path across the sky",
+        rows.Add(FluentLayout.Row(Glyphs.Sun, Str.SunMoon_SunPath_Label.Text(), Str.SunMoon_SunPath_Desc.Text(),
             FluentLayout.Choice(
                 [
-                    (SunPathMode.Numbers, "Curve and times"),
-                    (SunPathMode.Plain, "Curve only"),
-                    (SunPathMode.Hidden, "Hidden"),
+                    (SunPathMode.Numbers, Str.SunMoon_PathMode_Numbers.Text()),
+                    (SunPathMode.Plain, Str.SunMoon_PathMode_Plain.Text()),
+                    (SunPathMode.Hidden, Str.SunMoon_PathMode_Hidden.Text()),
                 ],
                 config.PathMode,
                 value => { config.PathMode = value; save(); })));
 
-        rows.Add(FluentLayout.Row(Glyphs.View, "Event rows",
-            "Sunrise, sunset, daylight, the moon, then noon and twilight as the tile grows. Always shown while the sun path is hidden",
+        rows.Add(FluentLayout.Row(Glyphs.View, Str.SunMoon_Events_Label.Text(),
+            Str.WidgetsC_SunMoon_Settings_Events_Desc.Text(),
             FluentLayout.Toggle(config.ShowEvents, value => { config.ShowEvents = value; save(); })));
     }
 
@@ -142,7 +143,7 @@ internal static partial class WidgetSettings
             // reason, so the user can correct it rather than hunt for what changed.
             FluentLayout.Refuse(
                 verdict,
-                $"Enter a number between {FormatCoordinate(minimum)} and {FormatCoordinate(maximum)}");
+                Str.WidgetsC_SunMoon_Settings_CoordinateRange.Format(("min", FormatCoordinate(minimum)), ("max", FormatCoordinate(maximum))));
         }
 
         box.LostFocus += (_, _) => Commit();

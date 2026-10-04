@@ -1,3 +1,5 @@
+using Themia.Core.Localization;
+
 namespace Themia.Core.Model;
 
 /// <summary>
@@ -50,28 +52,36 @@ public enum UndoAction
 public static class UndoText
 {
     /// <summary>A short noun phrase: "Undid <i>delete</i>".</summary>
-    public static string Name(UndoAction action) => action switch
+    public static string Name(UndoAction action) => Name(Strings.Current, action);
+
+    /// <summary><see cref="Name(UndoAction)"/> in <paramref name="locale"/>.</summary>
+    public static string Name(Locale locale, UndoAction action) => Strings.Get(locale, action switch
     {
-        UndoAction.Add => "add",
-        UndoAction.Delete => "delete",
-        UndoAction.Move => "move",
-        UndoAction.Resize => "resize",
-        UndoAction.Paste => "paste",
-        UndoAction.Duplicate => "duplicate",
-        UndoAction.Arrange => "arrange",
-        UndoAction.Container => "container change",
-        UndoAction.AddView => "new view",
-        UndoAction.DeleteView => "delete view",
-        UndoAction.DuplicateView => "duplicate view",
-        UndoAction.ReorderView => "view order",
-        _ => "change",
-    };
+        UndoAction.Add => Str.Shell_Undo_Add,
+        UndoAction.Delete => Str.Shell_Undo_Delete,
+        UndoAction.Move => Str.Shell_Undo_Move,
+        UndoAction.Resize => Str.Shell_Undo_Resize,
+        UndoAction.Paste => Str.Shell_Undo_Paste,
+        UndoAction.Duplicate => Str.Shell_Undo_Duplicate,
+        UndoAction.Arrange => Str.Shell_Undo_Arrange,
+        UndoAction.Container => Str.Shell_Undo_Container,
+        UndoAction.AddView => Str.Shell_Undo_AddView,
+        UndoAction.DeleteView => Str.Shell_Undo_DeleteView,
+        UndoAction.DuplicateView => Str.Shell_Undo_DuplicateView,
+        UndoAction.ReorderView => Str.Shell_Undo_ReorderView,
+        _ => Str.Shell_Undo_Change,
+    });
 
-    /// <summary>The notice after Ctrl+Z.</summary>
-    public static string Undid(UndoAction action) => $"Undid {Name(action)}";
+    public static string Undid(UndoAction action) => Undid(Strings.Current, action);
 
-    /// <summary>The notice after Ctrl+Y.</summary>
-    public static string Redid(UndoAction action) => $"Redid {Name(action)}";
+    /// <summary>"Undid delete": one sentence per language around the action's name.</summary>
+    public static string Undid(Locale locale, UndoAction action)
+        => Strings.Format(locale, Str.Shell_Undo_Undid, ("action", Name(locale, action)));
+
+    public static string Redid(UndoAction action) => Redid(Strings.Current, action);
+
+    public static string Redid(Locale locale, UndoAction action)
+        => Strings.Format(locale, Str.Shell_Undo_Redid, ("action", Name(locale, action)));
 }
 
 /// <summary>[S-885] Which step a placement records: new from the picker, copies, or the same widgets moved.</summary>

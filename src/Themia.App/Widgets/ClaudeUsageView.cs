@@ -6,6 +6,7 @@ using Microsoft.UI.Xaml.Media;
 using Themia.App.Services;
 using Themia.App.Services.Developer;
 using Themia.App.Shell;
+using Themia.Core.Localization;
 using Themia.Core.Developer;
 using Themia.Core.Model;
 using Themia.Core.Widgets;
@@ -71,6 +72,7 @@ internal sealed partial class ClaudeUsageView : Grid, IWidgetView, IWidgetHeader
     public void Attach(Ticker ticker, WidgetConfig config)
     {
         _detached = false;
+        Strings.Changed += OnLanguage;
         _source = AppServices.ClaudeUsage;
 
         if (_source is not null)
@@ -134,7 +136,7 @@ internal sealed partial class ClaudeUsageView : Grid, IWidgetView, IWidgetHeader
     private void OnAccountsChanged() => Render();
 
     private IReadOnlyList<UsageBar> Bars()
-        => _feed?.Snapshot.Value is { } usage ? ClaudeUsageRules.BuildBars(usage, _config.ShowOpus, _config.ShowSonnet) : [];
+        => _feed?.Snapshot.Value is { } usage ? ClaudeUsageRules.BuildBars(usage, _config.ShowOpus, _config.ShowSonnet, Strings.Current) : [];
 
     private void Render()
     {
@@ -150,7 +152,7 @@ internal sealed partial class ClaudeUsageView : Grid, IWidgetView, IWidgetHeader
         var snapshot = _feed?.Snapshot ?? DevFeedSnapshot<ClaudeUsageReport>.Empty;
         IReadOnlyList<string> chosen = string.IsNullOrWhiteSpace(_config.AccountId) ? [] : [_config.AccountId];
         var accounts = _source?.Accounts ?? [];
-        var screen = DevScreens.Decide("Claude", accounts, chosen, single: true, snapshot.Outcomes, snapshot.Value is not null, string.Empty, now);
+        var screen = DevScreens.Decide("Claude", accounts, chosen, single: true, snapshot.Outcomes, snapshot.Value is not null, string.Empty, now, Strings.Current);
         var height = _area.IsMeasured ? _area.Height : double.NaN;
 
         if (!_chrome.Show(screen, double.IsFinite(height) ? height : 0))
@@ -171,7 +173,10 @@ internal sealed partial class ClaudeUsageView : Grid, IWidgetView, IWidgetHeader
         if (footer)
         {
             var who = twoPanels ? accounts.FirstOrDefault(a => chosen.Count == 0 || a.Id == chosen[0])?.Label : null;
-            _footer.Text = $"Updated {FetchState.Freshness(snapshot.At!.Value, now).ToLowerInvariant()}{(who is { Length: > 0 } ? $" · {who}" : string.Empty)}";
+            var updated = now - snapshot.At!.Value < TimeSpan.FromMinutes(1)
+                ? Str.WidgetsA_Claude_UpdatedJustNow.Text()
+                : Str.Github_Updated.Format(("time", LocaleFormat.Relative(Strings.Current, snapshot.At!.Value, now, RelativeStyle.Short)));
+            _footer.Text = who is { Length: > 0 } ? $"{updated} · {who}" : updated;
         }
 
         _footer.Visibility = footer ? Visibility.Visible : Visibility.Collapsed;
@@ -240,16 +245,16 @@ internal sealed partial class ClaudeUsageView : Grid, IWidgetView, IWidgetHeader
     private static string Tooltip(UsageBar bar, DateTimeOffset now)
     {
         var percent = ClaudeUsageRules.Percent(bar.Window.Utilization);
-        var parts = new List<string> { $"{bar.Label}: {Percent(percent)}" };
+        var parts = new List<string> { Str.WidgetsA_Claude_BarValue.Format(("label", bar.Label), ("value", Percent(percent))) };
 
-        if (ClaudeUsageRules.ResetLabel(bar.Window.ResetsAt, now) is { Length: > 0 } reset)
+        if (ClaudeUsageRules.ResetLabel(bar.Window.ResetsAt, now, Strings.Current) is { Length: > 0 } reset)
         {
-            parts.Add($"{reset} ({ClaudeUsageRules.ResetClock(bar.Window.ResetsAt!.Value, now, TimeZoneInfo.Local)})");
+            parts.Add($"{reset} ({ClaudeUsageRules.ResetClock(bar.Window.ResetsAt!.Value, now, TimeZoneInfo.Local, Strings.Current)})");
         }
 
         if (ClaudeUsageRules.Elapsed(ClaudeUsageRules.WindowLength(bar), bar.Window.ResetsAt, now) is { } elapsed)
         {
-            parts.Add($"{ClaudeUsageRules.PaceText(ClaudeUsageRules.Pace(percent, elapsed))} ({Math.Round(elapsed * 100).ToString("0", CultureInfo.InvariantCulture)}% of the window gone)");
+            parts.Add($"{ClaudeUsageRules.PaceText(ClaudeUsageRules.Pace(percent, elapsed), Strings.Current)} ({WindowGone(elapsed)})");
         }
 
         return string.Join(", ", parts);
@@ -310,15 +315,24 @@ internal sealed partial class ClaudeUsageView : Grid, IWidgetView, IWidgetHeader
 
     private static string ResetLine(UsageBar bar, UsageLabelSize size, DateTimeOffset now, double percent, double? elapsed, bool extras)
     {
-        var reset = ClaudeUsageRules.ResetLabel(bar.Window.ResetsAt, now, brief: size != UsageLabelSize.Full && !extras);
+        var reset = ClaudeUsageRules.ResetLabel(bar.Window.ResetsAt, now, Strings.Current, brief: size != UsageLabelSize.Full && !extras);
         if (!extras || reset.Length == 0)
         {
             return reset;
         }
 
-        var line = $"{reset} · {ClaudeUsageRules.ResetClock(bar.Window.ResetsAt!.Value, now, TimeZoneInfo.Local)}";
-        return elapsed is { } e ? $"{line} · {ClaudeUsageRules.PaceText(ClaudeUsageRules.Pace(percent, e))}" : line;
+        var line = $"{reset} · {ClaudeUsageRules.ResetClock(bar.Window.ResetsAt!.Value, now, TimeZoneInfo.Local, Strings.Current)}";
+        return elapsed is { } e ? $"{line} · {ClaudeUsageRules.PaceText(ClaudeUsageRules.Pace(percent, e), Strings.Current)}" : line;
     }
+
+    /// <summary>
+    /// The reset column is as wide as the longest brief reset the language can write ("6d 23h",
+    /// "6 Tg. 23 h"), so the columns line up row to row and German is not cut off at the left.
+    /// </summary>
+    private static int ResetColumnChars(DateTimeOffset now)
+        => Math.Max(
+            ClaudeUsageRules.ResetLabel(now + new TimeSpan(6, 23, 0, 30), now, Strings.Current, brief: true).Length,
+            ClaudeUsageRules.ResetLabel(now + new TimeSpan(0, 23, 59, 30), now, Strings.Current, brief: true).Length);
 
     /// <summary>Label, bar and percentage on one line; on a wide strip the reset after them ([S-791]).</summary>
     private static Grid Inline(UsageBar bar, UsageLabelSize size, bool resetColumn, DateTimeOffset now)
@@ -356,10 +370,10 @@ internal sealed partial class ClaudeUsageView : Grid, IWidgetView, IWidgetHeader
 
         if (resetColumn)
         {
-            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(FluentType.EstimateWidth(FluentType.Caption, 6)) });
+            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(FluentType.EstimateWidth(FluentType.Caption, ResetColumnChars(now))) });
 
             var reset = Fluent.Text(FluentType.Caption, "TextFillColorTertiaryBrush");
-            reset.Text = ClaudeUsageRules.ResetLabel(bar.Window.ResetsAt, now, brief: true);
+            reset.Text = ClaudeUsageRules.ResetLabel(bar.Window.ResetsAt, now, Strings.Current, brief: true);
             reset.TextTrimming = TextTrimming.None;
             reset.VerticalAlignment = VerticalAlignment.Center;
             reset.HorizontalAlignment = HorizontalAlignment.Right;
@@ -417,7 +431,7 @@ internal sealed partial class ClaudeUsageView : Grid, IWidgetView, IWidgetHeader
             HorizontalAlignment = HorizontalAlignment.Left,
             Margin = new Thickness(-Fluent.Hairline, 0, 0, 0),
         };
-        ToolTipService.SetToolTip(tick, "Where usage would be if spread evenly over the window");
+        ToolTipService.SetToolTip(tick, Str.WidgetsA_Claude_PaceTick.Text());
         SetColumn(tick, 1);
         marks.Children.Add(tick);
         host.Children.Add(marks);
@@ -438,10 +452,17 @@ internal sealed partial class ClaudeUsageView : Grid, IWidgetView, IWidgetHeader
         _ => FluentLayout.Themed("TextFillColorPrimaryBrush", Colors.White),
     };
 
-    private static string Percent(double percent) => Math.Round(percent).ToString("0", CultureInfo.InvariantCulture) + "%";
+    private static string Percent(double percent) => LocaleFormat.Percent(Strings.Current, Math.Round(percent));
+
+    /// <summary>"40% of the window gone".</summary>
+    private static string WindowGone(double elapsed)
+        => Str.WidgetsA_Claude_WindowGone.Format(("percent", Percent(elapsed * 100)));
 
     /// <inheritdoc />
-    public IReadOnlyList<WidgetAction> ContextActions => [new(Glyphs.Refresh, "Refresh", () => _feed?.Refresh())];
+    public IReadOnlyList<WidgetAction> ContextActions => [new(Glyphs.Refresh, Str.Common_Refresh.Text(), () => _feed?.Refresh())];
+
+    /// <summary>[S-1109] Everything on the tile is worded from the snapshot in hand; nothing is refetched.</summary>
+    private void OnLanguage(Locale locale) => Render();
 
     public void Detach()
     {
@@ -449,6 +470,8 @@ internal sealed partial class ClaudeUsageView : Grid, IWidgetView, IWidgetHeader
         {
             return;
         }
+
+        Strings.Changed -= OnLanguage;
 
         _detached = true;
         _chrome.Detach();

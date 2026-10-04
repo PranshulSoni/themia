@@ -1,5 +1,6 @@
 using System.Globalization;
 using Themia.Core.Model;
+using Themia.Core.Localization;
 
 namespace Themia.Core.Widgets;
 
@@ -36,11 +37,25 @@ public static class MoodRules
     public const int MaxLevel = 5;
 
     /// <summary>The five points of the scale, in the order they are offered.</summary>
-    public static IReadOnlyList<string> LevelNames { get; } = ["Awful", "Bad", "OK", "Good", "Great"];
+    public static IReadOnlyList<string> LevelNames => LevelNamesIn(Strings.Current);
+
+    /// <summary><see cref="LevelNames"/> in <paramref name="locale"/>.</summary>
+    public static IReadOnlyList<string> LevelNamesIn(Locale locale)
+        => [.. Enumerable.Range(MinLevel, MaxLevel - MinLevel + 1).Select(level => LevelName(locale, level))];
 
     /// <summary>The name of a level, for a tooltip, a button and a screen reader.</summary>
-    public static string LevelName(int level)
-        => level >= MinLevel && level <= MaxLevel ? LevelNames[level - MinLevel] : "Not logged";
+    public static string LevelName(int level) => LevelName(Strings.Current, level);
+
+    /// <summary><see cref="LevelName(int)"/> in <paramref name="locale"/>.</summary>
+    public static string LevelName(Locale locale, int level) => Strings.Get(locale, level switch
+    {
+        1 => Str.MoodTracker_Level_Awful,
+        2 => Str.MoodTracker_Level_Bad,
+        3 => Str.WidgetsB_Mood_LevelOk,
+        4 => Str.MoodTracker_Level_Good,
+        5 => Str.MoodTracker_Level_Great,
+        _ => Str.WidgetsB_Mood_NotLogged,
+    });
 
     /// <summary>Whether an entry is one this widget wrote and can still read.</summary>
     public static bool IsValid(MoodEntry? entry)
@@ -241,19 +256,23 @@ public static class MoodRules
     /// fast channel; this is the exact one, and it is the only channel a screen reader has.
     /// </para>
     /// </summary>
-    public static string Describe(MoodDay day)
+    public static string Describe(MoodDay day) => Describe(Strings.Current, day);
+
+    /// <summary><see cref="Describe(MoodDay)"/> in <paramref name="locale"/>.</summary>
+    public static string Describe(Locale locale, MoodDay day)
     {
-        var date = CalendarText.FullDate(day.Day);
+        var date = LocaleFormat.Date(locale, day.Day.Date, DateStyle.Full);
 
         if (day.Count == 0)
         {
-            return $"{date}: nothing logged";
+            return Strings.Format(locale, Str.WidgetsB_Mood_DayNothing, ("date", date));
         }
 
-        var level = $"{LevelName(day.Bucket)} ({day.Bucket} of {MaxLevel})";
+        var level = Strings.Format(locale, Str.WidgetsB_Mood_LevelOf, ("level", LevelName(locale, day.Bucket)), ("value", day.Bucket), ("max", MaxLevel));
 
         return day.Count == 1
-            ? $"{date}: {level}"
-            : $"{date}: {level}, average {day.Average.ToString("0.0", CultureInfo.InvariantCulture)} of {day.Count} entries";
+            ? Strings.Format(locale, Str.WidgetsB_Mood_DayOne, ("date", date), ("level", level))
+            : Strings.Plural(locale, Str.WidgetsB_Mood_DayMany, day.Count,
+                ("date", date), ("level", level), ("average", LocaleFormat.Number(locale, day.Average, 1)));
     }
 }

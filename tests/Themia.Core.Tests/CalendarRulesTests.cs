@@ -1,3 +1,4 @@
+using Themia.Core.Localization;
 using Themia.Core.Model;
 using Themia.Core.Office;
 using Xunit;
@@ -190,10 +191,10 @@ public sealed class CalendarRulesTests
     [Fact]
     public void S568_Titles()
     {
-        Assert.Equal("October 2026", CalendarRules.Title(CalendarViewMode.Month, Today, WeekStartDay.Monday));
-        Assert.Equal("28 Sep – 4 Oct", CalendarRules.Title(CalendarViewMode.Week, Today, WeekStartDay.Monday));
-        Assert.Equal("Sun 4 Oct", CalendarRules.Title(CalendarViewMode.Day, Today, WeekStartDay.Monday));
-        Assert.Equal(string.Empty, CalendarRules.Title(CalendarViewMode.Agenda, Today, WeekStartDay.Monday));
+        Assert.Equal("October 2026", CalendarRules.Title(CalendarViewMode.Month, Today, WeekStartDay.Monday, Locale.En));
+        Assert.Equal("Sep 28 – Oct 4", CalendarRules.Title(CalendarViewMode.Week, Today, WeekStartDay.Monday, Locale.En));
+        Assert.Equal("Sun, Oct 4", CalendarRules.Title(CalendarViewMode.Day, Today, WeekStartDay.Monday, Locale.En));
+        Assert.Equal(string.Empty, CalendarRules.Title(CalendarViewMode.Agenda, Today, WeekStartDay.Monday, Locale.En));
     }
 
     // ---- [S-569] navigation ----------------------------------------------------------------------

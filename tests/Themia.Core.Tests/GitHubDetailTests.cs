@@ -1,4 +1,5 @@
 using System.Text.Json;
+using Themia.Core.Localization;
 using Themia.Core.Developer;
 using Themia.Core.Model;
 using Themia.Core.Widgets;
@@ -63,7 +64,7 @@ public sealed class GitHubDetailTests
     [InlineData(null, -2, "")]
     public void S743_a_row_detail_says_who_and_how_much_talk(string? author, int comments, string expected)
     {
-        Assert.Equal(expected, GitHubRules.ItemDetail(author, comments));
+        Assert.Equal(expected, GitHubRules.ItemDetail(author, comments, Locale.En));
     }
 
     [Fact]
@@ -178,9 +179,9 @@ public sealed class GitHubDetailTests
     [Fact]
     public void S746_anonymous_screens_load_and_show_rather_than_asking_for_a_sign_in()
     {
-        var loading = DevScreens.Decide("GitHub", [], [], true, [], false, string.Empty, Now, anonymous: true);
-        var content = DevScreens.Decide("GitHub", [], [], true, [new DevOutcome(DevScreens.AnonymousId, FetchStatus.Ok)], true, string.Empty, Now, anonymous: true);
-        var chosenGone = DevScreens.Decide("GitHub", [], ["gh:gone"], true, [], false, string.Empty, Now, anonymous: true);
+        var loading = DevScreens.Decide("GitHub", [], [], true, [], false, string.Empty, Now, Locale.En, anonymous: true);
+        var content = DevScreens.Decide("GitHub", [], [], true, [new DevOutcome(DevScreens.AnonymousId, FetchStatus.Ok)], true, string.Empty, Now, Locale.En, anonymous: true);
+        var chosenGone = DevScreens.Decide("GitHub", [], ["gh:gone"], true, [], false, string.Empty, Now, Locale.En, anonymous: true);
 
         Assert.Equal(DevScreenKind.Loading, loading.Kind);
         Assert.Equal(DevScreenKind.Content, content.Kind);
@@ -202,28 +203,28 @@ public sealed class GitHubDetailTests
     public void S747_content_from_the_saved_copy_says_so_until_it_is_refreshed()
     {
         var work = new DevAccount("gh:work", "work", null);
-        var screen = DevScreens.Decide("GitHub", [work], [], false, [new DevOutcome("gh:work", FetchStatus.Loading)], true, "Empty", Now, savedAt: Now.AddHours(-3));
+        var screen = DevScreens.Decide("GitHub", [work], [], false, [new DevOutcome("gh:work", FetchStatus.Loading)], true, "Empty", Now, Locale.En, savedAt: Now.AddHours(-3));
 
         Assert.Equal(DevScreenKind.Content, screen.Kind);
-        Assert.Equal("Showing what was saved 3 h ago; refreshing.", screen.Warning);
+        Assert.Equal("Showing what was saved 3 hr. ago; refreshing.", screen.Warning);
     }
 
     [Fact]
     public void S747_a_failed_refresh_outranks_the_saved_note()
     {
         var work = new DevAccount("gh:work", "work", null);
-        var screen = DevScreens.Decide("GitHub", [work], [], false, [new DevOutcome("gh:work", FetchStatus.Offline)], true, "Empty", Now, savedAt: Now.AddHours(-3));
+        var screen = DevScreens.Decide("GitHub", [work], [], false, [new DevOutcome("gh:work", FetchStatus.Offline)], true, "Empty", Now, Locale.En, savedAt: Now.AddHours(-3));
 
-        Assert.Equal("Could not refresh: no network.", screen.Warning);
+        Assert.Equal("Could not refresh. No network.", screen.Warning);
     }
 
     [Theory]
-    [InlineData(0.5, "just now")]
-    [InlineData(42, "42 min ago")]
-    [InlineData(60 * 26, "1 d ago")]
-    public void S747_the_note_says_how_old(double minutes, string when)
+    [InlineData(0.5, "Showing what was just saved; refreshing.")]
+    [InlineData(42, "Showing what was saved 42 min. ago; refreshing.")]
+    [InlineData(60 * 26, "Showing what was saved 1 day ago; refreshing.")]
+    public void S747_the_note_says_how_old(double minutes, string expected)
     {
-        Assert.Equal($"Showing what was saved {when}; refreshing.", DevScreens.Saved(Now.AddMinutes(-minutes), Now));
+        Assert.Equal(expected, DevScreens.Saved(Now.AddMinutes(-minutes), Now, Locale.En));
     }
 
     // ---- [S-748][S-749] menus ------------------------------------------------------------------------

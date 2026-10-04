@@ -1,4 +1,5 @@
 using Themia.Core.Diagnostics;
+using Themia.Core.Localization;
 using Themia.Core.Storage;
 using Themia.Core.Tasks;
 
@@ -40,8 +41,8 @@ internal sealed class LocalTaskPool
         Writable = load.Writable;
         Problem = load.Outcome == LoadOutcome.Recovered
             ? load.Writable
-                ? $"The lists on this PC could not be read ({load.Detail}). The old file was kept beside the new one."
-                : $"The lists on this PC could not be read ({load.Detail}). They cannot be changed until Themia restarts."
+                ? Str.Shell_Store_ListsRecovered.Format(("detail", load.Detail))
+                : Str.Shell_Store_ListsReadOnly.Format(("detail", load.Detail))
             : null;
 
         Log.Info(Scope, $"{_lists.Count} list(s) on this PC loaded from {store.Path}");

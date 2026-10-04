@@ -1,5 +1,6 @@
 using System.Text.Json.Serialization;
 using Themia.Core.Geometry;
+using Themia.Core.Localization;
 
 namespace Themia.Core.Model;
 
@@ -281,7 +282,7 @@ public sealed class AppState
     /// </summary>
     public static AppState CreateDefault()
     {
-        var view = ViewState.Create("Desktop");
+        var view = ViewState.Create(Str.Shell_View_DefaultName.Text());
         view.Widgets.Add(WidgetInstance.Create(WidgetKind.Clock, new FracRect(0.78, 0.04, 0.20, 0.16)));
         view.Widgets.Add(WidgetInstance.Create(WidgetKind.Help, new FracRect(0.02, 0.04, 0.24, 0.34)));
 
@@ -328,7 +329,7 @@ public sealed class AppState
 
         if (Views.Count == 0)
         {
-            var seeded = ViewState.Create("Desktop");
+            var seeded = ViewState.Create(Str.Shell_View_DefaultName.Text());
             Views.Add(seeded);
         }
 

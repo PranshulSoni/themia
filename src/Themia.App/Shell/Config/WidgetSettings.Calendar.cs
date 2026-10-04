@@ -7,6 +7,7 @@ using Themia.App.Services.Accounts;
 using Themia.App.Services.Office;
 using Themia.Core.Accounts;
 using Themia.Core.Diagnostics;
+using Themia.Core.Localization;
 using Themia.Core.Model;
 using Themia.Core.Office;
 using Themia.Core.Settings;
@@ -47,34 +48,34 @@ internal static partial class WidgetSettings
             RedrawPickers();
         }
 
-        rows.Add(FluentLayout.Header("Accounts and calendars"));
-        OfficeAccountRows(rows, AccountFeatures.Calendar, Glyphs.Calendar, "calendar",
-            "Sign in to Microsoft, Google or a CalDAV calendar on the Accounts page",
+        rows.Add(FluentLayout.Header(Str.WidgetsA_Calendar_Settings_Accounts.Text()));
+        OfficeAccountRows(rows, AccountFeatures.Calendar, Glyphs.Calendar,
+            new OfficeAccountTexts(Str.WidgetsA_Calendar_NoAccount, Str.WidgetsA_Calendar_Settings_Every, Str.WidgetsA_Calendar_Settings_AddHint),
             () => config.AccountIds, ids => config.AccountIds = ids, SaveAndRedraw,
             account => CalendarPicker(account, config, SaveAndRedraw, pickers));
 
-        rows.Add(FluentLayout.Header("Display"));
+        rows.Add(FluentLayout.Header(Str.ConfigTabs_Display.Text()));
 
-        rows.Add(FluentLayout.Row(Glyphs.View, "View",
-            "A small widget shows the agenda when the view would not fit",
+        rows.Add(FluentLayout.Row(Glyphs.View, Str.Calendar_View_Label.Text(),
+            Str.WidgetsA_Calendar_Settings_View_Desc.Text(),
             FluentLayout.Choice<CalendarViewMode>(
-                [(CalendarViewMode.Month, "Month"), (CalendarViewMode.Week, "Week"), (CalendarViewMode.Day, "Day"), (CalendarViewMode.Agenda, "Agenda")],
+                [(CalendarViewMode.Month, Str.CtxMenu_Month.Text()), (CalendarViewMode.Week, Str.CtxMenu_Week.Text()), (CalendarViewMode.Day, Str.CtxMenu_Day.Text()), (CalendarViewMode.Agenda, Str.CtxMenu_Agenda.Text())],
                 config.EffectiveView,
                 value => { config.View = value; save(); })));
 
-        rows.Add(FluentLayout.Row(Glyphs.Calendar, "Week starts on", null,
+        rows.Add(FluentLayout.Row(Glyphs.Calendar, Str.Calendar_WeekStart_Label.Text(), null,
             FluentLayout.Choice<WeekStartDay>(
-                [(WeekStartDay.Monday, "Monday"), (WeekStartDay.Sunday, "Sunday")],
+                [(WeekStartDay.Monday, Str.Calendar_WeekStart_Monday.Text()), (WeekStartDay.Sunday, Str.Calendar_WeekStart_Sunday.Text())],
                 config.EffectiveWeekStart,
                 value => { config.WeekStart = value; save(); })));
 
-        rows.Add(FluentLayout.Row(Glyphs.Count, "Agenda entries",
-            "How many the agenda lists, across the next 30 days",
+        rows.Add(FluentLayout.Row(Glyphs.Count, Str.Calendar_AgendaEvents_Label.Text(),
+            Str.WidgetsA_Calendar_Settings_AgendaCount_Desc.Text(),
             FluentLayout.Slider(config.EffectiveAgendaCount, 1, 100, 1, string.Empty,
                 value => { config.AgendaCount = (int)Math.Round(value); save(); })));
 
-        rows.Add(FluentLayout.Row(Glyphs.Contact, "Show birthdays",
-            "Your contacts' birthdays, from Microsoft and Google accounts",
+        rows.Add(FluentLayout.Row(Glyphs.Contact, Str.Calendar_ShowBirthdays_Label.Text(),
+            Str.WidgetsA_Calendar_Settings_Birthdays_Desc.Text(),
             FluentLayout.Toggle(config.ShowBirthdays, value => { config.ShowBirthdays = value; save(); })));
     }
 
@@ -88,7 +89,7 @@ internal static partial class WidgetSettings
         var host = new StackPanel { Spacing = Fluent.Space1, Margin = new Thickness(Fluent.Space6, 0, 0, Fluent.Space2) };
         IReadOnlyList<CalendarInfo>? calendars = null;
 
-        var loading = FluentLayout.Note("Looking for this account's calendars…");
+        var loading = FluentLayout.Note(Str.WidgetsA_Calendar_Settings_Listing.Text());
         host.Children.Add(loading);
 
         void Redraw()
@@ -137,7 +138,7 @@ internal static partial class WidgetSettings
                     }));
                 }
 
-                host.Children.Add(FluentLayout.Row(Glyphs.Calendar, calendar.Name, calendar.IsDefault ? "Default calendar" : null, controls));
+                host.Children.Add(FluentLayout.Row(Glyphs.Calendar, calendar.Name, calendar.IsDefault ? Str.WidgetsA_Calendar_Settings_DefaultCalendar.Text() : null, controls));
             }
         }
 
@@ -159,7 +160,7 @@ internal static partial class WidgetSettings
 
                 if (result.Value is null)
                 {
-                    loading.Text = $"The calendars could not be listed: {SyncProblems.Message(result.Problem, "calendar")} The default calendar is shown.";
+                    loading.Text = Str.WidgetsA_Calendar_Settings_ListFailedWhy.Format(("problem", SyncProblems.Message(result.Problem, SyncSubject.Calendar, Strings.Current)));
                     host.Children.Clear();
                     host.Children.Add(loading);
                     return;
@@ -171,7 +172,7 @@ internal static partial class WidgetSettings
             {
                 // Started from building the page: nothing above may see an exception.
                 Log.Error(CalendarScope, $"could not list the calendars of {account.Id}", ex);
-                loading.Text = "The calendars could not be listed. The default calendar is shown.";
+                loading.Text = Str.WidgetsA_Calendar_Settings_ListFailed.Text();
             }
         }
     }
@@ -211,12 +212,12 @@ internal static partial class WidgetSettings
             new ColorChoiceOptions
             {
                 Presets = presets,
-                PresetsTitle = "Calendar colours",
-                DefaultLabel = "Automatic",
+                PresetsTitle = Str.WidgetsA_Calendar_Settings_Colors.Text(),
+                DefaultLabel = Str.WidgetsA_Calendar_Settings_ColorAuto.Text(),
                 DefaultColor = () => HexColor.TryParse(automatic, out var r, out var g, out var b)
                     ? Windows.UI.Color.FromArgb(255, r, g, b)
                     : null,
             },
-            $"{name} colour");
+            Str.WidgetsA_Calendar_Settings_ColorOf.Format(("name", name)));
     }
 }

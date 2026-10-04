@@ -11,11 +11,11 @@
   </ItemGroup>
 
   <!--
-    [S-1101] The UI strings: one JSON file per language, compiled into static tables by the
+    [S-1101] The UI strings: one JSON file per language (optionally split into area fragments, Locales\<area>\<code>.json), compiled into static tables by the
     generator at build time (no ResourceManager, no files read at run time — Native AOT clean).
   -->
   <ItemGroup>
-    <AdditionalFiles Include="Localization\Locales\*.json" />
+    <AdditionalFiles Include="Localization\Locales\**\*.json" />
     <ProjectReference Include="..\Themia.Localization.Generator\Themia.Localization.Generator.csproj"
                       OutputItemType="Analyzer"
                       ReferenceOutputAssembly="false"

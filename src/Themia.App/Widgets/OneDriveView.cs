@@ -7,6 +7,7 @@ using Themia.App.Services.Files;
 using Themia.App.Shell;
 using Themia.Core.Accounts;
 using Themia.Core.Diagnostics;
+using Themia.Core.Localization;
 using Themia.Core.Model;
 using Themia.Core.Widgets;
 
@@ -123,7 +124,7 @@ internal sealed partial class OneDriveView : Grid, IWidgetView, IWidgetHeaderCon
         _crumb.Visibility = Visibility.Collapsed;
         _crumb.Tapped += OnCrumbTapped;
         _crumbHover = Fluent.Hover(_crumb);
-        ToolTipService.SetToolTip(_crumb, "Back");
+        ToolTipService.SetToolTip(_crumb, Str.Common_Back.Text());
         Grid.SetRow(_crumb, 0);
 
         _columnHeader.Visibility = Visibility.Collapsed;
@@ -195,6 +196,8 @@ internal sealed partial class OneDriveView : Grid, IWidgetView, IWidgetHeaderCon
             _service.AccountsChanged += OnAccountsChanged;
         }
 
+        Strings.Changed += OnLanguage;
+
         // [S-608] A drive changes slowly; the shared ticker asks again every five minutes.
         _subscription = ticker.Subscribe(OneDriveConfig.RefreshInterval, OnTick);
         ApplyConfig(config);
@@ -259,11 +262,11 @@ internal sealed partial class OneDriveView : Grid, IWidgetView, IWidgetHeaderCon
     {
         get
         {
-            var actions = new List<WidgetAction> { new(Glyphs.Refresh, "Refresh", () => Load(TimeSpan.Zero)) };
+            var actions = new List<WidgetAction> { new(Glyphs.Refresh, Str.Common_Refresh.Text(), () => Load(TimeSpan.Zero)) };
 
             if (_trail.Count > 0)
             {
-                actions.Add(new WidgetAction(Glyphs.Home, _config.StartIn == DriveStart.Root ? "Back to My files" : "Back to recent files", () =>
+                actions.Add(new WidgetAction(Glyphs.Home, (_config.StartIn == DriveStart.Root ? Str.WidgetsC_OneDrive_BackToMyFiles : Str.WidgetsC_OneDrive_BackToRecent).Text(), () =>
                 {
                     _trail = [];
                     _items = null;
@@ -329,6 +332,13 @@ internal sealed partial class OneDriveView : Grid, IWidgetView, IWidgetHeaderCon
     private static double TextWidth(double width)
         => Math.Max(0, width - (2 * (Fluent.Space4 + RowFocus.Ring)) - Fluent.IconSize - Fluent.Space3);
 
+    /// <summary>[S-1110] The fixed tooltip, then the place again from memory: every line on screen is re-read.</summary>
+    private void OnLanguage(Locale locale)
+    {
+        ToolTipService.SetToolTip(_crumb, Str.Common_Back.Text());
+        Load(TimeSpan.FromMinutes(5));
+    }
+
     // ---- loading -----------------------------------------------------------------------------------
 
     /// <summary>
@@ -349,7 +359,7 @@ internal sealed partial class OneDriveView : Grid, IWidgetView, IWidgetHeaderCon
 
         if (_service is null)
         {
-            _blocked = "Themia is still starting.";
+            _blocked = Str.WidgetsC_OneDrive_Starting.Text();
             Render();
             return;
         }
@@ -361,15 +371,15 @@ internal sealed partial class OneDriveView : Grid, IWidgetView, IWidgetHeaderCon
         if (_account is null)
         {
             _blocked = named && accounts.Count > 0
-                ? "The account this widget showed is no longer signed in."
-                : "Sign in to Microsoft to see your OneDrive.";
+                ? Str.WidgetsC_OneDrive_AccountGone.Text()
+                : Str.WidgetsC_OneDrive_SignIn.Text();
             Render();
             return;
         }
 
         if (_account.Problem is not null)
         {
-            _blocked = $"{_account.Label} needs you to sign in again.";
+            _blocked = Str.WidgetsC_OneDrive_AccountNeedsSignIn.Format(("account", _account.Label));
             Render();
             return;
         }
@@ -475,7 +485,7 @@ internal sealed partial class OneDriveView : Grid, IWidgetView, IWidgetHeaderCon
 
         var stale = _items is not null && _failure is not null;
         _warning.Visibility = stale ? Visibility.Visible : Visibility.Collapsed;
-        ToolTipService.SetToolTip(_warning, stale ? $"Could not refresh: {FetchState.Message(_failure!.ToFetchStatus())}." : null);
+        ToolTipService.SetToolTip(_warning, stale ? Str.WidgetsC_OneDrive_CouldNotRefresh.Format(("reason", FetchState.Message(_failure!.ToFetchStatus()))) : null);
 
         if (_blocked is { } blocked)
         {
@@ -493,7 +503,7 @@ internal sealed partial class OneDriveView : Grid, IWidgetView, IWidgetHeaderCon
             }
             else
             {
-                ShowEmpty("Loading files…", null);
+                ShowEmpty(Str.WidgetsC_OneDrive_Loading.Text(), null);
             }
 
             return;
@@ -501,7 +511,7 @@ internal sealed partial class OneDriveView : Grid, IWidgetView, IWidgetHeaderCon
 
         if (_items.Count == 0)
         {
-            ShowEmpty(_trail.Count > 0 ? "This folder is empty." : _config.StartIn == DriveStart.Root ? "Your OneDrive is empty." : "No recent files.", null);
+            ShowEmpty((_trail.Count > 0 ? Str.WidgetsC_OneDrive_FolderEmpty : _config.StartIn == DriveStart.Root ? Str.WidgetsC_OneDrive_DriveEmpty : Str.WidgetsC_OneDrive_NoRecent).Text(), null);
             return;
         }
 
@@ -531,10 +541,10 @@ internal sealed partial class OneDriveView : Grid, IWidgetView, IWidgetHeaderCon
 
     private static string Explain(AccountException failure) => failure.Error switch
     {
-        AccountError.SignInRequired => "This account needs you to sign in again.",
-        AccountError.Forbidden => "This account does not let Themia read its files. Sign in again to grant it.",
-        AccountError.NotFound => "That folder is not there any more.",
-        _ => FetchState.Message(failure.ToFetchStatus()) is { Length: > 0 } message ? $"{message}." : "Could not read the files.",
+        AccountError.SignInRequired => Str.WidgetsC_OneDrive_Error_SignInRequired.Text(),
+        AccountError.Forbidden => Str.WidgetsC_OneDrive_Error_Forbidden.Text(),
+        AccountError.NotFound => Str.WidgetsC_OneDrive_Error_NotFound.Text(),
+        _ => FetchState.Message(failure.ToFetchStatus()) is { Length: > 0 } message ? message : Str.WidgetsC_OneDrive_ReadFailed.Text(),
     };
 
     private enum EmptyAction
@@ -553,8 +563,8 @@ internal sealed partial class OneDriveView : Grid, IWidgetView, IWidgetHeaderCon
         _emptyAction.Tag = action;
         _emptyAction.Content = action switch
         {
-            EmptyAction.Accounts => "Open Accounts settings",
-            EmptyAction.Retry => "Try again",
+            EmptyAction.Accounts => Str.WidgetsC_OneDrive_OpenAccounts.Text(),
+            EmptyAction.Retry => Str.Connect_TryAgain.Text(),
             _ => null,
         };
         _shown = [];
@@ -646,6 +656,7 @@ internal sealed partial class OneDriveView : Grid, IWidgetView, IWidgetHeaderCon
 
         _detached = true;
         _generation++;
+        Strings.Changed -= OnLanguage;
 
         _crumb.Tapped -= OnCrumbTapped;
         _crumbHover.Dispose();

@@ -1,3 +1,4 @@
+using Themia.Core.Localization;
 using Themia.Core.Widgets;
 using Xunit;
 
@@ -96,26 +97,51 @@ public class FormattingTests
     [InlineData(23 * 3600, "23h")]
     public void Ago_counts_up_through_minutes_then_hours(int secondsAgo, string expected)
     {
-        Assert.Equal(expected, Formatting.Ago(Now.AddSeconds(-secondsAgo), Now));
+        Assert.Equal(expected, Formatting.Ago(Locale.En, Now.AddSeconds(-secondsAgo), Now));
     }
 
     [Fact]
     public void Ago_uses_a_weekday_within_the_last_week()
     {
         // 24 Sep 2026 is a Thursday, so two days earlier is Tuesday.
-        Assert.Equal("Tue", Formatting.Ago(Now.AddDays(-2), Now));
+        Assert.Equal("Tue", Formatting.Ago(Locale.En, Now.AddDays(-2), Now));
     }
 
     [Fact]
     public void Ago_falls_back_to_a_date_beyond_a_week()
     {
-        Assert.Equal("1 Sep", Formatting.Ago(new DateTimeOffset(2026, 9, 1, 8, 0, 0, TimeSpan.Zero), Now));
+        Assert.Equal("Sep 1", Formatting.Ago(Locale.En, new DateTimeOffset(2026, 9, 1, 8, 0, 0, TimeSpan.Zero), Now));
+        Assert.Equal("1. Sept.", Formatting.Ago(Locale.De, new DateTimeOffset(2026, 9, 1, 8, 0, 0, TimeSpan.Zero), Now));
     }
 
     [Fact]
     public void Ago_treats_a_future_timestamp_as_now_rather_than_a_negative_age()
     {
         // Clock skew between a mail provider and this machine is ordinary; "-3m" is not.
-        Assert.Equal("now", Formatting.Ago(Now.AddMinutes(5), Now));
+        Assert.Equal("now", Formatting.Ago(Locale.En, Now.AddMinutes(5), Now));
+    }
+
+    /// <summary>The compact ages in German: its own short units, never English letters.</summary>
+    [Theory]
+    [InlineData(4 * 60, "4 Min.")]
+    [InlineData(3 * 3600, "3 Std.")]
+    public void Ago_speaks_the_language(int secondsAgo, string expected)
+        => Assert.Equal(expected, Formatting.Ago(Locale.De, Now.AddSeconds(-secondsAgo), Now));
+
+    /// <summary>Sizes, rates, shares and durations carry the language's decimal mark and unit symbols.</summary>
+    [Fact]
+    public void Figures_follow_the_language()
+    {
+        var gb = 1.4 * 1024 * 1024 * 1024;
+        Assert.Equal("1.4 GB", Formatting.Bytes(Locale.En, gb));
+        Assert.Equal("1,4 GB", Formatting.Bytes(Locale.De, gb));
+        Assert.Equal("1,4 Go", Formatting.Bytes(Locale.Fr, gb));
+        Assert.Equal("0 B", Formatting.Bytes(Locale.En, 0));
+        Assert.Equal("1,2 MB/s", Formatting.Rate(Locale.De, 1.2 * 1024 * 1024));
+        Assert.Equal("42%", Formatting.Percent(Locale.En, 0.42));
+        Assert.Equal("42\u00A0%", Formatting.Percent(Locale.De, 0.42));
+        Assert.Equal("1,4 s", Formatting.Latency(Locale.De, 1400));
+        Assert.Equal("4h 20m", Formatting.Duration(Locale.En, new TimeSpan(4, 20, 0)));
+        Assert.Equal("4 h 20 min", Formatting.Duration(Locale.De, new TimeSpan(4, 20, 0)));
     }
 }

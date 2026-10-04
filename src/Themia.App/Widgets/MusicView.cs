@@ -7,6 +7,7 @@ using Microsoft.UI.Xaml.Media.Imaging;
 using Themia.App.Services;
 using Themia.App.Shell;
 using Themia.Core.Diagnostics;
+using Themia.Core.Localization;
 using Themia.Core.Model;
 using Themia.Core.Widgets;
 using Windows.Storage.Streams;
@@ -115,9 +116,9 @@ internal sealed partial class MusicView : Grid, IWidgetView, IWidgetSizeAware, I
         var nextIcon = Fluent.Icon(Glyphs.Next, "TextFillColorPrimaryBrush");
         _transportIcons = [previousIcon, _playPauseIcon, nextIcon];
 
-        StyleButton(_previous, previousIcon, "Previous");
-        StyleButton(_playPause, _playPauseIcon, "Play or pause");
-        StyleButton(_next, nextIcon, "Next");
+        StyleButton(_previous, previousIcon, Str.WidgetsB_Music_Previous.Text());
+        StyleButton(_playPause, _playPauseIcon, Str.WidgetsB_Music_PlayPause.Text());
+        StyleButton(_next, nextIcon, Str.WidgetsB_Music_Next.Text());
 
         _previous.Click += OnPrevious;
         _playPause.Click += OnPlayPause;
@@ -485,11 +486,10 @@ internal sealed partial class MusicView : Grid, IWidgetView, IWidgetSizeAware, I
             _album.Text = _now.Album;
 
             var playing = _now.State == MusicState.Playing;
-            var state = playing ? "Playing" : "Paused";
-            _source.Text = _now.Source.Length > 0 ? $"{state} · {_now.Source}" : state;
+            _source.Text = MusicRules.StateLine(playing, _now.Source, Strings.Current);
 
             _playPauseIcon.Glyph = playing ? Glyphs.Pause : Glyphs.Play;
-            ToolTipService.SetToolTip(_playPause, playing ? "Pause" : "Play");
+            ToolTipService.SetToolTip(_playPause, playing ? Str.WidgetsB_Music_Pause.Text() : Str.WidgetsB_Music_Play.Text());
 
             // Disabled rather than hidden: a transport whose buttons come and go moves the two that
             // remain, and the one under the pointer is then a different button than it was.

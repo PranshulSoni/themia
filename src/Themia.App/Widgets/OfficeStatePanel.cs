@@ -2,6 +2,7 @@ using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Themia.App.Services;
 using Themia.Core.Diagnostics;
+using Themia.Core.Localization;
 
 namespace Themia.App.Widgets;
 
@@ -31,7 +32,7 @@ internal sealed partial class OfficeStatePanel : Grid
 
         _link = new HyperlinkButton
         {
-            Content = "Open Accounts settings",
+            Content = Str.WidgetsA_Office_OpenAccounts.Text(),
             HorizontalAlignment = HorizontalAlignment.Center,
             Padding = new Thickness(Fluent.Space2, Fluent.Space1, Fluent.Space2, Fluent.Space1),
             Visibility = Visibility.Collapsed,
@@ -62,7 +63,7 @@ internal sealed partial class OfficeStatePanel : Grid
         _empty.MaxHeight = Math.Max(0, ActualHeight - link);
 
         // A narrow tile gets the short form, rather than a link cut off mid-word.
-        _link.Content = ActualWidth is > 0 and < 200 ? "Accounts" : "Open Accounts settings";
+        _link.Content = (ActualWidth is > 0 and < 200 ? Str.WidgetUi_AccountsLabel : Str.WidgetsA_Office_OpenAccounts).Text();
     }
 
     /// <summary>Show a sentence, with the Accounts link when <paramref name="offerAccounts"/>.</summary>

@@ -3,6 +3,7 @@ using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Themia.App.Widgets;
 using Themia.Core.Diagnostics;
+using Themia.Core.Localization;
 using Themia.Core.Shell;
 using Themia.Core.Widgets;
 
@@ -102,8 +103,8 @@ internal sealed partial class NoticeCard : Grid
             BorderThickness = new Thickness(0),
             AllowFocusOnInteraction = false,
         };
-        ToolTipService.SetToolTip(close, "Dismiss");
-        Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(close, "Dismiss");
+        ToolTipService.SetToolTip(close, Str.Shell_Notice_Dismiss.Text());
+        Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(close, Str.Shell_Notice_Dismiss.Text());
         close.Click += (_, _) => dismiss(this);
 
         var row = new Grid

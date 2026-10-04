@@ -1,3 +1,5 @@
+using Microsoft.UI.Xaml.Automation;
+using Microsoft.UI.Xaml.Controls;
 using Themia.Core.Diagnostics;
 using Themia.Core.Localization;
 
@@ -30,6 +32,7 @@ internal sealed partial class ConfigWindow
             }
 
             ApplyDevBanner();
+            ApplyChromeText();
             RebuildNavigation();
             _index.Invalidate();
             RenderBody();
@@ -39,5 +42,25 @@ internal sealed partial class ConfigWindow
         {
             Log.Warn(Scope, $"could not queue the redraw for language {LanguageResolver.Code(locale)}");
         }
+    }
+
+    /// <summary>
+    /// The window's own words — its title, the caption buttons' names, the search box — set when the
+    /// chrome is built and again on a language switch (the chrome itself is never rebuilt).
+    /// </summary>
+    private void ApplyChromeText()
+    {
+        if (_window is not null)
+        {
+            _window.Title = Str.Settings_Title.Text();
+            UiLanguage.Apply(_window.Content as Microsoft.UI.Xaml.FrameworkElement);
+        }
+
+        ToolTipService.SetToolTip(_back, Str.Common_Back.Text());
+        AutomationProperties.SetName(_back, Str.Common_Back.Text());
+        ToolTipService.SetToolTip(_paneToggle, Str.Shell_Settings_Navigation.Text());
+        AutomationProperties.SetName(_paneToggle, Str.Shell_Settings_OpenNavigation.Text());
+        _search.PlaceholderText = Str.Shell_Settings_FindSetting.Text();
+        AutomationProperties.SetName(_search, Str.Shell_Settings_FindSetting.Text());
     }
 }

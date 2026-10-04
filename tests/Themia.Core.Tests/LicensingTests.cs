@@ -1,5 +1,6 @@
 using Themia.Core.Geometry;
 using Themia.Core.Licensing;
+using Themia.Core.Localization;
 using Themia.Core.Model;
 using Xunit;
 
@@ -218,17 +219,17 @@ public sealed class LicensingTests
         foreach (var basis in Enum.GetValues<LicenseBasis>())
         {
             var status = new LicenseStatus(LicenseTier.Free, basis, Now.AddDays(3));
-            Assert.False(string.IsNullOrWhiteSpace(LicenseText.Title(status)));
-            Assert.False(string.IsNullOrWhiteSpace(LicenseText.Detail(status)));
+            Assert.False(string.IsNullOrWhiteSpace(LicenseText.Title(Locale.En, status)));
+            Assert.False(string.IsNullOrWhiteSpace(LicenseText.Detail(Locale.En, status)));
         }
 
         foreach (var outcome in Enum.GetValues<PurchaseOutcome>())
         {
-            Assert.False(string.IsNullOrWhiteSpace(LicenseText.Purchase(outcome)));
+            Assert.False(string.IsNullOrWhiteSpace(LicenseText.Purchase(Locale.En, outcome)));
         }
 
-        Assert.Equal("Developer build", LicenseText.Title(new LicenseStatus(LicenseTier.Unrestricted, LicenseBasis.DeveloperBuild)));
-        Assert.Contains("views", LicenseText.Refusal(new LicenseUsage(3, 2), 0, 1), StringComparison.Ordinal);
-        Assert.Contains("widgets", LicenseText.Refusal(new LicenseUsage(10, 1), 1, 0), StringComparison.Ordinal);
+        Assert.Equal("Developer build", LicenseText.Title(Locale.En, new LicenseStatus(LicenseTier.Unrestricted, LicenseBasis.DeveloperBuild)));
+        Assert.Contains("views", LicenseText.Refusal(Locale.En, new LicenseUsage(3, 2), 0, 1), StringComparison.Ordinal);
+        Assert.Contains("widgets", LicenseText.Refusal(Locale.En, new LicenseUsage(10, 1), 1, 0), StringComparison.Ordinal);
     }
 }

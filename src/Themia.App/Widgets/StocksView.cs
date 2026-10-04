@@ -5,6 +5,7 @@ using Microsoft.UI.Xaml.Media;
 using Themia.App.Services;
 using Themia.App.Services.Web;
 using Themia.App.Shell;
+using Themia.Core.Localization;
 using Themia.Core.Model;
 using Themia.Core.Widgets;
 
@@ -124,7 +125,7 @@ internal sealed partial class StocksView : Grid, IWidgetView, IWidgetHeaderConte
 
     /// <summary>[S-1311] Refresh: the network now, past the cache and any back-off.</summary>
     public IReadOnlyList<WidgetAction> ContextActions =>
-        _config.EffectiveSymbol.Length == 0 ? [] : [new WidgetAction(Glyphs.Refresh, "Refresh", () => Reload(force: true))];
+        _config.EffectiveSymbol.Length == 0 ? [] : [new WidgetAction(Glyphs.Refresh, Str.Common_Refresh.Text(), () => Reload(force: true))];
 
     private void BuildReadout()
     {
@@ -187,7 +188,18 @@ internal sealed partial class StocksView : Grid, IWidgetView, IWidgetHeaderConte
         // [S-1311] The session badge and the age follow the clock, not the refresh: with a
         // 30-minute refresh the badge must still flip at the bell. A render, never a fetch.
         _clock = ticker.Subscribe(TimeSpan.FromMinutes(1), OnMinute);
+
+        // [S-1110] The texts follow the app's language. A static event: Detach unsubscribes.
+        Strings.Changed -= OnLanguage;
+        Strings.Changed += OnLanguage;
         ApplyConfig(config);
+    }
+
+    /// <summary>The language changed: the range chips and every text are rewritten from the quote in hand.</summary>
+    private void OnLanguage(Locale locale)
+    {
+        LabelChips();
+        Render();
     }
 
     /// <inheritdoc />
@@ -387,9 +399,9 @@ internal sealed partial class StocksView : Grid, IWidgetView, IWidgetHeaderConte
 
             _emptyMessage.Text = status switch
             {
-                FetchStatus.NotConfigured => "Choose a symbol in settings",
-                FetchStatus.Refused => $"\"{_config.Symbol}\" is not a symbol",
-                FetchStatus.Empty => "No quote for that symbol",
+                FetchStatus.NotConfigured => Str.WidgetsC_Stocks_ChooseSymbol.Text(),
+                FetchStatus.Refused => Str.WidgetsC_Stocks_NotSymbol.Format(("symbol", _config.Symbol)),
+                FetchStatus.Empty => Str.WidgetsC_Stocks_NoQuote.Text(),
                 _ => FetchState.Message(status),
             };
 
@@ -534,7 +546,7 @@ internal sealed partial class StocksView : Grid, IWidgetView, IWidgetHeaderConte
         _phaseBadge.Visibility = Visibility.Visible;
 
         // [S-1309] The badge names the exchange's zone, so "closed" reads against its clock.
-        ToolTipService.SetToolTip(_phaseBadge, $"{label}. {ExchangeTime.ZoneNote(quote.ZoneName)}");
+        ToolTipService.SetToolTip(_phaseBadge, Str.WidgetsC_Stocks_PhaseTooltip.Format(("phase", label), ("zone", ExchangeTime.ZoneNote(quote.ZoneName))));
         return phase;
     }
 
@@ -549,11 +561,15 @@ internal sealed partial class StocksView : Grid, IWidgetView, IWidgetHeaderConte
 
         var phase = MarketQuote.Phase(quote.Sessions, DateTimeOffset.Now);
         var name = phase == MarketPhase.Pre || (phase != MarketPhase.Post && quote.Sessions.Pre is { } pre && p.At >= pre.Start && p.At < pre.End)
-            ? "Pre-market"
-            : "After hours";
+            ? Str.Stocks_PreMarket.Text()
+            : Str.Stocks_AfterHours.Text();
         var at = ExchangeTime.Label(p.At, quote.ExchangeOffset, QuoteRange.Day, DateTimeOffset.Now.Offset);
 
-        _extended.Text = $"{name} {MarketQuote.Price(p.Price, quote.PriceHint)} {MarketQuote.ChangePercent(p.ChangePercent)} · {at}";
+        _extended.Text = Str.WidgetsC_Stocks_ExtendedLine.Format(
+            ("session", name),
+            ("price", MarketQuote.Price(p.Price, quote.PriceHint)),
+            ("change", MarketQuote.ChangePercent(p.ChangePercent)),
+            ("time", at));
         _extended.Foreground = p.ChangePercent switch
         {
             > 0 => Up(),
@@ -575,13 +591,14 @@ internal sealed partial class StocksView : Grid, IWidgetView, IWidgetHeaderConte
 
         // A price is the single most dangerous number in this app to show stale, so the age is
         // always on screen and the reason for it is always one hover away.
+        var inline = WeatherNowView.InlineAge(age);
         ToolTipService.SetToolTip(
             _freshness,
             failed
-                ? $"{FetchState.Message(held.Status)}. Showing the price from {age.ToLowerInvariant()}."
+                ? Str.WidgetsC_Stocks_Tooltip_Failed.Format(("problem", FetchState.Message(held.Status)), ("age", inline))
                 : held.Restored
-                    ? $"Saved {age.ToLowerInvariant()}; refreshing"
-                    : $"Priced {age.ToLowerInvariant()}");
+                    ? Str.WidgetsC_Stocks_Tooltip_Saved.Format(("age", inline))
+                    : Str.WidgetsC_Stocks_Tooltip_Priced.Format(("age", inline)));
     }
 
     /// <summary>[S-1310] The rise colour: the user's, or the theme's success green.</summary>
@@ -596,6 +613,7 @@ internal sealed partial class StocksView : Grid, IWidgetView, IWidgetHeaderConte
     public void Detach()
     {
         _detached = true;
+        Strings.Changed -= OnLanguage;
 
         _subscription?.Dispose();
         _subscription = null;

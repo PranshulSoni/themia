@@ -2,6 +2,7 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using Themia.Core.Accounts;
 using Themia.Core.Diagnostics;
+using Themia.Core.Localization;
 
 namespace Themia.Core.Mail;
 
@@ -140,15 +141,18 @@ public static class MailNames
     };
 
     /// <summary>What the header and the folder box call a folder.</summary>
-    public static string Label(this MailFolder folder) => folder switch
+    public static string Label(this MailFolder folder) => folder.Label(Strings.Current);
+
+    /// <summary><see cref="Label(MailFolder)"/> in <paramref name="locale"/>.</summary>
+    public static string Label(this MailFolder folder, Locale locale) => Strings.Get(locale, folder switch
     {
-        MailFolder.Sent => "Sent",
-        MailFolder.Drafts => "Drafts",
-        MailFolder.Deleted => "Deleted",
-        MailFolder.Junk => "Junk",
-        MailFolder.Archive => "Archive",
-        _ => "Inbox",
-    };
+        MailFolder.Sent => Str.Email_FolderSent,
+        MailFolder.Drafts => Str.Email_FolderDrafts,
+        MailFolder.Deleted => Str.Email_FolderDeleted,
+        MailFolder.Junk => Str.Email_FolderJunk,
+        MailFolder.Archive => Str.WidgetsB_Email_FolderArchive,
+        _ => Str.Email_FolderInbox,
+    });
 
     public static string Wire(this MailViewMode mode) => mode switch
     {
@@ -208,14 +212,14 @@ public static class MailNames
         _ => null,
     };
 
-    public static string Label(this MailColumn column) => column switch
+    public static string Label(this MailColumn column) => Strings.Get(Strings.Current, column switch
     {
-        MailColumn.Subject => "Subject",
-        MailColumn.Date => "Date",
-        MailColumn.Preview => "Preview",
-        MailColumn.Account => "Account",
-        _ => "From",
-    };
+        MailColumn.Subject => Str.Email_Col_Subject,
+        MailColumn.Date => Str.Email_Col_Date,
+        MailColumn.Preview => Str.Email_Col_Preview,
+        MailColumn.Account => Str.Email_Col_Account,
+        _ => Str.Email_Col_From,
+    });
 
     /// <summary>
     /// A value this build does not know, read from a hand-edited or newer state file. Logged and

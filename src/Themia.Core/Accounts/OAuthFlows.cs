@@ -1,3 +1,5 @@
+using Themia.Core.Localization;
+
 namespace Themia.Core.Accounts;
 
 /// <summary>What came back to the loopback port.</summary>
@@ -85,11 +87,11 @@ public readonly record struct OAuthRedirect(RedirectKind Kind, string? Code, str
         if (error is not null)
         {
             return new OAuthRedirect(RedirectKind.ProviderError, null,
-                error == "access_denied" ? "The sign-in was cancelled in the browser." : description ?? error);
+                error == "access_denied" ? Str.Shell_Accounts_SignInCancelled.Text() : description ?? error);
         }
 
         return string.IsNullOrEmpty(code)
-            ? new OAuthRedirect(RedirectKind.ProviderError, null, "The browser came back without an authorization code.")
+            ? new OAuthRedirect(RedirectKind.ProviderError, null, Str.Shell_Accounts_NoAuthorizationCode.Text())
             : new OAuthRedirect(RedirectKind.Code, code, null);
     }
 }
@@ -190,11 +192,11 @@ public sealed class DeviceCodeSession
             case DevicePoll.Success:
                 return new DeviceStep(poll, TimeSpan.Zero, null);
             case DevicePoll.Expired:
-                return new DeviceStep(poll, TimeSpan.Zero, "The code expired before it was approved. Start again.");
+                return new DeviceStep(poll, TimeSpan.Zero, Str.Shell_Accounts_CodeExpired.Text());
             case DevicePoll.Denied:
-                return new DeviceStep(poll, TimeSpan.Zero, "The sign-in was declined in the browser.");
+                return new DeviceStep(poll, TimeSpan.Zero, Str.Shell_Accounts_SignInDeclined.Text());
             case DevicePoll.Failed:
-                return new DeviceStep(poll, TimeSpan.Zero, $"Sign-in failed: {providerMessage ?? "the provider gave no reason"}.");
+                return new DeviceStep(poll, TimeSpan.Zero, providerMessage is null ? Str.Shell_Accounts_SignInFailedNoReason.Text() : Str.Shell_Accounts_SignInFailed.Format(("reason", providerMessage)));
         }
 
         if (poll == DevicePoll.SlowDown)
@@ -205,7 +207,7 @@ public sealed class DeviceCodeSession
         // Past the code's lifetime there is nothing to wait for; the endpoint would only say so.
         if (now >= ExpiresAt)
         {
-            return new DeviceStep(DevicePoll.Expired, TimeSpan.Zero, "The code expired before it was approved. Start again.");
+            return new DeviceStep(DevicePoll.Expired, TimeSpan.Zero, Str.Shell_Accounts_CodeExpired.Text());
         }
 
         return new DeviceStep(poll, Interval, null);

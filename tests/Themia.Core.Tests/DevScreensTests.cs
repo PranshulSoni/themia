@@ -1,3 +1,4 @@
+using Themia.Core.Localization;
 using Themia.Core.Developer;
 using Themia.Core.Widgets;
 using Xunit;
@@ -19,7 +20,7 @@ public sealed class DevScreensTests
         IReadOnlyList<DevOutcome>? outcomes = null,
         bool hasContent = false,
         bool single = false)
-        => DevScreens.Decide("GitHub", accounts, chosen ?? [], single, outcomes ?? [], hasContent, "No issues assigned to you.", Now);
+        => DevScreens.Decide("GitHub", accounts, chosen ?? [], single, outcomes ?? [], hasContent, "No issues assigned to you.", Now, Locale.En);
 
     [Fact]
     public void S623_none_chosen_means_every_account_or_the_first()
@@ -96,7 +97,7 @@ public sealed class DevScreensTests
         ]);
 
         Assert.Equal(DevScreenKind.Empty, screen.Kind);
-        Assert.Equal("Could not refresh: can't reach GitHub.", screen.Warning);
+        Assert.Equal("Could not refresh. Can't reach GitHub.", screen.Warning);
     }
 
     [Fact]
@@ -105,7 +106,7 @@ public sealed class DevScreensTests
         var screen = Decide([Work], outcomes: [new DevOutcome("gh:work", FetchStatus.TimedOut)], hasContent: true);
 
         Assert.Equal(DevScreenKind.Content, screen.Kind);
-        Assert.Equal("Could not refresh: GitHub did not answer in time.", screen.Warning);
+        Assert.Equal("Could not refresh. GitHub did not answer in time.", screen.Warning);
     }
 
     [Fact]
@@ -123,14 +124,14 @@ public sealed class DevScreensTests
     {
         var outcome = new DevOutcome("gh:work", FetchStatus.RateLimited, null, new DateTimeOffset(2026, 10, 4, 10, 45, 0, TimeSpan.Zero));
 
-        Assert.Equal("GitHub asked Themia to slow down; trying again at 12:45", DevScreens.Explain("GitHub", outcome, Now));
-        Assert.Equal("GitHub asked Themia to slow down", DevScreens.Explain("GitHub", outcome with { RetryAt = null }, Now));
+        Assert.Equal("GitHub asked Themia to slow down; trying again at 12:45 PM", DevScreens.Explain("GitHub", outcome, Now, Locale.En));
+        Assert.Equal("GitHub asked Themia to slow down", DevScreens.Explain("GitHub", outcome with { RetryAt = null }, Now, Locale.En));
     }
 
     [Fact]
     public void S628_a_specific_sentence_wins_over_the_generic_one()
     {
         var outcome = new DevOutcome("gh:work", FetchStatus.BadResponse, "Repository not found, or this account cannot see it.");
-        Assert.Equal("Repository not found, or this account cannot see it", DevScreens.Explain("GitHub", outcome, Now));
+        Assert.Equal("Repository not found, or this account cannot see it", DevScreens.Explain("GitHub", outcome, Now, Locale.En));
     }
 }

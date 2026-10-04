@@ -1,6 +1,6 @@
 using System.Buffers.Binary;
-using System.Globalization;
 using System.Text;
+using Themia.Core.Localization;
 using Themia.Core.Model;
 
 namespace Themia.Core.Widgets;
@@ -107,31 +107,41 @@ public static class BatteryRules
     /// on mains at 99% or more; "{h}h {m}m remaining" when Windows has an estimate (and the setting
     /// allows it); Plugged in; On battery.
     /// </summary>
-    public static string Status(BatteryPower power, bool showRemaining)
+    public static string Status(BatteryPower power, bool showRemaining) => Status(Strings.Current, power, showRemaining);
+
+    /// <summary><see cref="Status(BatteryPower, bool)"/> in <paramref name="locale"/>.</summary>
+    public static string Status(Locale locale, BatteryPower power, bool showRemaining)
     {
         if (power.Charging)
         {
-            return "Charging";
+            return Strings.Get(locale, Str.WidgetsB_Battery_Charging);
         }
 
         if (power.OnMains && power.Percent >= 99)
         {
-            return "Fully charged";
+            return Strings.Get(locale, Str.WidgetsB_Battery_FullyCharged);
         }
 
         if (showRemaining && power.Remaining is { } remaining && remaining > TimeSpan.Zero)
         {
-            return $"{Hours(remaining)} remaining";
+            return Strings.Format(locale, Str.WidgetsB_Battery_Remaining, ("time", Hours(locale, remaining)));
         }
 
-        return power.OnMains ? "Plugged in" : "On battery";
+        return Source(locale, power);
     }
 
+    /// <summary>"Plugged in" or "On battery".</summary>
+    private static string Source(Locale locale, BatteryPower power)
+        => Strings.Get(locale, power.OnMains ? Str.WidgetsB_Battery_PluggedIn : Str.WidgetsB_Battery_OnBattery);
+
     /// <summary>The original's "{h}h {m}m", hours always shown ("0h 25m"), whole minutes.</summary>
-    public static string Hours(TimeSpan span)
+    public static string Hours(TimeSpan span) => Hours(Strings.Current, span);
+
+    /// <summary><see cref="Hours(TimeSpan)"/> in <paramref name="locale"/>.</summary>
+    public static string Hours(Locale locale, TimeSpan span)
     {
         var total = (long)Math.Max(0, span.TotalSeconds);
-        return $"{total / 3600}h {total % 3600 / 60}m";
+        return Strings.Format(locale, Str.WidgetsB_Units_HoursMinutes, ("hours", total / 3600), ("minutes", total % 3600 / 60));
     }
 
     /// <summary>[S-1187] Which of the eleven battery glyphs (empty … full) a charge draws as.</summary>
@@ -226,8 +236,8 @@ public static class BatteryRules
             "NIMH" => "NiMH",
             "NICD" => "NiCd",
             "NIZN" => "NiZn",
-            "PBAC" => "Lead acid",
-            "RAM" => "Alkaline",
+            "PBAC" => Str.WidgetsB_Battery_LeadAcid.Text(),
+            "RAM" => Str.WidgetsB_Battery_Alkaline.Text(),
             _ => raw,
         };
     }
@@ -325,26 +335,46 @@ public static class BatteryRules
         => double.IsFinite(hours) && hours > 0 && hours <= 48 ? TimeSpan.FromHours(hours) : null;
 
     /// <summary>"8.4 W" from milliwatts, magnitude only (the label says which way).</summary>
-    public static string Watts(int milliwatts)
-        => $"{(Math.Abs((long)milliwatts) / 1000.0).ToString(Math.Abs((long)milliwatts) >= 100_000 ? "F0" : "F1", CultureInfo.InvariantCulture)} W";
+    public static string Watts(int milliwatts) => Watts(Strings.Current, milliwatts);
+
+    /// <summary><see cref="Watts(int)"/> in <paramref name="locale"/>.</summary>
+    public static string Watts(Locale locale, int milliwatts)
+        => Strings.Format(locale, Str.WidgetsB_Units_Watts, ("value", LocaleFormat.Number(locale, Math.Abs((long)milliwatts) / 1000.0, Math.Abs((long)milliwatts) >= 100_000 ? 0 : 1)));
 
     /// <summary>"52.1 Wh" from milliwatt-hours.</summary>
-    public static string WattHours(uint milliwattHours)
-        => $"{(milliwattHours / 1000.0).ToString(milliwattHours >= 100_000 ? "F0" : "F1", CultureInfo.InvariantCulture)} Wh";
+    public static string WattHours(uint milliwattHours) => WattHours(Strings.Current, milliwattHours);
+
+    /// <summary><see cref="WattHours(uint)"/> in <paramref name="locale"/>.</summary>
+    public static string WattHours(Locale locale, uint milliwattHours)
+        => Strings.Format(locale, Str.WidgetsB_Units_WattHours, ("value", Energy(locale, milliwattHours)));
+
+    /// <summary>The number of a <see cref="WattHours(Locale, uint)"/>, without its unit.</summary>
+    private static string Energy(Locale locale, uint milliwattHours)
+        => LocaleFormat.Number(locale, milliwattHours / 1000.0, milliwattHours >= 100_000 ? 0 : 1);
 
     /// <summary>"12.38 V" from millivolts.</summary>
-    public static string Volts(uint millivolts)
-        => $"{(millivolts / 1000.0).ToString("F2", CultureInfo.InvariantCulture)} V";
+    public static string Volts(uint millivolts) => Volts(Strings.Current, millivolts);
+
+    /// <summary><see cref="Volts(uint)"/> in <paramref name="locale"/>.</summary>
+    public static string Volts(Locale locale, uint millivolts)
+        => Strings.Format(locale, Str.WidgetsB_Units_Volts, ("value", LocaleFormat.Number(locale, millivolts / 1000.0, 2)));
 
     /// <summary>A whole percentage that, unlike a share, may pass 100 (health of a new pack).</summary>
-    public static string WholePercent(double fraction)
-        => $"{Math.Round(fraction * 100).ToString("F0", CultureInfo.InvariantCulture)}%";
+    public static string WholePercent(double fraction) => WholePercent(Strings.Current, fraction);
+
+    /// <summary><see cref="WholePercent(double)"/> in <paramref name="locale"/>.</summary>
+    public static string WholePercent(Locale locale, double fraction)
+        => LocaleFormat.Percent(locale, Math.Round(fraction * 100));
 
     /// <summary>
     /// [S-1185] How the charge moved over the chart's window: "−12% in 5m", "+8% in 20m", "No change
     /// in 5m". Null under a minute of history, where a change says nothing yet.
     /// </summary>
     public static string? Change(double firstPercent, double lastPercent, TimeSpan elapsed)
+        => Change(Strings.Current, firstPercent, lastPercent, elapsed);
+
+    /// <summary><see cref="Change(double, double, TimeSpan)"/> in <paramref name="locale"/>.</summary>
+    public static string? Change(Locale locale, double firstPercent, double lastPercent, TimeSpan elapsed)
     {
         if (elapsed < TimeSpan.FromMinutes(1) || !double.IsFinite(firstPercent) || !double.IsFinite(lastPercent))
         {
@@ -352,13 +382,13 @@ public static class BatteryRules
         }
 
         var delta = (int)Math.Round(lastPercent - firstPercent, MidpointRounding.AwayFromZero);
-        var over = Formatting.Duration(elapsed);
+        var over = Formatting.Duration(locale, elapsed);
 
         return delta switch
         {
-            0 => $"No change in {over}",
-            > 0 => $"+{delta}% in {over}",
-            _ => $"−{-delta}% in {over}",
+            0 => Strings.Format(locale, Str.WidgetsB_Battery_NoChange, ("time", over)),
+            > 0 => Strings.Format(locale, Str.WidgetsB_Battery_Gained, ("percent", LocaleFormat.Percent(locale, delta)), ("time", over)),
+            _ => Strings.Format(locale, Str.WidgetsB_Battery_Lost, ("percent", LocaleFormat.Percent(locale, -delta)), ("time", over)),
         };
     }
 
@@ -375,65 +405,69 @@ public static class BatteryRules
     /// <param name="plan">The active power plan's name, or null when unknown or not wanted.</param>
     /// <param name="saver">Battery saver, or null when unknown.</param>
     public static IReadOnlyList<BatteryLine> Details(BatteryPower power, BatteryPack? pack, BatteryConfig config, string? change, string? plan, bool? saver)
+        => Details(Strings.Current, power, pack, config, change, plan, saver);
+
+    /// <summary><see cref="Details(BatteryPower, BatteryPack?, BatteryConfig, string?, string?, bool?)"/> in <paramref name="locale"/>.</summary>
+    public static IReadOnlyList<BatteryLine> Details(Locale locale, BatteryPower power, BatteryPack? pack, BatteryConfig config, string? change, string? plan, bool? saver)
     {
         ArgumentNullException.ThrowIfNull(config);
         var lines = new List<BatteryLine>(10);
 
         if (config.ShowHealth && pack is { } p1 && Health(p1) is { } health)
         {
-            lines.Add(new BatteryLine("Health", HealthText(p1, health)));
+            lines.Add(new BatteryLine(Strings.Get(locale, Str.WidgetsB_Battery_Health), HealthText(locale, p1, health)));
         }
 
         if (config.ShowTimeRemaining && pack is { } p2)
         {
             if (power.Charging && TimeToFull(p2) is { } toFull)
             {
-                lines.Add(new BatteryLine("Full in", Hours(toFull)));
+                lines.Add(new BatteryLine(Strings.Get(locale, Str.WidgetsB_Battery_FullIn), Hours(locale, toFull)));
             }
             else if (!power.OnMains && power.Remaining is null && TimeToEmpty(p2) is { } toEmpty)
             {
                 // Windows' own estimate is already the caption; this is for when it has none.
-                lines.Add(new BatteryLine("Empty in", Hours(toEmpty)));
+                lines.Add(new BatteryLine(Strings.Get(locale, Str.WidgetsB_Battery_EmptyIn), Hours(locale, toEmpty)));
             }
         }
 
         if (config.ShowRate && pack is { Relative: false, Rate: { } rate })
         {
-            lines.Add(new BatteryLine(rate > 0 ? "Charging at" : rate < 0 ? "Draining at" : "Rate", Watts(rate)));
+            lines.Add(new BatteryLine(Strings.Get(locale, rate > 0 ? Str.WidgetsB_Battery_ChargingAt : rate < 0 ? Str.WidgetsB_Battery_DrainingAt : Str.WidgetsB_Battery_Rate), Watts(locale, rate)));
         }
 
         if (config.ShowCycles && pack?.Cycles is { } cycles)
         {
-            lines.Add(new BatteryLine("Cycles", cycles.ToString(CultureInfo.InvariantCulture)));
+            lines.Add(new BatteryLine(Strings.Get(locale, Str.WidgetsB_Battery_Cycles), LocaleFormat.Integer(locale, cycles)));
         }
 
         if (change is not null)
         {
-            lines.Add(new BatteryLine("Change", change));
+            lines.Add(new BatteryLine(Strings.Get(locale, Str.WidgetsB_Battery_Change), change));
         }
 
         if (config.ShowVoltage && pack?.VoltageMillivolts is { } voltage)
         {
-            lines.Add(new BatteryLine("Voltage", Volts(voltage)));
+            lines.Add(new BatteryLine(Strings.Get(locale, Str.WidgetsB_Battery_Voltage), Volts(locale, voltage)));
         }
 
         if (config.ShowTemperature)
         {
-            lines.Add(new BatteryLine("Temperature", pack?.TemperatureCelsius is { } t ? $"{t.ToString("F0", CultureInfo.InvariantCulture)} °C" : "N/A"));
+            lines.Add(new BatteryLine(Strings.Get(locale, Str.WidgetsB_Meters_Temperature), pack?.TemperatureCelsius is { } t ? Strings.Format(locale, Str.WidgetsB_Units_Celsius, ("value", LocaleFormat.Number(locale, t, 0))) : Strings.Get(locale, Str.WidgetsB_Meters_NotAvailable)));
         }
 
         if (config.ShowPower)
         {
-            lines.Add(new BatteryLine("Power", power.OnMains ? "Plugged in" : "On battery"));
+            lines.Add(new BatteryLine(Strings.Get(locale, Str.WidgetsB_Battery_Power), Source(locale, power)));
 
             if (plan is not null)
             {
-                lines.Add(new BatteryLine("Power plan", plan));
+                lines.Add(new BatteryLine(Strings.Get(locale, Str.WidgetsB_Battery_PowerPlan), plan));
             }
 
             if (saver is { } on)
             {
-                lines.Add(new BatteryLine("Battery saver", on ? "On" : "Off"));
+                lines.Add(new BatteryLine(Strings.Get(locale, Str.WidgetsB_Battery_Saver), Strings.Get(locale, on ? Str.WidgetsB_Meters_On : Str.WidgetsB_Meters_Off)));
             }
         }
 
@@ -441,17 +475,24 @@ public static class BatteryRules
     }
 
     /// <summary>"91% · 52.1 of 57.0 Wh"; the energies only where they are in mWh.</summary>
-    public static string HealthText(BatteryPack pack, double health)
+    public static string HealthText(BatteryPack pack, double health) => HealthText(Strings.Current, pack, health);
+
+    /// <summary><see cref="HealthText(BatteryPack, double)"/> in <paramref name="locale"/>.</summary>
+    public static string HealthText(Locale locale, BatteryPack pack, double health)
         => pack is { Relative: false, FullCapacity: { } full, DesignCapacity: { } design }
-            ? $"{WholePercent(health)} · {WattHours(full)[..^3]} of {WattHours(design)}"
-            : WholePercent(health);
+            ? Strings.Format(locale, Str.WidgetsB_Battery_HealthOf,
+                ("percent", WholePercent(locale, health)), ("full", Energy(locale, full)), ("design", WattHours(locale, design)))
+            : WholePercent(locale, health);
 
     /// <summary>
     /// [S-1184] The capacity breakdown a large tile lists: full charge (share of design), remaining
     /// (share of full), design, then chemistry and maker. Energies only in mWh terms; empty when
     /// the battery reports none of it.
     /// </summary>
-    public static IReadOnlyList<BatteryLine> Capacity(BatteryPack pack)
+    public static IReadOnlyList<BatteryLine> Capacity(BatteryPack pack) => Capacity(Strings.Current, pack);
+
+    /// <summary><see cref="Capacity(BatteryPack)"/> in <paramref name="locale"/>.</summary>
+    public static IReadOnlyList<BatteryLine> Capacity(Locale locale, BatteryPack pack)
     {
         var rows = new List<BatteryLine>(5);
 
@@ -460,33 +501,33 @@ public static class BatteryRules
             // Full charge first: a tile with room for one row shows the wear, not the rating.
             if (pack.FullCapacity is { } full)
             {
-                rows.Add(new BatteryLine("Full charge", WattHours(full), pack.DesignCapacity is > 0 and var d ? Math.Clamp((double)full / d, 0, 1) : null));
+                rows.Add(new BatteryLine(Strings.Get(locale, Str.WidgetsB_Battery_FullCharge), WattHours(locale, full), pack.DesignCapacity is > 0 and var d ? Math.Clamp((double)full / d, 0, 1) : null));
             }
 
             if (pack.RemainingCapacity is { } remaining)
             {
-                rows.Add(new BatteryLine("Remaining", WattHours(remaining), pack.FullCapacity is > 0 and var f ? Math.Clamp((double)remaining / f, 0, 1) : null));
+                rows.Add(new BatteryLine(Strings.Get(locale, Str.WidgetsB_Battery_RemainingCapacity), WattHours(locale, remaining), pack.FullCapacity is > 0 and var f ? Math.Clamp((double)remaining / f, 0, 1) : null));
             }
 
             if (pack.DesignCapacity is { } design)
             {
-                rows.Add(new BatteryLine("Design capacity", WattHours(design), 1));
+                rows.Add(new BatteryLine(Strings.Get(locale, Str.WidgetsB_Battery_DesignCapacity), WattHours(locale, design), 1));
             }
         }
 
         if (pack.Chemistry is { } chemistry)
         {
-            rows.Add(new BatteryLine("Chemistry", chemistry));
+            rows.Add(new BatteryLine(Strings.Get(locale, Str.WidgetsB_Battery_Chemistry), chemistry));
         }
 
         if (pack.Manufacturer is { } maker)
         {
-            rows.Add(new BatteryLine("Manufacturer", maker));
+            rows.Add(new BatteryLine(Strings.Get(locale, Str.WidgetsB_Battery_Manufacturer), maker));
         }
 
         if (pack.Count > 1)
         {
-            rows.Add(new BatteryLine("Batteries", pack.Count.ToString(CultureInfo.InvariantCulture)));
+            rows.Add(new BatteryLine(Strings.Get(locale, Str.WidgetsB_Battery_Batteries), LocaleFormat.Integer(locale, pack.Count)));
         }
 
         return rows;

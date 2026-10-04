@@ -4,6 +4,7 @@ using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Shapes;
 using Themia.App.Shell;
+using Themia.Core.Localization;
 using Themia.Core.Widgets;
 
 namespace Themia.App.Widgets;
@@ -70,7 +71,7 @@ internal sealed partial class BluetoothView
         name.TextTrimming = TextTrimming.CharacterEllipsis;
 
         var what = Fluent.Text(FluentType.Body, "TextFillColorSecondaryBrush");
-        what.Text = $"{BluetoothRules.KindLabel(device.Kind)} · {BluetoothRules.ConnectionLabel(device.Connected)}";
+        what.Text = $"{BluetoothRules.KindLabel(device.Kind, Strings.Current)} · {BluetoothRules.ConnectionLabel(device.Connected, Strings.Current)}";
 
         var title = new Grid
         {
@@ -98,21 +99,21 @@ internal sealed partial class BluetoothView
         // figure does not. The signal only while its scan is on.
         if (_config.ShowBattery)
         {
-            facts.Children.Add(BluetoothRules.BatteryLabel(device.BatteryPercent) is { } battery && device.BatteryPercent is { } percent
-                ? Fact("Battery", battery, huge, LevelBar(percent))
-                : Fact("Battery", "Not reported", huge, null, quiet: true));
+            facts.Children.Add(BluetoothRules.BatteryLabel(device.BatteryPercent, Strings.Current) is { } battery && device.BatteryPercent is { } percent
+                ? Fact(Str.Widget_Battery_Label.Text(), battery, huge, LevelBar(percent))
+                : Fact(Str.Widget_Battery_Label.Text(), Str.WidgetsA_Bluetooth_NotReported.Text(), huge, null, quiet: true));
         }
 
         if (_config.ShowSignal)
         {
             facts.Children.Add(BluetoothRules.SignalLabel(device.SignalDbm) is { } signal
-                ? Fact("Signal", signal, huge, null)
-                : Fact("Signal", "Not heard", huge, null, quiet: true));
+                ? Fact(Str.WidgetsA_Bluetooth_Signal.Text(), signal, huge, null)
+                : Fact(Str.WidgetsA_Bluetooth_Signal.Text(), Str.WidgetsA_Bluetooth_NotHeard.Text(), huge, null, quiet: true));
         }
 
         if (BluetoothRules.AddressText(device.Id) is { } address)
         {
-            facts.Children.Add(Fact("Address", address, huge, null));
+            facts.Children.Add(Fact(Str.WidgetsA_Bluetooth_Address.Text(), address, huge, null));
         }
 
         var panel = new StackPanel

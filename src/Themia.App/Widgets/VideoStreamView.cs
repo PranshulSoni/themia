@@ -7,6 +7,7 @@ using Themia.App.Services;
 using Themia.App.Services.Web;
 using Themia.App.Shell;
 using Themia.Core.Diagnostics;
+using Themia.Core.Localization;
 using Themia.Core.Model;
 using Themia.Core.Widgets;
 using Windows.Graphics.Imaging;
@@ -96,6 +97,8 @@ internal sealed partial class VideoStreamView : Grid, IWidgetView, IWidgetSurfac
     {
         _detached = false;
         _ticker = ticker;
+        Strings.Changed -= OnLanguage;
+        Strings.Changed += OnLanguage;
         _pictureSource ??= new SoftwareBitmapSource();
         _picture.Source = _pictureSource;
         _shown ??= new ShownWatch(this, _ => Reconcile());
@@ -134,6 +137,7 @@ internal sealed partial class VideoStreamView : Grid, IWidgetView, IWidgetSurfac
         }
 
         _detached = true;
+        Strings.Changed -= OnLanguage;
         _shown?.Dispose();
         _shown = null;
         StopSession();
@@ -152,10 +156,10 @@ internal sealed partial class VideoStreamView : Grid, IWidgetView, IWidgetSurfac
     public IReadOnlyList<WidgetAction> ContextActions =>
     [
         _config.Paused
-            ? new WidgetAction(Glyphs.Play, "Resume", () => SetPaused(false))
-            : new WidgetAction(Glyphs.Pause, "Pause", () => SetPaused(true)),
-        new WidgetAction(Glyphs.Rotate, "Rotate", Rotate),
-        new WidgetAction(Glyphs.Refresh, "Refresh", RefreshNow),
+            ? new WidgetAction(Glyphs.Play, Str.VideoStream_Resume.Text(), () => SetPaused(false))
+            : new WidgetAction(Glyphs.Pause, Str.VideoStream_Pause.Text(), () => SetPaused(true)),
+        new WidgetAction(Glyphs.Rotate, Str.VideoStream_Rotate.Text(), Rotate),
+        new WidgetAction(Glyphs.Refresh, Str.Common_Refresh.Text(), RefreshNow),
     ];
 
     private void SetPaused(bool paused)
@@ -324,7 +328,7 @@ internal sealed partial class VideoStreamView : Grid, IWidgetView, IWidgetSurfac
 
                 if (adaptive.Status != AdaptiveMediaSourceCreationStatus.Success)
                 {
-                    VideoFailed($"The playlist could not be opened ({adaptive.Status})");
+                    VideoFailed(Str.WidgetsC_VideoStream_PlaylistFailed.Format(("status", adaptive.Status.ToString())));
                     return;
                 }
 
@@ -353,7 +357,7 @@ internal sealed partial class VideoStreamView : Grid, IWidgetView, IWidgetSurfac
         catch (Exception ex) when (ex is System.Runtime.InteropServices.COMException or ArgumentException or InvalidOperationException)
         {
             Log.Warn(Scope, "could not start the video player", ex);
-            VideoFailed("Windows could not play this stream");
+            VideoFailed(Str.WidgetsC_VideoStream_CannotPlay.Text());
         }
     }
 
@@ -409,7 +413,7 @@ internal sealed partial class VideoStreamView : Grid, IWidgetView, IWidgetSurfac
     private void OnMediaFailed(MediaPlayer sender, MediaPlayerFailedEventArgs args)
     {
         var error = args.Error;
-        DispatcherQueue.TryEnqueue(() => VideoFailed($"Playback failed ({error})"));
+        DispatcherQueue.TryEnqueue(() => VideoFailed(Str.WidgetsC_VideoStream_PlaybackFailed.Format(("error", error.ToString()))));
     }
 
     /// <summary>
@@ -493,12 +497,12 @@ internal sealed partial class VideoStreamView : Grid, IWidgetView, IWidgetSurfac
         if (!resolved.IsValid)
         {
             message = resolved.Problem == WebUrlProblem.Empty
-                ? "Add a camera stream address in settings"
+                ? Str.WidgetsC_VideoStream_AddAddress.Text()
                 : Explain(resolved.Problem);
         }
         else if (_config.Paused)
         {
-            message = "Paused";
+            message = Str.VideoStream_Paused.Text();
             glyph = Glyphs.Pause;
         }
         else
@@ -506,9 +510,9 @@ internal sealed partial class VideoStreamView : Grid, IWidgetView, IWidgetSurfac
             message = _phase switch
             {
                 StreamPhase.Live => null,
-                StreamPhase.Connecting => "Connecting…",
-                StreamPhase.Unsupported => _detail ?? "Not a camera stream",
-                _ => "Stream unavailable. Reconnecting…",
+                StreamPhase.Connecting => Str.VideoStream_Connecting.Text(),
+                StreamPhase.Unsupported => _detail ?? Str.WidgetsC_VideoStream_NotCamera.Text(),
+                _ => Str.WidgetsC_VideoStream_UnavailableRetrying.Text(),
             };
         }
 
@@ -537,10 +541,13 @@ internal sealed partial class VideoStreamView : Grid, IWidgetView, IWidgetSurfac
         ToolTipService.SetToolTip(_messageHost, _phase == StreamPhase.Retrying ? _detail : null);
     }
 
+    /// <summary>[S-1110] The message and the chrome again; the picture is untouched.</summary>
+    private void OnLanguage(Locale locale) => Render();
+
     private static string Explain(WebUrlProblem problem) => problem switch
     {
-        WebUrlProblem.UnsupportedScheme => "Only http and https streams",
-        WebUrlProblem.Credentials => "Remove the user name and password",
+        WebUrlProblem.UnsupportedScheme => Str.WidgetsC_VideoStream_OnlyHttp.Text(),
+        WebUrlProblem.Credentials => Str.WidgetsC_VideoStream_RemoveCredentials.Text(),
         _ => WebInput.Explain(problem),
     };
 

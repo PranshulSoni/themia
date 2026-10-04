@@ -6,6 +6,7 @@ using Microsoft.UI.Xaml.Media;
 using Themia.App.Services;
 using Themia.App.Shell;
 using Themia.Core.Diagnostics;
+using Themia.Core.Localization;
 using Themia.Core.Model;
 using Themia.Core.Widgets;
 using Windows.ApplicationModel.DataTransfer;
@@ -36,6 +37,7 @@ internal sealed partial class ColorSwatchView : Grid, IWidgetView, IWidgetSizeAw
     private readonly Grid _columns = new();
     private readonly ScrollViewer _scroller;
     private readonly StackPanel _empty;
+    private readonly TextBlock _emptyText = new() { Text = Str.WidgetsA_ColorSwatch_Empty.Text() };
 
     private readonly List<SwatchItemView> _items = [];
 
@@ -63,7 +65,7 @@ internal sealed partial class ColorSwatchView : Grid, IWidgetView, IWidgetSizeAw
 
         _empty = Fluent.EmptyState(
             WidgetCatalog.Definition(WidgetKind.ColorSwatch).Glyph,
-            new TextBlock { Text = "No colours here. Add some in settings." },
+            _emptyText,
             out _);
 
         _empty.Visibility = Visibility.Collapsed;
@@ -76,7 +78,15 @@ internal sealed partial class ColorSwatchView : Grid, IWidgetView, IWidgetSizeAw
     public void Attach(Ticker ticker, WidgetConfig config)
     {
         // Nothing to tick: a swatch changes when it is edited, not when time passes.
+        Strings.Changed += OnLanguage;
         ApplyConfig(config);
+    }
+
+    /// <summary>[S-1109] The empty text and the copy tooltips follow the language.</summary>
+    private void OnLanguage(Locale locale)
+    {
+        _emptyText.Text = Str.WidgetsA_ColorSwatch_Empty.Text();
+        ApplyConfig(_config);
     }
 
     public void ApplyConfig(WidgetConfig config)
@@ -379,6 +389,8 @@ internal sealed partial class ColorSwatchView : Grid, IWidgetView, IWidgetSizeAw
             return;
         }
 
+        Strings.Changed -= OnLanguage;
+
         _detached = true;
         ClearItems();
     }
@@ -410,7 +422,7 @@ internal sealed partial class ColorSwatchView : Grid, IWidgetView, IWidgetSizeAw
             RowFocus.Prepare(root);
             _hover = hover ? Fluent.Hover(root) : null;
 
-            ToolTipService.SetToolTip(root, $"Copy {copied}");
+            ToolTipService.SetToolTip(root, Str.WidgetsA_ColorSwatch_CopyValue.Format(("value", copied)));
 
             // Tapped, not PointerPressed: in edit mode the card captures the pointer on press to
             // drag the widget, the gesture never completes here, and nothing is copied while a
@@ -482,7 +494,7 @@ internal sealed partial class ColorSwatchView : Grid, IWidgetView, IWidgetSizeAw
             };
 
             var view = new SwatchItemView(holder, null, copied, hover: false);
-            ToolTipService.SetToolTip(holder, $"{swatch.Name} · copy {copied}");
+            ToolTipService.SetToolTip(holder, Str.WidgetsA_ColorSwatch_CopyNamed.Format(("name", swatch.Name), ("value", copied)));
             return view;
         }
 
@@ -595,7 +607,7 @@ internal sealed partial class ColorSwatchView : Grid, IWidgetView, IWidgetSizeAw
 
             if (_value is not null)
             {
-                _value.Text = "Copied";
+                _value.Text = Str.Toast_Copied.Text();
             }
         }
 

@@ -10,6 +10,7 @@ using Themia.App.Services.Accounts;
 using Themia.App.Widgets;
 using Themia.Core.Accounts;
 using Themia.Core.Diagnostics;
+using Themia.Core.Localization;
 using Themia.Core.Widgets;
 using Windows.ApplicationModel.DataTransfer;
 
@@ -39,8 +40,8 @@ internal sealed class AccountsPage
     private readonly AccountService _service;
     /// <summary>[S-1541] The page; its title goes to the window's breadcrumb.</summary>
     private readonly SettingsPage _root = new(
-        "Accounts",
-        "Sign in once here. Mail, calendar, contacts, tasks, OneDrive, GitHub and Claude widgets read from these accounts.");
+        Str.Shell_Settings_Nav_Accounts.Text(),
+        Str.Shell_Accounts_Subtitle.Text());
     private readonly StackPanel _list = new() { Spacing = Fluent.Space1 };
     private readonly StackPanel _flow = new() { Spacing = Fluent.Space1 };
 
@@ -54,7 +55,7 @@ internal sealed class AccountsPage
     {
         if (AppServices.Accounts is not { } service)
         {
-            return new SettingsPage("Accounts").With([FluentLayout.Note("Accounts are not available right now. See themia.log.")]);
+            return new SettingsPage(Str.Shell_Settings_Nav_Accounts.Text()).With([FluentLayout.Note(Str.Shell_Accounts_Unavailable.Text())]);
         }
 
         return new AccountsPage(service).Compose();
@@ -67,11 +68,11 @@ internal sealed class AccountsPage
             _root.Children.Add(Message(problem, critical: true));
         }
 
-        _root.With([FluentLayout.Header("Signed in")]);
+        _root.With([FluentLayout.Header(Str.Shell_Accounts_SignedIn.Text())]);
         _root.Children.Add(_list);
 
-        _root.Children.Add(FluentLayout.Header("Add an account"));
-        _root.Children.Add(FluentLayout.Row(Glyphs.Add, "Add account", "Choose the service to sign in to", AddMenu()));
+        _root.Children.Add(FluentLayout.Header(Str.Shell_Accounts_AddHeader.Text()));
+        _root.Children.Add(FluentLayout.Row(Glyphs.Add, Str.Account_AddAccount.Text(), Str.Shell_Accounts_AddDesc.Text(), AddMenu()));
         _root.Children.Add(_flow);
 
 
@@ -131,7 +132,7 @@ internal sealed class AccountsPage
         var accounts = _service.Accounts;
         if (accounts.Count == 0)
         {
-            _list.Children.Add(FluentLayout.Note("No accounts yet. Add one below."));
+            _list.Children.Add(FluentLayout.Note(Str.Shell_Accounts_None.Text()));
             return;
         }
 
@@ -157,7 +158,7 @@ internal sealed class AccountsPage
         var detail = Fluent.Text(FluentType.Caption, "TextFillColorSecondaryBrush");
         detail.Text = account.Label == account.Address
             ? account.Provider.Label()
-            : $"{account.Address}  ·  {account.Provider.Label()}";
+            : Str.Shell_Accounts_Detail.Format(("address", account.Address), ("provider", account.Provider.Label()));
 
         var text = new StackPanel { Spacing = 2, VerticalAlignment = VerticalAlignment.Center, Children = { name, detail } };
 
@@ -170,10 +171,10 @@ internal sealed class AccountsPage
             text.Children.Add(warning);
         }
 
-        var rename = FluentLayout.IconCommand(Glyphs.Rename, "Rename");
+        var rename = FluentLayout.IconCommand(Glyphs.Rename, Str.Common_Rename.Text());
         rename.Flyout = RenameFlyout(account);
 
-        var signOut = new Button { Content = "Sign out", VerticalAlignment = VerticalAlignment.Center };
+        var signOut = new Button { Content = Str.Account_SignOut.Text(), VerticalAlignment = VerticalAlignment.Center };
         signOut.Click += (_, _) => _ = SignOutAsync(account, signOut);
 
         var commands = new StackPanel
@@ -205,14 +206,14 @@ internal sealed class AccountsPage
     {
         var box = new TextBox
         {
-            Header = "Nickname",
+            Header = Str.Connect_Field_Nickname.Text(),
             Text = account.Nickname ?? string.Empty,
             PlaceholderText = account.DisplayName.Length > 0 ? account.DisplayName : account.Address,
             Width = 260,
         };
 
         var verdict = Message(string.Empty, critical: true);
-        var save = new Button { Content = "Save", Style = AccentStyle() };
+        var save = new Button { Content = Str.Common_Save.Text(), Style = AccentStyle() };
         var flyout = new Flyout
         {
             Content = new StackPanel { Spacing = Fluent.Space2, Children = { box, save, verdict } },
@@ -253,9 +254,9 @@ internal sealed class AccountsPage
     {
         var confirmed = await FluentLayout.ConfirmAsync(
             source,
-            $"Sign out of {account.Label}?",
-            $"Themia forgets this account and its sign-in on this PC. Widgets that read from it go empty until you add it again. Nothing changes at {account.Provider.Label()}.",
-            "Sign out").ConfigureAwait(true);
+            Str.Shell_Accounts_SignOutConfirm.Format(("name", account.Label)),
+            Str.Shell_Accounts_SignOutBody.Format(("provider", account.Provider.Label())),
+            Str.Account_SignOut.Text()).ConfigureAwait(true);
 
         if (!confirmed)
         {
@@ -291,15 +292,15 @@ internal sealed class AccountsPage
         Add("Microsoft", AccountProvider.Microsoft, () => StartDevice(AccountProvider.Microsoft));
         Add("Google", AccountProvider.Google, StartGoogle);
         menu.Items.Add(new MenuFlyoutSeparator());
-        Add("Mail server (IMAP)", AccountProvider.Imap, StartImap);
-        Add("Calendar server (CalDAV)", AccountProvider.CalDav, () => StartDav(AccountProvider.CalDav));
-        Add("Contacts server (CardDAV)", AccountProvider.CardDav, () => StartDav(AccountProvider.CardDav));
+        Add(Str.Shell_Accounts_MenuImap.Text(), AccountProvider.Imap, StartImap);
+        Add(Str.Shell_Accounts_MenuCalDav.Text(), AccountProvider.CalDav, () => StartDav(AccountProvider.CalDav));
+        Add(Str.Shell_Accounts_MenuCardDav.Text(), AccountProvider.CardDav, () => StartDav(AccountProvider.CardDav));
         menu.Items.Add(new MenuFlyoutSeparator());
         Add("GitHub", AccountProvider.GitHub, () => StartDevice(AccountProvider.GitHub));
-        Add("GitHub with a token (Enterprise)", AccountProvider.GitHub, StartGitHubToken);
+        Add(Str.Shell_Accounts_MenuGitHubToken.Text(), AccountProvider.GitHub, StartGitHubToken);
         Add("Claude", AccountProvider.Claude, StartClaude);
 
-        return new DropDownButton { Content = "Add account", Flyout = menu };
+        return new DropDownButton { Content = Str.Account_AddAccount.Text(), Flyout = menu };
     }
 
     /// <summary>Replace whatever flow is showing, cancelling it, and return the new flow's token.</summary>
@@ -360,14 +361,14 @@ internal sealed class AccountsPage
 
         var where = Fluent.Text(FluentType.Body, "TextFillColorSecondaryBrush");
         where.TextWrapping = TextWrapping.Wrap;
-        where.Text = $"Asking {provider.Label()} for a sign-in code…";
+        where.Text = Str.Shell_Accounts_AskingCode.Format(("provider", provider.Label()));
 
-        var copy = new Button { Content = Labelled(Glyphs.Copy, "Copy code"), IsEnabled = false };
-        var open = new Button { Content = Labelled(OpenGlyph, "Open sign-in page"), IsEnabled = false, Style = AccentStyle() };
-        var cancel = new Button { Content = "Cancel" };
+        var copy = new Button { Content = Labelled(Glyphs.Copy, Str.Shell_Accounts_CopyCode.Text()), IsEnabled = false };
+        var open = new Button { Content = Labelled(OpenGlyph, Str.Shell_Accounts_OpenSignIn.Text()), IsEnabled = false, Style = AccentStyle() };
+        var cancel = new Button { Content = Str.Common_Cancel.Text() };
         cancel.Click += (_, _) => CloseFlow();
 
-        var (status, ring, line) = StatusLine("Starting…");
+        var (status, ring, line) = StatusLine(Str.Shell_Accounts_Starting.Text());
 
         var body = new StackPanel
         {
@@ -381,7 +382,7 @@ internal sealed class AccountsPage
             },
         };
 
-        var token = ShowFlow($"Sign in to {provider.Label()}", FluentLayout.Card(body));
+        var token = ShowFlow(Str.Shell_Accounts_SignInTo.Format(("provider", provider.Label())), FluentLayout.Card(body));
         _ = RunDeviceAsync(provider, code, where, copy, open, ring, line, token);
     }
 
@@ -401,17 +402,17 @@ internal sealed class AccountsPage
             var session = signIn.Session;
 
             code.Text = session.UserCode;
-            where.Text = $"Open {session.VerificationUri.Host}{session.VerificationUri.AbsolutePath.TrimEnd('/')}, enter this code, and approve Themia.";
+            where.Text = Str.Shell_Accounts_EnterCode.Format(("site", $"{session.VerificationUri.Host}{session.VerificationUri.AbsolutePath.TrimEnd('/')}"));
 
             copy.IsEnabled = true;
             open.IsEnabled = true;
             copy.Click += (_, _) => Copy(session.UserCode, line);
             open.Click += (_, _) => Open(session.VerificationUri, line);
 
-            Say(line, $"Waiting for you to approve. The code works until {session.ExpiresAt.ToLocalTime():t}.", critical: false);
+            Say(line, Str.Shell_Accounts_WaitingApproval.Format(("time", LocaleFormat.Time(Strings.Current, session.ExpiresAt.ToLocalTime().DateTime))), critical: false);
 
             var account = await _service.CompleteDeviceSignInAsync(signIn, cancellation).ConfigureAwait(true);
-            CloseFlow($"Signed in to {provider.Label()} as {account.Address}.");
+            CloseFlow(Str.Shell_Accounts_SignedInAs.Format(("provider", provider.Label()), ("address", account.Address)));
         }
         catch (OperationCanceledException) when (cancellation.IsCancellationRequested)
         {
@@ -424,7 +425,7 @@ internal sealed class AccountsPage
         catch (Exception ex)
         {
             Log.Error(Scope, $"{provider} sign-in failed unexpectedly", ex);
-            Fail(ring, line, $"The sign-in failed: {ex.Message}", copy, open);
+            Fail(ring, line, Str.Shell_Accounts_FlowFailed.Format(("reason", ex.Message)), copy, open);
         }
     }
 
@@ -434,20 +435,20 @@ internal sealed class AccountsPage
     {
         if (AccountService.GoogleUnavailableReason is { } reason)
         {
-            ShowFlow("Sign in to Google", Message(reason, critical: true));
+            ShowFlow(Str.Shell_Accounts_SignInTo.Format(("provider", "Google")), Message(reason, critical: true));
             return;
         }
 
         var explain = Fluent.Text(FluentType.Body, "TextFillColorSecondaryBrush");
         explain.TextWrapping = TextWrapping.Wrap;
-        explain.Text = "Your browser opens Google's sign-in page. Choose the account and allow Themia; this page carries on by itself when the browser comes back.";
+        explain.Text = Str.Shell_Accounts_GoogleExplain.Text();
 
-        var cancel = new Button { Content = "Cancel" };
+        var cancel = new Button { Content = Str.Common_Cancel.Text() };
         cancel.Click += (_, _) => CloseFlow();
 
-        var (status, ring, line) = StatusLine("Opening the browser…");
+        var (status, ring, line) = StatusLine(Str.Shell_Accounts_OpeningBrowser.Text());
 
-        var token = ShowFlow("Sign in to Google", FluentLayout.Card(new StackPanel
+        var token = ShowFlow(Str.Shell_Accounts_SignInTo.Format(("provider", "Google")), FluentLayout.Card(new StackPanel
         {
             Spacing = Fluent.Space3,
             Children = { explain, status, cancel },
@@ -465,13 +466,13 @@ internal sealed class AccountsPage
                 var opened = ShellLauncher.Open(url.AbsoluteUri) == LaunchOutcome.Opened;
                 if (opened)
                 {
-                    Say(line, "Waiting for the browser. Finish signing in there.", critical: false);
+                    Say(line, Str.Shell_Accounts_WaitingBrowser.Text(), critical: false);
                 }
 
                 return opened;
             }, cancellation).ConfigureAwait(true);
 
-            CloseFlow($"Signed in to Google as {account.Address}.");
+            CloseFlow(Str.Shell_Accounts_SignedInAs.Format(("provider", "Google"), ("address", account.Address)));
         }
         catch (OperationCanceledException) when (cancellation.IsCancellationRequested)
         {
@@ -484,7 +485,7 @@ internal sealed class AccountsPage
         catch (Exception ex)
         {
             Log.Error(Scope, "Google sign-in failed unexpectedly", ex);
-            Fail(ring, line, $"The sign-in failed: {ex.Message}");
+            Fail(ring, line, Str.Shell_Accounts_FlowFailed.Format(("reason", ex.Message)));
         }
     }
 
@@ -496,14 +497,14 @@ internal sealed class AccountsPage
 
         var steps = Fluent.Text(FluentType.Body, "TextFillColorSecondaryBrush");
         steps.TextWrapping = TextWrapping.Wrap;
-        steps.Text = "Open the Claude sign-in page, sign in and approve Themia, then copy the code the page shows and paste it here. Themia reads your plan's usage and nothing else.";
+        steps.Text = Str.Shell_Accounts_ClaudeSteps.Text();
 
-        var open = new Button { Content = Labelled(OpenGlyph, "Open Claude sign-in"), Style = AccentStyle() };
+        var open = new Button { Content = Labelled(OpenGlyph, Str.Shell_Accounts_OpenClaude.Text()), Style = AccentStyle() };
 
-        var code = new TextBox { PlaceholderText = "Paste the code here", Width = 360 };
-        var nickname = new TextBox { PlaceholderText = "Optional", Width = 360 };
-        var connect = new Button { Content = "Connect", Style = AccentStyle() };
-        var cancel = new Button { Content = "Cancel" };
+        var code = new TextBox { PlaceholderText = Str.Shell_Accounts_PasteHere.Text(), Width = 360 };
+        var nickname = new TextBox { PlaceholderText = Str.Shell_Accounts_Optional.Text(), Width = 360 };
+        var connect = new Button { Content = Str.Connect_Connect.Text(), Style = AccentStyle() };
+        var cancel = new Button { Content = Str.Common_Cancel.Text() };
 
         var (status, ring, line) = StatusLine(string.Empty);
         status.Visibility = Visibility.Collapsed;
@@ -512,16 +513,18 @@ internal sealed class AccountsPage
         cancel.Click += (_, _) => CloseFlow();
 
         var token = ShowFlow(
-            "Connect Claude",
+            Str.Shell_Accounts_ConnectClaude.Text(),
             FluentLayout.Card(new StackPanel { Spacing = Fluent.Space3, Children = { steps, open } }),
-            FluentLayout.Row(KeyGlyph, "Code", "The code#state value the page shows", code),
-            FluentLayout.Row(Glyphs.Rename, "Nickname", null, nickname),
+            FluentLayout.Row(KeyGlyph, Str.Shell_Accounts_Code.Text(), Str.Shell_Accounts_CodeDesc.Text(), code),
+            FluentLayout.Row(Glyphs.Rename, Str.Connect_Field_Nickname.Text(), null, nickname),
             Buttons(connect, cancel),
             status);
 
         connect.Click += (_, _) => _ = RunFormAsync(connect, status, ring, line,
             () => _service.CompleteClaudeSignInAsync(signIn, code.Text, nickname.Text, token),
-            account => $"Connected Claude{(account.Nickname is null ? string.Empty : $" as {account.Nickname}")}.");
+            account => account.Nickname is null
+                ? Str.Shell_Accounts_ConnectedClaude.Text()
+                : Str.Shell_Accounts_ConnectedClaudeAs.Format(("name", account.Nickname)));
     }
 
     // ---- forms: IMAP, CalDAV, CardDAV, GitHub token ----------------------------------------
@@ -531,9 +534,9 @@ internal sealed class AccountsPage
         var address = new TextBox { PlaceholderText = "you@example.com", Width = 280 };
         var host = new TextBox { PlaceholderText = "imap.example.com", Width = 280 };
         var port = new TextBox { Text = "993", Width = 280 };
-        var user = new TextBox { PlaceholderText = "Usually your address", Width = 280 };
+        var user = new TextBox { PlaceholderText = Str.Shell_Accounts_UsuallyAddress.Text(), Width = 280 };
         var password = new PasswordBox { Width = 280 };
-        var nickname = new TextBox { PlaceholderText = "Optional", Width = 280 };
+        var nickname = new TextBox { PlaceholderText = Str.Shell_Accounts_Optional.Text(), Width = 280 };
         var hint = FluentLayout.Note(string.Empty);
         hint.Visibility = Visibility.Collapsed;
 
@@ -561,7 +564,7 @@ internal sealed class AccountsPage
                     port.Text = preset.Port.ToString(CultureInfo.InvariantCulture);
                 }
 
-                hint.Text = preset is null ? string.Empty : $"{preset.Name}: {preset.Note ?? "server settings filled in."}";
+                hint.Text = preset is null ? string.Empty : Str.Shell_Accounts_PresetHint.Format(("provider", preset.Name), ("note", preset.Note ?? Str.Shell_Accounts_PresetFilled.Text()));
                 hint.Visibility = hint.Text.Length == 0 ? Visibility.Collapsed : Visibility.Visible;
             }
             finally
@@ -570,22 +573,22 @@ internal sealed class AccountsPage
             }
         };
 
-        var connect = new Button { Content = "Connect", Style = AccentStyle() };
-        var cancel = new Button { Content = "Cancel" };
+        var connect = new Button { Content = Str.Connect_Connect.Text(), Style = AccentStyle() };
+        var cancel = new Button { Content = Str.Common_Cancel.Text() };
         cancel.Click += (_, _) => CloseFlow();
 
         var (status, ring, line) = StatusLine(string.Empty);
         status.Visibility = Visibility.Collapsed;
 
         var token = ShowFlow(
-            "Add a mail server",
-            FluentLayout.Row(Glyphs.Mail, "Email address", null, address),
+            Str.Shell_Accounts_AddMail.Text(),
+            FluentLayout.Row(Glyphs.Mail, Str.Shell_Accounts_EmailAddress.Text(), null, address),
             hint,
-            FluentLayout.Row(Glyphs.Network, "Server", "IMAP over TLS", host),
-            FluentLayout.Row(Glyphs.Network, "Port", "993 for almost every provider", port),
-            FluentLayout.Row(Glyphs.Contact, "User name", null, user),
-            FluentLayout.Row(KeyGlyph, "Password", "Some providers want an app password here", password),
-            FluentLayout.Row(Glyphs.Rename, "Nickname", null, nickname),
+            FluentLayout.Row(Glyphs.Network, Str.Shell_Accounts_Server.Text(), Str.Shell_Accounts_ImapDesc.Text(), host),
+            FluentLayout.Row(Glyphs.Network, Str.Connect_Field_Port.Text(), Str.Shell_Accounts_PortDesc.Text(), port),
+            FluentLayout.Row(Glyphs.Contact, Str.Shell_Accounts_UserName.Text(), null, user),
+            FluentLayout.Row(KeyGlyph, Str.Connect_Field_Password.Text(), Str.Shell_Accounts_PasswordDesc.Text(), password),
+            FluentLayout.Row(Glyphs.Rename, Str.Connect_Field_Nickname.Text(), null, nickname),
             Buttons(connect, cancel),
             status);
 
@@ -593,11 +596,11 @@ internal sealed class AccountsPage
         {
             if (!int.TryParse(port.Text.Trim(), NumberStyles.None, CultureInfo.InvariantCulture, out var number))
             {
-                throw new AccountException(AccountError.Refused, "The port must be a number (usually 993).");
+                throw new AccountException(AccountError.Refused, Str.Shell_Accounts_PortNumber.Text());
             }
 
             return _service.AddImapAsync(address.Text, host.Text, number, user.Text, password.Password, nickname.Text, token);
-        }, account => $"Connected {account.Address}.");
+        }, account => Str.Shell_Accounts_Connected.Format(("address", account.Address)));
     }
 
     private void StartDav(AccountProvider provider)
@@ -605,9 +608,9 @@ internal sealed class AccountsPage
         var kind = provider == AccountProvider.CalDav ? DavKind.Calendar : DavKind.Contacts;
 
         var url = new TextBox { PlaceholderText = "https://cloud.example.com", Width = 280 };
-        var user = new TextBox { PlaceholderText = "Often your email address", Width = 280 };
+        var user = new TextBox { PlaceholderText = Str.Shell_Accounts_OftenAddress.Text(), Width = 280 };
         var password = new PasswordBox { Width = 280 };
-        var nickname = new TextBox { PlaceholderText = "Optional", Width = 280 };
+        var nickname = new TextBox { PlaceholderText = Str.Shell_Accounts_Optional.Text(), Width = 280 };
 
         var urlTyped = false;
         var filling = false;
@@ -624,39 +627,41 @@ internal sealed class AccountsPage
             filling = false;
         };
 
-        var connect = new Button { Content = "Connect", Style = AccentStyle() };
-        var cancel = new Button { Content = "Cancel" };
+        var connect = new Button { Content = Str.Connect_Connect.Text(), Style = AccentStyle() };
+        var cancel = new Button { Content = Str.Common_Cancel.Text() };
         cancel.Click += (_, _) => CloseFlow();
 
         var (status, ring, line) = StatusLine(string.Empty);
         status.Visibility = Visibility.Collapsed;
 
-        var what = kind == DavKind.Calendar ? "calendar" : "address book";
+        var calendar = kind == DavKind.Calendar;
 
         var token = ShowFlow(
-            provider == AccountProvider.CalDav ? "Add a calendar server" : "Add a contacts server",
-            FluentLayout.Row(Glyphs.Contact, "User name", null, user),
-            FluentLayout.Row(KeyGlyph, "Password", "Some providers want an app password here", password),
-            FluentLayout.Row(Glyphs.Link, "Server", $"The server, or your {what}'s full address. Themia finds the {what}.", url),
-            FluentLayout.Row(Glyphs.Rename, "Nickname", null, nickname),
+            calendar ? Str.Shell_Accounts_AddCalendar.Text() : Str.Shell_Accounts_AddContacts.Text(),
+            FluentLayout.Row(Glyphs.Contact, Str.Shell_Accounts_UserName.Text(), null, user),
+            FluentLayout.Row(KeyGlyph, Str.Connect_Field_Password.Text(), Str.Shell_Accounts_PasswordDesc.Text(), password),
+            FluentLayout.Row(Glyphs.Link, Str.Shell_Accounts_Server.Text(), calendar ? Str.Shell_Accounts_CalDavServerDesc.Text() : Str.Shell_Accounts_CardDavServerDesc.Text(), url),
+            FluentLayout.Row(Glyphs.Rename, Str.Connect_Field_Nickname.Text(), null, nickname),
             Buttons(connect, cancel),
             status);
 
         connect.Click += (_, _) => _ = RunFormAsync(connect, status, ring, line,
             () => _service.AddDavAsync(provider, url.Text, user.Text, password.Password, nickname.Text, token),
-            account => $"Connected {account.Address}'s {what}.");
+            account => calendar
+                ? Str.Shell_Accounts_ConnectedCalendar.Format(("address", account.Address))
+                : Str.Shell_Accounts_ConnectedContacts.Format(("address", account.Address)));
     }
 
     private void StartGitHubToken()
     {
         var tokenBox = new PasswordBox { Width = 280 };
-        var api = new TextBox { PlaceholderText = "Empty for github.com", Width = 280 };
-        var nickname = new TextBox { PlaceholderText = "Optional", Width = 280 };
+        var api = new TextBox { PlaceholderText = Str.Shell_Accounts_ApiEmpty.Text(), Width = 280 };
+        var nickname = new TextBox { PlaceholderText = Str.Shell_Accounts_Optional.Text(), Width = 280 };
 
-        var create = new HyperlinkButton { Content = "Create a token on github.com" };
+        var create = new HyperlinkButton { Content = Str.Shell_Accounts_CreateToken.Text() };
 
-        var connect = new Button { Content = "Connect", Style = AccentStyle() };
-        var cancel = new Button { Content = "Cancel" };
+        var connect = new Button { Content = Str.Connect_Connect.Text(), Style = AccentStyle() };
+        var cancel = new Button { Content = Str.Common_Cancel.Text() };
         cancel.Click += (_, _) => CloseFlow();
 
         var (status, ring, line) = StatusLine(string.Empty);
@@ -664,17 +669,17 @@ internal sealed class AccountsPage
         create.Click += (_, _) => Open(OAuthClients.GitHub.NewTokenPage, line, status);
 
         var token = ShowFlow(
-            "Add GitHub with a token",
-            FluentLayout.Note("For GitHub Enterprise Server, or if you prefer a token to signing in. It needs the repo, read:user and notifications scopes."),
-            FluentLayout.Row(KeyGlyph, "Token", null, tokenBox),
-            FluentLayout.Row(Glyphs.Link, "API address", "For Enterprise: https://your-server/api/v3", api),
-            FluentLayout.Row(Glyphs.Rename, "Nickname", null, nickname),
+            Str.Shell_Accounts_AddGitHubToken.Text(),
+            FluentLayout.Note(Str.Shell_Accounts_GitHubTokenNote.Text()),
+            FluentLayout.Row(KeyGlyph, Str.Shell_Accounts_Token.Text(), null, tokenBox),
+            FluentLayout.Row(Glyphs.Link, Str.Shell_Accounts_ApiAddress.Text(), Str.Shell_Accounts_ApiAddressDesc.Text(), api),
+            FluentLayout.Row(Glyphs.Rename, Str.Connect_Field_Nickname.Text(), null, nickname),
             Buttons(connect, cancel, create),
             status);
 
         connect.Click += (_, _) => _ = RunFormAsync(connect, status, ring, line,
             () => _service.AddGitHubTokenAsync(tokenBox.Password, api.Text, nickname.Text, token),
-            account => $"Connected GitHub as {account.DisplayName}.");
+            account => Str.Shell_Accounts_ConnectedGitHub.Format(("name", account.DisplayName)));
     }
 
     /// <summary>
@@ -693,7 +698,7 @@ internal sealed class AccountsPage
         status.Visibility = Visibility.Visible;
         ring.IsActive = true;
         ring.Visibility = Visibility.Visible;
-        Say(line, "Checking…", critical: false);
+        Say(line, Str.Shell_Accounts_Checking.Text(), critical: false);
 
         try
         {
@@ -712,7 +717,7 @@ internal sealed class AccountsPage
         catch (Exception ex)
         {
             Log.Error(Scope, "adding an account failed unexpectedly", ex);
-            Fail(ring, line, $"That did not work: {ex.Message}");
+            Fail(ring, line, Str.Shell_Accounts_DidNotWork.Format(("reason", ex.Message)));
             connect.IsEnabled = true;
         }
     }
@@ -810,13 +815,13 @@ internal sealed class AccountsPage
             var package = new DataPackage { RequestedOperation = DataPackageOperation.Copy };
             package.SetText(text);
             Clipboard.SetContent(package);
-            Say(line, "Code copied. Paste it on the sign-in page.", critical: false);
+            Say(line, Str.Shell_Accounts_CodeCopied.Text(), critical: false);
         }
         catch (Exception ex)
         {
             // Another process can hold the clipboard open; say so rather than claim it copied.
             Log.Warn(Scope, "could not copy the sign-in code", ex);
-            Say(line, "The clipboard is busy. Type the code instead.", critical: true);
+            Say(line, Str.Shell_Accounts_ClipboardBusy.Text(), critical: true);
         }
     }
 
@@ -829,7 +834,7 @@ internal sealed class AccountsPage
                 status.Visibility = Visibility.Visible;
             }
 
-            Say(line, $"The browser could not be opened. Go to {url.Host} yourself.", critical: true);
+            Say(line, Str.Shell_Accounts_BrowserFailed.Format(("site", url.Host)), critical: true);
         }
     }
 

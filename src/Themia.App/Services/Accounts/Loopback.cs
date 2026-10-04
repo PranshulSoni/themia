@@ -4,6 +4,7 @@ using System.Net.Sockets;
 using System.Text;
 using Themia.Core.Accounts;
 using Themia.Core.Diagnostics;
+using Themia.Core.Localization;
 
 namespace Themia.App.Services.Accounts;
 
@@ -66,10 +67,10 @@ internal sealed class Loopback : IDisposable
                 case RedirectKind.Code:
                     return redirect.Code!;
                 case RedirectKind.ProviderError:
-                    throw new AccountException(AccountError.Refused, redirect.Error ?? "The provider refused the sign-in.");
+                    throw new AccountException(AccountError.Refused, redirect.Error ?? Str.Shell_Accounts_ProviderRefusedPlain.Text());
                 default:
                     throw new AccountException(AccountError.Refused,
-                        "That sign-in did not come back from the browser Themia opened. Start again.");
+                        Str.Shell_Accounts_ForeignRedirect.Text());
             }
         }
     }
@@ -108,13 +109,13 @@ internal sealed class Loopback : IDisposable
         var (status, heading, text) = kind switch
         {
             RedirectKind.Unrelated => ("404 Not Found", null, null),
-            RedirectKind.Code => ("200 OK", "You are signed in.", "You can close this tab and go back to Themia."),
-            _ => ("200 OK", "The sign-in did not complete.", "Go back to Themia to see why."),
+            RedirectKind.Code => ("200 OK", Str.Shell_Accounts_PageSignedIn.Text(), Str.Shell_Accounts_PageSignedInBody.Text()),
+            _ => ("200 OK", Str.Shell_Accounts_NotCompleted.Text(), Str.Shell_Accounts_PageFailedBody.Text()),
         };
 
         var body = heading is null
             ? string.Empty
-            : "<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\"><title>Themia</title></head>"
+            : $"<!doctype html><html lang=\"{LanguageResolver.Code(Strings.Current)}\"><head><meta charset=\"utf-8\"><title>Themia</title></head>"
                 + "<body style=\"font-family:system-ui;margin:4rem auto;max-width:28rem\">"
                 + $"<h1>{heading}</h1><p>{text}</p></body></html>";
 

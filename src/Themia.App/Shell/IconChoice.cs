@@ -3,6 +3,7 @@ using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Controls.Primitives;
 using Themia.App.Widgets;
+using Themia.Core.Localization;
 
 namespace Themia.App.Shell;
 
@@ -16,14 +17,14 @@ internal static class IconChoice
     private const int Columns = 8;
 
     /// <summary>The offered glyphs: things an area of the desktop is usually about.</summary>
-    private static readonly (int CodePoint, string Name)[] Offered =
+    private static readonly (int CodePoint, Str Name)[] Offered =
     [
-        (0xE80F, "Home"), (0xE821, "Work"), (0xE7FC, "Games"), (0xE8D6, "Music"), (0xE91B, "Photos"), (0xE714, "Video"),
-        (0xE787, "Calendar"), (0xE715, "Mail"), (0xE716, "People"), (0xEB51, "Heart"), (0xE734, "Star"), (0xE7C1, "Flag"),
-        (0xE718, "Pin"), (0xE8B7, "Folder"), (0xE8A5, "Document"), (0xE774, "Web"), (0xE943, "Code"), (0xEA80, "Ideas"),
-        (0xE719, "Shopping"), (0xE917, "Time"), (0xE713, "Settings"), (0xE753, "Cloud"), (0xE9D2, "Charts"), (0xE8EC, "Tag"),
-        (0xE8F1, "Library"), (0xE717, "Phone"), (0xE804, "Travel"), (0xE709, "Flights"), (0xE7BE, "Learning"), (0xE8D4, "Tasks"),
-        (0xE77B, "Me"), (0xE945, "Lightning"),
+        (0xE80F, Str.Shell_Icon_Home), (0xE821, Str.Shell_Icon_Work), (0xE7FC, Str.Shell_Icon_Games), (0xE8D6, Str.Shell_Icon_Music), (0xE91B, Str.Shell_Icon_Photos), (0xE714, Str.Shell_Icon_Video),
+        (0xE787, Str.Shell_Icon_Calendar), (0xE715, Str.Shell_Icon_Mail), (0xE716, Str.Shell_Icon_People), (0xEB51, Str.Shell_Icon_Heart), (0xE734, Str.Shell_Icon_Star), (0xE7C1, Str.Shell_Icon_Flag),
+        (0xE718, Str.Shell_Icon_Pin), (0xE8B7, Str.Shell_Icon_Folder), (0xE8A5, Str.Shell_Icon_Document), (0xE774, Str.Shell_Icon_Web), (0xE943, Str.Shell_Icon_Code), (0xEA80, Str.Shell_Icon_Ideas),
+        (0xE719, Str.Shell_Icon_Shopping), (0xE917, Str.Shell_Icon_Time), (0xE713, Str.Shell_Icon_Settings), (0xE753, Str.Shell_Icon_Cloud), (0xE9D2, Str.Shell_Icon_Charts), (0xE8EC, Str.Shell_Icon_Tag),
+        (0xE8F1, Str.Shell_Icon_Library), (0xE717, Str.Shell_Icon_Phone), (0xE804, Str.Shell_Icon_Travel), (0xE709, Str.Shell_Icon_Flights), (0xE7BE, Str.Shell_Icon_Learning), (0xE8D4, Str.Shell_Icon_Tasks),
+        (0xE77B, Str.Shell_Icon_Me), (0xE945, Str.Shell_Icon_Lightning),
     ];
 
     /// <param name="value">The current glyph, or null for the default.</param>
@@ -34,9 +35,10 @@ internal static class IconChoice
     /// which is what a view without an icon really looks like in the view bar and switchers.
     /// </param>
     /// <param name="defaultName">The default cell's tooltip and accessible name.</param>
-    public static DropDownButton Create(string? value, string defaultGlyph, Action<string?> onChanged, string? defaultText = null, string defaultName = "Default")
+    public static DropDownButton Create(string? value, string defaultGlyph, Action<string?> onChanged, string? defaultText = null, string? defaultName = null)
     {
         ArgumentNullException.ThrowIfNull(onChanged);
+        defaultName ??= Str.Common_Default.Text();
 
         // The default's look and an icon's look differ in kind when the default is text.
         UIElement Look(string? glyph) => glyph is null && defaultText is not null
@@ -53,7 +55,7 @@ internal static class IconChoice
         }
 
         var choices = new List<(string? Glyph, string Shown, string Name)> { (null, defaultGlyph, defaultName) };
-        choices.AddRange(Offered.Select(o => ((string?)char.ConvertFromUtf32(o.CodePoint), char.ConvertFromUtf32(o.CodePoint), o.Name)));
+        choices.AddRange(Offered.Select(o => ((string?)char.ConvertFromUtf32(o.CodePoint), char.ConvertFromUtf32(o.CodePoint), o.Name.Text())));
 
         for (var i = 0; i < choices.Count; i++)
         {

@@ -5,6 +5,7 @@ using Microsoft.UI.Xaml.Input;
 using Themia.App.Services;
 using Themia.App.Shell;
 using Themia.Core.Diagnostics;
+using Themia.Core.Localization;
 using Themia.Core.Model;
 using Themia.Core.Widgets;
 
@@ -51,6 +52,7 @@ internal sealed partial class ShortcutsView : Grid, IWidgetView, IWidgetSurfaceA
     private readonly ScrollViewer _scroll;
     private readonly TextBlock _footer;
     private readonly StackPanel _empty;
+    private readonly TextBlock _emptyText = new() { Text = Str.WidgetsC_Shortcuts_Empty.Text() };
     private readonly Button _searchButton;
     private readonly ScrollFade _fade;
 
@@ -82,7 +84,7 @@ internal sealed partial class ShortcutsView : Grid, IWidgetView, IWidgetSurfaceA
         RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
         RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
 
-        _search.PlaceholderText = "Search shortcuts";
+        _search.PlaceholderText = Str.WidgetsC_Shortcuts_Search.Text();
         _search.IsSpellCheckEnabled = false;
         _search.IsTextPredictionEnabled = false;
         _search.CornerRadius = new CornerRadius(Fluent.ControlRadius);
@@ -131,7 +133,7 @@ internal sealed partial class ShortcutsView : Grid, IWidgetView, IWidgetSurfaceA
 
         _empty = Fluent.EmptyState(
             Glyphs.Shortcut,
-            new TextBlock { Text = "No shortcuts yet. Add them in this widget's settings." },
+            _emptyText,
             out _);
         _empty.Visibility = Visibility.Collapsed;
 
@@ -146,7 +148,7 @@ internal sealed partial class ShortcutsView : Grid, IWidgetView, IWidgetSurfaceA
             CornerRadius = new CornerRadius(Fluent.ControlRadius),
             VerticalAlignment = VerticalAlignment.Center,
         };
-        ToolTipService.SetToolTip(_searchButton, "Search shortcuts");
+        ToolTipService.SetToolTip(_searchButton, Str.WidgetsC_Shortcuts_Search.Text());
         _searchButton.Click += OnSearchButton;
 
         SetRow(_searchHost, 0);
@@ -176,7 +178,26 @@ internal sealed partial class ShortcutsView : Grid, IWidgetView, IWidgetSurfaceA
     public void Attach(Ticker ticker, WidgetConfig config)
     {
         _ticker = ticker;
+        Strings.Changed -= OnLanguage;
+        Strings.Changed += OnLanguage;
         ApplyConfig(config);
+    }
+
+    /// <summary>
+    /// The language changed: the texts set once in the constructor are set again, and the cells
+    /// are rebuilt, since their kind labels, details and tooltips are words too.
+    /// </summary>
+    private void OnLanguage(Locale locale)
+    {
+        if (_detached)
+        {
+            return;
+        }
+
+        _search.PlaceholderText = Str.WidgetsC_Shortcuts_Search.Text();
+        _emptyText.Text = Str.WidgetsC_Shortcuts_Empty.Text();
+        ToolTipService.SetToolTip(_searchButton, Str.WidgetsC_Shortcuts_Search.Text());
+        Relayout();
     }
 
     public void ApplyConfig(WidgetConfig config)
@@ -482,7 +503,7 @@ internal sealed partial class ShortcutsView : Grid, IWidgetView, IWidgetSurfaceA
     }
 
     private string NameOf(ShortcutItem item) => item.IsLayout
-        ? (item.Label.Length > 0 ? item.Label : ShortcutRules.LayoutKindLabel)
+        ? (item.Label.Length > 0 ? item.Label : ShortcutRules.LayoutKindLabel())
         : LaunchTargets.DisplayName(item.Label, item.Target, _config.ShowFileExtension);
 
     /// <summary>The visible ids, in order: what selection ranges, select-all and arrows walk.</summary>
@@ -501,17 +522,17 @@ internal sealed partial class ShortcutsView : Grid, IWidgetView, IWidgetSurfaceA
         var parts = new List<string>();
 
         parts.Add(shown == total
-            ? (total == 1 ? "1 shortcut" : $"{total} shortcuts")
-            : $"{shown} of {total} shown");
+            ? Str.WidgetsC_Shortcuts_Footer_Total.Plural(total)
+            : Str.WidgetsC_Shortcuts_Footer_Shown.Format(("shown", LocaleFormat.Integer(shown)), ("total", LocaleFormat.Integer(total))));
 
         if (_selection.Count > 0)
         {
-            parts.Add($"{_selection.Count} selected");
+            parts.Add(Str.WidgetsC_Shortcuts_Footer_Selected.Plural(_selection.Count));
         }
 
         if (missing > 0)
         {
-            parts.Add($"{missing} missing");
+            parts.Add(Str.WidgetsC_Shortcuts_Footer_Missing.Plural(missing));
         }
 
         _footer.Text = string.Join(" · ", parts);
@@ -533,54 +554,60 @@ internal sealed partial class ShortcutsView : Grid, IWidgetView, IWidgetSurfaceA
 
             if (_config.Items.Count > 0)
             {
-                actions.Add(new WidgetAction(Glyphs.Search, _searchOpen ? "Close search" : "Search", ToggleSearch));
+                actions.Add(new WidgetAction(Glyphs.Search,
+                    _searchOpen ? Str.WidgetsC_Shortcuts_Menu_CloseSearch.Text() : Str.Common_Search.Text(), ToggleSearch));
             }
 
             foreach (var mode in (ShortcutViewMode[])[ShortcutViewMode.Grid, ShortcutViewMode.List, ShortcutViewMode.Details])
             {
                 if (mode != _config.View)
                 {
-                    actions.Add(new WidgetAction(ModeGlyph(mode), $"Show as {ModeName(mode)}", () => SetConfig(c => c.View = mode)));
+                    actions.Add(new WidgetAction(ModeGlyph(mode), ShowAs(mode), () => SetConfig(c => c.View = mode)));
                 }
             }
 
             var grid = _config.View == ShortcutViewMode.Grid;
             var size = grid ? _config.GridSize : _config.ListSize;
-            var noun = grid ? "tiles" : "rows";
-
             if (size < ShortcutItemSize.Large)
             {
-                actions.Add(new WidgetAction(Glyphs.Add, $"Larger {noun}", () => SetConfig(c => Resize(c, grid, size + 1))));
+                var larger = grid ? Str.WidgetsC_Shortcuts_Menu_LargerTiles : Str.WidgetsC_Shortcuts_Menu_LargerRows;
+                actions.Add(new WidgetAction(Glyphs.Add, larger.Text(), () => SetConfig(c => Resize(c, grid, size + 1))));
             }
 
             if (size > ShortcutItemSize.Small)
             {
-                actions.Add(new WidgetAction(Glyphs.Fit, $"Smaller {noun}", () => SetConfig(c => Resize(c, grid, size - 1))));
+                var smaller = grid ? Str.WidgetsC_Shortcuts_Menu_SmallerTiles : Str.WidgetsC_Shortcuts_Menu_SmallerRows;
+                actions.Add(new WidgetAction(Glyphs.Fit, smaller.Text(), () => SetConfig(c => Resize(c, grid, size - 1))));
             }
 
             if (grid)
             {
-                actions.Add(new WidgetAction(Glyphs.Preview, _config.GridIconOnly ? "Show names" : "Icons only",
+                actions.Add(new WidgetAction(Glyphs.Preview,
+                    _config.GridIconOnly ? Str.CtxMenu_ShowLabels.Text() : Str.CtxMenu_IconOnly.Text(),
                     () => SetConfig(c => c.GridIconOnly = !c.GridIconOnly)));
-                actions.Add(new WidgetAction(Glyphs.Scale, _config.GridStretchHeight ? "Keep tile height" : "Stretch to fill",
+                actions.Add(new WidgetAction(Glyphs.Scale,
+                    _config.GridStretchHeight ? Str.WidgetsC_Shortcuts_Menu_KeepTileHeight.Text() : Str.WidgetsC_Shortcuts_Menu_StretchToFill.Text(),
                     () => SetConfig(c => c.GridStretchHeight = !c.GridStretchHeight)));
             }
 
-            actions.Add(new WidgetAction(Glyphs.File, _config.ShowFileExtension ? "Hide file extensions" : "Show file extensions",
+            actions.Add(new WidgetAction(Glyphs.File,
+                _config.ShowFileExtension ? Str.Folder_HideExt.Text() : Str.Folder_ShowExtMenu.Text(),
                 () => SetConfig(c => c.ShowFileExtension = !c.ShowFileExtension)));
 
             actions.Add(new WidgetAction(Glyphs.Open,
-                _config.ClickMode == ItemClickMode.Double ? "Open on single click" : "Open on double click",
+                _config.ClickMode == ItemClickMode.Double ? Str.CtxMenu_OpenSingle.Text() : Str.CtxMenu_OpenDouble.Text(),
                 () => SetConfig(c => c.ClickMode = c.ClickMode == ItemClickMode.Double ? ItemClickMode.Single : ItemClickMode.Double)));
 
             if (_cells.Count > 0)
             {
-                actions.Add(new WidgetAction(Glyphs.Done, "Select all", SelectAll));
+                actions.Add(new WidgetAction(Glyphs.Done, Str.Folder_SelectAll.Text(), SelectAll));
             }
 
             if (_lastRemoved is { Count: > 0 } removed)
             {
-                actions.Add(new WidgetAction(Glyphs.Undo, removed.Count == 1 ? "Undo remove" : $"Undo remove ({removed.Count})", UndoRemove));
+                actions.Add(new WidgetAction(Glyphs.Undo,
+                    removed.Count == 1 ? Str.WidgetsC_Shortcuts_Menu_UndoRemove.Text() : Str.WidgetsC_Shortcuts_Menu_UndoRemoveCount.Plural(removed.Count),
+                    UndoRemove));
             }
 
             return actions;
@@ -606,12 +633,12 @@ internal sealed partial class ShortcutsView : Grid, IWidgetView, IWidgetSurfaceA
         Changed(rebuild: true);
     }
 
-    private static string ModeName(ShortcutViewMode mode) => mode switch
+    private static string ShowAs(ShortcutViewMode mode) => (mode switch
     {
-        ShortcutViewMode.List => "list",
-        ShortcutViewMode.Details => "details",
-        _ => "tiles",
-    };
+        ShortcutViewMode.List => Str.WidgetsC_Shortcuts_Menu_ShowAsList,
+        ShortcutViewMode.Details => Str.WidgetsC_Shortcuts_Menu_ShowAsDetails,
+        _ => Str.WidgetsC_Shortcuts_Menu_ShowAsTiles,
+    }).Text();
 
     private static string ModeGlyph(ShortcutViewMode mode) => mode switch
     {
@@ -628,6 +655,7 @@ internal sealed partial class ShortcutsView : Grid, IWidgetView, IWidgetSurfaceA
         }
 
         _detached = true;
+        Strings.Changed -= OnLanguage;
 
         _healthTick?.Dispose();
         _healthTick = null;

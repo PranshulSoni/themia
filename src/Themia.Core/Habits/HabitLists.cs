@@ -1,5 +1,6 @@
 using System.Text.Json;
 using Themia.Core.Widgets;
+using Themia.Core.Localization;
 
 namespace Themia.Core.Habits;
 
@@ -26,7 +27,7 @@ public sealed record HabitList(string Id, string Name, IReadOnlyList<Habit> Habi
 public static class HabitLists
 {
     /// <summary>The name a new list starts with, numbered when taken.</summary>
-    public const string NewListName = "Habits";
+    public static string NewListName => Str.WidgetsB_Habits_NewListName.Text();
 
     /// <summary>
     /// [S-1420] Narrow an untrusted stored value. A non-array is no lists; an entry without a non-empty

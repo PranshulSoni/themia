@@ -243,9 +243,10 @@ public sealed class MailDriveLayoutTests
         Assert.Null(DriveRules.Location(null));
         Assert.Null(DriveRules.Location("/sites/x"));
 
-        Assert.Equal("1 item", DriveRules.ChildCountText(1));
-        Assert.Equal("0 items", DriveRules.ChildCountText(0));
-        Assert.Equal(string.Empty, DriveRules.ChildCountText(null));
+        Assert.Equal("1 item", DriveRules.ChildCountText(Themia.Core.Localization.Locale.En, 1));
+        Assert.Equal("0 items", DriveRules.ChildCountText(Themia.Core.Localization.Locale.En, 0));
+        Assert.Equal("3 elementy", DriveRules.ChildCountText(Themia.Core.Localization.Locale.Pl, 3));
+        Assert.Equal(string.Empty, DriveRules.ChildCountText(Themia.Core.Localization.Locale.En, null));
     }
 
     [Fact]
@@ -253,7 +254,7 @@ public sealed class MailDriveLayoutTests
     {
         var drive = JsonSerializer.Deserialize("""{"quota":{"used":13314398618,"total":1099511627776}}""", DriveWireContext.Default.GraphDrive)!;
         var quota = DriveRules.FromGraph(drive)!.Value;
-        Assert.Equal("12 GB of 1.0 TB used", DriveRules.QuotaText(quota));
+        Assert.Equal("12 GB of 1.0 TB used", DriveRules.QuotaText(Themia.Core.Localization.Locale.En, quota));
 
         Assert.Null(DriveRules.FromGraph(new GraphDrive()));
         Assert.Null(DriveRules.FromGraph(new GraphDrive { Quota = new GraphQuota { Used = 5, Total = 0 } }));

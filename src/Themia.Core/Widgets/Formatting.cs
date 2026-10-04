@@ -1,4 +1,4 @@
-using System.Globalization;
+using Themia.Core.Localization;
 
 namespace Themia.Core.Widgets;
 
@@ -12,7 +12,8 @@ namespace Themia.Core.Widgets;
 /// </summary>
 public static class Formatting
 {
-    private static readonly string[] ByteUnits = ["B", "KB", "MB", "GB", "TB", "PB"];
+    private static readonly Str[] ByteUnits =
+        [Str.WidgetsB_Units_Bytes, Str.WidgetsB_Units_Kilobytes, Str.WidgetsB_Units_Megabytes, Str.WidgetsB_Units_Gigabytes, Str.WidgetsB_Units_Terabytes, Str.WidgetsB_Units_Petabytes];
 
     /// <summary>
     /// A byte count as a short human string: <c>931 GB</c>, <c>1.4 GB</c>, <c>512 MB</c>.
@@ -22,11 +23,17 @@ public static class Formatting
     /// drive reads as a bug.
     /// </para>
     /// </summary>
-    public static string Bytes(double bytes)
+    public static string Bytes(double bytes) => Bytes(Strings.Current, bytes);
+
+    /// <summary>
+    /// <see cref="Bytes(double)"/> in <paramref name="locale"/>: its decimal separator, and its unit
+    /// symbols where Windows uses its own (French says <c>Go</c>, not <c>GB</c>).
+    /// </summary>
+    public static string Bytes(Locale locale, double bytes)
     {
         if (!double.IsFinite(bytes) || bytes <= 0)
         {
-            return "0 B";
+            return Unit(locale, 0, "0");
         }
 
         var unit = 0;
@@ -38,17 +45,27 @@ public static class Formatting
 
         // One decimal only while it still carries information: "1.4 GB" is useful, "931.0 GB" is noise.
         var digits = unit == 0 || bytes >= 100 ? 0 : bytes >= 10 ? 0 : 1;
-        return $"{bytes.ToString($"F{digits}", CultureInfo.InvariantCulture)} {ByteUnits[unit]}";
+        return Unit(locale, unit, LocaleFormat.Number(locale, bytes, digits));
     }
 
     /// <summary>A per-second rate, e.g. <c>1.2 MB/s</c>.</summary>
-    public static string Rate(double bytesPerSecond) => $"{Bytes(bytesPerSecond)}/s";
+    public static string Rate(double bytesPerSecond) => Rate(Strings.Current, bytesPerSecond);
+
+    /// <summary><see cref="Rate(double)"/> in <paramref name="locale"/>.</summary>
+    public static string Rate(Locale locale, double bytesPerSecond)
+        => Strings.Format(locale, Str.WidgetsB_Units_PerSecond, ("value", Bytes(locale, bytesPerSecond)));
+
+    private static string Unit(Locale locale, int unit, string value)
+        => Strings.Format(locale, ByteUnits[unit], ("value", value));
 
     /// <summary>
     /// A 0..1 fraction as a whole percentage, clamped. Never rounds a non-zero load to "0%" or an
     /// incomplete one to "100%", because both read as "nothing is happening" when something is.
     /// </summary>
-    public static string Percent(double fraction)
+    public static string Percent(double fraction) => Percent(Strings.Current, fraction);
+
+    /// <summary><see cref="Percent(double)"/> in <paramref name="locale"/> (<c>42%</c>, <c>42 %</c>, <c>%42</c>).</summary>
+    public static string Percent(Locale locale, double fraction)
     {
         if (!double.IsFinite(fraction))
         {
@@ -68,7 +85,7 @@ public static class Formatting
             rounded = 99;
         }
 
-        return $"{rounded.ToString("F0", CultureInfo.InvariantCulture)}%";
+        return LocaleFormat.Percent(locale, rounded);
     }
 
     /// <summary>
@@ -79,7 +96,10 @@ public static class Formatting
     /// rather than printing four digits.
     /// </para>
     /// </summary>
-    public static string Latency(double milliseconds)
+    public static string Latency(double milliseconds) => Latency(Strings.Current, milliseconds);
+
+    /// <summary><see cref="Latency(double)"/> in <paramref name="locale"/>.</summary>
+    public static string Latency(Locale locale, double milliseconds)
     {
         if (!double.IsFinite(milliseconds) || milliseconds < 0)
         {
@@ -88,14 +108,17 @@ public static class Formatting
 
         if (milliseconds < 1000)
         {
-            return $"{Math.Round(milliseconds).ToString("F0", CultureInfo.InvariantCulture)} ms";
+            return Strings.Format(locale, Str.WidgetsB_Units_Milliseconds, ("value", LocaleFormat.Number(locale, Math.Round(milliseconds), 0)));
         }
 
-        return $"{(milliseconds / 1000).ToString("F1", CultureInfo.InvariantCulture)} s";
+        return Strings.Format(locale, Str.WidgetsB_Units_Seconds, ("value", LocaleFormat.Number(locale, milliseconds / 1000, 1)));
     }
 
     /// <summary>A duration as <c>4h 20m</c> / <c>35m</c>, for battery time remaining.</summary>
-    public static string Duration(TimeSpan span)
+    public static string Duration(TimeSpan span) => Duration(Strings.Current, span);
+
+    /// <summary><see cref="Duration(TimeSpan)"/> in <paramref name="locale"/>.</summary>
+    public static string Duration(Locale locale, TimeSpan span)
     {
         if (span <= TimeSpan.Zero)
         {
@@ -103,47 +126,51 @@ public static class Formatting
         }
 
         var hours = (int)span.TotalHours;
-        return hours > 0 ? $"{hours}h {span.Minutes}m" : $"{span.Minutes}m";
+        return hours > 0
+            ? Strings.Format(locale, Str.WidgetsB_Units_HoursMinutes, ("hours", hours), ("minutes", span.Minutes))
+            : Strings.Format(locale, Str.WidgetsB_Units_Minutes, ("minutes", span.Minutes));
     }
 
     /// <summary>
     /// How long ago an instant was, in the terms a mail list uses: <c>now</c>, <c>4m</c>,
     /// <c>3h</c>, <c>Tue</c>, then a date.
     /// </summary>
-    public static string Ago(DateTimeOffset when, DateTimeOffset now)
+    public static string Ago(DateTimeOffset when, DateTimeOffset now) => Ago(Strings.Current, when, now);
+
+    /// <summary><see cref="Ago(DateTimeOffset, DateTimeOffset)"/> in <paramref name="locale"/>.</summary>
+    public static string Ago(Locale locale, DateTimeOffset when, DateTimeOffset now)
     {
         var delta = now - when;
 
-        if (delta < TimeSpan.Zero)
-        {
-            return "now"; // clock skew between the provider and this machine
-        }
-
+        // A negative age is clock skew between the provider and this machine: "now", not "in 5m".
         if (delta < TimeSpan.FromMinutes(1))
         {
-            return "now";
+            return LocaleFormat.Relative(locale, TimeSpan.Zero);
         }
 
         if (delta < TimeSpan.FromHours(1))
         {
-            return $"{(int)delta.TotalMinutes}m";
+            return Strings.Format(locale, Str.WidgetsB_Time_MinutesCompact, ("count", (long)delta.TotalMinutes));
         }
 
         if (delta < TimeSpan.FromDays(1))
         {
-            return $"{(int)delta.TotalHours}h";
+            return Strings.Format(locale, Str.WidgetsB_Time_HoursCompact, ("count", (long)delta.TotalHours));
         }
 
         if (delta < TimeSpan.FromDays(7))
         {
-            return DayNames[(int)when.DayOfWeek];
+            return LocaleFormat.WeekdayName(locale, when.DayOfWeek, NameWidth.Short);
         }
 
-        return $"{when.Day} {MonthNames[when.Month - 1]}";
+        return ShortDate(locale, DateOnly.FromDateTime(when.DateTime));
     }
 
-    /// <summary>A day and month, as a list column shows it: <c>22 Sep</c>.</summary>
-    public static string ShortDate(DateOnly day) => $"{day.Day} {MonthNames[day.Month - 1]}";
+    /// <summary>A day and month, as a list column shows it: <c>Sep 22</c> · <c>22. Sept.</c></summary>
+    public static string ShortDate(DateOnly day) => ShortDate(Strings.Current, day);
+
+    /// <summary><see cref="ShortDate(DateOnly)"/> in <paramref name="locale"/>.</summary>
+    public static string ShortDate(Locale locale, DateOnly day) => LocaleFormat.Date(locale, day, DateStyle.MonthDayShort);
 
     /// <summary>
     /// A heading over a day's rows: <c>Today</c>, <c>Tomorrow</c>, or the weekday and date.
@@ -152,19 +179,22 @@ public static class Formatting
     /// a date is more use than counting forward from "in 3 days".
     /// </para>
     /// </summary>
-    public static string DayHeading(DateOnly day, DateOnly today)
+    public static string DayHeading(DateOnly day, DateOnly today) => DayHeading(Strings.Current, day, today);
+
+    /// <summary><see cref="DayHeading(DateOnly, DateOnly)"/> in <paramref name="locale"/>.</summary>
+    public static string DayHeading(Locale locale, DateOnly day, DateOnly today)
     {
         if (day == today)
         {
-            return "Today";
+            return Strings.Get(locale, Str.Common_Today);
         }
 
         if (day == today.AddDays(1))
         {
-            return "Tomorrow";
+            return Strings.Get(locale, Str.Common_Tomorrow);
         }
 
-        return $"{DayNames[(int)day.DayOfWeek]} {ShortDate(day)}";
+        return LocaleFormat.Date(locale, day, DateStyle.WeekdayMonthDayShort);
     }
 
     /// <summary>
@@ -174,18 +204,26 @@ public static class Formatting
     /// only get from a colour is a state some readers do not get at all.
     /// </para>
     /// </summary>
-    public static string DueDate(DateOnly due, DateOnly today, bool overdue)
-        => overdue ? $"Overdue · {ShortDate(due)}" : DayHeading(due, today);
+    public static string DueDate(DateOnly due, DateOnly today, bool overdue) => DueDate(Strings.Current, due, today, overdue);
+
+    /// <summary><see cref="DueDate(DateOnly, DateOnly, bool)"/> in <paramref name="locale"/>.</summary>
+    public static string DueDate(Locale locale, DateOnly due, DateOnly today, bool overdue)
+        => overdue
+            ? Strings.Format(locale, Str.WidgetsB_Time_OverdueOn, ("date", ShortDate(locale, due)))
+            : DayHeading(locale, due, today);
 
     /// <summary>
-    /// The time of day on a 24-hour clock.
+    /// The time of day on a 24-hour clock, with the language's separator.
     /// <para>
-    /// Always 24-hour: the app builds with <c>InvariantGlobalization</c>, so there is no culture to
-    /// read a 12-hour preference from, and inventing one would be worse than being consistent.
+    /// Always 24-hour: callers that want the language's own clock use
+    /// <see cref="LocaleFormat.Time(Locale, TimeOnly, HourCycle, bool)"/> with <see cref="HourCycle.Locale"/>.
     /// </para>
     /// </summary>
-    public static string Clock24(DateTimeOffset moment)
-        => moment.ToLocalTime().ToString("HH:mm", CultureInfo.InvariantCulture);
+    public static string Clock24(DateTimeOffset moment) => Clock24(Strings.Current, moment);
+
+    /// <summary><see cref="Clock24(DateTimeOffset)"/> in <paramref name="locale"/>.</summary>
+    public static string Clock24(Locale locale, DateTimeOffset moment)
+        => LocaleFormat.Time(locale, moment.ToLocalTime().DateTime, HourCycle.H24);
 
     /// <summary>
     /// One or two initials for an avatar: the first and last word of the name, which is what every
@@ -207,9 +245,4 @@ public static class Formatting
             ? first.ToString()
             : string.Concat(first.ToString(), char.ToUpperInvariant(words[^1][0]).ToString());
     }
-
-    private static readonly string[] DayNames = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-
-    private static readonly string[] MonthNames =
-        ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 }

@@ -1,3 +1,4 @@
+using Themia.Core.Localization;
 namespace Themia.Core.Widgets;
 
 /// <summary>
@@ -77,11 +78,17 @@ public static class QuoteLayout
     /// a quote that carried its own marks would end up inside a second pair.
     /// </para>
     /// </summary>
-    public static string Quoted(string? text)
+    public static string Quoted(string? text) => Quoted(Strings.Current, text);
+
+    /// <summary>
+    /// <see cref="Quoted(string?)"/> with the quotation marks of <paramref name="locale"/>:
+    /// “…” in English, „…“ in German, « … » in French, 「…」 in Japanese.
+    /// </summary>
+    public static string Quoted(Locale locale, string? text)
     {
         var trimmed = text?.Trim() ?? string.Empty;
 
-        return trimmed.Length == 0 ? string.Empty : $"“{trimmed}”";
+        return trimmed.Length == 0 ? string.Empty : Strings.Format(locale, Str.WidgetsC_Quote_Quoted, ("text", trimmed));
     }
 
     /// <summary>

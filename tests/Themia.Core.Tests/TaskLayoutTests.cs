@@ -1,3 +1,4 @@
+using Themia.Core.Localization;
 using Themia.Core.Tasks;
 using Themia.Core.Widgets;
 using Xunit;
@@ -227,8 +228,9 @@ public sealed class TaskLayoutTests
             new("4", "l", "d", true, false, Due(-1)),
         ];
 
-        Assert.Equal("3 open · 1 overdue · 1 due today · 1 done", TaskRules.Summary(rows, Today, TimeZoneInfo.Utc));
-        Assert.Equal("Nothing open", TaskRules.Summary([], Today, TimeZoneInfo.Utc));
+        Assert.Equal("3 open · 1 overdue · 1 due today · 1 done", TaskRules.Summary(Locale.En, rows, Today, TimeZoneInfo.Utc));
+        Assert.Equal("Nothing open", TaskRules.Summary(Locale.En, [], Today, TimeZoneInfo.Utc));
+        Assert.Equal("3 offen · 1 überfällig · 1 heute fällig · 1 erledigt", TaskRules.Summary(Locale.De, rows, Today, TimeZoneInfo.Utc));
     }
 
     [Fact]
@@ -244,9 +246,11 @@ public sealed class TaskLayoutTests
     [Fact]
     public void S789_the_long_due_text_carries_the_date_where_it_says_something()
     {
-        Assert.Equal("Overdue · 2 Oct", TaskDue.WideText(new Due(Today.AddDays(-2), DueLabel.Overdue, -2)));
-        Assert.Equal("Today", TaskDue.WideText(new Due(Today, DueLabel.Today, 0)));
-        Assert.Equal("Thu 8 Oct", TaskDue.WideText(new Due(Today.AddDays(4), DueLabel.Weekday, 4)));
+        Assert.Equal("Overdue · Oct 2", TaskDue.WideText(Locale.En, new Due(Today.AddDays(-2), DueLabel.Overdue, -2)));
+        Assert.Equal("Today", TaskDue.WideText(Locale.En, new Due(Today, DueLabel.Today, 0)));
+        Assert.Equal("Thu, Oct 8", TaskDue.WideText(Locale.En, new Due(Today.AddDays(4), DueLabel.Weekday, 4)));
+        Assert.Equal("Überfällig · 2. Okt.", TaskDue.WideText(Locale.De, new Due(Today.AddDays(-2), DueLabel.Overdue, -2)));
+        Assert.Equal("Do., 8. Okt.", TaskDue.WideText(Locale.De, new Due(Today.AddDays(4), DueLabel.Weekday, 4)));
         Assert.True(TaskDue.IsUrgent(new Due(Today, DueLabel.Today, 0)));
         Assert.False(TaskDue.IsUrgent(new Due(Today.AddDays(1), DueLabel.Tomorrow, 1)));
     }

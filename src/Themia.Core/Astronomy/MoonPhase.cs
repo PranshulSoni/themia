@@ -1,3 +1,5 @@
+using Themia.Core.Localization;
+
 namespace Themia.Core.Astronomy;
 
 /// <summary>
@@ -110,17 +112,20 @@ public static class MoonPhase
             : new MoonEvent(MoonPhaseName.NewMoon, moment.AddDays(toNew * SynodicMonth));
     }
 
+    /// <summary>The display label for a phase bucket, in the app's language.</summary>
+    public static string Label(MoonPhaseName name) => Label(Strings.Current, name);
+
     /// <summary>The display label for a phase bucket. Written out rather than derived from the enum name.</summary>
-    public static string Label(MoonPhaseName name) => name switch
+    public static string Label(Locale locale, MoonPhaseName name) => Strings.Get(locale, name switch
     {
-        MoonPhaseName.NewMoon => "New Moon",
-        MoonPhaseName.WaxingCrescent => "Waxing Crescent",
-        MoonPhaseName.FirstQuarter => "First Quarter",
-        MoonPhaseName.WaxingGibbous => "Waxing Gibbous",
-        MoonPhaseName.FullMoon => "Full Moon",
-        MoonPhaseName.WaningGibbous => "Waning Gibbous",
-        MoonPhaseName.LastQuarter => "Last Quarter",
-        MoonPhaseName.WaningCrescent => "Waning Crescent",
-        _ => "Moon",
-    };
+        MoonPhaseName.NewMoon => Str.WidgetsC_SunMoon_Phase_NewMoon,
+        MoonPhaseName.WaxingCrescent => Str.WidgetsC_SunMoon_Phase_WaxingCrescent,
+        MoonPhaseName.FirstQuarter => Str.WidgetsC_SunMoon_Phase_FirstQuarter,
+        MoonPhaseName.WaxingGibbous => Str.WidgetsC_SunMoon_Phase_WaxingGibbous,
+        MoonPhaseName.FullMoon => Str.WidgetsC_SunMoon_Phase_FullMoon,
+        MoonPhaseName.WaningGibbous => Str.WidgetsC_SunMoon_Phase_WaningGibbous,
+        MoonPhaseName.LastQuarter => Str.WidgetsC_SunMoon_Phase_LastQuarter,
+        MoonPhaseName.WaningCrescent => Str.WidgetsC_SunMoon_Phase_WaningCrescent,
+        _ => Str.WidgetsC_SunMoon_Phase_Moon,
+    });
 }

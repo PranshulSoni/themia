@@ -1,4 +1,5 @@
 using System.Globalization;
+using Themia.Core.Localization;
 using Themia.Core.Model;
 
 namespace Themia.Core.Developer;
@@ -11,8 +12,6 @@ namespace Themia.Core.Developer;
 /// </summary>
 public static class GitHubRules
 {
-    private static readonly string[] MonthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-
     /// <summary>[S-744] Labels kept per issue: a row has room for two chips, the tooltip for the rest.</summary>
     public const int MaxLabels = 5;
 
@@ -256,14 +255,14 @@ public static class GitHubRules
     };
 
     /// <summary>[S-610] The header's word for the newest run.</summary>
-    public static string RunLabel(RunState state) => state switch
+    public static string RunLabel(RunState state, Locale locale) => Strings.Get(locale, state switch
     {
-        RunState.Success => "passing",
-        RunState.Failure => "failing",
-        RunState.Running => "running",
-        RunState.Queued => "queued",
-        _ => "no verdict",
-    };
+        RunState.Success => Str.Github_PipelinePassing,
+        RunState.Failure => Str.Github_PipelineFailing,
+        RunState.Running => Str.Github_PipelineRunning,
+        RunState.Queued => Str.WidgetsA_Github_Run_Queued,
+        _ => Str.WidgetsA_Github_Run_None,
+    });
 
     public static IReadOnlyList<RunItem> ToRuns(GhRunList? list, int count)
         => [.. (list?.Runs ?? [])
@@ -437,23 +436,23 @@ public static class GitHubRules
     };
 
     /// <summary>[S-618] The short word a notification row leads with.</summary>
-    public static string ReasonLabel(NotificationReason reason) => reason switch
+    public static string ReasonLabel(NotificationReason reason, Locale locale) => Strings.Get(locale, reason switch
     {
-        NotificationReason.Assign => "assigned",
-        NotificationReason.Author => "author",
-        NotificationReason.Comment => "comment",
-        NotificationReason.CiActivity => "CI",
-        NotificationReason.Invitation => "invite",
-        NotificationReason.Manual => "watching",
-        NotificationReason.Mention => "mention",
-        NotificationReason.ReviewRequested => "review",
-        NotificationReason.SecurityAlert => "security",
-        NotificationReason.StateChange => "state",
-        NotificationReason.Subscribed => "subscribed",
-        NotificationReason.TeamMention => "team",
-        NotificationReason.ApprovalRequested => "approval",
-        _ => "update",
-    };
+        NotificationReason.Assign => Str.WidgetsA_Github_Reason_Assign,
+        NotificationReason.Author => Str.WidgetsA_Github_Reason_Author,
+        NotificationReason.Comment => Str.WidgetsA_Github_Reason_Comment,
+        NotificationReason.CiActivity => Str.WidgetsA_Github_Reason_Ci,
+        NotificationReason.Invitation => Str.WidgetsA_Github_Reason_Invitation,
+        NotificationReason.Manual => Str.WidgetsA_Github_Reason_Manual,
+        NotificationReason.Mention => Str.WidgetsA_Github_Reason_Mention,
+        NotificationReason.ReviewRequested => Str.WidgetsA_Github_Reason_Review,
+        NotificationReason.SecurityAlert => Str.WidgetsA_Github_Reason_Security,
+        NotificationReason.StateChange => Str.WidgetsA_Github_Reason_State,
+        NotificationReason.Subscribed => Str.WidgetsA_Github_Reason_Subscribed,
+        NotificationReason.TeamMention => Str.WidgetsA_Github_Reason_Team,
+        NotificationReason.ApprovalRequested => Str.WidgetsA_Github_Reason_Approval,
+        _ => Str.WidgetsA_Github_Reason_Update,
+    });
 
     /// <summary>
     /// [S-618] Security is critical; a review, a mention, a team mention, an assignment or an
@@ -470,18 +469,18 @@ public static class GitHubRules
     };
 
     /// <summary>[S-617] What a notification is about, in words: <c>PullRequest</c> → "Pull request".</summary>
-    public static string SubjectLabel(string? type) => type switch
+    public static string SubjectLabel(string? type, Locale locale) => Strings.Get(locale, type switch
     {
-        "PullRequest" => "Pull request",
-        "Issue" => "Issue",
-        "Release" => "Release",
-        "CheckSuite" or "WorkflowRun" => "CI",
-        "Discussion" => "Discussion",
-        "Commit" => "Commit",
-        "RepositoryVulnerabilityAlert" or "RepositoryDependabotAlertsThread" => "Security alert",
-        "RepositoryInvitation" => "Invitation",
-        _ => "Update",
-    };
+        "PullRequest" => Str.WidgetsA_Github_Subject_PullRequest,
+        "Issue" => Str.WidgetsA_Github_Subject_Issue,
+        "Release" => Str.WidgetsA_Github_Subject_Release,
+        "CheckSuite" or "WorkflowRun" => Str.WidgetsA_Github_Reason_Ci,
+        "Discussion" => Str.WidgetsA_Github_Subject_Discussion,
+        "Commit" => Str.WidgetsA_Github_Subject_Commit,
+        "RepositoryVulnerabilityAlert" or "RepositoryDependabotAlertsThread" => Str.WidgetsA_Github_Subject_SecurityAlert,
+        "RepositoryInvitation" => Str.WidgetsA_Github_Subject_Invitation,
+        _ => Str.WidgetsA_Github_Subject_Update,
+    });
 
     // ---- merging -------------------------------------------------------------------------------
 
@@ -537,14 +536,9 @@ public static class GitHubRules
     // ---- text ----------------------------------------------------------------------------------
 
     /// <summary>[S-743] A row's detail, "rosa · 4 comments": who opened it and how much it has been talked about; either half alone when the other is missing.</summary>
-    public static string ItemDetail(string? author, int comments)
+    public static string ItemDetail(string? author, int comments, Locale locale)
     {
-        var talk = comments switch
-        {
-            <= 0 => string.Empty,
-            1 => "1 comment",
-            _ => string.Create(CultureInfo.InvariantCulture, $"{comments} comments"),
-        };
+        var talk = comments <= 0 ? string.Empty : Strings.Plural(locale, Str.WidgetsA_Github_Comments, comments);
 
         var who = author?.Trim() ?? string.Empty;
         return who.Length > 0 && talk.Length > 0 ? $"{who} · {talk}" : who.Length > 0 ? who : talk;
@@ -572,7 +566,7 @@ public static class GitHubRules
     /// [S-629] How long ago, in a list column's terms: <c>now</c>, <c>5m</c>, <c>3h</c>, <c>2d</c>
     /// within the week, then a date (<c>4 Mar</c>). A provider clock ahead of this one is "now".
     /// </summary>
-    public static string Ago(DateTimeOffset? when, DateTimeOffset now)
+    public static string Ago(DateTimeOffset? when, DateTimeOffset now, Locale locale)
     {
         if (when is not { } at)
         {
@@ -583,27 +577,28 @@ public static class GitHubRules
 
         if (delta < TimeSpan.FromMinutes(1))
         {
-            return "now";
+            return Strings.Get(locale, Str.WidgetsA_Github_AgoNow);
         }
 
         if (delta < TimeSpan.FromHours(1))
         {
-            return $"{(int)delta.TotalMinutes}m";
+            return Strings.Format(locale, Str.WidgetsA_Github_AgoMinutes, ("count", (int)delta.TotalMinutes));
         }
 
         if (delta < TimeSpan.FromDays(1))
         {
-            return $"{(int)delta.TotalHours}h";
+            return Strings.Format(locale, Str.WidgetsA_Github_AgoHours, ("count", (int)delta.TotalHours));
         }
 
         if (delta < TimeSpan.FromDays(7))
         {
-            return $"{(int)delta.TotalDays}d";
+            return Strings.Format(locale, Str.WidgetsA_Github_AgoDays, ("count", (int)delta.TotalDays));
         }
 
-        var local = at.ToOffset(now.Offset);
+        var local = DateOnly.FromDateTime(at.ToOffset(now.Offset).DateTime);
         return local.Year == now.Year
-            ? $"{local.Day} {MonthNames[local.Month - 1]}"
-            : $"{MonthNames[local.Month - 1]} {local.Year}";
+            ? LocaleFormat.Date(locale, local, DateStyle.MonthDayShort)
+            : Strings.Format(locale, Str.WidgetsA_Github_MonthYear,
+                ("month", LocaleFormat.MonthName(locale, local.Month, NameWidth.Short)), ("year", local.Year.ToString(CultureInfo.InvariantCulture)));
     }
 }

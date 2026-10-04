@@ -4,6 +4,7 @@ using System.Net.Security;
 using System.Net.Sockets;
 using System.Security.Authentication;
 using Themia.App.Services.Web;
+using Themia.Core.Localization;
 using Themia.Core.Net;
 using Themia.Core.Widgets;
 
@@ -85,7 +86,7 @@ internal static class GuardedHttp
             var verdict = await NetGuard.CheckDestinationAsync(destination, proxied: true, token).ConfigureAwait(false);
             if (!verdict.Allowed)
             {
-                throw new NetRefusedException(destination.IdnHost, verdict.Reason ?? $"{destination.IdnHost} was refused");
+                throw new NetRefusedException(destination.IdnHost, verdict.Reason ?? Str.Shell_Net_HostRefused.Format(("host", destination.IdnHost)));
             }
 
             var proxy = await NetGuard.OpenProxySocketAsync(endpoint.Host, endpoint.Port, token).ConfigureAwait(false);
@@ -112,7 +113,7 @@ internal sealed class GuardedHandler(NetReach reach, HttpMessageHandler inner) :
 
         if (uri is null || !uri.IsAbsoluteUri || (uri.Scheme != Uri.UriSchemeHttp && uri.Scheme != Uri.UriSchemeHttps))
         {
-            const string reason = "only http and https addresses are fetched";
+            var reason = Str.Shell_Net_HttpOnly.Text();
             throw new HttpRequestException(reason, new NetRefusedException(uri?.ToString() ?? string.Empty, reason));
         }
 
@@ -121,7 +122,7 @@ internal sealed class GuardedHandler(NetReach reach, HttpMessageHandler inner) :
             var verdict = await NetGuard.CheckDestinationAsync(uri, proxied: true, cancellationToken).ConfigureAwait(false);
             if (!verdict.Allowed)
             {
-                var reason = verdict.Reason ?? $"{uri.IdnHost} was refused";
+                var reason = verdict.Reason ?? Str.Shell_Net_HostRefused.Format(("host", uri.IdnHost));
                 throw new HttpRequestException(reason, new NetRefusedException(uri.IdnHost, reason));
             }
         }

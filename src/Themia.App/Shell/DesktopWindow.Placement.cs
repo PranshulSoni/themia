@@ -13,6 +13,7 @@ using Themia.App.Shell.Config;
 using Themia.App.Widgets;
 using Themia.Core.Diagnostics;
 using Themia.Core.Geometry;
+using Themia.Core.Localization;
 using Themia.Core.Model;
 using Themia.Core.Widgets;
 using Windows.Foundation;
@@ -224,6 +225,7 @@ internal sealed partial class DesktopWindow
         _host.EditModeChanged -= OnEditModeChanged;
         _host.SelectionChanged -= OnSelectionChanged;
         _host.PlacementChanged -= OnPlacementChanged;
+        Strings.Changed -= OnLanguageChanged;
 
         foreach (var card in _cards)
         {

@@ -6,6 +6,7 @@ using Microsoft.UI.Xaml.Documents;
 using Microsoft.UI.Xaml.Input;
 using Themia.App.Services;
 using Themia.App.Shell;
+using Themia.Core.Localization;
 using Themia.Core.Model;
 using Themia.Core.Widgets;
 using Glyphs = Themia.App.Shell.Glyphs;
@@ -370,7 +371,9 @@ internal sealed partial class HelpView : Grid, IWidgetView, IWidgetSizeAware
 
         foreach (var span in RichText.Parse(text))
         {
-            var run = new Run { Text = span.Text };
+            // A key chord ("Strg+Alt+W") is one word: word joiners around each "+" keep the line
+            // from breaking inside it, which the longer languages otherwise do.
+            var run = new Run { Text = span.Kind == RichKind.Strong ? KeepChord(span.Text) : span.Text };
 
             switch (span.Kind)
             {
@@ -402,6 +405,8 @@ internal sealed partial class HelpView : Grid, IWidgetView, IWidgetSizeAware
         return block;
     }
 
+    private static string KeepChord(string text) => text.Contains('+') ? text.Replace("+", "\u2060+\u2060", StringComparison.Ordinal) : text;
+
     /// <summary>[S-1531] The keys card (XL): each key in the primary colour, what it does beside it.</summary>
     private static Border KeysCard()
     {
@@ -417,15 +422,17 @@ internal sealed partial class HelpView : Grid, IWidgetView, IWidgetSizeAware
         };
 
         var heading = Fluent.Text(FluentType.BodyStrong);
-        heading.Text = "Keys";
+        heading.Text = HelpGuide.KeysTitle(Strings.Current);
         heading.Margin = new Thickness(0, 0, 0, Fluent.Space1);
         SetColumnSpan(heading, 2);
         grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         grid.Children.Add(heading);
 
-        for (var i = 0; i < HelpGuide.Keys.Count; i++)
+        var keyList = HelpGuide.Keys;
+
+        for (var i = 0; i < keyList.Count; i++)
         {
-            var key = HelpGuide.Keys[i];
+            var key = keyList[i];
             grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
 
             var keys = Fluent.Text(FluentType.Strong(FluentType.Caption));
@@ -461,10 +468,32 @@ internal sealed partial class HelpView : Grid, IWidgetView, IWidgetSizeAware
         };
     }
 
+    /// <summary>
+    /// A command filling the navigation column. Its label sits in a star column so a long one
+    /// ("Widgets bearbeiten") ends in an ellipsis, with the whole label on hover, instead of being
+    /// cut mid-letter by a horizontal stack that measures it as if it had all the room in the world.
+    /// </summary>
     private static Button Stretch(Button button)
     {
         button.HorizontalAlignment = HorizontalAlignment.Stretch;
-        button.HorizontalContentAlignment = HorizontalAlignment.Left;
+        button.HorizontalContentAlignment = HorizontalAlignment.Stretch;
+
+        if (button.Content is StackPanel { Children: [FrameworkElement icon, TextBlock label] } stack)
+        {
+            stack.Children.Clear();
+            label.TextTrimming = TextTrimming.CharacterEllipsis;
+            label.TextWrapping = TextWrapping.NoWrap;
+            Grid.SetColumn(label, 1);
+
+            var grid = new Grid { ColumnSpacing = stack.Spacing };
+            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            grid.Children.Add(icon);
+            grid.Children.Add(label);
+            button.Content = grid;
+            ToolTipService.SetToolTip(button, label.Text);
+        }
+
         return button;
     }
 

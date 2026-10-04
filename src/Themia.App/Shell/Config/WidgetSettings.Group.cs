@@ -1,4 +1,5 @@
 using Microsoft.UI.Xaml;
+using Themia.Core.Localization;
 using Themia.Core.Model;
 
 namespace Themia.App.Shell.Config;
@@ -13,23 +14,23 @@ internal static partial class WidgetSettings
     /// </summary>
     public static void Group(List<FrameworkElement> rows, GroupConfig config, Action save)
     {
-        rows.Add(FluentLayout.Row(Glyphs.Group, "Icon", "Shown in the title bar",
+        rows.Add(FluentLayout.Row(Glyphs.Group, Str.Group_Icon_Label.Text(), Str.WidgetsA_Group_Settings_Icon_Desc.Text(),
             IconChoice.Create(config.Icon, Glyphs.Group, glyph =>
             {
                 config.Icon = glyph;
                 save();
             })));
 
-        rows.Add(FluentLayout.ColorPickerRow(Glyphs.Palette, "Fill", "The area behind the widgets in it",
+        rows.Add(FluentLayout.ColorPickerRow(Glyphs.Palette, Str.Group_Bg_Label.Text(), Str.Group_Bg_Desc.Text(),
             config.Fill,
             value =>
             {
                 config.Fill = value;
                 save();
             },
-            new ColorChoiceOptions { DefaultLabel = "Theme wash" }));
+            new ColorChoiceOptions { DefaultLabel = Str.WidgetsA_Group_Settings_Fill_Default.Text() }));
 
-        rows.Add(FluentLayout.Row(Glyphs.Surface, "Fill opacity", "How strongly a fill of your own shows",
+        rows.Add(FluentLayout.Row(Glyphs.Surface, Str.WidgetsA_Group_Settings_FillOpacity_Label.Text(), Str.WidgetsA_Group_Settings_FillOpacity_Desc.Text(),
             FluentLayout.Slider(config.FillOpacity * 100, 0, 100, 1, "%", value =>
             {
                 config.FillOpacity = Math.Clamp(value / 100, 0, 1);

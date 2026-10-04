@@ -1,3 +1,4 @@
+using Themia.Core.Localization;
 using Themia.Core.Widgets;
 using Xunit;
 
@@ -103,5 +104,14 @@ public sealed class ViewSwitcherRulesTests
     [InlineData(1, "1 widget")]
     [InlineData(7, "7 widgets")]
     public void S1657_the_count_line_reads_naturally(int count, string expected)
-        => Assert.Equal(expected, ViewSwitcherRules.CountText(count));
+        => Assert.Equal(expected, ViewSwitcherRules.CountText(Locale.En, count));
+
+    [Theory]
+    [InlineData(Locale.De, 0, "Keine Widgets")]
+    [InlineData(Locale.De, 1, "1 Widget")]
+    [InlineData(Locale.De, 7, "7 Widgets")]
+    [InlineData(Locale.Pl, 3, "3 widżety")]
+    [InlineData(Locale.Pl, 5, "5 widżetów")]
+    public void S1657_the_count_line_follows_the_language(Locale locale, int count, string expected)
+        => Assert.Equal(expected, ViewSwitcherRules.CountText(locale, count));
 }

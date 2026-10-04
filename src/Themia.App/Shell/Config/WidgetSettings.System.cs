@@ -1,5 +1,6 @@
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Themia.Core.Localization;
 using Themia.Core.Model;
 using Themia.Core.Widgets;
 
@@ -21,34 +22,34 @@ internal static partial class WidgetSettings
         ArgumentNullException.ThrowIfNull(config);
         ArgumentNullException.ThrowIfNull(save);
 
-        rows.Add(FluentLayout.Header("Processes"));
+        rows.Add(FluentLayout.Header(Str.WidgetUi_Processes.Text()));
 
-        rows.Add(FluentLayout.Row(Glyphs.Sort, "Rank by", "Which column the list is ordered on",
+        rows.Add(FluentLayout.Row(Glyphs.Sort, Str.WidgetsC_Processes_Settings_RankBy_Label.Text(), Str.WidgetsC_Processes_Settings_RankBy_Desc.Text(),
             FluentLayout.Choice(
-                [(ProcessSort.Cpu, "Processor"), (ProcessSort.Memory, "Memory")],
+                [(ProcessSort.Cpu, Str.WidgetsC_Processes_Settings_Processor.Text()), (ProcessSort.Memory, Str.WidgetsC_Processes_Col_Memory.Text())],
                 config.Sort,
                 value => { config.Sort = value; save(); })));
 
-        rows.Add(FluentLayout.Row(Glyphs.Count, "Most processes",
-            "A ceiling: the widget shows as many whole rows as fit, up to this",
+        rows.Add(FluentLayout.Row(Glyphs.Count, Str.WidgetsC_Processes_Settings_Most_Label.Text(),
+            Str.WidgetsC_Processes_Settings_Most_Desc.Text(),
             FluentLayout.Slider(config.EffectiveMaxCount, 1, ProcessesConfig.MaxRows, 1, string.Empty,
                 value => { config.MaxCount = (int)Math.Round(value); save(); }),
             "rows", "count"));
 
         // [S-1155] Columns are offered, not forced: each appears only where the row is wide enough.
-        rows.Add(FluentLayout.Header("Columns"));
+        rows.Add(FluentLayout.Header(Str.WidgetsC_Processes_Settings_Columns.Text()));
 
-        rows.Add(FluentLayout.Row(Glyphs.Memory, "Memory", "The memory each process holds, beside its processor share",
+        rows.Add(FluentLayout.Row(Glyphs.Memory, Str.WidgetsC_Processes_Col_Memory.Text(), Str.WidgetsC_Processes_Settings_Memory_Desc.Text(),
             FluentLayout.Toggle(config.ShowMemory, value => { config.ShowMemory = value; save(); })));
 
-        rows.Add(FluentLayout.Row(Glyphs.Processes, "Threads", "How many threads each process runs, on a wide widget",
+        rows.Add(FluentLayout.Row(Glyphs.Processes, Str.WidgetsC_Processes_Col_Threads.Text(), Str.WidgetsC_Processes_Settings_Threads_Desc.Text(),
             FluentLayout.Toggle(config.ShowThreads, value => { config.ShowThreads = value; save(); })));
 
-        rows.Add(FluentLayout.Row(Glyphs.Tag, "Process ID", "Each process's id, on a wide widget",
+        rows.Add(FluentLayout.Row(Glyphs.Tag, Str.WidgetsC_Processes_Settings_Pid_Label.Text(), Str.WidgetsC_Processes_Settings_Pid_Desc.Text(),
             FluentLayout.Toggle(config.ShowPid, value => { config.ShowPid = value; save(); }),
             "pid"));
 
-        rows.Add(FluentLayout.Row(Glyphs.Info, "Totals", "How many processes and threads are running, under a tall list",
+        rows.Add(FluentLayout.Row(Glyphs.Info, Str.WidgetsC_Processes_Settings_Totals_Label.Text(), Str.WidgetsC_Processes_Settings_Totals_Desc.Text(),
             FluentLayout.Toggle(config.ShowTotals, value => { config.ShowTotals = value; save(); }),
             "footer", "count"));
     }

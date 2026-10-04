@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Xml;
 using System.Xml.Linq;
+using Themia.Core.Localization;
 
 namespace Themia.Core.Accounts;
 
@@ -342,18 +343,18 @@ public static class DavDiscovery
         if (authFailed && !connected)
         {
             return new DavDiscoveryResult(DavDiscoveryOutcome.AuthFailed, null, lastStatus,
-                $"The server refused the sign-in (HTTP {lastStatus}). Check the user name and password.");
+                Str.Shell_Accounts_Dav_AuthFailed.Format(("status", lastStatus)));
         }
 
         if (lastStatus != 0 && !connected)
         {
             return new DavDiscoveryResult(DavDiscoveryOutcome.ServerError, null, lastStatus,
-                $"The server returned HTTP {lastStatus}. Check the address.");
+                Str.Shell_Accounts_Dav_ServerError.Format(("status", lastStatus)));
         }
 
         return new DavDiscoveryResult(DavDiscoveryOutcome.NothingFound, null, 0, kind == DavKind.Calendar
-            ? "Connected, but no calendar was found there. Enter your calendar's full CalDAV address."
-            : "Connected, but no address book was found there. Enter your address book's full CardDAV address.");
+            ? Str.Shell_Accounts_Dav_NoCalendar.Text()
+            : Str.Shell_Accounts_Dav_NoAddressBook.Text());
     }
 
     private static async Task<Uri?> WalkAsync(DavReply probe, DavKind kind, Propfind propfind, CancellationToken cancellation)

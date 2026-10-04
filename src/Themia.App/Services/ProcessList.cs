@@ -3,6 +3,7 @@ using System.Diagnostics;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using Themia.Core.Diagnostics;
+using Themia.Core.Localization;
 using Themia.Core.Model;
 
 namespace Themia.App.Services;
@@ -407,7 +408,7 @@ internal static unsafe partial class ProcessList
         {
             // The kernel leaves the name empty for a few entries. A pid is not a name, but it is
             // true, and it keeps the row's identity visible instead of showing a blank line.
-            return $"pid {pid}";
+            return Str.Shell_Process_Pid.Format(("pid", pid.ToString(System.Globalization.CultureInfo.InvariantCulture)));
         }
 
         // Length is in bytes, as UNICODE_STRING always is.

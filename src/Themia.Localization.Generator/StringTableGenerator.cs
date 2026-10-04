@@ -11,11 +11,14 @@ using Microsoft.CodeAnalysis.Text;
 namespace Themia.Localization.Generator;
 
 /// <summary>
-/// [S-1101] Compiles <c>Localization/Locales/&lt;code&gt;.json</c> (passed as AdditionalFiles) into
-/// the <c>Str</c> enum and one static table per language.
+/// [S-1101] Compiles <c>Localization/Locales/&lt;code&gt;.json</c> and the area fragments
+/// <c>Localization/Locales/&lt;area&gt;/&lt;code&gt;.json</c> (passed as AdditionalFiles) into the
+/// <c>Str</c> enum and one static table per language ([S-1111]).
 /// <para>
-/// en.json is the master: its keys, in file order, are the enum. Every other file may only hold
-/// keys en.json has. Anything malformed is a build error with a squiggle on the offending line, so
+/// en.json is the master: its keys, in file order, are the enum. With fragments, all of a language's
+/// files merge into one table; English order is the root file, then areas by name. A key may be
+/// defined once per language, and a file may only hold keys the en.json <b>of its own area</b> has.
+/// Anything malformed is a build error with a squiggle on the offending line, so
 /// a broken locale never reaches a user. Completeness (every key in every language) is deliberately
 /// <b>not</b> a build error — a new English string must be able to land before its translations —
 /// and is pinned by the completeness test instead ([S-1105]).
@@ -37,12 +40,17 @@ public sealed class StringTableGenerator : IIncrementalGenerator
     private static readonly Regex KeyPattern = new("^[a-z][A-Za-z0-9]*(\\.[A-Za-z0-9]+)*$", RegexOptions.CultureInvariant);
 
     private static readonly DiagnosticDescriptor BadJson = Rule("THEMIALOC001", "Locale file is not valid JSON", "{0}: {1}");
-    private static readonly DiagnosticDescriptor NoEnglish = Rule("THEMIALOC002", "en.json is missing", "Localization/Locales/en.json is missing; it defines every string key");
+    private static readonly DiagnosticDescriptor NoEnglish = Rule("THEMIALOC002", "en.json is missing", "Localization/Locales/en.json is missing; it is the master of the root file set");
     private static readonly DiagnosticDescriptor UnknownLocale = Rule("THEMIALOC003", "Unknown locale file", "'{0}' is not one of the app's languages (en, de, es, fr, it, ja, pl, pt, zh)");
     private static readonly DiagnosticDescriptor BadKey = Rule("THEMIALOC004", "Bad string key", "Key '{0}' must be dotted camelCase segments, e.g. settings.general.language");
     private static readonly DiagnosticDescriptor BadValue = Rule("THEMIALOC005", "Bad string value", "{0}: {1}");
-    private static readonly DiagnosticDescriptor NotInEnglish = Rule("THEMIALOC006", "Key not in en.json", "{0}.json has '{1}', which en.json does not define (typo or stale key)");
+    private static readonly DiagnosticDescriptor NotInEnglish = Rule("THEMIALOC006", "Key not in en.json", "{0} has '{1}', which {2} does not define (typo, stale key, or a key that belongs to another area)");
     private static readonly DiagnosticDescriptor NameClash = Rule("THEMIALOC007", "Key names clash", "Keys '{0}' and '{1}' both become Str.{2}");
+
+    private static readonly DiagnosticDescriptor DuplicateKey = Rule("THEMIALOC008", "Key defined twice", "Key '{0}' is defined in both {1} and {2}; a key lives in exactly one file per language");
+    private static readonly DiagnosticDescriptor BadArea = Rule("THEMIALOC009", "Bad area folder name", "'{0}' is not a valid area folder name (lowercase letters and digits, '-' between parts, e.g. widgets-a)");
+
+    private static readonly Regex AreaPattern = new("^[a-z][a-z0-9]*(-[a-z0-9]+)*$", RegexOptions.CultureInvariant);
 
     private static DiagnosticDescriptor Rule(string id, string title, string format)
         => new(id, title, format, "Localization", DiagnosticSeverity.Error, isEnabledByDefault: true);
@@ -57,18 +65,49 @@ public sealed class StringTableGenerator : IIncrementalGenerator
         context.RegisterSourceOutput(files, Emit);
     }
 
-    private static bool IsLocaleFile(string path)
+    /// <summary>
+    /// A locale file is <c>Localization/Locales/&lt;code&gt;.json</c> (area <c>null</c>) or
+    /// <c>Localization/Locales/&lt;area&gt;/&lt;code&gt;.json</c>. Deeper nesting is not ours.
+    /// </summary>
+    private static bool IsLocaleFile(string path) => TryClassify(path, out _);
+
+    private static bool TryClassify(string path, out string? area)
     {
+        area = null;
         if (!path.EndsWith(".json", StringComparison.OrdinalIgnoreCase))
         {
             return false;
         }
 
         var dir = Path.GetDirectoryName(path);
-        return dir is not null
-            && string.Equals(Path.GetFileName(dir), "Locales", StringComparison.OrdinalIgnoreCase)
-            && string.Equals(Path.GetFileName(Path.GetDirectoryName(dir)), "Localization", StringComparison.OrdinalIgnoreCase);
+        if (dir is null)
+        {
+            return false;
+        }
+
+        if (IsLocalesFolder(dir))
+        {
+            return true;
+        }
+
+        var parent = Path.GetDirectoryName(dir);
+        if (parent is not null && IsLocalesFolder(parent))
+        {
+            area = Path.GetFileName(dir);
+            return true;
+        }
+
+        return false;
     }
+
+    private static bool IsLocalesFolder(string dir)
+        => string.Equals(Path.GetFileName(dir), "Locales", StringComparison.OrdinalIgnoreCase)
+            && Path.GetDirectoryName(dir) is { } up
+            && string.Equals(Path.GetFileName(up), "Localization", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>The path as the build log should name it: <c>Locales/de.json</c> or <c>Locales/shell/de.json</c>.</summary>
+    private static string Display(string? area, string code)
+        => area is null ? $"Locales/{code}.json" : $"Locales/{area}/{code}.json";
 
     private static void Emit(SourceProductionContext context, ImmutableArray<SourceFile> files)
     {
@@ -78,71 +117,136 @@ public sealed class StringTableGenerator : IIncrementalGenerator
             return;
         }
 
-        var parsed = new Dictionary<string, LocaleFile>(StringComparer.Ordinal);
-        foreach (var file in files.OrderBy(f => f.Path, StringComparer.Ordinal))
+        // Root first, then areas by name; within one area by language code. This order is the
+        // English key order and decides which of two duplicate definitions is "the first".
+        var parsed = new List<LocaleFile>();
+        var englishBroken = false;
+        foreach (var file in files.OrderBy(f => f.Area ?? string.Empty, StringComparer.Ordinal).ThenBy(f => f.Path, StringComparer.Ordinal))
         {
             var code = Path.GetFileNameWithoutExtension(file.Path).ToLowerInvariant();
             if (!Locales.Any(l => l[0] == code))
             {
-                context.ReportDiagnostic(Diagnostic.Create(UnknownLocale, At(file, 0), Path.GetFileName(file.Path)));
+                context.ReportDiagnostic(Diagnostic.Create(UnknownLocale, At(file, 0), Display(file.Area, code)));
+                continue;
+            }
+
+            if (file.Area is not null && !AreaPattern.IsMatch(file.Area))
+            {
+                context.ReportDiagnostic(Diagnostic.Create(BadArea, At(file, 0), file.Area));
+                englishBroken |= code == "en";
                 continue;
             }
 
             if (Read(context, file, code) is { } locale)
             {
-                parsed[code] = locale;
-            }
-        }
-
-        if (!parsed.TryGetValue("en", out var en))
-        {
-            if (!files.Any(f => Path.GetFileNameWithoutExtension(f.Path).Equals("en", StringComparison.OrdinalIgnoreCase)))
-            {
-                context.ReportDiagnostic(Diagnostic.Create(NoEnglish, Location.None));
-            }
-
-            return;
-        }
-
-        // The enum: en.json's keys in file order.
-        var ids = new Dictionary<string, int>(StringComparer.Ordinal);
-        var members = new Dictionary<string, string>(StringComparer.Ordinal);
-        foreach (var entry in en.Entries)
-        {
-            var member = MemberName(entry.Key);
-            if (members.TryGetValue(member, out var other))
-            {
-                context.ReportDiagnostic(Diagnostic.Create(NameClash, At(en.Source, entry.Offset), other, entry.Key, member));
-                return;
-            }
-
-            members[member] = entry.Key;
-            ids[entry.Key] = ids.Count;
-        }
-
-        var englishOnly = new List<int>();
-        foreach (var (key, offset) in en.EnglishOnly)
-        {
-            if (ids.TryGetValue(key, out var id))
-            {
-                englishOnly.Add(id);
+                parsed.Add(locale);
             }
             else
             {
-                context.ReportDiagnostic(Diagnostic.Create(BadValue, At(en.Source, offset), "$englishOnly", $"'{key}' is not a key of en.json"));
+                englishBroken |= code == "en";
             }
         }
 
-        foreach (var locale in parsed.Values)
+        if (!files.Any(f => f.Area is null && Path.GetFileNameWithoutExtension(f.Path).Equals("en", StringComparison.OrdinalIgnoreCase)))
         {
-            foreach (var entry in locale.Entries.Where(e => !ids.ContainsKey(e.Key)))
+            context.ReportDiagnostic(Diagnostic.Create(NoEnglish, Location.None));
+            return;
+        }
+
+        if (englishBroken)
+        {
+            // The enum cannot be built from a partial English table; the errors are already reported.
+            return;
+        }
+
+        // The enum: the English files' keys in order (root file, then areas by name).
+        var english = new List<Entry>();
+        var ids = new Dictionary<string, int>(StringComparer.Ordinal);
+        var members = new Dictionary<string, string>(StringComparer.Ordinal);
+        var firstDefinition = new Dictionary<string, LocaleFile>(StringComparer.Ordinal);
+        var englishOnly = new List<int>();
+        var perAreaEnglish = new Dictionary<string, HashSet<string>>(StringComparer.Ordinal);
+        foreach (var file in parsed.Where(f => f.Code == "en"))
+        {
+            var ownKeys = new HashSet<string>(StringComparer.Ordinal);
+            perAreaEnglish[file.Area ?? string.Empty] = ownKeys;
+            foreach (var entry in file.Entries)
             {
-                context.ReportDiagnostic(Diagnostic.Create(NotInEnglish, At(locale.Source, entry.Offset), locale.Code, entry.Key));
+                ownKeys.Add(entry.Key);
+                if (firstDefinition.TryGetValue(entry.Key, out var first))
+                {
+                    context.ReportDiagnostic(Diagnostic.Create(DuplicateKey, At(file.Source, entry.Offset), entry.Key, first.DisplayName, file.DisplayName));
+                    continue;
+                }
+
+                var member = MemberName(entry.Key);
+                if (members.TryGetValue(member, out var other))
+                {
+                    context.ReportDiagnostic(Diagnostic.Create(NameClash, At(file.Source, entry.Offset), other, entry.Key, member));
+                    return;
+                }
+
+                firstDefinition[entry.Key] = file;
+                members[member] = entry.Key;
+                ids[entry.Key] = ids.Count;
+                english.Add(entry);
             }
         }
 
-        context.AddSource("Str.g.cs", SourceText.From(EnumSource(en), Encoding.UTF8));
-        context.AddSource("StringTables.g.cs", SourceText.From(TableSource(en, parsed, ids, englishOnly), Encoding.UTF8));
+        foreach (var file in parsed.Where(f => f.Code == "en"))
+        {
+            foreach (var (key, offset) in file.EnglishOnly)
+            {
+                if (perAreaEnglish[file.Area ?? string.Empty].Contains(key))
+                {
+                    if (!englishOnly.Contains(ids[key]))
+                    {
+                        englishOnly.Add(ids[key]);
+                    }
+                }
+                else
+                {
+                    context.ReportDiagnostic(Diagnostic.Create(BadValue, At(file.Source, offset), "$englishOnly", $"'{key}' is not a key of {file.DisplayName}"));
+                }
+            }
+        }
+
+        // The other languages: one merged table each; a stray key or a second definition is an error.
+        var merged = new Dictionary<string, List<Entry>>(StringComparer.Ordinal);
+        var definedIn = new Dictionary<string, Dictionary<string, LocaleFile>>(StringComparer.Ordinal);
+        foreach (var file in parsed.Where(f => f.Code != "en"))
+        {
+            if (!merged.TryGetValue(file.Code, out var entries))
+            {
+                merged[file.Code] = entries = new List<Entry>();
+                definedIn[file.Code] = new Dictionary<string, LocaleFile>(StringComparer.Ordinal);
+            }
+
+            var owner = definedIn[file.Code];
+            var areaKeys = perAreaEnglish.TryGetValue(file.Area ?? string.Empty, out var set) ? set : null;
+            foreach (var entry in file.Entries)
+            {
+                // Duplicates first: two files defining one key is the more useful error, and it
+                // names both, even when the key is also a stray in one of them.
+                if (owner.TryGetValue(entry.Key, out var first))
+                {
+                    context.ReportDiagnostic(Diagnostic.Create(DuplicateKey, At(file.Source, entry.Offset), entry.Key, first.DisplayName, file.DisplayName));
+                    continue;
+                }
+
+                owner[entry.Key] = file;
+                if (areaKeys is null || !areaKeys.Contains(entry.Key))
+                {
+                    context.ReportDiagnostic(Diagnostic.Create(NotInEnglish, At(file.Source, entry.Offset), file.DisplayName, entry.Key, Display(file.Area, "en")));
+                    continue;
+                }
+
+                entries.Add(entry);
+            }
+        }
+
+        context.AddSource("Str.g.cs", SourceText.From(EnumSource(english), Encoding.UTF8));
+        context.AddSource("StringTables.g.cs", SourceText.From(TableSource(english, merged, ids, englishOnly), Encoding.UTF8));
     }
 
     // -----------------------------------------------------------------------------------------
@@ -158,13 +262,13 @@ public sealed class StringTableGenerator : IIncrementalGenerator
         }
         catch (JsonError error)
         {
-            context.ReportDiagnostic(Diagnostic.Create(BadJson, At(file, error.Offset), Path.GetFileName(file.Path), error.Message));
+            context.ReportDiagnostic(Diagnostic.Create(BadJson, At(file, error.Offset), Display(file.Area, code), error.Message));
             return null;
         }
 
         if (root is not JsonObject obj)
         {
-            context.ReportDiagnostic(Diagnostic.Create(BadJson, At(file, root.Offset), Path.GetFileName(file.Path), "the file must be one object of key: text"));
+            context.ReportDiagnostic(Diagnostic.Create(BadJson, At(file, root.Offset), Display(file.Area, code), "the file must be one object of key: text"));
             return null;
         }
 
@@ -276,7 +380,7 @@ public sealed class StringTableGenerator : IIncrementalGenerator
     internal static string MemberName(string key)
         => string.Join("_", key.Split('.').Select(s => char.IsDigit(s[0]) ? "_" + s : char.ToUpperInvariant(s[0]) + s.Substring(1)));
 
-    private static string EnumSource(LocaleFile en)
+    private static string EnumSource(List<Entry> english)
     {
         var sb = new StringBuilder();
         sb.AppendLine("// <auto-generated/> Themia.Localization.Generator, from Localization/Locales/en.json.");
@@ -290,10 +394,10 @@ public sealed class StringTableGenerator : IIncrementalGenerator
         sb.AppendLine("public enum Str");
         sb.AppendLine("{");
         var id = 0;
-        foreach (var entry in en.Entries)
+        foreach (var entry in english)
         {
-            var english = entry.Text ?? entry.Forms![Categories.Length - 1]!;
-            sb.Append("    /// <summary>").Append(XmlDoc(english)).AppendLine("</summary>");
+            var text = entry.Text ?? entry.Forms![Categories.Length - 1]!;
+            sb.Append("    /// <summary>").Append(XmlDoc(text)).AppendLine("</summary>");
             sb.Append("    /// <remarks><c>").Append(entry.Key).AppendLine(entry.Forms is null ? "</c></remarks>" : "</c> (plural)</remarks>");
             sb.Append("    ").Append(MemberName(entry.Key)).Append(" = ").Append(id++).AppendLine(",");
         }
@@ -302,10 +406,10 @@ public sealed class StringTableGenerator : IIncrementalGenerator
         return sb.ToString();
     }
 
-    private static string TableSource(LocaleFile en, Dictionary<string, LocaleFile> parsed, Dictionary<string, int> ids, List<int> englishOnly)
+    private static string TableSource(List<Entry> english, Dictionary<string, List<Entry>> merged, Dictionary<string, int> ids, List<int> englishOnly)
     {
         var sb = new StringBuilder();
-        sb.AppendLine("// <auto-generated/> Themia.Localization.Generator, from Localization/Locales/*.json.");
+        sb.AppendLine("// <auto-generated/> Themia.Localization.Generator, from Localization/Locales/**/*.json.");
         sb.AppendLine("#nullable enable");
         sb.AppendLine("namespace Themia.Core.Localization;");
         sb.AppendLine();
@@ -317,7 +421,7 @@ public sealed class StringTableGenerator : IIncrementalGenerator
         sb.AppendLine("    /// <summary>The key of each <see cref=\"Str\"/>, by id.</summary>");
         sb.AppendLine("    internal static readonly string[] Keys =");
         sb.AppendLine("    {");
-        foreach (var entry in en.Entries)
+        foreach (var entry in english)
         {
             sb.Append("        ").Append(Literal(entry.Key)).AppendLine(",");
         }
@@ -344,11 +448,11 @@ public sealed class StringTableGenerator : IIncrementalGenerator
             sb.AppendLine("    {");
             sb.Append("        internal static readonly LocaleTable Table = new(Locale.").Append(l[1]).AppendLine(",");
 
-            parsed.TryGetValue(l[0], out var locale);
             var byId = new Entry?[ids.Count];
-            if (locale is not null)
+            var entriesOfLocale = l[0] == "en" ? english : merged.TryGetValue(l[0], out var own) ? own : null;
+            if (entriesOfLocale is not null)
             {
-                foreach (var entry in locale.Entries)
+                foreach (var entry in entriesOfLocale)
                 {
                     if (ids.TryGetValue(entry.Key, out var id))
                     {
@@ -441,9 +545,14 @@ public sealed class StringTableGenerator : IIncrementalGenerator
         {
             Path = path;
             Text = text;
+            TryClassify(path, out var area);
+            Area = area;
         }
 
         public string Path { get; }
+
+        /// <summary>The fragment's area folder, or <c>null</c> for a root file.</summary>
+        public string? Area { get; }
 
         public string Text { get; }
 
@@ -484,6 +593,10 @@ public sealed class StringTableGenerator : IIncrementalGenerator
         public string Code { get; }
 
         public SourceFile Source { get; }
+
+        public string? Area => Source.Area;
+
+        public string DisplayName => Display(Source.Area, Code);
 
         public List<Entry> Entries { get; } = new();
 

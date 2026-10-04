@@ -1,3 +1,4 @@
+using Themia.Core.Localization;
 using Themia.Core.Model;
 using Themia.Core.Widgets;
 using Xunit;
@@ -71,7 +72,7 @@ public class StreamChromeTests
     [InlineData(false, 0, 0, "connecting")]
     [InlineData(false, 3, 0, "reconnecting 3")]
     public void S1313_the_status_says_what_the_stream_is_doing(bool live, int reconnects, int refresh, string expected)
-        => Assert.Equal(expected, StreamChromeRules.Status(live, reconnects, refresh));
+        => Assert.Equal(expected, StreamChromeRules.Status(Locale.En, live, reconnects, refresh));
 
     [Theory]
     [InlineData(0.4, "now")]
@@ -80,7 +81,7 @@ public class StreamChromeTests
     [InlineData(150, "2 min ago")]
     [InlineData(7300, "2 h ago")]
     public void S1313_the_frame_age_reads_in_seconds_then_minutes_then_hours(double seconds, string expected)
-        => Assert.Equal(expected, StreamChromeRules.FrameAge(TimeSpan.FromSeconds(seconds)));
+        => Assert.Equal(expected, StreamChromeRules.FrameAge(Locale.En, TimeSpan.FromSeconds(seconds)));
 
     [Theory]
     [InlineData(null, "")]
@@ -90,7 +91,16 @@ public class StreamChromeTests
     [InlineData(12.4, "12 fps")]
     [InlineData(29.97, "30 fps")]
     public void S1313_the_rate_is_whole_from_ten_and_one_decimal_under(double? fps, string expected)
-        => Assert.Equal(expected, StreamChromeRules.Rate(fps));
+        => Assert.Equal(expected, StreamChromeRules.Rate(Locale.En, fps));
+
+    [Fact]
+    public void S1313_status_age_and_rate_are_in_the_language()
+    {
+        Assert.Equal("alle 10 s", StreamChromeRules.Status(Locale.De, live: true, 0, 10));
+        Assert.Equal("vor 2 Min.", StreamChromeRules.FrameAge(Locale.De, TimeSpan.FromMinutes(2.5)));
+        Assert.Equal("2,5 fps", StreamChromeRules.Rate(Locale.De, 2.46));
+        Assert.Equal("2 fps", StreamChromeRules.Rate(Locale.En, 2.0));
+    }
 
     [Fact]
     public void S1313_resolution_and_transport_words()

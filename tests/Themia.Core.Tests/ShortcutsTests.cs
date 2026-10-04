@@ -1,3 +1,4 @@
+using Themia.Core.Localization;
 using Themia.Core.Model;
 using Themia.Core.Widgets;
 using Xunit;
@@ -144,11 +145,23 @@ public sealed class ShortcutsTests
     [Fact]
     public void S1384_kind_column_names_what_a_target_is()
     {
-        Assert.Equal("Web address", ShortcutRules.KindLabel(LaunchTargets.Classify("https://a.example/"), TargetHealth.Unknown));
-        Assert.Equal("Windows location", ShortcutRules.KindLabel(LaunchTargets.Classify("shell:Desktop"), TargetHealth.Unknown));
-        Assert.Equal("Folder", ShortcutRules.KindLabel(LaunchTargets.Classify(@"C:\Windows"), TargetHealth.Folder));
-        Assert.Equal("Missing", ShortcutRules.KindLabel(LaunchTargets.Classify(@"C:\x.txt"), TargetHealth.Missing));
-        Assert.Equal("Not allowed", ShortcutRules.KindLabel(LaunchTargets.Classify("ftp://a"), TargetHealth.Unknown));
+        Assert.Equal("Web address", ShortcutRules.KindLabel(Locale.En, LaunchTargets.Classify("https://a.example/"), TargetHealth.Unknown));
+        Assert.Equal("Windows location", ShortcutRules.KindLabel(Locale.En, LaunchTargets.Classify("shell:Desktop"), TargetHealth.Unknown));
+        Assert.Equal("Folder", ShortcutRules.KindLabel(Locale.En, LaunchTargets.Classify(@"C:\Windows"), TargetHealth.Folder));
+        Assert.Equal("File", ShortcutRules.KindLabel(Locale.En, LaunchTargets.Classify(@"C:\x.txt"), TargetHealth.File));
+        Assert.Equal("Path", ShortcutRules.KindLabel(Locale.En, LaunchTargets.Classify(@"C:\x.txt"), TargetHealth.Unknown));
+        Assert.Equal("Missing", ShortcutRules.KindLabel(Locale.En, LaunchTargets.Classify(@"C:\x.txt"), TargetHealth.Missing));
+        Assert.Equal("Not allowed", ShortcutRules.KindLabel(Locale.En, LaunchTargets.Classify("ftp://a"), TargetHealth.Unknown));
+        Assert.Equal("App layout", ShortcutRules.LayoutKindLabel(Locale.En));
+    }
+
+    [Fact]
+    public void S1384_kind_column_follows_the_language()
+    {
+        Assert.Equal("Webadresse", ShortcutRules.KindLabel(Locale.De, LaunchTargets.Classify("https://a.example/"), TargetHealth.Unknown));
+        Assert.Equal("Ordner", ShortcutRules.KindLabel(Locale.De, LaunchTargets.Classify(@"C:\Windows"), TargetHealth.Folder));
+        Assert.Equal("Fehlt", ShortcutRules.KindLabel(Locale.De, LaunchTargets.Classify(@"C:\x.txt"), TargetHealth.Missing));
+        Assert.Equal("App-Layout", ShortcutRules.LayoutKindLabel(Locale.De));
     }
 
     // ---- search ------------------------------------------------------------------------------------
@@ -258,10 +271,19 @@ public sealed class ShortcutsTests
     public void S1389_unknown_state_has_no_badge_and_the_plain_name()
     {
         Assert.Null(ShortcutRules.BadgeText(null));
-        Assert.Equal("Recycle Bin", ShortcutRules.BinTooltip("Recycle Bin", null));
-        Assert.Equal("Recycle Bin — empty", ShortcutRules.BinTooltip("Recycle Bin", new RecycleBinState(0, 0)));
-        Assert.StartsWith("Recycle Bin — 1 item (", ShortcutRules.BinTooltip("Recycle Bin", new RecycleBinState(1, 2048)), StringComparison.Ordinal);
-        Assert.StartsWith("Recycle Bin — 3 items (", ShortcutRules.BinTooltip("Recycle Bin", new RecycleBinState(3, 2048)), StringComparison.Ordinal);
+        Assert.Equal("Recycle Bin", ShortcutRules.BinTooltip(Locale.En, "Recycle Bin", null));
+        Assert.Equal("Recycle Bin — empty", ShortcutRules.BinTooltip(Locale.En, "Recycle Bin", new RecycleBinState(0, 0)));
+        Assert.StartsWith("Recycle Bin — 1 item (", ShortcutRules.BinTooltip(Locale.En, "Recycle Bin", new RecycleBinState(1, 2048)), StringComparison.Ordinal);
+        Assert.StartsWith("Recycle Bin — 3 items (", ShortcutRules.BinTooltip(Locale.En, "Recycle Bin", new RecycleBinState(3, 2048)), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void S1389_bin_tooltip_follows_the_language()
+    {
+        Assert.Equal("Papierkorb — leer", ShortcutRules.BinTooltip(Locale.De, "Papierkorb", new RecycleBinState(0, 0)));
+        Assert.StartsWith("Papierkorb — 1 Element (", ShortcutRules.BinTooltip(Locale.De, "Papierkorb", new RecycleBinState(1, 2048)), StringComparison.Ordinal);
+        Assert.StartsWith("Papierkorb — 3 Elemente (", ShortcutRules.BinTooltip(Locale.De, "Papierkorb", new RecycleBinState(3, 2048)), StringComparison.Ordinal);
+        Assert.StartsWith("Kosz — 5 elementów (", ShortcutRules.BinTooltip(Locale.Pl, "Kosz", new RecycleBinState(5, 2048)), StringComparison.Ordinal);
     }
 
     [Theory]

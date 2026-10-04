@@ -7,6 +7,7 @@ using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Shapes;
 using Themia.App.Widgets;
+using Themia.Core.Localization;
 using Themia.Core.Model;
 using Themia.Core.Widgets;
 using Windows.Foundation;
@@ -84,7 +85,7 @@ internal sealed partial class ViewBar : Grid
         PointerMoved += OnPointerMoved;
         PointerReleased += OnPointerReleased;
         PointerCaptureLost += OnPointerCaptureLost;
-        AutomationProperties.SetName(this, "Views");
+        AutomationProperties.SetName(this, Str.Shell_ViewBar_Name.Text());
     }
 
     /// <summary>
@@ -100,7 +101,8 @@ internal sealed partial class ViewBar : Grid
 
         PaintSurface(look, design);
 
-        var signature = $"{look}|{string.Join("|", items)}|{FluentType.Body.FontSize}";
+        // The language is part of what was built: a switch redraws the tooltips and names ([S-1110]).
+        var signature = $"{look}|{string.Join("|", items)}|{FluentType.Body.FontSize}|{Strings.Current}";
         if ((_dragging && _pressedId is not null) || signature == _built)
         {
             return;
@@ -179,7 +181,7 @@ internal sealed partial class ViewBar : Grid
         ToolTipService.SetToolTip(this, null);
         if (look.Preview)
         {
-            ToolTipService.SetToolTip(this, "The view bar is hidden on this display; it shows here only while editing");
+            ToolTipService.SetToolTip(this, Str.Shell_ViewBar_HiddenTip.Text());
         }
     }
 
@@ -197,8 +199,8 @@ internal sealed partial class ViewBar : Grid
             VerticalAlignment = VerticalAlignment.Stretch,
         };
 
-        ToolTipService.SetToolTip(grip, "Drag to move the view bar");
-        AutomationProperties.SetName(grip, "Move the view bar");
+        ToolTipService.SetToolTip(grip, Str.App_DragBar.Text());
+        AutomationProperties.SetName(grip, Str.Shell_ViewBar_GripName.Text());
         grip.PointerPressed += (_, e) => OnPressed(e, null);
         HoverFill(grip, shown: false);
         return grip;
@@ -259,10 +261,10 @@ internal sealed partial class ViewBar : Grid
             chip.Height = metrics.Square;
         }
 
-        var tip = item.IsDefault ? $"{item.Name} (shown on new displays)" : item.Name;
-        ToolTipService.SetToolTip(chip, look.Editing ? $"{tip}\nClick to show, drag to reorder, right-click for more" : tip);
+        var tip = item.IsDefault ? Str.Shell_ViewBar_DefaultTip.Format(("name", item.Name)) : item.Name;
+        ToolTipService.SetToolTip(chip, look.Editing ? Str.Shell_ViewBar_EditTip.Format(("name", tip)) : tip);
         AutomationProperties.SetName(chip, item.Name);
-        AutomationProperties.SetItemStatus(chip, item.Shown ? "Showing" : string.Empty);
+        AutomationProperties.SetItemStatus(chip, item.Shown ? Str.Shell_ViewBar_Showing.Text() : string.Empty);
 
         HoverFill(chip, item.Shown);
         chip.PointerPressed += (_, e) => OnPressed(e, item.Id);

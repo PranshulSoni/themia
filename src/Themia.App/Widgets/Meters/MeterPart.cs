@@ -57,10 +57,10 @@ internal abstract class MeterPart
     public virtual MeterUnit Unit => MeterUnit.Percent;
 
     /// <summary>
-    /// The widest reading this kind can produce, in characters ("100%" is 4). The kind's worst case,
-    /// never the live text, so the number does not change size between two samples.
+    /// The widest reading this kind can produce, in characters ("100%" is 4, German "100 %" 5). The
+    /// kind's worst case, never the live text, so the number does not change size between two samples.
     /// </summary>
-    public virtual double ReadingCharacters => 4;
+    public virtual double ReadingCharacters => Formatting.Percent(1).Length;
 
     /// <summary>How long the caption is for placing it; a caption that changes length every tick returns its worst case.</summary>
     public virtual double CaptionCharacters(string live) => live.Length;

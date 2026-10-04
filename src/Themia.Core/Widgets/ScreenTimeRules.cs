@@ -1,4 +1,5 @@
 using System.Globalization;
+using Themia.Core.Localization;
 using Themia.Core.Model;
 
 namespace Themia.Core.Widgets;
@@ -57,29 +58,34 @@ public static class ScreenTimeRules
     public const int HeatmapColumns = 7;
 
     /// <summary>[S-452] <c>3h 24m</c> from an hour, <c>12m</c> from a minute, <c>&lt;1m</c> below.</summary>
-    public static string FormatDuration(double seconds)
+    public static string FormatDuration(double seconds) => FormatDuration(Strings.Current, seconds);
+
+    /// <summary><see cref="FormatDuration(double)"/> in an explicit language: "3h 24m", "3 Std. 24 Min.".</summary>
+    public static string FormatDuration(Locale locale, double seconds)
     {
         if (!double.IsFinite(seconds) || seconds < 60)
         {
-            return "<1m";
+            return Strings.Get(locale, Str.WidgetsC_ScreenTime_Dur_LessThanMinute);
         }
 
         var whole = (long)seconds;
 
         if (whole >= 3600)
         {
-            return string.Create(CultureInfo.InvariantCulture, $"{whole / 3600}h {whole % 3600 / 60}m");
+            return Strings.Format(locale, Str.WidgetsC_ScreenTime_Dur_HoursMinutes, ("hours", whole / 3600), ("minutes", whole % 3600 / 60));
         }
 
-        return string.Create(CultureInfo.InvariantCulture, $"{whole / 60}m");
+        return Strings.Format(locale, Str.WidgetsC_ScreenTime_Dur_Minutes, ("minutes", whole / 60));
     }
 
     /// <summary>[S-457] A limit as it reads beside a figure: whole hours drop their minutes, "of 4h".</summary>
-    public static string FormatLimit(long seconds)
-    {
-        var text = FormatDuration(seconds);
-        return text.EndsWith("h 0m", StringComparison.Ordinal) ? text[..^3] : text;
-    }
+    public static string FormatLimit(long seconds) => FormatLimit(Strings.Current, seconds);
+
+    /// <summary><see cref="FormatLimit(long)"/> in an explicit language.</summary>
+    public static string FormatLimit(Locale locale, long seconds)
+        => seconds >= 3600 && seconds % 3600 < 60
+            ? Strings.Format(locale, Str.WidgetsC_ScreenTime_Dur_Hours, ("hours", LocaleFormat.Integer(locale, seconds / 3600)))
+            : FormatDuration(locale, seconds);
 
     /// <summary>[S-1211] The setting clamped to 0..<see cref="MaxAppsLimit"/>; 0 is "as many as fit".</summary>
     public static int EffectiveMaxApps(int maxApps) => Math.Clamp(maxApps, 0, MaxAppsLimit);
@@ -119,23 +125,27 @@ public static class ScreenTimeRules
     /// [S-1210] A duration with the minutes dropped, for a ring too small for <c>3h 24m</c>: one
     /// decimal of hours under ten hours (<c>3.4h</c>), whole hours from ten, minutes under an hour.
     /// </summary>
-    public static string CompactDuration(double seconds)
+    public static string CompactDuration(double seconds) => CompactDuration(Strings.Current, seconds);
+
+    /// <summary><see cref="CompactDuration(double)"/> in an explicit language, with its decimal mark.</summary>
+    public static string CompactDuration(Locale locale, double seconds)
     {
         if (!double.IsFinite(seconds) || seconds < 60)
         {
-            return "<1m";
+            return Strings.Get(locale, Str.WidgetsC_ScreenTime_Dur_LessThanMinute);
         }
 
         if (seconds < 3600)
         {
-            return string.Create(CultureInfo.InvariantCulture, $"{(long)seconds / 60}m");
+            return Strings.Format(locale, Str.WidgetsC_ScreenTime_Dur_Minutes, ("minutes", (long)seconds / 60));
         }
 
         // Rounded, not cut: 9h 58m reads "10h", never "9h".
         var hours = Math.Round(seconds / 3600, 1, MidpointRounding.AwayFromZero);
-        return hours < 10
-            ? string.Create(CultureInfo.InvariantCulture, $"{hours:0.0}h")
-            : string.Create(CultureInfo.InvariantCulture, $"{Math.Round(seconds / 3600, MidpointRounding.AwayFromZero):0}h");
+        var figure = hours < 10
+            ? LocaleFormat.Number(locale, hours, 1)
+            : LocaleFormat.Number(locale, Math.Round(seconds / 3600, MidpointRounding.AwayFromZero), 0);
+        return Strings.Format(locale, Str.WidgetsC_ScreenTime_Dur_Hours, ("hours", figure));
     }
 
     /// <summary>
@@ -165,6 +175,10 @@ public static class ScreenTimeRules
     /// without use count toward the average, as they do everywhere else; empty when nothing was used.
     /// </summary>
     public static string StatsLine(IReadOnlyList<(LocalDay Day, long Seconds)> days, int apps, ScreenTimePeriod period)
+        => StatsLine(Strings.Current, days, apps, period);
+
+    /// <summary><see cref="StatsLine(IReadOnlyList{ValueTuple{LocalDay, long}}, int, ScreenTimePeriod)"/> in an explicit language.</summary>
+    public static string StatsLine(Locale locale, IReadOnlyList<(LocalDay Day, long Seconds)> days, int apps, ScreenTimePeriod period)
     {
         ArgumentNullException.ThrowIfNull(days);
 
@@ -186,17 +200,24 @@ public static class ScreenTimeRules
             }
         }
 
-        var weekday = CultureInfo.InvariantCulture.DateTimeFormat.AbbreviatedDayNames[(int)busiest.Day.DayOfWeek];
-
         if (ClampPeriod(period) == ScreenTimePeriod.Day)
         {
             var average = DailyAverage(sum, days.Count);
-            return $"{days.Count}-day average {FormatDuration(average)} · busiest {weekday} {FormatDuration(busiest.Seconds)}";
+            return Strings.Format(
+                locale,
+                Str.WidgetsC_ScreenTime_StatsDay,
+                ("days", days.Count),
+                ("average", FormatDuration(locale, average)),
+                ("day", LocaleFormat.WeekdayName(locale, busiest.Day.Date.DayOfWeek, NameWidth.Short)),
+                ("busiest", FormatDuration(locale, busiest.Seconds)));
         }
 
-        var date = $"{weekday} {Formatting.ShortDate(busiest.Day.Date)}";
-        var count = apps == 1 ? "1 app" : string.Create(CultureInfo.InvariantCulture, $"{Math.Max(0, apps)} apps");
-        return $"busiest {date} {FormatDuration(busiest.Seconds)} · {count}";
+        return Strings.Format(
+            locale,
+            Str.WidgetsC_ScreenTime_StatsWindow,
+            ("day", LocaleFormat.Date(locale, busiest.Day.Date, DateStyle.WeekdayMonthDayShort)),
+            ("busiest", FormatDuration(locale, busiest.Seconds)),
+            ("apps", Strings.Plural(locale, Str.WidgetsC_ScreenTime_Apps, Math.Max(0, apps))));
     }
 
     /// <summary>[S-1214] The <paramref name="count"/> dates ending at <paramref name="last"/>, oldest first: the week strip under a day.</summary>
@@ -517,20 +538,23 @@ public static class ScreenTimeRules
         => pinned is null || !LocalDay.TryParse(pinned, out var day) || day > today.AddDays(-MaxHistoryOffset);
 
     /// <summary>[S-454] The navigation's label: Today, Yesterday, or the weekday and date.</summary>
-    public static string DayLabel(string? pinned, LocalDay today) => Describe(pinned, today) switch
+    public static string DayLabel(string? pinned, LocalDay today) => DayLabel(Strings.Current, pinned, today);
+
+    /// <summary><see cref="DayLabel(string?, LocalDay)"/> in an explicit language.</summary>
+    public static string DayLabel(Locale locale, string? pinned, LocalDay today) => Describe(pinned, today) switch
     {
-        ScreenTimeDayKind.Yesterday => "Yesterday",
-        ScreenTimeDayKind.Date when LocalDay.TryParse(pinned, out var day) => Formatting.DayHeading(day.Date, today.Date),
-        _ => "Today",
+        ScreenTimeDayKind.Yesterday => Strings.Get(locale, Str.Common_Yesterday),
+        ScreenTimeDayKind.Date when LocalDay.TryParse(pinned, out var day) => LocaleFormat.Date(locale, day.Date, DateStyle.WeekdayMonthDayShort),
+        _ => Strings.Get(locale, Str.Common_Today),
     };
 
     /// <summary>[S-454] What a window period is called in the header.</summary>
-    public static string PeriodLabel(ScreenTimePeriod period) => period switch
+    public static string PeriodLabel(ScreenTimePeriod period) => (period switch
     {
-        ScreenTimePeriod.Week => "Last 7 days",
-        ScreenTimePeriod.Month => "Last 30 days",
-        _ => "Today",
-    };
+        ScreenTimePeriod.Week => Str.Screentime_Last7Days,
+        ScreenTimePeriod.Month => Str.Screentime_Last30Days,
+        _ => Str.Common_Today,
+    }).Text();
 
     /// <summary>[S-452] A colour per app, stable across days: a hash of its key picks the hue.</summary>
     /// <returns>The hue in degrees, 0..359.</returns>

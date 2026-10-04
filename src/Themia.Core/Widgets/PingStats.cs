@@ -1,3 +1,6 @@
+
+using Themia.Core.Localization;
+
 namespace Themia.Core.Widgets;
 
 /// <summary>[S-1170] What the last probe said about the host.</summary>
@@ -107,15 +110,19 @@ public static class PingStats
         => !anyProbe ? PingStatus.Checking : lastAnswered ? PingStatus.Online : PingStatus.Offline;
 
     /// <summary>[S-1170] The word under the reading.</summary>
-    public static string StatusText(PingStatus status) => status switch
-    {
-        PingStatus.Online => "Online",
-        PingStatus.Offline => "Offline",
-        _ => "Checking…",
-    };
+    public static string StatusText(PingStatus status) => StatusText(Strings.Current, status);
 
-    /// <summary>The longest <see cref="StatusText"/>, so the caption is placed for its worst case.</summary>
-    public const int StatusCharacters = 9;
+    /// <summary><see cref="StatusText(PingStatus)"/> in <paramref name="locale"/>.</summary>
+    public static string StatusText(Locale locale, PingStatus status) => Strings.Get(locale, status switch
+    {
+        PingStatus.Online => Str.WidgetsB_Ping_Online,
+        PingStatus.Offline => Str.WidgetsB_Ping_Offline,
+        _ => Str.WidgetsB_Ping_Checking,
+    });
+
+    /// <summary>The longest <see cref="StatusText(PingStatus)"/> in the current language, so the caption is placed for its worst case.</summary>
+    public static int StatusCharacters
+        => Math.Max(StatusText(PingStatus.Online).Length, Math.Max(StatusText(PingStatus.Offline).Length, StatusText(PingStatus.Checking).Length));
 
     /// <summary>[S-1172] What the meter's colour says: success while answering, critical while not.</summary>
     public static MeterPressure Pressure(PingStatus status) => status switch
@@ -126,11 +133,17 @@ public static class PingStats
     };
 
     /// <summary>[S-1171] "38 of 40 answered".</summary>
-    public static string AnsweredText(PingSummary summary)
-        => $"{summary.Answered.ToString(System.Globalization.CultureInfo.InvariantCulture)} of {summary.Samples.ToString(System.Globalization.CultureInfo.InvariantCulture)} answered";
+    public static string AnsweredText(PingSummary summary) => AnsweredText(Strings.Current, summary);
+
+    /// <summary><see cref="AnsweredText(PingSummary)"/> in <paramref name="locale"/>.</summary>
+    public static string AnsweredText(Locale locale, PingSummary summary)
+        => Strings.Format(locale, Str.WidgetsB_Ping_Answered, ("answered", summary.Answered), ("samples", summary.Samples));
 
     /// <summary>[S-1171] "12 · 15 · 30 ms": fastest, mean, slowest; null before any answer.</summary>
-    public static string? RangeText(PingSummary summary)
+    public static string? RangeText(PingSummary summary) => RangeText(Strings.Current, summary);
+
+    /// <summary><see cref="RangeText(PingSummary)"/> in <paramref name="locale"/>.</summary>
+    public static string? RangeText(Locale locale, PingSummary summary)
     {
         if (summary is not { Min: { } min, Average: { } average, Max: { } max })
         {
@@ -139,11 +152,11 @@ public static class PingStats
 
         // One unit at the end when all three are in milliseconds: three "ms" in a row is noise.
         return max < 1000
-            ? $"{Whole(min)} · {Whole(average)} · {Formatting.Latency(max)}"
-            : $"{Formatting.Latency(min)} · {Formatting.Latency(average)} · {Formatting.Latency(max)}";
+            ? $"{Whole(locale, min)} · {Whole(locale, average)} · {Formatting.Latency(locale, max)}"
+            : $"{Formatting.Latency(locale, min)} · {Formatting.Latency(locale, average)} · {Formatting.Latency(locale, max)}";
     }
 
-    private static string Whole(double ms) => Math.Round(ms).ToString("F0", System.Globalization.CultureInfo.InvariantCulture);
+    private static string Whole(Locale locale, double ms) => LocaleFormat.Number(locale, Math.Round(ms), 0);
 }
 
 /// <summary>

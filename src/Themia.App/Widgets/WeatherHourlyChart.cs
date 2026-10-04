@@ -4,6 +4,7 @@ using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Shapes;
 using Themia.App.Shell;
+using Themia.Core.Localization;
 using Themia.Core.Model;
 using Themia.Core.Widgets;
 using Windows.Foundation;
@@ -108,7 +109,7 @@ internal sealed partial class WeatherHourlyChart : Grid
             }
 
             var label = Fluent.Text(FluentType.Caption, "TextFillColorTertiaryBrush");
-            label.Text = start == 0 ? "Now" : _hours[start].At.ToString("HH:mm", System.Globalization.CultureInfo.CurrentCulture);
+            label.Text = start == 0 ? Str.WidgetsC_Weather_Now.Text() : LocaleFormat.Time(TimeOnly.FromDateTime(_hours[start].At.DateTime));
             label.Margin = new Thickness(start == 0 ? Fluent.Space4 : 0, 0, 0, 0);
             SetColumn(label, _axis.ColumnDefinitions.Count - 1);
             _axis.Children.Add(label);

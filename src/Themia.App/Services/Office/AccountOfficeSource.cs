@@ -2,6 +2,7 @@ using System.Globalization;
 using Themia.App.Services.Accounts;
 using Themia.Core.Accounts;
 using Themia.Core.Diagnostics;
+using Themia.Core.Localization;
 using Themia.Core.Office;
 
 namespace Themia.App.Services.Office;
@@ -290,7 +291,7 @@ internal sealed class AccountOfficeSource(AccountService accounts) : IOfficeSour
     // -----------------------------------------------------------------------------------------
 
     private AccountInfo Require(string accountId)
-        => accounts.Find(accountId) ?? throw new AccountException(AccountError.UnknownAccount, "That account is no longer signed in to Themia.");
+        => accounts.Find(accountId) ?? throw new AccountException(AccountError.UnknownAccount, Str.Shell_Accounts_NotSignedIn.Text());
 
     private static Uri Collection(AccountInfo account)
         => Uri.TryCreate(account.ServerUrl, UriKind.Absolute, out var url)
@@ -312,7 +313,7 @@ internal sealed class AccountOfficeSource(AccountService accounts) : IOfficeSour
         var collection = Collection(account);
         return Uri.TryCreate(calendarId, UriKind.Absolute, out var url) && DavOffice.SameOrigin(url, collection)
             ? url
-            : throw new AccountException(AccountError.Refused, "That calendar is not on this account's server.");
+            : throw new AccountException(AccountError.Refused, Str.Shell_Accounts_CalendarElsewhere.Text());
     }
 
     private static string Iso(DateTimeOffset moment)

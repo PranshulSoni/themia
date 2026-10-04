@@ -1,7 +1,8 @@
+using Themia.Core.Localization;
 namespace Themia.Core.Widgets;
 
-/// <summary>One preset ink: what is stored (<c>#RRGGBB</c>, content rather than chrome) and its name.</summary>
-public readonly record struct Ink(string Hex, string Name);
+/// <summary>One preset ink: what is stored (<c>#RRGGBB</c>, content rather than chrome) and its name, in the current language.</summary>
+public readonly record struct Ink(string Hex, Str Name);
 
 /// <summary>
 /// [S-1497] The scratchpad's presets, shared by its settings page and the toolbar on the pad: the
@@ -12,12 +13,12 @@ public static class InkPalette
 {
     public static IReadOnlyList<Ink> Inks { get; } =
     [
-        new("#0078D4", "Blue"),
-        new("#F43F5E", "Rose"),
-        new("#F59E0B", "Amber"),
-        new("#10B981", "Emerald"),
-        new("#7C3AED", "Violet"),
-        new("#E7E5E4", "Chalk"),
+        new("#0078D4", Str.WidgetsC_Scratchpad_Ink_Blue),
+        new("#F43F5E", Str.WidgetsC_Scratchpad_Ink_Rose),
+        new("#F59E0B", Str.WidgetsC_Scratchpad_Ink_Amber),
+        new("#10B981", Str.WidgetsC_Scratchpad_Ink_Emerald),
+        new("#7C3AED", Str.WidgetsC_Scratchpad_Ink_Violet),
+        new("#E7E5E4", Str.WidgetsC_Scratchpad_Ink_Chalk),
     ];
 
     /// <summary>The original's <c>SIZES</c>: fine, the default-ish middle, and bold.</summary>

@@ -8,6 +8,7 @@ using Microsoft.UI.Xaml.Media;
 using Themia.App.Services;
 using Themia.App.Shell;
 using Themia.App.Widgets.Meters;
+using Themia.Core.Localization;
 using Themia.Core.Model;
 using Themia.Core.Widgets;
 
@@ -47,16 +48,16 @@ internal sealed partial class GpuView
         private readonly TextBlock _hero = Fluent.Text(FluentType.Subtitle);
         private readonly TextBlock _caption = Fluent.Text(FluentType.Caption, "TextFillColorSecondaryBrush");
         private readonly StackPanel _lines = new() { Spacing = Fluent.Space1 };
-        private readonly Detail _dedicated = new("Dedicated", withBar: true);
-        private readonly Detail _shared = new("Shared", withBar: true);
-        private readonly Detail _temperature = new("Temperature");
-        private readonly Detail _power = new("Power");
-        private readonly Detail _clocks = new("Clocks");
-        private readonly Detail _fan = new("Fan");
+        private readonly Detail _dedicated = new(Str.WidgetUi_Dedicated.Text(), withBar: true);
+        private readonly Detail _shared = new(Str.WidgetUi_Shared.Text(), withBar: true);
+        private readonly Detail _temperature = new(Str.WidgetsB_Meters_Temperature.Text());
+        private readonly Detail _power = new(Str.WidgetUi_Power.Text());
+        private readonly Detail _clocks = new(Str.WidgetUi_Clocks.Text());
+        private readonly Detail _fan = new(Str.WidgetsB_Meters_Fan.Text());
         private readonly Detail[] _all;
         private readonly StackPanel _lists = new();
-        private readonly ListBlock _engines = new("Engines");
-        private readonly ListBlock _processes = new("Top processes");
+        private readonly ListBlock _engines = new(Str.WidgetsB_Gpu_Engines.Text());
+        private readonly ListBlock _processes = new(Str.WidgetUi_TopProcsLabel.Text());
         private readonly Grid _scale = new();
         private readonly TextBlock _span = Fluent.Text(FluentType.Caption, "TextFillColorTertiaryBrush");
         private readonly TextBlock _top = Fluent.Text(FluentType.Caption, "TextFillColorTertiaryBrush");
@@ -79,7 +80,7 @@ internal sealed partial class GpuView
             Typography.SetNumeralAlignment(_hero, FontNumeralAlignment.Tabular);
             _hero.TextTrimming = TextTrimming.None;
 
-            _name.Text = $"GPU {index}";
+            _name.Text = Str.WidgetsB_Gpu_Indexed.Format(("index", index));
             _name.VerticalAlignment = VerticalAlignment.Center;
             _name.TextTrimming = TextTrimming.CharacterEllipsis;
             _name.MaxLines = 1;
@@ -115,7 +116,7 @@ internal sealed partial class GpuView
             _scale.Children.Add(_span);
             _scale.Children.Add(_top);
             _scale.Margin = new Thickness(WidgetLayout.ContentInset, Fluent.Space2, WidgetLayout.ContentInset, 0);
-            _top.Text = "100%";
+            _top.Text = LocaleFormat.Percent(Strings.Current, 100);
 
             _info.Children.Add(_reading);
             _info.Children.Add(_lines);
@@ -151,7 +152,7 @@ internal sealed partial class GpuView
             {
                 // [S-433] An adapter that has gone — undocked, or the selection names one this
                 // machine does not have. Said in the panel, not by blanking the tile.
-                _name.Text = $"GPU {_index}";
+                _name.Text = Str.WidgetsB_Gpu_Indexed.Format(("index", _index));
                 _hero.Text = "--";
                 _hero.Foreground = UnavailableBrush;
                 _caption.Text = string.Empty;
@@ -214,10 +215,10 @@ internal sealed partial class GpuView
             }
 
             // [S-439] Driver lines hide themselves on a card whose driver does not answer.
-            ShowOptional(_temperature, _config.ShowTemperature, reading.TemperatureC is { } c ? string.Create(CultureInfo.InvariantCulture, $"{c:0} °C") : null);
-            ShowOptional(_power, _config.ShowPower, reading.PowerWatts is { } w ? string.Create(CultureInfo.InvariantCulture, $"{w:0.0} W") : null);
+            ShowOptional(_temperature, _config.ShowTemperature, reading.TemperatureC is { } c ? Str.WidgetsB_Units_Celsius.Format(("value", LocaleFormat.Number(c, 0))) : null);
+            ShowOptional(_power, _config.ShowPower, reading.PowerWatts is { } w ? Str.WidgetsB_Units_Watts.Format(("value", LocaleFormat.Number(w, 1))) : null);
             ShowOptional(_clocks, _config.ShowClocks, Clocks(reading));
-            ShowOptional(_fan, _config.ShowFan, reading.FanPercent is { } f ? string.Create(CultureInfo.InvariantCulture, $"{f}%") : null);
+            ShowOptional(_fan, _config.ShowFan, reading.FanPercent is { } f ? LocaleFormat.Percent(Strings.Current, f) : null);
 
             // [S-1203] One bar per engine kind; [S-1205] the busiest processes, each as a share of the card.
             _engines.Fill(
@@ -228,7 +229,7 @@ internal sealed partial class GpuView
             _processes.Fill(
                 _config.ShowProcesses
                     ? [.. reading.Processes.Select(p => new MeterRow(p.Name, Formatting.Percent(p.Percent / 100), p.Percent / 100,
-                        string.Create(CultureInfo.InvariantCulture, $"{p.Name} — process {p.Pid}")))]
+                        Str.WidgetsB_Gpu_ProcessTooltip.Format(("name", p.Name), ("pid", p.Pid.ToString(CultureInfo.InvariantCulture)))))]
                     : [],
                 Pressure(GpuPressure.Normal));
         }
@@ -469,9 +470,9 @@ internal sealed partial class GpuView
 
         private static string? Clocks(GpuReading reading) => (reading.CoreClockMhz, reading.MemoryClockMhz) switch
         {
-            ({ } core, { } memory) => string.Create(CultureInfo.InvariantCulture, $"{core} / {memory} MHz"),
-            ({ } core, null) => string.Create(CultureInfo.InvariantCulture, $"{core} MHz"),
-            (null, { } memory) => string.Create(CultureInfo.InvariantCulture, $"{memory} MHz mem"),
+            ({ } core, { } memory) => Str.WidgetsB_Units_MegahertzPair.Format(("core", LocaleFormat.Number(core, 0)), ("memory", LocaleFormat.Number(memory, 0))),
+            ({ } core, null) => Str.WidgetsB_Units_Megahertz.Format(("value", LocaleFormat.Number(core, 0))),
+            (null, { } memory) => Str.WidgetsB_Gpu_MemoryClock.Format(("value", LocaleFormat.Number(memory, 0))),
             _ => null,
         };
 

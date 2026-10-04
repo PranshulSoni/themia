@@ -1,4 +1,5 @@
 using System.Text.Json;
+using Themia.Core.Localization;
 using Themia.Core.Model;
 using Themia.Core.Storage;
 using Themia.Core.Widgets;
@@ -359,8 +360,15 @@ public sealed class ShortcutsDropLayoutTests
 
         Assert.Equal([@"C:\a.lnk", "https://b.example"], LayoutPlan.Preview(root).Select(a => a.Target));
         Assert.Single(LayoutPlan.Preview(root, 1));
-        Assert.Equal("2 apps", LayoutPlan.Summary(root));
-        Assert.Equal("No apps yet", LayoutPlan.Summary(LayoutNode.NewPane()));
+        Assert.Equal("2 apps", LayoutPlan.Summary(Locale.En, root));
+        Assert.Equal("No apps yet", LayoutPlan.Summary(Locale.En, LayoutNode.NewPane()));
+    }
+
+    [Fact]
+    public void S1405_summary_follows_the_language()
+    {
+        Assert.Equal("2 Apps", LayoutPlan.Summary(Locale.De, SideBySide(@"C:\a.lnk", "https://b.example")));
+        Assert.Equal("Noch keine Apps", LayoutPlan.Summary(Locale.De, LayoutNode.NewPane()));
     }
 
     // ---- window matching ([S-1409]) -----------------------------------------------------------------

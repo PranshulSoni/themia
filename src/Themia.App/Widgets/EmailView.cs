@@ -6,6 +6,7 @@ using Themia.App.Services;
 using Themia.App.Services.Mail;
 using Themia.App.Shell;
 using Themia.Core.Diagnostics;
+using Themia.Core.Localization;
 using Themia.Core.Mail;
 using Themia.Core.Model;
 using Themia.Core.Widgets;
@@ -379,8 +380,8 @@ internal sealed partial class EmailView : Grid, IWidgetView, IWidgetHeaderConten
 
         _sort.Visibility = _shape.Sort ? Visibility.Visible : Visibility.Collapsed;
         ToolTipService.SetToolTip(_sort, _config.SortOrder == MailSortOrder.NewestFirst
-            ? "Newest first. Click to show oldest first"
-            : "Oldest first. Click to show newest first");
+            ? Str.WidgetsB_Email_SortNewestTip.Text()
+            : Str.WidgetsB_Email_SortOldestTip.Text());
 
         var footer = _area.HeightClass >= SizeClass.Huge ? FooterText() : null;
         _footer.Text = footer ?? string.Empty;
@@ -426,9 +427,9 @@ internal sealed partial class EmailView : Grid, IWidgetView, IWidgetHeaderConten
         _accountsLink.Tag = screen.OffersAccounts;
         _accountsLink.Content = screen.Kind switch
         {
-            MailScreenKind.NoAccounts => "Add a mail account",
-            MailScreenKind.SignInRequired => "Sign in again",
-            _ => "Choose an account",
+            MailScreenKind.NoAccounts => Str.WidgetsB_Email_AddAccount.Text(),
+            MailScreenKind.SignInRequired => Str.WidgetsB_Email_SignIn.Text(),
+            _ => Str.WidgetsB_Email_ChooseAccount.Text(),
         };
         _shown = [];
         FitEmptyState(_area.Height);
@@ -455,8 +456,8 @@ internal sealed partial class EmailView : Grid, IWidgetView, IWidgetHeaderConten
         foreach (var (text, when, full) in _times)
         {
             text.Text = full
-                ? MailTime.Full(when, now, CultureInfo.CurrentCulture)
-                : MailTime.Short(when, now, CultureInfo.CurrentCulture);
+                ? MailTime.Full(when, now, Strings.Current)
+                : MailTime.Short(when, now, Strings.Current);
         }
     }
 
@@ -482,8 +483,8 @@ internal sealed partial class EmailView : Grid, IWidgetView, IWidgetHeaderConten
         if (_source?.Open(message) == false)
         {
             ShowProblem(message.Provider == Themia.Core.Accounts.AccountProvider.Imap
-                ? "Mail server (IMAP) messages have no web page to open. Use Reply, or your mail app."
-                : "Could not open that message.");
+                ? Str.WidgetsB_Email_ImapNoWebPage.Text()
+                : Str.WidgetsB_Email_CouldNotOpen.Text());
         }
     }
 
@@ -498,33 +499,33 @@ internal sealed partial class EmailView : Grid, IWidgetView, IWidgetHeaderConten
         var menu = new MenuFlyout();
         var canChange = CanChange(message);
 
-        menu.Items.Add(Item(Glyphs.Open, "Open", () => OpenMessage(message)));
-        menu.Items.Add(Item(Glyphs.MailReply, "Reply", () =>
+        menu.Items.Add(Item(Glyphs.Open, Str.CtxMenu_Open.Text(), () => OpenMessage(message)));
+        menu.Items.Add(Item(Glyphs.MailReply, Str.CtxMenu_Reply.Text(), () =>
         {
             if (_source?.Reply(message) == false)
             {
-                ShowProblem("There is no address to reply to.");
+                ShowProblem(Str.WidgetsB_Email_NoReplyAddress.Text());
             }
         }));
 
         if (canChange)
         {
             menu.Items.Add(message.IsRead
-                ? Item(Glyphs.Unread, "Mark as unread", () => Change(message, MailChange.MarkUnread))
-                : Item(Glyphs.MailRead, "Mark as read", () => Change(message, MailChange.MarkRead)));
+                ? Item(Glyphs.Unread, Str.WidgetsB_Email_MarkUnread.Text(), () => Change(message, MailChange.MarkUnread))
+                : Item(Glyphs.MailRead, Str.WidgetsB_Email_MarkRead.Text(), () => Change(message, MailChange.MarkRead)));
 
             if (message.Folder != MailFolder.Junk)
             {
-                menu.Items.Add(Item(Glyphs.Archive, "Archive", () => Change(message, MailChange.Archive)));
-                menu.Items.Add(Item(Glyphs.Junk, "Move to Junk", () => Change(message, MailChange.Junk)));
+                menu.Items.Add(Item(Glyphs.Archive, Str.CtxMenu_Archive.Text(), () => Change(message, MailChange.Archive)));
+                menu.Items.Add(Item(Glyphs.Junk, Str.WidgetsB_Email_MoveToJunk.Text(), () => Change(message, MailChange.Junk)));
             }
         }
 
-        menu.Items.Add(Item(Glyphs.Copy, "Copy subject", () =>
+        menu.Items.Add(Item(Glyphs.Copy, Str.CtxMenu_CopySubject.Text(), () =>
         {
             if (!ClipboardWatcher.SetText(message.SubjectLine))
             {
-                ShowProblem("Could not copy to the clipboard.");
+                ShowProblem(Str.WidgetsB_Email_CouldNotCopy.Text());
             }
         }));
 
@@ -544,7 +545,7 @@ internal sealed partial class EmailView : Grid, IWidgetView, IWidgetHeaderConten
         }
     }
 
-    private static string DeleteLabel(MailMessage message) => message.Folder == MailFolder.Deleted ? "Delete permanently" : "Delete";
+    private static string DeleteLabel(MailMessage message) => message.Folder == MailFolder.Deleted ? Str.WidgetsB_Email_DeletePermanently.Text() : Str.Common_Delete.Text();
 
     private static MenuFlyoutItem Item(string glyph, string text, Action action)
     {
@@ -572,7 +573,7 @@ internal sealed partial class EmailView : Grid, IWidgetView, IWidgetHeaderConten
         {
             // async void from a menu click: nothing above this may see an exception.
             Log.Error(Scope, $"{change} failed", ex);
-            ShowProblem("That did not work. See themia.log.");
+            ShowProblem(Str.WidgetsB_Email_ChangeFailed.Text());
         }
     }
 
@@ -628,14 +629,14 @@ internal sealed partial class EmailView : Grid, IWidgetView, IWidgetHeaderConten
             // carries a check, the others their own icon.
             var actions = new List<WidgetAction>
             {
-                new(Glyphs.Refresh, "Refresh", Refresh),
+                new(Glyphs.Refresh, Str.Common_Refresh.Text(), Refresh),
             };
 
             foreach (var (mode, label, glyph) in new[]
             {
-                (MailViewMode.List, "List view", Glyphs.Preview),
-                (MailViewMode.Compact, "Compact view", Glyphs.Count),
-                (MailViewMode.Row, "Row view", Glyphs.Grid),
+                (MailViewMode.List, Str.WidgetsB_Email_ListView.Text(), Glyphs.Preview),
+                (MailViewMode.Compact, Str.WidgetsB_Email_CompactView.Text(), Glyphs.Count),
+                (MailViewMode.Row, Str.WidgetsB_Email_RowView.Text(), Glyphs.Grid),
             })
             {
                 actions.Add(new(_config.ViewMode == mode ? Glyphs.Done : glyph, label, () => Edit(c => c.ViewMode = mode)));
@@ -647,8 +648,8 @@ internal sealed partial class EmailView : Grid, IWidgetView, IWidgetHeaderConten
             }
 
             actions.Add(_config.SortOrder == MailSortOrder.NewestFirst
-                ? new(Glyphs.Sort, "Show oldest first", () => Edit(c => c.SortOrder = MailSortOrder.OldestFirst))
-                : new(Glyphs.Sort, "Show newest first", () => Edit(c => c.SortOrder = MailSortOrder.NewestFirst)));
+                ? new(Glyphs.Sort, Str.WidgetsB_Email_ShowOldestFirst.Text(), () => Edit(c => c.SortOrder = MailSortOrder.OldestFirst))
+                : new(Glyphs.Sort, Str.WidgetsB_Email_ShowNewestFirst.Text(), () => Edit(c => c.SortOrder = MailSortOrder.NewestFirst)));
 
             return actions;
         }

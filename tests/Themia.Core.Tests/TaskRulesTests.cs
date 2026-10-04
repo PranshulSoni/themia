@@ -1,3 +1,4 @@
+using Themia.Core.Localization;
 using Themia.Core.Tasks;
 using Xunit;
 
@@ -100,11 +101,14 @@ public sealed class TaskRulesTests
     [Fact]
     public void S594_says_overdue_in_words_and_the_far_future_as_a_date()
     {
-        Assert.Equal("Overdue", TaskDue.Text(TaskDue.Resolve("2026-08-01", Friday, NewYork)!.Value));
-        Assert.Equal("Today", TaskDue.Text(TaskDue.Resolve("2026-08-07", Friday, NewYork)!.Value));
-        Assert.Equal("Tomorrow", TaskDue.Text(TaskDue.Resolve("2026-08-08", Friday, NewYork)!.Value));
-        Assert.Equal("Mon", TaskDue.Text(TaskDue.Resolve("2026-08-10", Friday, NewYork)!.Value));
-        Assert.Equal("21 Aug", TaskDue.Text(TaskDue.Resolve("2026-08-21", Friday, NewYork)!.Value));
+        Assert.Equal("Overdue", TaskDue.Text(Locale.En, TaskDue.Resolve("2026-08-01", Friday, NewYork)!.Value));
+        Assert.Equal("Today", TaskDue.Text(Locale.En, TaskDue.Resolve("2026-08-07", Friday, NewYork)!.Value));
+        Assert.Equal("Tomorrow", TaskDue.Text(Locale.En, TaskDue.Resolve("2026-08-08", Friday, NewYork)!.Value));
+        Assert.Equal("Mon", TaskDue.Text(Locale.En, TaskDue.Resolve("2026-08-10", Friday, NewYork)!.Value));
+        Assert.Equal("Aug 21", TaskDue.Text(Locale.En, TaskDue.Resolve("2026-08-21", Friday, NewYork)!.Value));
+        Assert.Equal("Überfällig", TaskDue.Text(Locale.De, TaskDue.Resolve("2026-08-01", Friday, NewYork)!.Value));
+        Assert.Equal("Mo.", TaskDue.Text(Locale.De, TaskDue.Resolve("2026-08-10", Friday, NewYork)!.Value));
+        Assert.Equal("21. Aug.", TaskDue.Text(Locale.De, TaskDue.Resolve("2026-08-21", Friday, NewYork)!.Value));
     }
 
     // ---- [S-596] Today ---------------------------------------------------------------------------

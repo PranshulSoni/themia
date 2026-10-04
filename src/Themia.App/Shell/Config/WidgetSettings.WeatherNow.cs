@@ -1,4 +1,5 @@
 using Microsoft.UI.Xaml;
+using Themia.Core.Localization;
 using Themia.Core.Model;
 
 namespace Themia.App.Shell.Config;
@@ -15,14 +16,14 @@ internal static partial class WidgetSettings
         ArgumentNullException.ThrowIfNull(config);
         ArgumentNullException.ThrowIfNull(save);
 
-        rows.Add(FluentLayout.Header("Place"));
+        rows.Add(FluentLayout.Header(Str.WidgetsC_Weather_Settings_Place.Text()));
         AddPlacePicker(rows, config, save);
 
-        rows.Add(FluentLayout.Header("Weather"));
+        rows.Add(FluentLayout.Header(Str.Weather_DefaultLabel.Text()));
         AddWeatherDisplay(rows, config, save);
 
-        rows.Add(FluentLayout.Row(Glyphs.Info, "Show detail",
-            "Feels-like, humidity, wind and, on larger tiles, today's range and the next hours",
+        rows.Add(FluentLayout.Row(Glyphs.Info, Str.WidgetsC_Weather_Settings_ShowDetail_Label.Text(),
+            Str.WidgetsC_Weather_Settings_ShowDetail_Desc.Text(),
             FluentLayout.Toggle(config.ShowDetails, value => { config.ShowDetails = value; save(); })));
 
         FluentLayout.RefreshChoice(rows, config.RefreshMinutes, value => { config.RefreshMinutes = value; save(); });
@@ -57,14 +58,14 @@ internal static partial class WidgetSettings
     /// <summary>Units and the location-name switch, shared by both weather widgets.</summary>
     private static void AddWeatherDisplay(List<FrameworkElement> rows, WeatherConfig config, Action save)
     {
-        rows.Add(FluentLayout.Row(Glyphs.Weather, "Units", "Celsius or Fahrenheit",
+        rows.Add(FluentLayout.Row(Glyphs.Weather, Str.Weather_UnitLabel.Text(), Str.Weather_UnitDesc.Text(),
             FluentLayout.Choice(
-                [(TemperatureUnit.Celsius, "Celsius"), (TemperatureUnit.Fahrenheit, "Fahrenheit")],
+                [(TemperatureUnit.Celsius, Str.WidgetsC_Weather_Settings_Celsius.Text()), (TemperatureUnit.Fahrenheit, Str.WidgetsC_Weather_Settings_Fahrenheit.Text())],
                 config.Unit,
                 value => { config.Unit = value; save(); })));
 
         // [S-728] Off: the header reads as the widget's label instead of the city.
-        rows.Add(FluentLayout.Row(Glyphs.Place, "Location name", "Show the place in the header",
+        rows.Add(FluentLayout.Row(Glyphs.Place, Str.Weather_LocationNameLabel.Text(), Str.Weather_LocationNameDesc.Text(),
             FluentLayout.Toggle(!config.HideLocation, value => { config.HideLocation = !value; save(); })));
     }
 }

@@ -1,3 +1,4 @@
+using Themia.Core.Localization;
 namespace Themia.Core.Tasks;
 
 /// <summary>
@@ -202,6 +203,10 @@ public static class TaskRules
     /// count is always said; the others only when there are any.
     /// </summary>
     public static string Summary(IReadOnlyList<TaskItem> rows, DateOnly today, TimeZoneInfo viewer)
+        => Summary(Strings.Current, rows, today, viewer);
+
+    /// <summary><see cref="Summary(IReadOnlyList{TaskItem}, DateOnly, TimeZoneInfo)"/> in an explicit language.</summary>
+    public static string Summary(Locale locale, IReadOnlyList<TaskItem> rows, DateOnly today, TimeZoneInfo viewer)
     {
         ArgumentNullException.ThrowIfNull(rows);
 
@@ -228,21 +233,24 @@ public static class TaskRules
             }
         }
 
-        var parts = new List<string>(4) { open == 0 ? "Nothing open" : $"{open} open" };
+        var parts = new List<string>(4)
+        {
+            open == 0 ? Strings.Get(locale, Str.WidgetsC_Tasks_Summary_NothingOpen) : Strings.Plural(locale, Str.WidgetsC_Tasks_Summary_Open, open),
+        };
 
         if (overdue > 0)
         {
-            parts.Add($"{overdue} overdue");
+            parts.Add(Strings.Plural(locale, Str.WidgetsC_Tasks_Summary_Overdue, overdue));
         }
 
         if (dueToday > 0)
         {
-            parts.Add($"{dueToday} due today");
+            parts.Add(Strings.Plural(locale, Str.WidgetsC_Tasks_Summary_DueToday, dueToday));
         }
 
         if (done > 0)
         {
-            parts.Add($"{done} done");
+            parts.Add(Strings.Plural(locale, Str.WidgetsC_Tasks_Summary_Done, done));
         }
 
         return string.Join(" · ", parts);

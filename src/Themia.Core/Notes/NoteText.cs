@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Text;
+using Themia.Core.Localization;
 
 namespace Themia.Core.Notes;
 
@@ -173,22 +174,26 @@ public static class NoteText
 
     /// <summary>[S-1362] "1 word", "12 words · 64 characters", with the save state when asked for.</summary>
     public static string Status(NoteCounts counts, bool detail, NoteSaveState save)
+        => Status(Strings.Current, counts, detail, save);
+
+    /// <summary>[S-1362] <see cref="Status(NoteCounts, bool, NoteSaveState)"/> in an explicit language.</summary>
+    public static string Status(Locale locale, NoteCounts counts, bool detail, NoteSaveState save)
     {
-        var words = counts.Words == 1 ? "1 word" : string.Create(CultureInfo.InvariantCulture, $"{counts.Words:N0} words");
+        var words = Strings.Plural(locale, Str.WidgetsC_Notes_Words, counts.Words);
 
         if (!detail)
         {
             return words;
         }
 
-        var characters = counts.Characters == 1 ? "1 character" : string.Create(CultureInfo.InvariantCulture, $"{counts.Characters:N0} characters");
-        var saved = save switch
+        var characters = Strings.Plural(locale, Str.WidgetsC_Notes_Characters, counts.Characters);
+        var saved = Strings.Get(locale, save switch
         {
-            NoteSaveState.Saving => "Saving…",
-            NoteSaveState.Failed => "Not saved",
-            _ => "Saved",
-        };
+            NoteSaveState.Saving => Str.WidgetsC_Notes_Saving,
+            NoteSaveState.Failed => Str.WidgetsC_Notes_NotSaved,
+            _ => Str.WidgetsC_Notes_Saved,
+        });
 
-        return $"{words} · {characters} · {saved}";
+        return Strings.Format(locale, Str.WidgetsC_Notes_StatusDetail, ("words", words), ("characters", characters), ("state", saved));
     }
 }

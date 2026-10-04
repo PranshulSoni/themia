@@ -8,6 +8,7 @@ using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
 using Themia.App.Widgets;
 using Themia.Core.Diagnostics;
+using Themia.Core.Localization;
 using Themia.Core.Widgets;
 
 namespace Themia.App.Shell;
@@ -275,7 +276,9 @@ internal static class FluentLayout
     /// </summary>
     public static ToggleSwitch Toggle(bool value, Action<bool> onChanged)
     {
-        var toggle = new ToggleSwitch { IsOn = value };
+        // On / Off in the app's language: the control's own default follows Windows' display
+        // language, which is not the one the user picked in Themia.
+        var toggle = new ToggleSwitch { IsOn = value, OnContent = Str.Toggle_On.Text(), OffContent = Str.Toggle_Off.Text() };
         toggle.Toggled += (_, _) => onChanged(toggle.IsOn);
         return toggle;
     }
@@ -313,9 +316,14 @@ internal static class FluentLayout
     /// <summary>A slider with a live numeric readout, used for the gap and corner sizes.</summary>
     public static StackPanel Slider(double value, double min, double max, double step, string unit, Action<double> onChanged)
     {
+        // The number in the language's own digits grouping, and "42 %" where the language spaces it.
+        string Readout(double v) => unit == "%"
+            ? LocaleFormat.Percent(Strings.Current, Math.Round(v))
+            : $"{LocaleFormat.Integer((long)Math.Round(v))}{unit}";
+
         var readout = new TextBlock
         {
-            Text = $"{value:0}{unit}",
+            Text = Readout(value),
             VerticalAlignment = VerticalAlignment.Center,
             MinWidth = 44,
             TextAlignment = TextAlignment.Right,
@@ -335,7 +343,7 @@ internal static class FluentLayout
 
         slider.ValueChanged += (_, args) =>
         {
-            readout.Text = $"{args.NewValue:0}{unit}";
+            readout.Text = Readout(args.NewValue);
             onChanged(args.NewValue);
         };
 
@@ -454,23 +462,24 @@ internal static class FluentLayout
     /// The refresh row for a widget that reads this machine: seconds, because a local read costs a
     /// wake-up and nothing else.
     /// </summary>
-    /// <param name="what">
-    /// Completes "How often …", in the user's words — "the devices are enumerated", "the host is
-    /// probed".
+    /// <param name="description">
+    /// The row's description as one whole sentence in the current language — "How often the
+    /// devices are enumerated" — never a fragment this method completes: word order differs per
+    /// language, so each caller owns its own key.
     /// </param>
     public static void RefreshSeconds(
         List<FrameworkElement> rows,
-        string what,
+        string description,
         double current,
         double min,
         double max,
         double step,
         Action<int> onChanged)
     {
-        rows.Add(Header("Updating"));
+        rows.Add(Header(Str.Shell_Refresh_Header.Text()));
 
-        rows.Add(Row(Glyphs.Timer, "Refresh", $"How often {what}",
-            Slider(current, min, max, step, "s", value => onChanged((int)Math.Round(value)))));
+        rows.Add(Row(Glyphs.Timer, Str.Common_Refresh.Text(), description,
+            Slider(current, min, max, step, Str.Shell_Refresh_SecondsUnit.Text(), value => onChanged((int)Math.Round(value)))));
     }
 
     /// <summary>
@@ -491,8 +500,8 @@ internal static class FluentLayout
         bool fast = false)
     {
         (int Value, string Label)[] options = fast
-            ? [(1, "Every minute"), (5, "Every 5 minutes"), (15, "Every 15 minutes"), (30, "Every 30 minutes")]
-            : [(5, "Every 5 minutes"), (15, "Every 15 minutes"), (30, "Every 30 minutes"), (60, "Every hour")];
+            ? [(1, Str.Shell_Refresh_EveryMinute.Text()), (5, Str.Shell_Refresh_EveryMinutes.Plural(5)), (15, Str.Shell_Refresh_EveryMinutes.Plural(15)), (30, Str.Shell_Refresh_EveryMinutes.Plural(30))]
+            : [(5, Str.Shell_Refresh_EveryMinutes.Plural(5)), (15, Str.Shell_Refresh_EveryMinutes.Plural(15)), (30, Str.Shell_Refresh_EveryMinutes.Plural(30)), (60, Str.Shell_Refresh_EveryHour.Text())];
 
         // A persisted value outside the set — hand-edited, or left over from an older build —
         // would otherwise leave the box blank and the setting pointing at nothing visible.
@@ -511,9 +520,9 @@ internal static class FluentLayout
             onChanged(selected);
         }
 
-        rows.Add(Header("Updating"));
+        rows.Add(Header(Str.Shell_Refresh_Header.Text()));
 
-        rows.Add(Row(Glyphs.Timer, "Refresh", "How often the service is asked",
+        rows.Add(Row(Glyphs.Timer, Str.Common_Refresh.Text(), Str.Shell_Refresh_ServiceDesc.Text(),
             Choice(options, selected, onChanged)));
     }
 
@@ -580,7 +589,7 @@ internal static class FluentLayout
             Title = question,
             Content = detail,
             PrimaryButtonText = action,
-            CloseButtonText = "Cancel",
+            CloseButtonText = Str.Common_Cancel.Text(),
             DefaultButton = ContentDialogButton.Close,
         };
 
@@ -730,8 +739,8 @@ internal static class FluentLayout
         body.VerticalAlignment = VerticalAlignment.Center;
         Grid.SetColumn(body, 0);
 
-        var up = IconCommand(Glyphs.MoveUp, "Move up");
-        var down = IconCommand(Glyphs.MoveDown, "Move down");
+        var up = IconCommand(Glyphs.MoveUp, Str.ChildList_MoveUp.Text());
+        var down = IconCommand(Glyphs.MoveDown, Str.ChildList_MoveDown.Text());
         var remove = IconCommand(Glyphs.Delete, options.RemoveTooltip);
 
         // One swap per click, and the ends cannot move past themselves.
@@ -848,7 +857,7 @@ internal sealed class ListEditorOptions<T>
     /// <summary>The most the list may hold. The add button is disabled at the cap.</summary>
     public int Capacity { get; init; } = int.MaxValue;
 
-    public string RemoveTooltip { get; init; } = "Remove";
+    public string RemoveTooltip { get; init; } = Str.Common_Remove.Text();
 
     /// <summary>
     /// Ask before removing, for a list whose items carry something the user cannot get back. Left

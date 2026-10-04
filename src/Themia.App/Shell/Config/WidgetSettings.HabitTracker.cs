@@ -5,6 +5,7 @@ using Themia.App.Services.Habits;
 using Themia.App.Widgets;
 using Themia.Core.Diagnostics;
 using Themia.Core.Habits;
+using Themia.Core.Localization;
 using Themia.Core.Model;
 using Themia.Core.Widgets;
 using Windows.System;
@@ -30,11 +31,11 @@ internal static partial class WidgetSettings
         ArgumentNullException.ThrowIfNull(config);
         ArgumentNullException.ThrowIfNull(save);
 
-        rows.Add(FluentLayout.Header("Habit list"));
+        rows.Add(FluentLayout.Header(Str.WidgetsB_Settings_Habits_List.Text()));
 
         if (AppServices.Habits is not { } pool)
         {
-            rows.Add(FluentLayout.Note("Habit lists are not available."));
+            rows.Add(FluentLayout.Note(Str.WidgetsB_Settings_Habits_ListsUnavailable.Text()));
         }
         else
         {
@@ -55,7 +56,7 @@ internal static partial class WidgetSettings
             Rebuild();
         }
 
-        rows.Add(FluentLayout.Header("Display"));
+        rows.Add(FluentLayout.Header(Str.WidgetsB_Settings_Email_Display.Text()));
 
         // The interval row only means something under the custom period; it is shown with it.
         var verdict = FluentLayout.Verdict();
@@ -74,7 +75,7 @@ internal static partial class WidgetSettings
                 return;
             }
 
-            FluentLayout.Confirm(verdict, value == 1 ? "Clears every minute." : $"Clears every {value} minutes.");
+            FluentLayout.Confirm(verdict, Str.WidgetsB_Settings_Habits_ClearsEvery.Plural(value));
 
             if (value != config.CustomMinutes)
             {
@@ -93,17 +94,17 @@ internal static partial class WidgetSettings
             }
         };
 
-        var interval = FluentLayout.FieldRow(Glyphs.Countdown, "Interval", "Minutes per window, 1 to 1440", minutes, verdict);
+        var interval = FluentLayout.FieldRow(Glyphs.Countdown, Str.HabitTracker_IntervalLabel.Text(), Str.WidgetsB_Settings_Habits_Interval_Desc.Text(), minutes, verdict);
         interval.Visibility = config.Cadence.Period == HabitPeriod.Custom ? Visibility.Visible : Visibility.Collapsed;
 
-        rows.Add(FluentLayout.Row(Glyphs.Calendar, "Resets", "How often each box clears",
+        rows.Add(FluentLayout.Row(Glyphs.Calendar, Str.WidgetsB_Settings_Habits_Resets_Label.Text(), Str.HabitTracker_ResetDesc.Text(),
             FluentLayout.Choice<HabitPeriod>(
                 [
-                    (HabitPeriod.Hourly, "Every hour"),
-                    (HabitPeriod.Daily, "Every day"),
-                    (HabitPeriod.Weekly, "Every week"),
-                    (HabitPeriod.Monthly, "Every month"),
-                    (HabitPeriod.Custom, "Custom interval"),
+                    (HabitPeriod.Hourly, Str.WidgetsB_Settings_Habits_EveryHour.Text()),
+                    (HabitPeriod.Daily, Str.WidgetsB_Settings_Habits_EveryDay.Text()),
+                    (HabitPeriod.Weekly, Str.WidgetsB_Settings_Habits_EveryWeek.Text()),
+                    (HabitPeriod.Monthly, Str.WidgetsB_Settings_Habits_EveryMonth.Text()),
+                    (HabitPeriod.Custom, Str.WidgetsB_Settings_Habits_CustomInterval.Text()),
                 ],
                 config.Cadence.Period,
                 value =>
@@ -115,11 +116,11 @@ internal static partial class WidgetSettings
 
         rows.Add(interval);
 
-        rows.Add(FluentLayout.Row(Glyphs.Done, "Show streaks", "The run each habit is on",
+        rows.Add(FluentLayout.Row(Glyphs.Done, Str.WidgetsB_Settings_Habits_Streaks_Label.Text(), Str.WidgetsB_Settings_Habits_Streaks_Desc.Text(),
             FluentLayout.Toggle(config.ShowStreak, value => { config.ShowStreak = value; save(); })));
 
-        rows.Add(FluentLayout.Row(Glyphs.Count, "History",
-            "How many past periods each row shows as dots. Zero hides them; a narrow widget shows fewer",
+        rows.Add(FluentLayout.Row(Glyphs.Count, Str.WidgetsB_Settings_Habits_History_Label.Text(),
+            Str.WidgetsB_Settings_Habits_History_Desc.Text(),
             FluentLayout.Slider(
                 config.EffectiveHistoryDots,
                 0,
@@ -164,7 +165,7 @@ internal static partial class WidgetSettings
             var name = new TextBox
             {
                 Text = list.Name,
-                PlaceholderText = "List name",
+                PlaceholderText = Str.HabitTracker_Lists_NamePlaceholder.Text(),
                 MinWidth = 160,
                 VerticalAlignment = VerticalAlignment.Center,
                 IsEnabled = pool.Writable,
@@ -174,10 +175,10 @@ internal static partial class WidgetSettings
             name.TextChanged += (_, _) => pool.Rename(listId, name.Text);
 
             var count = Fluent.Text(FluentType.Caption, "TextFillColorTertiaryBrush");
-            count.Text = list.Habits.Count == 1 ? "1 habit" : $"{list.Habits.Count} habits";
+            count.Text = Str.WidgetsB_Settings_Habits_HabitCount.Plural(list.Habits.Count);
             count.VerticalAlignment = VerticalAlignment.Center;
 
-            var remove = FluentLayout.IconCommand(Glyphs.Delete, "Delete this list");
+            var remove = FluentLayout.IconCommand(Glyphs.Delete, Str.WidgetsB_Settings_Habits_DeleteList.Text());
             remove.IsEnabled = pool.Writable;
             remove.Click += async (_, _) =>
             {
@@ -185,12 +186,12 @@ internal static partial class WidgetSettings
                 {
                     // [S-1429] Always asked, empty or not: it takes every habit and streak in it, and
                     // the button sits one row from the name being typed in.
-                    var label = string.IsNullOrWhiteSpace(list.Name) ? "Untitled list" : list.Name;
+                    var label = string.IsNullOrWhiteSpace(list.Name) ? Str.WidgetsB_Settings_Habits_UntitledList.Text() : list.Name;
                     var detail = list.Habits.Count == 0
-                        ? $"\"{label}\" will be deleted from this PC."
-                        : $"\"{label}\" and its {count.Text}, with their history, will be deleted from this PC. This cannot be undone.";
+                        ? Str.WidgetsB_Settings_Habits_DeleteEmpty.Format(("name", label))
+                        : Str.WidgetsB_Settings_Habits_DeleteFull.Plural(list.Habits.Count, ("name", label));
 
-                    if (!await FluentLayout.ConfirmAsync(remove, "Delete this list?", detail, "Delete").ConfigureAwait(true))
+                    if (!await FluentLayout.ConfirmAsync(remove, Str.WidgetsB_Settings_Habits_DeleteQuestion.Text(), detail, Str.Common_Delete.Text()).ConfigureAwait(true))
                     {
                         return;
                     }
@@ -231,10 +232,10 @@ internal static partial class WidgetSettings
 
         if (pool.Lists.Count == 0)
         {
-            yield return FluentLayout.Note("No habit lists on this PC yet.");
+            yield return FluentLayout.Note(Str.WidgetsB_Settings_Habits_NoLists.Text());
         }
 
-        var add = new Button { Content = "Add a list", IsEnabled = pool.Writable };
+        var add = new Button { Content = Str.WidgetsB_Settings_Habits_AddList.Text(), IsEnabled = pool.Writable };
         add.Click += (_, _) =>
         {
             if (pool.Create(HabitLists.NewListName) is { } id)

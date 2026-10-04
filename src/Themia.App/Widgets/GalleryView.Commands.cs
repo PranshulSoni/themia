@@ -4,6 +4,7 @@ using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
 using Themia.App.Services;
 using Themia.App.Shell;
+using Themia.Core.Localization;
 using Themia.Core.Model;
 using Themia.Core.Widgets;
 
@@ -27,19 +28,20 @@ internal sealed partial class GalleryView
     private Button _pauseButton = null!;
     private bool _hovering;
 
-    private static readonly (GalleryLayout Layout, string Glyph, string Text)[] Layouts =
+    /// <summary>Each layout's glyph, its name (the item menu's radio) and its "Show as …" command (the card menu).</summary>
+    private static readonly (GalleryLayout Layout, string Glyph, Str Text, Str ShowAs)[] Layouts =
     [
-        (GalleryLayout.Slideshow, Glyphs.Play, "Slideshow"),
-        (GalleryLayout.Grid, Glyphs.Grid, "Grid"),
-        (GalleryLayout.Scatter, Glyphs.Shuffle, "Scatter"),
-        (GalleryLayout.Mosaic, Glyphs.Group, "Mosaic"),
+        (GalleryLayout.Slideshow, Glyphs.Play, Str.Gallery_ModeSlideshow, Str.WidgetsB_Gallery_ShowAsSlideshow),
+        (GalleryLayout.Grid, Glyphs.Grid, Str.Gallery_ModeGrid, Str.WidgetsB_Gallery_ShowAsGrid),
+        (GalleryLayout.Scatter, Glyphs.Shuffle, Str.Gallery_ModeScatter, Str.WidgetsB_Gallery_ShowAsScatter),
+        (GalleryLayout.Mosaic, Glyphs.Group, Str.Gallery_ModeMosaic, Str.WidgetsB_Gallery_ShowAsMosaic),
     ];
 
     private void BuildCommands()
     {
-        var previous = ControlButton(new FontIcon { Glyph = Glyphs.Previous, FontSize = Fluent.IconSize }, "Previous picture", Previous);
-        _pauseButton = ControlButton(_pauseIcon, "Pause slideshow", TogglePause);
-        var next = ControlButton(new FontIcon { Glyph = Glyphs.Next, FontSize = Fluent.IconSize }, "Next picture", Next);
+        var previous = ControlButton(new FontIcon { Glyph = Glyphs.Previous, FontSize = Fluent.IconSize }, Str.WidgetsB_Gallery_Previous.Text(), Previous);
+        _pauseButton = ControlButton(_pauseIcon, Str.WidgetsB_Gallery_Pause.Text(), TogglePause);
+        var next = ControlButton(new FontIcon { Glyph = Glyphs.Next, FontSize = Fluent.IconSize }, Str.WidgetsB_Gallery_Next.Text(), Next);
 
         // [S-769] A pill over the bottom of the picture, shown only while the pointer is over the
         // widget: a photo frame is for looking at, and permanent buttons would sit on every photo.
@@ -137,7 +139,7 @@ internal sealed partial class GalleryView
         var show = _hovering && IsSlideshow && _plan is { Controls: true, Mode: GalleryMode.Slideshow };
         _controls.Visibility = show ? Visibility.Visible : Visibility.Collapsed;
         _pauseIcon.Glyph = _paused ? Glyphs.Play : Glyphs.Pause;
-        ToolTipService.SetToolTip(_pauseButton, _paused ? "Resume slideshow" : "Pause slideshow");
+        ToolTipService.SetToolTip(_pauseButton, _paused ? Str.WidgetsB_Gallery_Resume.Text() : Str.WidgetsB_Gallery_Pause.Text());
     }
 
     /// <summary>Give a new frame its pointer behaviour: open on double-tap, jump on a thumbnail tap.</summary>
@@ -271,18 +273,18 @@ internal sealed partial class GalleryView
     {
         if (path is not null && Picture.IsLocal(path))
         {
-            yield return new ItemMenuEntry(Glyphs.Open, "Open", () => ShellLauncher.Open(path));
-            yield return new ItemMenuEntry(Glyphs.Folder, "Show in Explorer", () => ShellLauncher.OpenContainingFolder(path));
+            yield return new ItemMenuEntry(Glyphs.Open, Str.Gallery_CtxOpen.Text(), () => ShellLauncher.Open(path));
+            yield return new ItemMenuEntry(Glyphs.Folder, Str.Gallery_CtxShowInExplorer.Text(), () => ShellLauncher.OpenContainingFolder(path));
             yield return ItemMenuEntry.Separator;
         }
 
         // [S-36] The layouts are a folder's; a file and the photo of the day are one picture.
         if (!_config.IsSingleSource)
         {
-            foreach (var (layout, glyph, text) in Layouts)
+            foreach (var (layout, glyph, text, _) in Layouts)
             {
                 var chosen = layout;
-                yield return new ItemMenuEntry(glyph, text, () => SetLayout(chosen), Checked: _config.Layout == layout);
+                yield return new ItemMenuEntry(glyph, text.Text(), () => SetLayout(chosen), Checked: _config.Layout == layout);
             }
 
             yield return ItemMenuEntry.Separator;
@@ -290,10 +292,10 @@ internal sealed partial class GalleryView
 
         if (IsSlideshow)
         {
-            yield return new ItemMenuEntry(_paused ? Glyphs.Play : Glyphs.Pause, _paused ? "Resume slideshow" : "Pause slideshow", TogglePause);
+            yield return new ItemMenuEntry(_paused ? Glyphs.Play : Glyphs.Pause, _paused ? Str.WidgetsB_Gallery_Resume.Text() : Str.WidgetsB_Gallery_Pause.Text(), TogglePause);
         }
 
-        yield return new ItemMenuEntry(Glyphs.Refresh, "Refresh images", RefreshNow);
+        yield return new ItemMenuEntry(Glyphs.Refresh, Str.CtxMenu_RefreshImages.Text(), RefreshNow);
     }
 
     /// <summary>[S-773] The card's own menu: the other layouts, pause, and refresh.</summary>
@@ -305,19 +307,19 @@ internal sealed partial class GalleryView
 
             if (IsSlideshow)
             {
-                actions.Add(new WidgetAction(_paused ? Glyphs.Play : Glyphs.Pause, _paused ? "Resume slideshow" : "Pause slideshow", TogglePause));
+                actions.Add(new WidgetAction(_paused ? Glyphs.Play : Glyphs.Pause, _paused ? Str.WidgetsB_Gallery_Resume.Text() : Str.WidgetsB_Gallery_Pause.Text(), TogglePause));
             }
 
-            actions.Add(new WidgetAction(Glyphs.Refresh, "Refresh images", RefreshNow));
+            actions.Add(new WidgetAction(Glyphs.Refresh, Str.CtxMenu_RefreshImages.Text(), RefreshNow));
 
             if (!_config.IsSingleSource)
             {
-                foreach (var (layout, glyph, text) in Layouts)
+                foreach (var (layout, glyph, _, showAs) in Layouts)
                 {
                     if (layout != _config.Layout)
                     {
                         var chosen = layout;
-                        actions.Add(new WidgetAction(glyph, $"Show as {text.ToLowerInvariant()}", () => SetLayout(chosen)));
+                        actions.Add(new WidgetAction(glyph, showAs.Text(), () => SetLayout(chosen)));
                     }
                 }
             }

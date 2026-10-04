@@ -1,5 +1,6 @@
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Themia.Core.Localization;
 using Themia.Core.Model;
 using Themia.Core.Widgets;
 using Windows.System;
@@ -17,8 +18,8 @@ namespace Themia.App.Shell.Config;
 /// </summary>
 internal static partial class WidgetSettings
 {
-    private static readonly IReadOnlyList<(SearchEngine Value, string Label)> EngineChoices =
-        [.. SearchEngines.All.Select(engine => (engine, SearchEngines.Label(engine)))];
+    private static IReadOnlyList<(SearchEngine Value, string Label)> EngineChoices()
+        => [.. SearchEngines.All.Select(engine => (engine, SearchEngines.Label(engine)))];
 
     public static void WebSearch(List<FrameworkElement> rows, WebSearchConfig config, Action save)
     {
@@ -26,7 +27,7 @@ internal static partial class WidgetSettings
         ArgumentNullException.ThrowIfNull(config);
         ArgumentNullException.ThrowIfNull(save);
 
-        rows.Add(FluentLayout.Header("Search"));
+        rows.Add(FluentLayout.Header(Str.Common_Search.Text()));
 
         var verdict = FluentLayout.Verdict();
 
@@ -41,8 +42,8 @@ internal static partial class WidgetSettings
             IsTextPredictionEnabled = false,
         };
 
-        var templateRow = FluentLayout.FieldRow(Glyphs.Link, "Search address",
-            "Your own search, with %s where the words go", box, verdict);
+        var templateRow = FluentLayout.FieldRow(Glyphs.Link, Str.WidgetsC_WebSearch_Settings_Address_Label.Text(),
+            Str.WidgetsC_WebSearch_Settings_Address_Desc.Text(), box, verdict);
 
         void ShowVerdict()
         {
@@ -70,7 +71,7 @@ internal static partial class WidgetSettings
 
             if (example.IsValid)
             {
-                FluentLayout.Confirm(verdict, $"Searches {example.Url}");
+                FluentLayout.Confirm(verdict, Str.WidgetsC_WebSearch_Settings_Searches.Format(("url", example.Url)));
             }
             else
             {
@@ -106,8 +107,8 @@ internal static partial class WidgetSettings
             }
         };
 
-        rows.Add(FluentLayout.Row(Glyphs.Search, "Engine", "Where a query is sent",
-            FluentLayout.Choice(EngineChoices, config.EffectiveEngine, value =>
+        rows.Add(FluentLayout.Row(Glyphs.Search, Str.WebSearch_Engine_Label.Text(), Str.WebSearch_Engine_Desc.Text(),
+            FluentLayout.Choice(EngineChoices(), config.EffectiveEngine, value =>
             {
                 config.Engine = value;
                 save();
@@ -116,10 +117,10 @@ internal static partial class WidgetSettings
 
         rows.Add(templateRow);
 
-        rows.Add(FluentLayout.Header("Behaviour"));
+        rows.Add(FluentLayout.Header(Str.WidgetsC_WebSearch_Settings_Behaviour.Text()));
 
-        rows.Add(FluentLayout.Row(Glyphs.Clear, "Empty the box after searching",
-            "Off, the words stay there to be edited",
+        rows.Add(FluentLayout.Row(Glyphs.Clear, Str.WidgetsC_WebSearch_Settings_Clear_Label.Text(),
+            Str.WidgetsC_WebSearch_Settings_Clear_Desc.Text(),
             FluentLayout.Toggle(config.ClearAfterSearch, value => { config.ClearAfterSearch = value; save(); })));
 
         ShowVerdict();

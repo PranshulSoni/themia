@@ -1,3 +1,4 @@
+using Themia.Core.Localization;
 namespace Themia.Core.Widgets;
 
 /// <summary>A key on the calculator's keypad.</summary>
@@ -89,24 +90,24 @@ public static class CalculatorKeypad
         _ => string.Empty,
     };
 
-    /// <summary>What a screen reader and the tooltip call the key.</summary>
-    public static string Name(KeypadKey key) => key switch
+    /// <summary>What a screen reader and the tooltip call the key, in <paramref name="locale"/>.</summary>
+    public static string Name(KeypadKey key, Locale locale) => key switch
     {
         >= KeypadKey.D0 and <= KeypadKey.D9 => Label(key),
-        KeypadKey.Point => "Decimal point",
-        KeypadKey.Add => "Plus",
-        KeypadKey.Subtract => "Minus",
-        KeypadKey.Multiply => "Multiply by",
-        KeypadKey.Divide => "Divide by",
-        KeypadKey.Power => "To the power of",
-        KeypadKey.Percent => "Percent",
-        KeypadKey.Square => "Square",
-        KeypadKey.OpenParen => "Open bracket",
-        KeypadKey.CloseParen => "Close bracket",
-        KeypadKey.Answer => "Last answer",
-        KeypadKey.Backspace => "Backspace",
-        KeypadKey.Clear => "Clear",
-        KeypadKey.Equals => "Equals",
+        KeypadKey.Point => Strings.Get(locale, Str.WidgetsA_Calculator_Key_Point),
+        KeypadKey.Add => Strings.Get(locale, Str.WidgetsA_Calculator_Key_Add),
+        KeypadKey.Subtract => Strings.Get(locale, Str.WidgetsA_Calculator_Key_Subtract),
+        KeypadKey.Multiply => Strings.Get(locale, Str.WidgetsA_Calculator_Key_Multiply),
+        KeypadKey.Divide => Strings.Get(locale, Str.WidgetsA_Calculator_Key_Divide),
+        KeypadKey.Power => Strings.Get(locale, Str.WidgetsA_Calculator_Key_Power),
+        KeypadKey.Percent => Strings.Get(locale, Str.WidgetsA_Calculator_Key_Percent),
+        KeypadKey.Square => Strings.Get(locale, Str.WidgetsA_Calculator_Key_Square),
+        KeypadKey.OpenParen => Strings.Get(locale, Str.WidgetsA_Calculator_Key_OpenParen),
+        KeypadKey.CloseParen => Strings.Get(locale, Str.WidgetsA_Calculator_Key_CloseParen),
+        KeypadKey.Answer => Strings.Get(locale, Str.WidgetsA_Calculator_Key_Answer),
+        KeypadKey.Backspace => Strings.Get(locale, Str.WidgetsA_Calculator_Key_Backspace),
+        KeypadKey.Clear => Strings.Get(locale, Str.WidgetsA_Calculator_Key_Clear),
+        KeypadKey.Equals => Strings.Get(locale, Str.WidgetsA_Calculator_Key_Equals),
         _ => string.Empty,
     };
 

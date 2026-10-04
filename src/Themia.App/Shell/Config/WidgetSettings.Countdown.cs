@@ -1,6 +1,7 @@
 ﻿using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Themia.App.Widgets;
+using Themia.Core.Localization;
 using Themia.Core.Model;
 using Themia.Core.Widgets;
 using Windows.System;
@@ -18,12 +19,11 @@ namespace Themia.App.Shell.Config;
 /// </summary>
 internal static partial class WidgetSettings
 {
-    private static readonly IReadOnlyList<(CountdownFormat Value, string Label)> CountdownFormats =
+    /// <summary>The formats in picker order, named in the current language (the page is rebuilt when it changes).</summary>
+    private static IReadOnlyList<(CountdownFormat Value, string Label)> CountdownFormats() =>
     [
-        (CountdownFormat.Auto, CountdownFormatter.FormatLabel(CountdownFormat.Auto)),
-        (CountdownFormat.Days, CountdownFormatter.FormatLabel(CountdownFormat.Days)),
-        (CountdownFormat.DaysHoursMinutes, CountdownFormatter.FormatLabel(CountdownFormat.DaysHoursMinutes)),
-        (CountdownFormat.DaysHoursMinutesSeconds, CountdownFormatter.FormatLabel(CountdownFormat.DaysHoursMinutesSeconds)),
+        .. new[] { CountdownFormat.Auto, CountdownFormat.Days, CountdownFormat.DaysHoursMinutes, CountdownFormat.DaysHoursMinutesSeconds }
+            .Select(format => (format, CountdownFormatter.FormatLabel(format, Strings.Current))),
     ];
 
     public static void Countdown(List<FrameworkElement> rows, CountdownConfig config, Action save)
@@ -32,7 +32,7 @@ internal static partial class WidgetSettings
         ArgumentNullException.ThrowIfNull(config);
         ArgumentNullException.ThrowIfNull(save);
 
-        rows.Add(FluentLayout.Header("Timers"));
+        rows.Add(FluentLayout.Header(Str.Countdown_TimersSection.Text()));
 
         // [C-50] [C-52] The list, its ordering and its removals are the shared editor's, so this
         // page carries only the part of a timer that is a timer: where it points and how it reads.
@@ -40,11 +40,11 @@ internal static partial class WidgetSettings
         {
             Items = config.Timers,
             Save = save,
-            EmptyText = "No timers yet.",
-            AddTitle = "Add a timer",
-            AddDescription = "Counts down to a date and time you choose",
-            AddAction = "Add",
-            RemoveTooltip = "Remove timer",
+            EmptyText = Str.WidgetsA_Countdown_Settings_Empty.Text(),
+            AddTitle = Str.WidgetsA_Countdown_Settings_Add_Label.Text(),
+            AddDescription = Str.WidgetsA_Countdown_Settings_Add_Desc.Text(),
+            AddAction = Str.Common_Add.Text(),
+            RemoveTooltip = Str.WidgetsA_Countdown_Settings_Remove.Text(),
 
             // [C-51] This time tomorrow, on the minute: far enough out to be visible in every
             // format, near enough to be obviously a placeholder.
@@ -63,7 +63,7 @@ internal static partial class WidgetSettings
         var label = new TextBox
         {
             Text = timer.Label,
-            PlaceholderText = CountdownFormatter.UntitledLabel,
+            PlaceholderText = CountdownFormatter.Untitled(Strings.Current),
             HorizontalAlignment = HorizontalAlignment.Stretch,
         };
 
@@ -95,14 +95,14 @@ internal static partial class WidgetSettings
         var date = new CalendarDatePicker
         {
             Date = CountdownFormatter.LocalDate(timer.Target, zone),
-            PlaceholderText = "Pick a date",
+            PlaceholderText = Str.WidgetsA_Countdown_Settings_PickDate.Text(),
             HorizontalAlignment = HorizontalAlignment.Stretch,
         };
 
         var time = new TimePicker
         {
             SelectedTime = CountdownFormatter.LocalTimeOfDay(timer.Target, zone),
-            ClockIdentifier = "24HourClock",
+            ClockIdentifier = LocaleFormat.Uses24Hour(Strings.Current) ? "24HourClock" : "12HourClock",
             MinuteIncrement = 1,
             HorizontalAlignment = HorizontalAlignment.Stretch,
         };
@@ -125,7 +125,7 @@ internal static partial class WidgetSettings
         date.DateChanged += (_, _) => CommitTarget();
         time.SelectedTimeChanged += (_, _) => CommitTarget();
 
-        var format = FluentLayout.Choice(CountdownFormats, timer.Format, value =>
+        var format = FluentLayout.Choice(CountdownFormats(), timer.Format, value =>
         {
             timer.Format = value;
             save();

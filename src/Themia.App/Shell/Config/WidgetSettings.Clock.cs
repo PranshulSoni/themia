@@ -1,5 +1,6 @@
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Themia.Core.Localization;
 using Themia.Core.Model;
 using Themia.Core.Widgets;
 
@@ -17,47 +18,47 @@ internal static partial class WidgetSettings
         ArgumentNullException.ThrowIfNull(clock);
         ArgumentNullException.ThrowIfNull(save);
 
-        rows.Add(FluentLayout.Header("Clock"));
+        rows.Add(FluentLayout.Header(Str.Widget_Clock_Label.Text()));
 
-        rows.Add(FluentLayout.Row(Glyphs.Clock, "Style", "A digital readout, a sweeping analog dial, or hours stacked over minutes",
+        rows.Add(FluentLayout.Row(Glyphs.Clock, Str.Clock_StyleLabel.Text(), Str.WidgetsA_Clock_Settings_Style_Desc.Text(),
             FluentLayout.Choice(
-                [(ClockFace.Digital, "Digital"), (ClockFace.Analog, "Analog"), (ClockFace.Stacked, "Stacked")],
+                [(ClockFace.Digital, Str.Clock_StyleDigital.Text()), (ClockFace.Analog, Str.Clock_StyleAnalog.Text()), (ClockFace.Stacked, Str.Clock_StyleStacked.Text())],
                 clock.Face,
                 value => { clock.Face = value; save(); })));
 
-        rows.Add(FluentLayout.Row(Glyphs.Hours, "24-hour time", null,
+        rows.Add(FluentLayout.Row(Glyphs.Hours, Str.WidgetsA_Clock_Settings_Use24Hour_Label.Text(), null,
             FluentLayout.Toggle(clock.Use24Hour, value => { clock.Use24Hour = value; save(); })));
 
-        rows.Add(FluentLayout.Row(Glyphs.Timer, "Show seconds",
-            "Wakes the app once a second instead of once a minute",
+        rows.Add(FluentLayout.Row(Glyphs.Timer, Str.Clock_SecondsLabel.Text(),
+            Str.WidgetsA_Clock_Settings_Seconds_Desc.Text(),
             FluentLayout.Toggle(clock.ShowSeconds, value => { clock.ShowSeconds = value; save(); })));
 
-        rows.Add(FluentLayout.Row(Glyphs.Calendar, "Show date", null,
+        rows.Add(FluentLayout.Row(Glyphs.Calendar, Str.Clock_DateLabel.Text(), null,
             FluentLayout.Toggle(clock.ShowDate, value => { clock.ShowDate = value; save(); })));
 
-        rows.Add(FluentLayout.Row(Glyphs.View, "Alignment", "Where the time sits across the tile",
+        rows.Add(FluentLayout.Row(Glyphs.View, Str.Clock_AlignLabel.Text(), Str.WidgetsA_Clock_Settings_Align_Desc.Text(),
             FluentLayout.Choice(
-                [(ClockAlign.Left, "Left"), (ClockAlign.Center, "Centre"), (ClockAlign.Right, "Right")],
+                [(ClockAlign.Left, Str.Clock_AlignLeft.Text()), (ClockAlign.Center, Str.Clock_AlignCenter.Text()), (ClockAlign.Right, Str.Clock_AlignRight.Text())],
                 clock.Align,
                 value => { clock.Align = value; save(); })));
 
-        rows.Add(FluentLayout.Header("Time zone"));
+        rows.Add(FluentLayout.Header(Str.Clock_TimezoneLabel.Text()));
 
         // The label box is built first so the zone search can update its placeholder: an empty label
         // shows the chosen city, and the placeholder says which.
         var label = LabelBox(clock, save);
 
-        rows.Add(FluentLayout.Row(Glyphs.Place, "Time zone", "Search for a city; the clock becomes a world clock",
+        rows.Add(FluentLayout.Row(Glyphs.Place, Str.Clock_TimezoneLabel.Text(), Str.WidgetsA_Clock_Settings_Zone_Desc.Text(),
             ZoneSearch(clock, save, () => label.PlaceholderText = LabelPlaceholder(clock))));
 
-        rows.Add(FluentLayout.Row(Glyphs.Rename, "Label", "Shown above the time. Empty: the city of a chosen zone", label));
+        rows.Add(FluentLayout.Row(Glyphs.Rename, Str.Clock_LabelLabel.Text(), Str.WidgetsA_Clock_Settings_Label_Desc.Text(), label));
 
-        rows.Add(FluentLayout.Row(Glyphs.Hours, "Offset", "A line under the date with the zone's offset",
+        rows.Add(FluentLayout.Row(Glyphs.Hours, Str.Clock_OffsetLabel.Text(), Str.WidgetsA_Clock_Settings_Offset_Desc.Text(),
             FluentLayout.Choice(
                 [
-                    (ClockOffsetMode.None, "None"),
-                    (ClockOffsetMode.Utc, "From UTC"),
-                    (ClockOffsetMode.Local, "From local time"),
+                    (ClockOffsetMode.None, Str.Common_None.Text()),
+                    (ClockOffsetMode.Utc, Str.WidgetsA_Clock_Settings_Offset_Utc.Text()),
+                    (ClockOffsetMode.Local, Str.WidgetsA_Clock_Settings_Offset_Local.Text()),
                 ],
                 clock.OffsetMode,
                 value => { clock.OffsetMode = value; save(); })));
@@ -75,12 +76,12 @@ internal static partial class WidgetSettings
         var local = TimeZoneInfo.Local.DisplayName;
         var cut = local.IndexOf(") ", StringComparison.Ordinal);
         var places = local.StartsWith("(UTC", StringComparison.Ordinal) && cut > 0 ? local[(cut + 2)..] : local;
-        var current = $"Current: {places}";
+        var current = Str.Clock_TzCurrent.Format(("city", places));
 
         var box = new AutoSuggestBox
         {
             Width = 300,
-            PlaceholderText = "Search a city",
+            PlaceholderText = Str.LocationSearch_Placeholder.Text(),
             Text = ZoneText(clock.TimeZoneId) ?? current,
             QueryIcon = new SymbolIcon(Symbol.Find),
         };
@@ -181,7 +182,7 @@ internal static partial class WidgetSettings
     }
 
     private static string LabelPlaceholder(ClockConfig clock)
-        => ZoneCatalog.Find(clock.TimeZoneId) is { } entry ? entry.City : "No label";
+        => ZoneCatalog.Find(clock.TimeZoneId) is { } entry ? entry.City : Str.WidgetsA_Clock_Settings_Label_None.Text();
 
     /// <summary>"Tokyo · Asia" for a chosen zone; null for the local one.</summary>
     private static string? ZoneText(string? ianaId)
@@ -199,6 +200,6 @@ internal static partial class WidgetSettings
             return text;
         }
 
-        return $"{text} · {ClockFormatter.OffsetText(zone.GetUtcOffset(DateTimeOffset.UtcNow), TimeSpan.Zero, ClockOffsetMode.Utc)}";
+        return $"{text} · {ClockFormatter.OffsetText(zone.GetUtcOffset(DateTimeOffset.UtcNow), TimeSpan.Zero, ClockOffsetMode.Utc, Strings.Current)}";
     }
 }

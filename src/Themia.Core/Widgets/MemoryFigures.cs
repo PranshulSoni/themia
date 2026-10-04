@@ -1,3 +1,6 @@
+
+using Themia.Core.Localization;
+
 namespace Themia.Core.Widgets;
 
 /// <summary>
@@ -43,7 +46,14 @@ public static class MemoryFigures
     public static double? UsedFraction(MemorySnapshot s) => s.Total == 0 ? null : (double)Used(s) / s.Total;
 
     /// <summary>"10.1 GB of 16 GB" — the caption under the reading.</summary>
-    public static string UsedOfTotal(MemorySnapshot s) => $"{Formatting.Bytes(Used(s))} of {Formatting.Bytes(s.Total)}";
+    public static string UsedOfTotal(MemorySnapshot s) => UsedOfTotal(Strings.Current, s);
+
+    /// <summary><see cref="UsedOfTotal(MemorySnapshot)"/> in <paramref name="locale"/>.</summary>
+    public static string UsedOfTotal(Locale locale, MemorySnapshot s) => Of(locale, Used(s), s.Total);
+
+    /// <summary>"10.1 GB of 16 GB".</summary>
+    private static string Of(Locale locale, ulong used, ulong total)
+        => Strings.Format(locale, Str.WidgetsB_Memory_UsedOfTotal, ("used", Formatting.Bytes(locale, used)), ("total", Formatting.Bytes(locale, total)));
 
     /// <summary>
     /// [S-1132] The page files, or null when there are none (the original hid the swap line when the
@@ -63,12 +73,19 @@ public static class MemoryFigures
     }
 
     /// <summary>"1.2 GB of 4 GB · 30%".</summary>
-    public static string PagefileLine(PagefileFigures p)
-        => $"{Formatting.Bytes(p.Used)} of {Formatting.Bytes(p.Total)} · {Formatting.Percent(p.Fraction)}";
+    public static string PagefileLine(PagefileFigures p) => PagefileLine(Strings.Current, p);
+
+    /// <summary><see cref="PagefileLine(PagefileFigures)"/> in <paramref name="locale"/>.</summary>
+    public static string PagefileLine(Locale locale, PagefileFigures p)
+        => Strings.Format(locale, Str.WidgetsB_Memory_UsedOfTotalPercent,
+            ("used", Formatting.Bytes(locale, p.Used)), ("total", Formatting.Bytes(locale, p.Total)), ("percent", Formatting.Percent(locale, p.Fraction)));
 
     /// <summary>"18.2 GB of 31.9 GB", or null when the commit figures are missing.</summary>
-    public static string? CommittedLine(MemorySnapshot s)
-        => s.CommitLimit == 0 ? null : $"{Formatting.Bytes(s.CommitTotal)} of {Formatting.Bytes(s.CommitLimit)}";
+    public static string? CommittedLine(MemorySnapshot s) => CommittedLine(Strings.Current, s);
+
+    /// <summary><see cref="CommittedLine(MemorySnapshot)"/> in <paramref name="locale"/>.</summary>
+    public static string? CommittedLine(Locale locale, MemorySnapshot s)
+        => s.CommitLimit == 0 ? null : Of(locale, s.CommitTotal, s.CommitLimit);
 
     /// <summary>
     /// [S-1131] In use / cached / free, or null when the standby and modified counters did not

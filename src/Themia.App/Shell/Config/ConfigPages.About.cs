@@ -7,6 +7,7 @@ using Microsoft.Windows.Storage.Pickers;
 using Themia.App.Services;
 using Themia.App.Widgets;
 using Themia.Core.Diagnostics;
+using Themia.Core.Localization;
 using Themia.Core.Storage;
 using Themia.Core.Widgets;
 
@@ -33,7 +34,7 @@ internal static partial class ConfigPages
     {
         var rows = new List<FrameworkElement> { NameCard() };
 
-        rows.Add(FluentLayout.Header("Made by"));
+        rows.Add(FluentLayout.Header(Str.Shell_About_MadeBy.Text()));
 
         var link = new HyperlinkButton
         {
@@ -42,51 +43,51 @@ internal static partial class ConfigPages
         };
 
         rows.Add(FluentLayout.Row(CompanyMark(), "Lometics",
-            "Independent software studio in St. Gallen, Switzerland", link));
+            Str.Shell_About_Studio.Text(), link));
 
         rows.Add(FluentLayout.Header("Themia"));
 
-        var quit = new Button { Content = "Quit" };
+        var quit = new Button { Content = Str.Settings_Quit_Action.Text() };
         quit.Click += (_, _) => host.RequestExit();
-        rows.Add(FluentLayout.Row(Glyphs.Power, "Quit Themia", "Closes the widgets on every display", quit));
+        rows.Add(FluentLayout.Row(Glyphs.Power, Str.Settings_Quit_Label.Text(), Str.Shell_About_QuitDesc.Text(), quit));
 
-        rows.Add(FluentLayout.Header("Settings file"));
+        rows.Add(FluentLayout.Header(Str.Shell_About_SettingsFile.Text()));
 
-        var export = new Button { Content = "Export…" };
+        var export = new Button { Content = Str.Shell_About_ExportEllipsis.Text() };
         export.Click += (_, _) => _ = ExportAsync(host, export);
-        rows.Add(FluentLayout.Row(Glyphs.Export, "Export settings",
-            "Every view, widget and setting in one file, to keep or to take to another PC", export));
+        rows.Add(FluentLayout.Row(Glyphs.Export, Str.Settings_ExportSettings_Label.Text(),
+            Str.Shell_About_ExportDesc.Text(), export));
 
         var stateName = Path.GetFileName(host.StatePath);
-        var import = new Button { Content = "Import…" };
+        var import = new Button { Content = Str.Shell_About_ImportEllipsis.Text() };
         import.Click += (_, _) => _ = ImportAsync(host, import);
-        rows.Add(FluentLayout.Row(Glyphs.Import, "Import settings",
-            $"Takes the settings from such a file. It shows what will change first, and keeps what you have now beside {stateName}",
+        rows.Add(FluentLayout.Row(Glyphs.Import, Str.Settings_ImportSettings_Label.Text(),
+            Str.Shell_About_ImportDesc.Format(("file", stateName)),
             import));
 
-        rows.Add(FluentLayout.ClickRow(Glyphs.Code, "Open config file", host.StatePath, () => OpenConfigFile(host)));
+        rows.Add(FluentLayout.ClickRow(Glyphs.Code, Str.Shell_About_OpenConfig.Text(), host.StatePath, () => OpenConfigFile(host)));
 
         // [S-892] Back to a fresh profile, with what is there now kept beside the settings file.
         rows.Add(FluentLayout.ConfirmRow(
             Glyphs.Reset,
-            "Reset all settings",
-            "Views, widgets, appearance and preferences go back to how Themia starts. Accounts, notes, tasks and habits stay",
-            "Reset…",
-            "Reset all settings?",
-            () => $"Every view and widget is replaced by the starting desktop, and appearance and preferences go back to their defaults. What you have now is kept beside {stateName}, so it can be imported again.",
+            Str.Shell_About_ResetAll.Text(),
+            Str.Shell_About_ResetAllDesc.Text(),
+            Str.Shell_About_ResetEllipsis.Text(),
+            Str.Shell_About_ResetConfirm.Text(),
+            () => Str.Shell_About_ResetBody.Format(("file", stateName)),
             () =>
             {
                 if (host.ResetAll() is { } problem)
                 {
-                    Notices.Error("Couldn't reset the settings", problem);
+                    Notices.Error(Str.Shell_About_ResetFailed.Text(), problem);
                 }
             }));
 
         // [S-1552] The very last card on the page, under its own heading.
-        rows.Add(FluentLayout.Header("Uninstall"));
+        rows.Add(FluentLayout.Header(Str.Shell_Uninstall_Action.Text()));
         rows.Add(UninstallRow(host));
 
-        return Page("About", rows);
+        return Page(Str.Settings_Section_About.Text(), rows);
     }
 
     /// <summary>The app's own name card, as Windows Settings starts its About page: the mark over the name and version.</summary>
@@ -109,7 +110,7 @@ internal static partial class ConfigPages
             },
         };
 
-        Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(logo, "Themia logo");
+        Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(logo, Str.Shell_About_ThemiaLogo.Text());
 
         var name = new TextBlock { Text = "Themia" };
         if (Application.Current.Resources.TryGetValue("SubtitleTextBlockStyle", out var subtitle) && subtitle is Style style)
@@ -119,7 +120,7 @@ internal static partial class ConfigPages
 
         var version = new TextBlock
         {
-            Text = $"Version {AppInfo.Version}",
+            Text = Str.Shell_About_Version.Format(("version", AppInfo.Version)),
             Foreground = FluentLayout.Themed("TextFillColorSecondaryBrush", Colors.Gray),
         };
 
@@ -169,7 +170,7 @@ internal static partial class ConfigPages
             },
         };
 
-        Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(image, "Lometics logo");
+        Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(image, Str.Shell_About_LometicsLogo.Text());
         return image;
     }
 
@@ -198,12 +199,12 @@ internal static partial class ConfigPages
         {
             var picker = new FileSavePicker(owner)
             {
-                SuggestedFileName = $"Themia settings {DateTime.Now:yyyy-MM-dd}",
+                SuggestedFileName = Str.Shell_About_ExportFileName.Format(("date", DateTime.Now.ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture))),
                 DefaultFileExtension = ".json",
                 SuggestedStartLocation = PickerLocationId.DocumentsLibrary,
             };
 
-            picker.FileTypeChoices.Add("Themia settings", [".json"]);
+            picker.FileTypeChoices.Add(Str.Shell_About_FileType.Text(), [".json"]);
 
             if (await picker.PickSaveFileAsync() is not { } picked)
             {
@@ -212,7 +213,7 @@ internal static partial class ConfigPages
 
             if (SettingsTransfer.WriteFile(host.State, picked.Path) is { } problem)
             {
-                await TellAsync(source, "Couldn't export the settings", problem).ConfigureAwait(true);
+                await TellAsync(source, Str.Shell_About_ExportFailed.Text(), problem).ConfigureAwait(true);
                 return;
             }
 
@@ -256,7 +257,7 @@ internal static partial class ConfigPages
             var read = SettingsTransfer.ReadFile(picked.Path);
             if (read.State is not { } incoming)
             {
-                await TellAsync(source, "Couldn't import the settings", read.Problem ?? "The file couldn't be read.")
+                await TellAsync(source, Str.Shell_About_ImportFailed.Text(), read.Problem ?? Str.Shell_Transfer_Unreadable.Text())
                     .ConfigureAwait(true);
                 return;
             }
@@ -272,7 +273,7 @@ internal static partial class ConfigPages
 
             if (host.ImportState(incoming) is { } problem)
             {
-                await TellAsync(source, "Couldn't import the settings", problem).ConfigureAwait(true);
+                await TellAsync(source, Str.Shell_About_ImportFailed.Text(), problem).ConfigureAwait(true);
             }
         }
         catch (Exception ex)
@@ -297,10 +298,10 @@ internal static partial class ConfigPages
         {
             XamlRoot = root,
             RequestedTheme = source.ActualTheme,
-            Title = "Import these settings?",
+            Title = Str.Shell_About_ImportConfirm.Text(),
             Content = DescribeImport(preview, stateName, backupName),
-            PrimaryButtonText = "Import",
-            CloseButtonText = "Cancel",
+            PrimaryButtonText = Str.Common_Import.Text(),
+            CloseButtonText = Str.Common_Cancel.Text(),
             DefaultButton = ContentDialogButton.Close,
         };
 
@@ -321,7 +322,7 @@ internal static partial class ConfigPages
             RequestedTheme = source.ActualTheme,
             Title = title,
             Content = new TextBlock { Text = message, TextWrapping = TextWrapping.Wrap },
-            CloseButtonText = "OK",
+            CloseButtonText = Str.Common_Ok.Text(),
         };
 
         await dialog.ShowAsync();
@@ -352,15 +353,15 @@ internal static partial class ConfigPages
             if (lines.Count > PreviewLines)
             {
                 var more = Fluent.Text(FluentType.Body, "TextFillColorSecondaryBrush");
-                more.Text = $"and {lines.Count - PreviewLines} more";
+                more.Text = Str.Shell_About_AndMore.Plural(lines.Count - PreviewLines);
                 section.Children.Add(more);
             }
 
             body.Children.Add(section);
         }
 
-        Section("What changes", preview.Changes.Count > 0 ? preview.Changes : ["Nothing: the settings are the same"]);
-        Section("Good to know", [.. preview.Notes, $"The settings you have now are kept next to {stateName}, as {backupName}."]);
+        Section(Str.Shell_About_WhatChanges.Text(), preview.Changes.Count > 0 ? preview.Changes : [Str.Shell_About_NoChanges.Text()]);
+        Section(Str.Shell_About_GoodToKnow.Text(), [.. preview.Notes, Str.Shell_About_KeptAs.Format(("file", stateName), ("backup", backupName))]);
 
         return new ScrollViewer
         {

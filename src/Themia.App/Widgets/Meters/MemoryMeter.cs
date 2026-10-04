@@ -1,4 +1,6 @@
+using System.Globalization;
 using Themia.App.Services;
+using Themia.Core.Localization;
 using Themia.Core.Model;
 using Themia.Core.Widgets;
 
@@ -60,7 +62,7 @@ internal sealed class MemoryMeter : MeterPart
 
         if (MemoryCounters.Read(detailed) is not { } snapshot || MemoryFigures.UsedFraction(snapshot) is not { } fraction)
         {
-            host.Present(MeterReading.Unavailable("unavailable"));
+            host.Present(MeterReading.Unavailable(Str.WidgetsB_Meters_Unavailable.Text()));
             return;
         }
 
@@ -81,18 +83,18 @@ internal sealed class MemoryMeter : MeterPart
 
         if (_config.ShowAvailable)
         {
-            lines.Add(new MeterFact("Available", Formatting.Bytes(snapshot.Available)));
+            lines.Add(new MeterFact(Str.WidgetUi_Available.Text(), Formatting.Bytes(snapshot.Available)));
         }
 
         // Hidden on a machine with no page file, as the original hid it when the total was 0.
         if (_config.ShowSwap && MemoryFigures.Pagefile(snapshot) is { } pagefile)
         {
-            lines.Add(new MeterFact("Swap", MemoryFigures.PagefileLine(pagefile)));
+            lines.Add(new MeterFact(Str.WidgetUi_Swap.Text(), MemoryFigures.PagefileLine(pagefile)));
         }
 
         if (_config.ShowCommitted && MemoryFigures.CommittedLine(snapshot) is { } committed)
         {
-            lines.Add(new MeterFact("Committed", committed));
+            lines.Add(new MeterFact(Str.WidgetsB_Memory_Committed.Text(), committed));
         }
 
         return lines;
@@ -109,9 +111,9 @@ internal sealed class MemoryMeter : MeterPart
         double total = snapshot.Total;
         return
         [
-            new MeterSegment("In use", Formatting.Bytes(c.InUse), c.InUse / total, MeterTone.Primary),
-            new MeterSegment("Cached", Formatting.Bytes(c.Cached), c.Cached / total, MeterTone.Secondary),
-            new MeterSegment("Free", Formatting.Bytes(c.Free), c.Free / total, MeterTone.Rest),
+            new MeterSegment(Str.WidgetsB_Memory_InUse.Text(), Formatting.Bytes(c.InUse), c.InUse / total, MeterTone.Primary),
+            new MeterSegment(Str.WidgetsB_Memory_Cached.Text(), Formatting.Bytes(c.Cached), c.Cached / total, MeterTone.Secondary),
+            new MeterSegment(Str.WidgetsB_Meters_Free.Text(), Formatting.Bytes(c.Free), c.Free / total, MeterTone.Rest),
         ];
     }
 
@@ -135,10 +137,10 @@ internal sealed class MemoryMeter : MeterPart
                 process.Name,
                 process.MemoryText,
                 total == 0 ? null : (double)process.WorkingSetBytes / total,
-                $"{process.Name} (pid {process.Pid})"));
+                Str.WidgetsB_Meters_ProcessTooltip.Format(("name", process.Name), ("pid", process.Pid.ToString(CultureInfo.InvariantCulture)))));
         }
 
-        return new MeterList("Top processes", shown);
+        return new MeterList(Str.WidgetUi_TopProcsLabel.Text(), shown);
     }
 
     public override void Detach()

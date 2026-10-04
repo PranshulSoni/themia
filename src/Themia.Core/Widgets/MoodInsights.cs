@@ -1,6 +1,6 @@
-using System.Globalization;
 using System.Text;
 using Themia.Core.Model;
+using Themia.Core.Localization;
 
 namespace Themia.Core.Widgets;
 
@@ -163,47 +163,61 @@ public static class MoodInsights
     }
 
     /// <summary>[S-1451] One entry in a few words: "21:40 · Good: long walk".</summary>
-    public static string EntryLine(MoodEntry entry)
+    public static string EntryLine(MoodEntry entry) => EntryLine(Strings.Current, entry);
+
+    /// <summary><see cref="EntryLine(MoodEntry)"/> in <paramref name="locale"/>.</summary>
+    public static string EntryLine(Locale locale, MoodEntry entry)
     {
         ArgumentNullException.ThrowIfNull(entry);
 
-        var time = $"{entry.At.Hour:D2}:{entry.At.Minute:D2}";
-        var level = MoodRules.LevelName(entry.Level);
+        var time = LocaleFormat.Time(locale, new TimeOnly(entry.At.Hour, entry.At.Minute));
+        var level = MoodRules.LevelName(locale, entry.Level);
 
-        return string.IsNullOrWhiteSpace(entry.Note) ? $"{time} · {level}" : $"{time} · {level}: {entry.Note.Trim()}";
+        return string.IsNullOrWhiteSpace(entry.Note)
+            ? Strings.Format(locale, Str.WidgetsB_Mood_EntryLine, ("time", time), ("level", level))
+            : Strings.Format(locale, Str.WidgetsB_Mood_EntryLineNote, ("time", time), ("level", level), ("note", entry.Note.Trim()));
     }
 
     /// <summary>
     /// [S-1450] A day's tooltip: its sentence (date, level, average), then one line per entry with the
     /// thought attached (the original S-12).
     /// </summary>
-    public static string Tooltip(MoodDay day, IReadOnlyList<MoodEntry> dayEntries)
+    public static string Tooltip(MoodDay day, IReadOnlyList<MoodEntry> dayEntries) => Tooltip(Strings.Current, day, dayEntries);
+
+    /// <summary><see cref="Tooltip(MoodDay, IReadOnlyList{MoodEntry})"/> in <paramref name="locale"/>.</summary>
+    public static string Tooltip(Locale locale, MoodDay day, IReadOnlyList<MoodEntry> dayEntries)
     {
         ArgumentNullException.ThrowIfNull(dayEntries);
 
-        var text = new StringBuilder(MoodRules.Describe(day));
+        var text = new StringBuilder(MoodRules.Describe(locale, day));
 
         foreach (var entry in dayEntries)
         {
-            text.Append('\n').Append(EntryLine(entry));
+            text.Append('\n').Append(EntryLine(locale, entry));
         }
 
         return text.ToString();
     }
 
     /// <summary>[S-1454] A recent-thought row: "Tue 29 Sep · Good: long walk".</summary>
-    public static string RecentLine(MoodEntry entry)
+    public static string RecentLine(MoodEntry entry) => RecentLine(Strings.Current, entry);
+
+    /// <summary><see cref="RecentLine(MoodEntry)"/> in <paramref name="locale"/>.</summary>
+    public static string RecentLine(Locale locale, MoodEntry entry)
     {
         ArgumentNullException.ThrowIfNull(entry);
 
-        var day = LocalDay.From(entry.At);
-        var date = $"{ShortDays[(int)day.DayOfWeek]} {day.Day.ToString(CultureInfo.InvariantCulture)} {ShortMonths[day.Month - 1]}";
+        var date = LocaleFormat.Date(locale, LocalDay.From(entry.At).Date, DateStyle.WeekdayMonthDayShort);
 
-        return $"{date} · {MoodRules.LevelName(entry.Level)}: {entry.Note.Trim()}";
+        return Strings.Format(locale, Str.WidgetsB_Mood_RecentLine, ("date", date), ("level", MoodRules.LevelName(locale, entry.Level)), ("note", entry.Note.Trim()));
     }
 
     /// <summary>"Oct": a month's short name, for the map's month labels. Out of range is empty.</summary>
-    public static string MonthName(int month) => month is >= 1 and <= 12 ? ShortMonths[month - 1] : string.Empty;
+    public static string MonthName(int month) => MonthName(Strings.Current, month);
+
+    /// <summary><see cref="MonthName(int)"/> in <paramref name="locale"/>.</summary>
+    public static string MonthName(Locale locale, int month)
+        => month is >= 1 and <= 12 ? LocaleFormat.MonthName(locale, month, NameWidth.Short) : string.Empty;
 
     /// <summary>Where a weekday sits in a week that starts on <paramref name="weekStart"/>, 0..6.</summary>
     public static int Column(DayOfWeek day, DayOfWeek weekStart) => (((int)day - (int)weekStart) + 7) % 7;
@@ -213,9 +227,4 @@ public static class MoodInsights
         var day = LocalDay.From(entry.At);
         return day >= from && day <= to;
     }
-
-    private static readonly string[] ShortDays = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-
-    private static readonly string[] ShortMonths =
-        ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 }

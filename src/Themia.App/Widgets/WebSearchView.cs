@@ -7,6 +7,7 @@ using Microsoft.UI.Xaml.Media;
 using Themia.App.Services;
 using Themia.App.Shell;
 using Themia.Core.Diagnostics;
+using Themia.Core.Localization;
 using Themia.Core.Model;
 using Themia.Core.Widgets;
 
@@ -45,6 +46,7 @@ internal sealed partial class WebSearchView : Grid, IWidgetView, IWidgetSurfaceA
     private readonly StackPanel _chips = new() { Orientation = Orientation.Horizontal, Spacing = Fluent.Space1 };
     private readonly TextBlock _hint;
     private readonly StackPanel _recentNote;
+    private readonly TextBlock _recentNoteText = new();
     private readonly FontIcon _recentNoteIcon;
     private readonly TextBlock _recentTitle;
     private readonly StackPanel _recent = new();
@@ -74,7 +76,7 @@ internal sealed partial class WebSearchView : Grid, IWidgetView, IWidgetSurfaceA
         // Windows does rather than as a red this file picked.
         _errorBrush = FluentLayout.Themed("SystemFillColorCriticalBrush", Colors.IndianRed);
 
-        _input.PlaceholderText = "Search the web";
+        _input.PlaceholderText = Str.WidgetsC_WebSearch_Placeholder.Text();
         _input.IsSpellCheckEnabled = false;
         _input.IsTextPredictionEnabled = false;
         _input.CornerRadius = new CornerRadius(Fluent.ControlRadius);
@@ -89,7 +91,8 @@ internal sealed partial class WebSearchView : Grid, IWidgetView, IWidgetSurfaceA
 
         // [S-1530] The space under the box before the first search: the stock empty state, centred,
         // so it reads as waiting rather than as a list that failed to load.
-        _recentNote = Fluent.EmptyState(Glyphs.Clock, new TextBlock { Text = "Your searches appear here until Themia closes." }, out _recentNoteIcon);
+        _recentNoteText.Text = Str.WidgetsC_WebSearch_RecentNote.Text();
+        _recentNote = Fluent.EmptyState(Glyphs.Clock, _recentNoteText, out _recentNoteIcon);
         _recentNote.Visibility = Visibility.Collapsed;
 
         _top = new StackPanel
@@ -100,7 +103,7 @@ internal sealed partial class WebSearchView : Grid, IWidgetView, IWidgetSurfaceA
         };
 
         _recentTitle = Fluent.Text(FluentType.Strong(FluentType.Caption), "TextFillColorSecondaryBrush");
-        _recentTitle.Text = "Recent searches";
+        _recentTitle.Text = Str.WidgetsC_WebSearch_Recent.Text();
         _recentTitle.Margin = new Thickness(Fluent.Space4, Fluent.Space2, Fluent.Space4, Fluent.Space1);
         _recentTitle.Visibility = Visibility.Collapsed;
 
@@ -121,7 +124,18 @@ internal sealed partial class WebSearchView : Grid, IWidgetView, IWidgetSurfaceA
     {
         // No ticker: this widget changes when it is typed in.
         History.Changed += OnHistoryChanged;
+        Strings.Changed -= OnLanguage;
+        Strings.Changed += OnLanguage;
         ApplyConfig(config);
+    }
+
+    /// <summary>[S-1110] The fixed texts again; the placeholder and hint follow on the next lay-out.</summary>
+    private void OnLanguage(Locale locale)
+    {
+        _recentNoteText.Text = Str.WidgetsC_WebSearch_RecentNote.Text();
+        _recentTitle.Text = Str.WidgetsC_WebSearch_Recent.Text();
+        Lay();
+        RenderRecent();
     }
 
     public void ApplyConfig(WidgetConfig config)
@@ -220,7 +234,7 @@ internal sealed partial class WebSearchView : Grid, IWidgetView, IWidgetSurfaceA
             }
         }
 
-        ShowHint($"Enter to search with {SearchEngines.Label(engine)}", isError: false);
+        ShowHint(Str.WidgetsC_WebSearch_EnterHint.Format(("engine", SearchEngines.Label(engine))), isError: false);
     }
 
     private void ShowHint(string text, bool isError)
@@ -258,7 +272,7 @@ internal sealed partial class WebSearchView : Grid, IWidgetView, IWidgetSurfaceA
         _input.MinHeight = large ? 40 : Fluent.RowHeightCompact;
 
         // A narrow box keeps a placeholder it can show whole.
-        _input.PlaceholderText = area.WidthClass == SizeClass.Compact ? "Search" : "Search the web";
+        _input.PlaceholderText = (area.WidthClass == SizeClass.Compact ? Str.Common_Search : Str.WidgetsC_WebSearch_Placeholder).Text();
 
         var room = new Disclosure(area.Deflate(Fluent.Space4, Fluent.Space2), gap: Fluent.Space2);
         room.Reserve(_input.MinHeight);
@@ -413,7 +427,7 @@ internal sealed partial class WebSearchView : Grid, IWidgetView, IWidgetSurfaceA
             row.Tapped += OnRecentTapped;
             row.DoubleTapped += OnRecentDoubleTapped;
             row.RightTapped += OnRecentRightTapped;
-            ToolTipService.SetToolTip(row, "Click to edit, double-click to search again");
+            ToolTipService.SetToolTip(row, Str.WidgetsC_WebSearch_RowTip.Text());
 
             _hovers.Add(Fluent.Hover(row));
             _recent.Children.Add(row);
@@ -470,10 +484,10 @@ internal sealed partial class WebSearchView : Grid, IWidgetView, IWidgetSurfaceA
         {
             ItemMenu.Show(row, args,
             [
-                new ItemMenuEntry(Glyphs.Search, "Search again", () => Submit(query)),
-                new ItemMenuEntry(Glyphs.Copy, "Copy", () => Copy(query)),
+                new ItemMenuEntry(Glyphs.Search, Str.WidgetsC_WebSearch_SearchAgain.Text(), () => Submit(query)),
+                new ItemMenuEntry(Glyphs.Copy, Str.Common_Copy.Text(), () => Copy(query)),
                 ItemMenuEntry.Separator,
-                new ItemMenuEntry(Glyphs.Delete, "Remove from recent", () => History.Remove(query)),
+                new ItemMenuEntry(Glyphs.Delete, Str.WidgetsC_WebSearch_RemoveRecent.Text(), () => History.Remove(query)),
             ]);
         }
     }
@@ -488,7 +502,7 @@ internal sealed partial class WebSearchView : Grid, IWidgetView, IWidgetSurfaceA
 
     /// <summary>[S-1530] "Clear recent searches" on the card's menu, while there are any.</summary>
     public IReadOnlyList<WidgetAction> ContextActions => History.Items.Count > 0
-        ? [new WidgetAction(Glyphs.Clear, "Clear recent searches", () => History.Clear())]
+        ? [new WidgetAction(Glyphs.Clear, Str.WidgetsC_WebSearch_ClearRecent.Text(), () => History.Clear())]
         : [];
 
     public void Detach()
@@ -499,6 +513,7 @@ internal sealed partial class WebSearchView : Grid, IWidgetView, IWidgetSurfaceA
         }
 
         _detached = true;
+        Strings.Changed -= OnLanguage;
 
         History.Changed -= OnHistoryChanged;
         _input.KeyDown -= OnInputKeyDown;

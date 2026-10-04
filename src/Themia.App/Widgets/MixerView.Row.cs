@@ -9,6 +9,7 @@ using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Shapes;
 using Themia.App.Services;
 using Themia.App.Shell;
+using Themia.Core.Localization;
 using Themia.Core.Widgets;
 using Glyphs = Themia.App.Shell.Glyphs;
 
@@ -249,16 +250,16 @@ internal sealed partial class MixerView
             _name.Text = name;
             _name.Foreground = row.Muted ? MutedBrush : dimmed ? QuietBrush : PrimaryBrush;
             _detail.Text = MixerFill.Detail(row);
-            ToolTipService.SetToolTip(Host, dimmed ? $"{name} (not playing)" : name);
+            ToolTipService.SetToolTip(Host, dimmed ? Str.WidgetsB_Mixer_NotPlaying.Format(("name", name)) : name);
 
             _count.Visibility = row.Sessions > 1 ? Visibility.Visible : Visibility.Collapsed;
-            _countText.Text = row.Sessions.ToString(System.Globalization.CultureInfo.InvariantCulture);
+            _countText.Text = LocaleFormat.Integer(row.Sessions);
 
             var percent = MixerRules.DisplayPercent(row);
-            _percent.Text = $"{percent}%";
+            _percent.Text = LocaleFormat.Percent(Strings.Current, percent);
 
             _muteIcon.Glyph = LevelRow.OutputGlyph(row.Level, row.Muted);
-            ToolTipService.SetToolTip(_mute, row.Muted ? "Unmute" : "Mute");
+            ToolTipService.SetToolTip(_mute, row.Muted ? Str.Mixer_Unmute.Text() : Str.Mixer_Mute.Text());
 
             // A snapshot is the machine's truth, but not under a held thumb: writing it there would
             // snap the slider back to where the app was a moment ago.
@@ -366,12 +367,12 @@ internal sealed partial class MixerView
 
             var mute = new MenuFlyoutItem
             {
-                Text = row.Muted ? "Unmute" : "Mute",
+                Text = row.Muted ? Str.Mixer_Unmute.Text() : Str.Mixer_Mute.Text(),
                 Icon = new FontIcon { Glyph = row.Muted ? Glyphs.Volume3 : Glyphs.Mute },
             };
             mute.Click += (_, _) => _owner.OnMute(row);
 
-            var reset = new MenuFlyoutItem { Text = "Reset to 100%", Icon = new FontIcon { Glyph = Glyphs.Reset } };
+            var reset = new MenuFlyoutItem { Text = Str.Mixer_Reset.Text(), Icon = new FontIcon { Glyph = Glyphs.Reset } };
             reset.Click += (_, _) => _owner.OnReset(row);
 
             menu.Items.Add(mute);

@@ -1,4 +1,5 @@
 using System.Net;
+using Themia.Core.Localization;
 using Themia.Core.Model;
 using Themia.Core.Storage;
 using Themia.Core.Widgets;
@@ -167,14 +168,18 @@ public sealed class FeedWidgetTests : IDisposable
     }
 
     [Theory]
-    [InlineData(-30, "Just now")]
-    [InlineData(-300, "5m ago")]
-    [InlineData(-7200, "2h ago")]
-    [InlineData(-86400 * 6, "6d ago")]
     [InlineData(-86400 * 8, "Sep 26")]
     [InlineData(-86400 * 400, "Aug 30, 2025")]
     public void S1302_ItemAgeIsRelativeForAWeek_ThenADate(int seconds, string expected)
-        => Assert.Equal(expected, FeedAggregate.Age(Now.AddSeconds(seconds), Now));
+        => Assert.Equal(expected, FeedAggregate.Age(Locale.En, Now.AddSeconds(seconds), Now));
+
+    [Fact]
+    public void S1302_ItemAgeUnderAWeekIsTheSharedFreshnessAndDatesAreTheLanguages()
+    {
+        Assert.Equal(FetchState.Freshness(Locale.En, Now.AddSeconds(-300), Now), FeedAggregate.Age(Locale.En, Now.AddSeconds(-300), Now));
+        Assert.Equal("26. Sept.", FeedAggregate.Age(Locale.De, Now.AddDays(-8), Now));
+        Assert.Equal("30.08.2025", FeedAggregate.Age(Locale.De, Now.AddDays(-400), Now));
+    }
 
     // ---- [S-1304] site icons -----------------------------------------------------------------
 

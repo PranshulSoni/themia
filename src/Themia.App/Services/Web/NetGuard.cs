@@ -2,6 +2,7 @@ using System.Net;
 using System.Net.Http;
 using System.Net.Sockets;
 using Themia.Core.Diagnostics;
+using Themia.Core.Localization;
 using Themia.Core.Widgets;
 
 namespace Themia.App.Services.Web;
@@ -99,7 +100,7 @@ internal static class NetGuard
 
         if (uri.Scheme != Uri.UriSchemeHttp && uri.Scheme != Uri.UriSchemeHttps)
         {
-            return new GuardResult(false, FetchStatus.Refused, "only http and https addresses are fetched");
+            return new GuardResult(false, FetchStatus.Refused, Str.Shell_Net_HttpOnly.Text());
         }
 
         if (AllowPrivate())

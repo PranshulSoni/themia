@@ -1,3 +1,4 @@
+using Themia.Core.Localization;
 using Themia.Core.Widgets;
 using Xunit;
 
@@ -42,28 +43,28 @@ public class BluetoothRulesTests
     [Fact]
     public void S241_A_device_that_advertises_no_name_still_gets_a_readable_row()
     {
-        Assert.Equal("Unknown device", BluetoothRules.DisplayName(null));
-        Assert.Equal("Unknown device", BluetoothRules.DisplayName("  \t "));
+        Assert.Equal("Unknown device", BluetoothRules.DisplayName(null, Locale.En));
+        Assert.Equal("Unknown device", BluetoothRules.DisplayName("  \t ", Locale.En));
     }
 
     [Fact]
     public void S241_A_name_off_the_radio_is_collapsed_to_one_line_and_capped()
     {
         // The name is somebody else's string. A row is one line tall whatever arrives in it.
-        Assert.Equal("Joe's Buds", BluetoothRules.DisplayName("  Joe's\r\n  Buds "));
-        Assert.Equal(64, BluetoothRules.DisplayName(new string('n', 200)).Length);
+        Assert.Equal("Joe's Buds", BluetoothRules.DisplayName("  Joe's\r\n  Buds ", Locale.En));
+        Assert.Equal(64, BluetoothRules.DisplayName(new string('n', 200), Locale.En).Length);
     }
 
     [Fact]
     public void S242_A_battery_the_device_will_not_report_is_no_column_at_all()
     {
-        Assert.Null(BluetoothRules.BatteryLabel(null));
+        Assert.Null(BluetoothRules.BatteryLabel(null, Locale.En));
 
         // 255 is the Battery Service's own "unknown", and anything past 100 is out of spec.
-        Assert.Null(BluetoothRules.BatteryLabel(255));
-        Assert.Null(BluetoothRules.BatteryLabel(-1));
-        Assert.Equal("72%", BluetoothRules.BatteryLabel(72));
-        Assert.Equal("0%", BluetoothRules.BatteryLabel(0));
+        Assert.Null(BluetoothRules.BatteryLabel(255, Locale.En));
+        Assert.Null(BluetoothRules.BatteryLabel(-1, Locale.En));
+        Assert.Equal("72%", BluetoothRules.BatteryLabel(72, Locale.En));
+        Assert.Equal("0%", BluetoothRules.BatteryLabel(0, Locale.En));
     }
 
     [Fact]
@@ -75,7 +76,7 @@ public class BluetoothRulesTests
                 Device("WH-1000XM4", connected: false, battery: 85, id: "le"),
             ],
             connectedOnly: false,
-            maxCount: 10);
+            maxCount: 10, locale: Locale.En);
 
         var only = Assert.Single(arranged);
 
@@ -93,7 +94,7 @@ public class BluetoothRulesTests
         var arranged = BluetoothRules.Arrange(
             [Device(string.Empty, id: "a"), Device(string.Empty, id: "b"), Device("   ", id: "c")],
             connectedOnly: false,
-            maxCount: 10);
+            maxCount: 10, locale: Locale.En);
 
         Assert.Equal(3, arranged.Count);
     }
@@ -108,7 +109,7 @@ public class BluetoothRulesTests
                 Device("Omega Buds", connected: true),
             ],
             connectedOnly: false,
-            maxCount: 10);
+            maxCount: 10, locale: Locale.En);
 
         Assert.Equal(["Omega Buds", "Alpha Mouse", "Zeta Keyboard"], arranged.Select(d => d.Name));
     }
@@ -124,8 +125,8 @@ public class BluetoothRulesTests
             Device("Gamma"),
         ];
 
-        var first = BluetoothRules.Arrange(devices, connectedOnly: false, maxCount: 10);
-        var second = BluetoothRules.Arrange(devices.Reverse(), connectedOnly: false, maxCount: 10);
+        var first = BluetoothRules.Arrange(devices, connectedOnly: false, maxCount: 10, locale: Locale.En);
+        var second = BluetoothRules.Arrange(devices.Reverse(), connectedOnly: false, maxCount: 10, locale: Locale.En);
 
         Assert.Equal(first.Select(d => d.Name), second.Select(d => d.Name));
     }
@@ -136,14 +137,14 @@ public class BluetoothRulesTests
         var connectedOnly = BluetoothRules.Arrange(
             [Device("A", connected: true), Device("B")],
             connectedOnly: true,
-            maxCount: 10);
+            maxCount: 10, locale: Locale.En);
 
         Assert.Equal(["A"], connectedOnly.Select(d => d.Name));
 
         var capped = BluetoothRules.Arrange(
             [Device("A"), Device("B"), Device("C")],
             connectedOnly: false,
-            maxCount: 2);
+            maxCount: 2, locale: Locale.En);
 
         Assert.Equal(2, capped.Count);
     }
@@ -152,22 +153,22 @@ public class BluetoothRulesTests
     public void S244_Every_empty_list_says_which_empty_list_it_is()
     {
         // A blank tile is a defect: four of these mean four different things to do about it.
-        Assert.Equal("This PC has no Bluetooth radio", BluetoothRules.StatusMessage(BluetoothStatus.NoRadio));
-        Assert.Equal("Bluetooth is turned off", BluetoothRules.StatusMessage(BluetoothStatus.RadioOff));
-        Assert.Equal("No paired devices", BluetoothRules.StatusMessage(BluetoothStatus.Ok));
-        Assert.Equal("Reading paired devices", BluetoothRules.StatusMessage(BluetoothStatus.Loading));
+        Assert.Equal("This PC has no Bluetooth radio", BluetoothRules.StatusMessage(BluetoothStatus.NoRadio, Locale.En));
+        Assert.Equal("Bluetooth is turned off", BluetoothRules.StatusMessage(BluetoothStatus.RadioOff, Locale.En));
+        Assert.Equal("No paired devices", BluetoothRules.StatusMessage(BluetoothStatus.Ok, Locale.En));
+        Assert.Equal("Reading paired devices", BluetoothRules.StatusMessage(BluetoothStatus.Loading, Locale.En));
 
         Assert.Equal(
             "Windows has not granted access to the radios",
-            BluetoothRules.StatusMessage(BluetoothStatus.PermissionDenied));
+            BluetoothRules.StatusMessage(BluetoothStatus.PermissionDenied, Locale.En));
 
-        Assert.Equal("Could not read the paired devices", BluetoothRules.StatusMessage(BluetoothStatus.Failed));
+        Assert.Equal("Could not read the paired devices", BluetoothRules.StatusMessage(BluetoothStatus.Failed, Locale.En));
     }
 
     [Fact]
     public void S242_The_connection_state_is_carried_by_words_as_well_as_by_a_dot()
     {
-        Assert.Equal("Connected", BluetoothRules.ConnectionLabel(true));
-        Assert.Equal("Paired", BluetoothRules.ConnectionLabel(false));
+        Assert.Equal("Connected", BluetoothRules.ConnectionLabel(true, Locale.En));
+        Assert.Equal("Paired", BluetoothRules.ConnectionLabel(false, Locale.En));
     }
 }

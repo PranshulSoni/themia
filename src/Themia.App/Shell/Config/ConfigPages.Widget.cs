@@ -6,6 +6,7 @@ using Microsoft.UI.Xaml.Media;
 using Themia.App.Services;
 using Themia.App.Widgets;
 using Themia.Core.Diagnostics;
+using Themia.Core.Localization;
 using Themia.Core.Model;
 using Themia.Core.Widgets;
 
@@ -25,7 +26,7 @@ internal static partial class ConfigPages
     {
         if (host.Find(widgetId) is not var (view, widget) || widget is null)
         {
-            return Page("Widget", [Note("This widget has been removed.")]);
+            return Page(Str.Settings_Style_Widget.Text(), [Note(Str.Shell_Widget_Gone.Text())]);
         }
 
         return WidgetPage(host, view, widget, navigate, () => host.Mutate(_ => { }));
@@ -280,28 +281,28 @@ internal static partial class ConfigPages
         var danger = rows.FindAll(FluentLayout.IsDanger);
         rows.RemoveAll(FluentLayout.IsDanger);
 
-        rows.Add(FluentLayout.Header("Appearance"));
+        rows.Add(FluentLayout.Header(Str.Settings_Section_Appearance.Text()));
 
-        rows.Add(FluentLayout.Row(Glyphs.View, "Header", "Where the widget's name and icon sit",
+        rows.Add(FluentLayout.Row(Glyphs.View, Str.App_ConfigHeaderLabel.Text(), Str.Shell_Widget_HeaderDesc.Text(),
             // [S-862] Left and right (a turned header) are a group's alone.
             FluentLayout.Choice(
                 [.. HeaderRules.Choices(widget.Kind).Select(p => (p, p switch
                 {
-                    HeaderPlacement.Top => "Top",
-                    HeaderPlacement.Bottom => "Bottom",
-                    HeaderPlacement.Left => "Left edge",
-                    HeaderPlacement.Right => "Right edge",
-                    _ => "Hidden",
+                    HeaderPlacement.Top => Str.Group_HeaderSide_Top.Text(),
+                    HeaderPlacement.Bottom => Str.Group_HeaderSide_Bottom.Text(),
+                    HeaderPlacement.Left => Str.Shell_Widget_LeftEdge.Text(),
+                    HeaderPlacement.Right => Str.Shell_Widget_RightEdge.Text(),
+                    _ => Str.Toggle_Hidden.Text(),
                 }))],
                 widget.Header,
                 value => host.Mutate(_ => widget.Header = value))));
 
-        rows.Add(FluentLayout.Row(Glyphs.Surface, "Background", "How this widget's card is filled",
+        rows.Add(FluentLayout.Row(Glyphs.Surface, Str.Settings_Style_BgLabel.Text(), Str.Shell_Widget_BackgroundDesc.Text(),
             FluentLayout.Choice(
                 [
-                    (WidgetSurface.Card, "Card"),
-                    (WidgetSurface.Translucent, "Translucent"),
-                    (WidgetSurface.Transparent, "None"),
+                    (WidgetSurface.Card, Str.Shell_Widget_Card.Text()),
+                    (WidgetSurface.Translucent, Str.Shell_Widget_Translucent.Text()),
+                    (WidgetSurface.Transparent, Str.Settings_Style_None.Text()),
                 ],
                 widget.Surface,
                 value => host.Mutate(_ => widget.Surface = value))));
@@ -316,12 +317,12 @@ internal static partial class ConfigPages
         label.LostFocus += (_, _) => host.Mutate(_ =>
             widget.Label = string.IsNullOrWhiteSpace(label.Text) ? null : label.Text.Trim());
 
-        rows.Add(FluentLayout.Row(Glyphs.Rename, "Title", "Shown in menus; leave blank for the default", label));
+        rows.Add(FluentLayout.Row(Glyphs.Rename, Str.Group_Title_Label.Text(), Str.Shell_Widget_TitleDesc.Text(), label));
 
-        rows.Add(FluentLayout.Header("Danger"));
+        rows.Add(FluentLayout.Header(Str.Shell_Settings_Danger.Text()));
         rows.AddRange(danger);
 
-        var delete = new Button { Content = "Delete widget" };
+        var delete = new Button { Content = Str.CtxMenu_DeleteWidget.Text() };
         delete.Click += (_, _) =>
         {
             host.Select(widgetId);
@@ -329,7 +330,7 @@ internal static partial class ConfigPages
             navigate(new ConfigTarget.View(view.Id));
         };
 
-        rows.Add(FluentLayout.Row(Glyphs.Delete, "Delete", $"Removes it from {view.Name}", delete));
+        rows.Add(FluentLayout.Row(Glyphs.Delete, Str.Common_Delete.Text(), Str.Shell_Widget_DeleteDesc.Format(("view", view.Name)), delete));
 
         return Page(string.IsNullOrWhiteSpace(widget.Label) ? definition.Label : widget.Label!, rows, definition.Description);
     }

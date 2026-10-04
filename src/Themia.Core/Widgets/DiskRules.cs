@@ -1,4 +1,4 @@
-using System.Globalization;
+using Themia.Core.Localization;
 
 namespace Themia.Core.Widgets;
 
@@ -169,7 +169,7 @@ public static class DiskRules
     /// <summary>[S-1163] What the chart's rates are of, for its caption on a tile with room: "C:", "all drives".</summary>
     public static string ChartedName(Themia.Core.Model.DiskIoScope scope, string readingRoot, string ioDrive) => scope switch
     {
-        Themia.Core.Model.DiskIoScope.All => "all drives",
+        Themia.Core.Model.DiskIoScope.All => Str.WidgetsB_Disk_AllDrives.Text(),
         Themia.Core.Model.DiskIoScope.Drive when Root(ioDrive) is { } root => Instance(root),
         _ => Instance(readingRoot),
     };
@@ -177,39 +177,66 @@ public static class DiskRules
     private static double Clean(double value) => double.IsFinite(value) && value > 0 ? value : 0;
 
     /// <summary>[S-1161] The header title, as Explorer names a drive: "System (C:)", "Local Disk (C:)", "USB Drive (E:)".</summary>
-    public static string Title(DiskVolume volume)
+    public static string Title(DiskVolume volume) => Title(Strings.Current, volume);
+
+    /// <summary><see cref="Title(DiskVolume)"/> in <paramref name="locale"/>.</summary>
+    public static string Title(Locale locale, DiskVolume volume)
     {
         var letter = Instance(volume.Root);
         var name = volume.Label.Trim();
 
         if (name.Length == 0)
         {
-            name = volume.Removable ? "USB Drive" : "Local Disk";
+            name = Strings.Get(locale, volume.Removable ? Str.WidgetsB_Disk_UsbDrive : Str.WidgetsB_Disk_LocalDisk);
         }
 
-        return $"{name} ({letter})";
+        return Strings.Format(locale, Str.WidgetsB_Disk_Title, ("name", name), ("letter", letter));
     }
 
     /// <summary>[S-1161] The space line: "412 GB free of 931 GB" (the caption when there is no chart, else a detail line).</summary>
-    public static string FreeOfTotal(DiskVolume volume)
-        => $"{Formatting.Bytes(volume.Free)} free of {Formatting.Bytes(volume.Total)}";
+    public static string FreeOfTotal(DiskVolume volume) => FreeOfTotal(Strings.Current, volume);
 
-    /// <summary>The widest <see cref="FreeOfTotal"/> can be ("1023 GB free of 1023 GB"), so the caption is placed for its worst case.</summary>
-    public const int FreeOfTotalCharacters = 24;
+    /// <summary><see cref="FreeOfTotal(DiskVolume)"/> in <paramref name="locale"/>.</summary>
+    public static string FreeOfTotal(Locale locale, DiskVolume volume)
+        => Strings.Format(locale, Str.WidgetsB_Disk_FreeOfTotal, ("free", Formatting.Bytes(locale, volume.Free)), ("total", Formatting.Bytes(locale, volume.Total)));
 
-    /// <summary>The widest <see cref="RatesText"/> can be ("R 1023 MB/s · W 1023 MB/s").</summary>
-    public const int RatesCharacters = 25;
+    /// <summary>The widest <see cref="FreeOfTotal(DiskVolume)"/> can be in the current language ("1,000 GB free of 1,000 GB"), so the caption is placed for its worst case.</summary>
+    public static int FreeOfTotalCharacters
+        => Strings.Format(Strings.Current, Str.WidgetsB_Disk_FreeOfTotal, ("free", Formatting.Bytes(WidestBytes)), ("total", Formatting.Bytes(WidestBytes))).Length;
+
+    /// <summary>The widest <see cref="RatesText(DiskRates)"/> can be in the current language ("R 1,000 MB/s · W 1,000 MB/s").</summary>
+    public static int RatesCharacters
+        => Strings.Format(Strings.Current, Str.WidgetsB_Disk_Rates, ("read", Formatting.Rate(WidestRate)), ("write", Formatting.Rate(WidestRate))).Length;
+
+    /// <summary>A size that formats at its widest: four digits before the unit changes.</summary>
+    private const double WidestBytes = 1000d * 1024 * 1024 * 1024;
+
+    /// <summary>A rate that formats at its widest.</summary>
+    private const double WidestRate = 1000d * 1024 * 1024;
 
     /// <summary>[S-1163] "R 12.4 MB/s · W 0 B/s": the chart's caption.</summary>
-    public static string RatesText(DiskRates rates)
-        => $"R {Formatting.Rate(rates.Read)} · W {Formatting.Rate(rates.Write)}";
+    public static string RatesText(DiskRates rates) => RatesText(Strings.Current, rates);
+
+    /// <summary><see cref="RatesText(DiskRates)"/> in <paramref name="locale"/>.</summary>
+    public static string RatesText(Locale locale, DiskRates rates)
+        => Strings.Format(locale, Str.WidgetsB_Disk_Rates, ("read", Formatting.Rate(locale, rates.Read)), ("write", Formatting.Rate(locale, rates.Write)));
+
+    /// <summary>[S-1163] The rates caption before the first sample: "R -- · W --".</summary>
+    public static string NoRatesText(Locale locale)
+        => Strings.Format(locale, Str.WidgetsB_Disk_Rates, ("read", "--"), ("write", "--"));
 
     /// <summary>[S-1164] "R 120 · W 34 /s": operations per second, whole.</summary>
-    public static string OperationsText(double reads, double writes)
-        => $"R {Whole(reads)} · W {Whole(writes)} /s";
+    public static string OperationsText(double reads, double writes) => OperationsText(Strings.Current, reads, writes);
+
+    /// <summary><see cref="OperationsText(double, double)"/> in <paramref name="locale"/>.</summary>
+    public static string OperationsText(Locale locale, double reads, double writes)
+        => Strings.Format(locale, Str.WidgetsB_Disk_Operations, ("reads", Whole(locale, reads)), ("writes", Whole(locale, writes)));
 
     /// <summary>[S-1165] The volume line: "System · NTFS · fixed".</summary>
-    public static string VolumeText(DiskVolume volume)
+    public static string VolumeText(DiskVolume volume) => VolumeText(Strings.Current, volume);
+
+    /// <summary><see cref="VolumeText(DiskVolume)"/> in <paramref name="locale"/>.</summary>
+    public static string VolumeText(Locale locale, DiskVolume volume)
     {
         var parts = new List<string>(3);
 
@@ -223,7 +250,7 @@ public static class DiskRules
             parts.Add(volume.FileSystem.Trim());
         }
 
-        parts.Add(volume.Removable ? "removable" : "fixed");
+        parts.Add(Strings.Get(locale, volume.Removable ? Str.WidgetsB_Disk_Removable : Str.WidgetsB_Disk_Fixed));
         return string.Join(" · ", parts);
     }
 
@@ -231,17 +258,25 @@ public static class DiskRules
     /// [S-1166] The drives row's figure: the share in use, and with I/O on the drive's combined
     /// activity — "42%", "42% · 1.2 MB/s" — short enough to sit beside the name on a narrow column.
     /// </summary>
-    public static string RowValue(DiskVolume volume, DiskRates? rates)
+    public static string RowValue(DiskVolume volume, DiskRates? rates) => RowValue(Strings.Current, volume, rates);
+
+    /// <summary><see cref="RowValue(DiskVolume, DiskRates?)"/> in <paramref name="locale"/>.</summary>
+    public static string RowValue(Locale locale, DiskVolume volume, DiskRates? rates)
     {
-        var used = volume.UsedFraction is { } f ? Formatting.Percent(f) : "--";
-        return rates is { } r ? $"{used} · {Formatting.Rate(r.Read + r.Write)}" : used;
+        var used = volume.UsedFraction is { } f ? Formatting.Percent(locale, f) : "--";
+        return rates is { } r ? $"{used} · {Formatting.Rate(locale, r.Read + r.Write)}" : used;
     }
 
     /// <summary>[S-1166] The drives row's tooltip: everything the row has no room for.</summary>
-    public static string RowTooltip(DiskVolume volume, DiskRates? rates)
+    public static string RowTooltip(DiskVolume volume, DiskRates? rates) => RowTooltip(Strings.Current, volume, rates);
+
+    /// <summary><see cref="RowTooltip(DiskVolume, DiskRates?)"/> in <paramref name="locale"/>.</summary>
+    public static string RowTooltip(Locale locale, DiskVolume volume, DiskRates? rates)
     {
-        var text = $"{Title(volume)}\n{FreeOfTotal(volume)}";
-        return rates is { } r ? $"{text}\nRead {Formatting.Rate(r.Read)} · write {Formatting.Rate(r.Write)}" : text;
+        var text = $"{Title(locale, volume)}\n{FreeOfTotal(locale, volume)}";
+        return rates is { } r
+            ? $"{text}\n{Strings.Format(locale, Str.WidgetsB_Disk_ReadWrite, ("read", Formatting.Rate(locale, r.Read)), ("write", Formatting.Rate(locale, r.Write)))}"
+            : text;
     }
 
     /// <summary>
@@ -269,6 +304,6 @@ public static class DiskRules
         return listed.Count > 1 ? listed : [];
     }
 
-    private static string Whole(double value)
-        => (double.IsFinite(value) && value > 0 ? Math.Round(value) : 0).ToString("F0", CultureInfo.InvariantCulture);
+    private static string Whole(Locale locale, double value)
+        => LocaleFormat.Number(locale, double.IsFinite(value) && value > 0 ? Math.Round(value) : 0, 0);
 }

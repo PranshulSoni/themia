@@ -1,5 +1,6 @@
 using Themia.App.Services.Web;
 using Themia.Core.Diagnostics;
+using Themia.Core.Localization;
 using Themia.Core.Widgets;
 
 namespace Themia.App.Services;
@@ -41,7 +42,7 @@ internal static class PublicAddress
             _inFlight = FetchAsync();
         }
 
-        return _address ?? (_failed ? "Unavailable" : "Checking…");
+        return _address ?? (_failed ? Str.Shell_Address_Unavailable.Text() : Str.Shell_Accounts_Checking.Text());
     }
 
     private static async Task FetchAsync()

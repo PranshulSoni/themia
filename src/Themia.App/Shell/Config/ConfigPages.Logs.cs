@@ -8,6 +8,7 @@ using Microsoft.UI.Xaml.Media;
 using Themia.App.Services;
 using Themia.App.Widgets;
 using Themia.Core.Diagnostics;
+using Themia.Core.Localization;
 using Themia.Core.Widgets;
 using Windows.ApplicationModel.DataTransfer;
 
@@ -30,40 +31,45 @@ internal static partial class ConfigPages
 
     private static FrameworkElement BuildLogs(AppHost host)
     {
-        var rows = new List<FrameworkElement> { FluentLayout.Header("Logging") };
+        var rows = new List<FrameworkElement> { FluentLayout.Header(Str.Settings_Logging_Label.Text()) };
 
-        rows.Add(FluentLayout.Row(Glyphs.Document, "Verbose logging",
-            "Record everything Themia does, not only warnings and errors. Turn it off when you are done: it writes far more",
+        rows.Add(FluentLayout.Row(Glyphs.Document, Str.Shell_Logs_Verbose.Text(),
+            Str.Shell_Logs_VerboseDesc.Text(),
             FluentLayout.Toggle(host.State.Preferences.VerboseLogging,
                 value => host.Mutate(s => s.Preferences.VerboseLogging = value, relayout: false)),
             "debug", "logging", "diagnostics"));
 
         var (files, bytes) = LogFiles.Usage();
-        var openFolder = new Button { Content = "Open folder" };
+        var openFolder = new Button { Content = Str.Shell_Logs_OpenFolder.Text() };
         var folderVerdict = FluentLayout.Verdict();
         openFolder.Click += (_, _) =>
         {
             if (LogFiles.OpenFolder() != LaunchOutcome.Opened)
             {
-                FluentLayout.Refuse(folderVerdict, "The log folder could not be opened.");
+                FluentLayout.Refuse(folderVerdict, Str.Shell_Logs_FolderFailed.Text());
             }
         };
 
-        rows.Add(FluentLayout.Row(Glyphs.Folder, "Log files",
+        rows.Add(FluentLayout.Row(Glyphs.Folder, Str.Shell_Logs_Files.Text(),
             files == 0
-                ? $"Nothing written yet. Files go to {LogFiles.Folder}"
-                : $"{files} {(files == 1 ? "file" : "files")}, {Formatting.Bytes(bytes)}, in {LogFiles.Folder}. Kept to the newest {LogFileRules.MaxArchives + 1} files of {Formatting.Bytes(LogFileRules.MaxFileBytes)}; files older than {LogFileRules.MaxAge.TotalDays:F0} days are deleted",
+                ? Str.Shell_Logs_NothingYet.Format(("folder", LogFiles.Folder))
+                : Str.Shell_Logs_FilesSummary.Format(
+                    ("summary", Str.Shell_Logs_FileCount.Plural(files, ("size", Formatting.Bytes(bytes)), ("folder", LogFiles.Folder))),
+                    ("retention", Str.Shell_Logs_Retention.Format(
+                        ("files", LogFileRules.MaxArchives + 1),
+                        ("size", Formatting.Bytes(LogFileRules.MaxFileBytes)),
+                        ("days", (long)LogFileRules.MaxAge.TotalDays)))),
             openFolder,
             "folder", "files", "open"));
         rows.Add(folderVerdict);
 
         rows.Add(FluentLayout.Note(
-            "Errors are also written to the Windows event log (Event Viewer › Windows Logs › Application, source Themia). Passwords, tokens and email addresses are removed from every record before it is written."));
+            Str.Shell_Logs_EventLog.Text()));
 
-        rows.Add(FluentLayout.Header("This session"));
+        rows.Add(FluentLayout.Header(Str.Shell_Logs_ThisSession.Text()));
         rows.Add(new LogList(host).Root);
 
-        return Page("Logs", rows);
+        return Page(Str.Settings_Nav_Logs.Text(), rows);
     }
 
     /// <summary>
@@ -92,10 +98,10 @@ internal static partial class ConfigPages
 
             var level = FluentLayout.Choice<LogLevel>(
                 [
-                    (LogLevel.Debug, "All levels"),
-                    (LogLevel.Info, "Info and above"),
-                    (LogLevel.Warn, "Warnings and errors"),
-                    (LogLevel.Error, "Errors only"),
+                    (LogLevel.Debug, Str.Settings_Logs_AllLevels.Text()),
+                    (LogLevel.Info, Str.Shell_Logs_InfoUp.Text()),
+                    (LogLevel.Warn, Str.Shell_Logs_WarnUp.Text()),
+                    (LogLevel.Error, Str.Shell_Logs_ErrorsOnly.Text()),
                 ],
                 _minimum,
                 value =>
@@ -116,10 +122,10 @@ internal static partial class ConfigPages
                 Render();
             };
 
-            var copy = FluentLayout.IconCommand(Glyphs.Copy, "Copy the records shown");
+            var copy = FluentLayout.IconCommand(Glyphs.Copy, Str.Shell_Logs_CopyShown.Text());
             copy.Click += (_, _) => Copy();
 
-            var clear = FluentLayout.IconCommand(Glyphs.Delete, "Clear this list (the files are kept)");
+            var clear = FluentLayout.IconCommand(Glyphs.Delete, Str.Shell_Logs_ClearList.Text());
             clear.Click += (_, _) => LogFiles.Recent.Clear();
 
             var bar = new Grid
@@ -228,8 +234,8 @@ internal static partial class ConfigPages
 
                 var matching = LogBuffer.Filter(all, _minimum, _scopeFilter, int.MaxValue).Count;
                 _count.Text = matching > _shown.Count
-                    ? $"Newest {_shown.Count} of {matching}"
-                    : matching == 1 ? "1 record" : $"{matching.ToString(CultureInfo.CurrentCulture)} records";
+                    ? Str.Shell_Logs_NewestOf.Format(("shown", _shown.Count), ("total", matching))
+                    : Str.Shell_Logs_RecordCount.Plural(matching);
             }
             finally
             {
@@ -247,7 +253,7 @@ internal static partial class ConfigPages
                 .ToList();
 
             _scope.Items.Clear();
-            _scope.Items.Add(new ComboBoxItem { Content = "All sources", Tag = string.Empty });
+            _scope.Items.Add(new ComboBoxItem { Content = Str.Settings_Logs_AllSources.Text(), Tag = string.Empty });
             foreach (var scope in scopes)
             {
                 _scope.Items.Add(new ComboBoxItem { Content = scope, Tag = scope });
@@ -262,8 +268,8 @@ internal static partial class ConfigPages
             var text = new TextBlock
             {
                 Text = verbose || Log.Floor == LogLevel.Debug
-                    ? "Nothing recorded under this filter in this session."
-                    : "No warnings or errors in this session. Only those are recorded until verbose logging is on.",
+                    ? Str.Shell_Logs_NothingFiltered.Text()
+                    : Str.Shell_Logs_NothingYetSession.Text(),
                 TextWrapping = TextWrapping.Wrap,
                 Margin = new Thickness(Fluent.Space4, Fluent.Space4, Fluent.Space4, Fluent.Space4),
             };
@@ -273,7 +279,7 @@ internal static partial class ConfigPages
 
         private static FrameworkElement Row(LogRecord record)
         {
-            var time = new TextBlock { Text = record.At.ToString("HH:mm:ss", CultureInfo.CurrentCulture) };
+            var time = new TextBlock { Text = LocaleFormat.Time(Strings.Current, record.At.LocalDateTime, HourCycle.Locale, seconds: true) };
             FluentLayout.ApplyStyle(time, "CaptionTextBlockStyle");
             time.Foreground = FluentLayout.Themed("TextFillColorSecondaryBrush", Colors.Gray);
 
@@ -367,13 +373,13 @@ internal static partial class ConfigPages
                 var package = new DataPackage { RequestedOperation = DataPackageOperation.Copy };
                 package.SetText(text.ToString());
                 Clipboard.SetContent(package);
-                _count.Text = _shown.Count == 1 ? "Copied 1 record" : $"Copied {_shown.Count} records";
+                _count.Text = Str.Shell_Logs_Copied.Plural(_shown.Count);
             }
             catch (Exception ex)
             {
                 // Another process can hold the clipboard open; say so rather than claim it copied.
                 Log.Warn(Scope, "could not copy the log records", ex);
-                _count.Text = "The clipboard is busy. Try again";
+                _count.Text = Str.Shell_Logs_ClipboardBusy.Text();
             }
         }
     }

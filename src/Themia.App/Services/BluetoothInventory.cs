@@ -1,4 +1,5 @@
 using Themia.Core.Diagnostics;
+using Themia.Core.Localization;
 using Themia.Core.Widgets;
 using Windows.Devices.Bluetooth;
 using Windows.Devices.Bluetooth.Advertisement;
@@ -212,7 +213,7 @@ internal static class BluetoothInventory
             // The name is the device's own advertisement, so it is normalised by the display rule
             // and then only ever drawn.
             devices.Add(new BluetoothDeviceEntry(
-                BluetoothRules.DisplayName(info.Name),
+                BluetoothRules.DisplayName(info.Name, Strings.Current),
                 info.Id,
                 connected,
                 BluetoothRules.Classify(info.Name),

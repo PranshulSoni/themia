@@ -54,12 +54,15 @@ internal enum AppPageSlot
 /// </param>
 internal sealed record AppPageEntry(
     AppPage Page,
-    string Title,
+    Themia.Core.Localization.Str TitleId,
     string Glyph,
     NavIcon Icon,
     AppPageSlot Slot,
     Func<Services.AppHost, Microsoft.UI.Xaml.FrameworkElement> Build,
     Func<Themia.Core.Model.AppState, bool>? Available = null)
 {
+    /// <summary>The page's name in the current language (the list is static; the name is read when shown).</summary>
+    public string Title => Themia.Core.Localization.StrExtensions.Text(TitleId);
+
     public bool IsAvailable(Themia.Core.Model.AppState state) => Available?.Invoke(state) ?? true;
 }

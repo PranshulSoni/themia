@@ -1,4 +1,4 @@
-using System.Globalization;
+using Themia.Core.Localization;
 using Themia.Core.Model;
 
 namespace Themia.Core.Widgets;
@@ -22,9 +22,9 @@ public readonly record struct CountdownReading(string Text, bool Elapsed);
 /// [C-30] only reachable by waiting for them, and the boundaries are exactly what is worth pinning.
 /// </para>
 /// <para>
-/// Worded explicitly rather than through culture patterns, for the same reason as
-/// <see cref="ClockFormatter"/>: the app builds with <c>InvariantGlobalization</c>, so a culture
-/// format string does not behave the way a display string needs to.
+/// Worded through the string tables and <see cref="LocaleFormat"/> rather than culture patterns, for
+/// the same reason as <see cref="ClockFormatter"/>: the app builds with <c>InvariantGlobalization</c>.
+/// The language is passed in, so a test pins it ([S-1106]).
 /// </para>
 /// </summary>
 public static class CountdownFormatter
@@ -35,53 +35,83 @@ public static class CountdownFormatter
     private static readonly TimeSpan Week = TimeSpan.FromDays(7);
 
     /// <summary>The name shown for a timer with no label of its own. [C-03]</summary>
-    public const string UntitledLabel = "Untitled";
+    public static string Untitled(Locale locale) => Strings.Get(locale, Str.WidgetsA_Countdown_Untitled);
 
     /// <summary>
     /// The duration between <paramref name="now"/> and <paramref name="target"/>, worded for
-    /// <paramref name="format"/>. [C-11]
+    /// <paramref name="format"/> in <paramref name="locale"/>. [C-11]
     /// <para>
     /// A target exactly on <c>now</c> counts as elapsed: the alternative is a row that reads "in a
     /// moment" for one whole tick after the moment has passed.
     /// </para>
     /// </summary>
-    public static CountdownReading Read(DateTimeOffset target, DateTimeOffset now, CountdownFormat format)
+    public static CountdownReading Read(DateTimeOffset target, DateTimeOffset now, CountdownFormat format, Locale locale)
     {
         var difference = target - now;
         var elapsed = difference <= TimeSpan.Zero;
         var span = difference.Duration();
+        var wording = Word(span, format, locale);
 
-        var text = format switch
-        {
-            CountdownFormat.Days => Plural((int)span.TotalDays, "day"),
-            CountdownFormat.DaysHoursMinutes => $"{(int)span.TotalDays}d {span.Hours}h {span.Minutes}m",
-            CountdownFormat.DaysHoursMinutesSeconds => $"{(int)span.TotalDays}d {span.Hours}h {span.Minutes}m {span.Seconds}s",
-            _ => Auto(span),
-        };
-
+        var text = wording.Text;
         if (elapsed)
         {
             // [C-41] "in a moment ago" is not English. Under a minute in the past is "just now".
-            text = format == CountdownFormat.Auto && span < Minute ? "just now" : $"{text} ago";
+            // A bare day count has its own "ago" form: German says "vor 3 Tagen", not "vor 3 Tage".
+            text = format == CountdownFormat.Auto && span < Minute ? Strings.Get(locale, Str.WidgetsA_Countdown_JustNow)
+                : wording.Days is { } days ? Strings.Plural(locale, Str.WidgetsA_Countdown_DaysAgo, days)
+                : Strings.Format(locale, Str.WidgetsA_Countdown_Ago, ("duration", wording.Text));
         }
 
         return new CountdownReading(text, elapsed);
     }
 
     /// <summary>
+    /// [S-1446] "in 12 days" / "in 3 hrs" / "in a moment": how far ahead a timer is, as the "Next"
+    /// line says it. <paramref name="target"/> is expected ahead of <paramref name="now"/>.
+    /// </summary>
+    public static string Ahead(DateTimeOffset target, DateTimeOffset now, Locale locale)
+    {
+        var span = (target - now).Duration();
+        if (span < Minute)
+        {
+            return Strings.Get(locale, Str.WidgetsA_Countdown_InAMoment);
+        }
+
+        var wording = Word(span, CountdownFormat.Auto, locale);
+        return wording.Days is { } days
+            ? Strings.Plural(locale, Str.WidgetsA_Countdown_DaysIn, days)
+            : Strings.Format(locale, Str.WidgetsA_Countdown_In, ("duration", wording.Text));
+    }
+
+    /// <summary>A worded duration; <see cref="Days"/> is set when it is the bare "N days" form, which some languages inflect.</summary>
+    private readonly record struct Wording(string Text, long? Days);
+
+    private static Wording Word(TimeSpan span, CountdownFormat format, Locale locale) => format switch
+    {
+        CountdownFormat.Days => DaysOnly((long)span.TotalDays, locale),
+        CountdownFormat.DaysHoursMinutes => new(Strings.Format(locale, Str.WidgetsA_Countdown_Compact_Dhm,
+            ("days", (long)span.TotalDays), ("hours", span.Hours), ("minutes", span.Minutes)), null),
+        CountdownFormat.DaysHoursMinutesSeconds => new(Strings.Format(locale, Str.WidgetsA_Countdown_Compact_Dhms,
+            ("days", (long)span.TotalDays), ("hours", span.Hours), ("minutes", span.Minutes), ("seconds", span.Seconds)), null),
+        _ => Auto(span, locale),
+    };
+
+    private static Wording DaysOnly(long days, Locale locale) => new(Strings.Plural(locale, Str.WidgetsA_Countdown_Days, days), days);
+
+    /// <summary>
     /// [C-30] The coarsest wording that still says something useful, picked from how far away the
     /// target is.
     /// </summary>
-    private static string Auto(TimeSpan span)
+    private static Wording Auto(TimeSpan span, Locale locale)
     {
         if (span < Minute)
         {
-            return "in a moment";
+            return new(Strings.Get(locale, Str.WidgetsA_Countdown_InAMoment), null);
         }
 
         if (span < Hour)
         {
-            return Plural((int)span.TotalMinutes, "min");
+            return new(Strings.Plural(locale, Str.WidgetsA_Countdown_Minutes, (long)span.TotalMinutes), null);
         }
 
         if (span < Day)
@@ -89,18 +119,20 @@ public static class CountdownFormatter
             var hours = (int)span.TotalHours;
 
             // A round number reads better spelled out: "3 hrs", not "3h 0m".
-            return span.Minutes == 0 ? Plural(hours, "hr") : $"{hours}h {span.Minutes}m";
+            return new(span.Minutes == 0
+                ? Strings.Plural(locale, Str.WidgetsA_Countdown_Hours, hours)
+                : Strings.Format(locale, Str.WidgetsA_Countdown_Compact_Hm, ("hours", hours), ("minutes", span.Minutes)), null);
         }
 
-        var days = (int)span.TotalDays;
+        var days = (long)span.TotalDays;
 
-        if (span < Week)
+        if (span < Week && span.Hours != 0)
         {
-            return span.Hours == 0 ? Plural(days, "day") : $"{days}d {span.Hours}h";
+            return new(Strings.Format(locale, Str.WidgetsA_Countdown_Compact_Dh, ("days", days), ("hours", span.Hours)), null);
         }
 
         // Past a week, hours are noise.
-        return Plural(days, "day");
+        return DaysOnly(days, locale);
     }
 
     /// <summary>
@@ -110,27 +142,28 @@ public static class CountdownFormatter
     /// four characters of nothing, and on a countdown to 2031 its absence would be misleading.
     /// </para>
     /// </summary>
-    public static string TargetLabel(DateTimeOffset target, DateTimeOffset now, TimeZoneInfo zone)
+    public static string TargetLabel(DateTimeOffset target, DateTimeOffset now, TimeZoneInfo zone, Locale locale)
     {
         ArgumentNullException.ThrowIfNull(zone);
 
         var local = TimeZoneInfo.ConvertTime(target, zone);
         var here = TimeZoneInfo.ConvertTime(now, zone);
-        var date = local.Year == here.Year
-            ? $"{local.Day} {MonthNames[local.Month - 1]}"
-            : $"{local.Day} {MonthNames[local.Month - 1]} {local.Year.ToString(CultureInfo.InvariantCulture)}";
+        var day = DateOnly.FromDateTime(local.DateTime);
+        var date = LocaleFormat.Date(locale, day, local.Year == here.Year ? DateStyle.MonthDayShort : DateStyle.Medium);
 
-        return $"{date}, {local.Hour:D2}:{local.Minute:D2}";
+        return Strings.Format(locale, Str.WidgetsA_Countdown_DateTime,
+            ("date", date), ("time", LocaleFormat.Time(locale, TimeOnly.FromDateTime(local.DateTime))));
     }
 
     /// <summary>The full local date and time, for the row's tooltip. [C-05]</summary>
-    public static string FullTargetLabel(DateTimeOffset target, TimeZoneInfo zone)
+    public static string FullTargetLabel(DateTimeOffset target, TimeZoneInfo zone, Locale locale)
     {
         ArgumentNullException.ThrowIfNull(zone);
 
         var local = TimeZoneInfo.ConvertTime(target, zone);
-        return $"{DayNames[(int)local.DayOfWeek]}, {local.Day} {MonthNames[local.Month - 1]} " +
-            $"{local.Year.ToString(CultureInfo.InvariantCulture)} at {local.Hour:D2}:{local.Minute:D2}";
+        return Strings.Format(locale, Str.WidgetsA_Countdown_FullDateTime,
+            ("date", LocaleFormat.Date(locale, DateOnly.FromDateTime(local.DateTime), DateStyle.Full)),
+            ("time", LocaleFormat.Time(locale, TimeOnly.FromDateTime(local.DateTime))));
     }
 
     /// <summary>The local calendar day of a target, for seeding the settings date picker. [C-53]</summary>
@@ -209,19 +242,11 @@ public static class CountdownFormatter
     }
 
     /// <summary>The name for a format in the settings picker. [C-11]</summary>
-    public static string FormatLabel(CountdownFormat format) => format switch
+    public static string FormatLabel(CountdownFormat format, Locale locale) => Strings.Get(locale, format switch
     {
-        CountdownFormat.Days => "Days only",
-        CountdownFormat.DaysHoursMinutes => "Days · Hours · Min",
-        CountdownFormat.DaysHoursMinutesSeconds => "Days · Hours · Min · Sec",
-        _ => "Auto",
-    };
-
-    private static string Plural(int count, string unit)
-        => $"{count.ToString(CultureInfo.InvariantCulture)} {unit}{(count == 1 ? string.Empty : "s")}";
-
-    private static readonly string[] MonthNames =
-        ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-
-    private static readonly string[] DayNames = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+        CountdownFormat.Days => Str.WidgetsA_Countdown_Format_Days,
+        CountdownFormat.DaysHoursMinutes => Str.WidgetsA_Countdown_Format_Dhm,
+        CountdownFormat.DaysHoursMinutesSeconds => Str.WidgetsA_Countdown_Format_Dhms,
+        _ => Str.WidgetsA_Countdown_Format_Auto,
+    });
 }

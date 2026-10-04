@@ -5,6 +5,7 @@ using Themia.App.Services;
 using Themia.App.Services.Files;
 using Themia.App.Shell;
 using Themia.Core.Diagnostics;
+using Themia.Core.Localization;
 using Themia.Core.Files;
 using Themia.Core.Model;
 using Themia.Core.Widgets;
@@ -363,7 +364,9 @@ internal sealed partial class ShortcutsView
             if (effect != DropEffect.None)
             {
                 // [S-1400] The caption beside the drag image.
-                drag.Place = _dragOut is { } from && from.Source == this ? "Move here" : "Add to Shortcuts";
+                drag.Place = _dragOut is { } from && from.Source == this
+                    ? Str.WidgetsC_Shortcuts_Drop_MoveHere.Text()
+                    : Str.WidgetsC_Shortcuts_Drop_Add.Text();
             }
 
             return effect;

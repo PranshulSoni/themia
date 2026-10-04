@@ -1,3 +1,4 @@
+using Themia.Core.Localization;
 using Themia.Core.Model;
 
 namespace Themia.Core.Widgets;
@@ -93,7 +94,7 @@ public static class CountdownLayout
     /// [S-1446] "Next: Holiday in 12 days" — the soonest timer still ahead other than
     /// <paramref name="featured"/>, or null when there is none.
     /// </summary>
-    public static string? NextLine(IReadOnlyList<CountdownTimer> timers, int featured, DateTimeOffset now)
+    public static string? NextLine(IReadOnlyList<CountdownTimer> timers, int featured, DateTimeOffset now, Locale locale)
     {
         ArgumentNullException.ThrowIfNull(timers);
 
@@ -119,10 +120,8 @@ public static class CountdownLayout
             return null;
         }
 
-        var label = string.IsNullOrWhiteSpace(next.Label) ? CountdownFormatter.UntitledLabel : next.Label;
-        var reading = CountdownFormatter.Read(next.Target, now, CountdownFormat.Auto).Text;
-
-        return reading == "in a moment" ? $"Next: {label} in a moment" : $"Next: {label} in {reading}";
+        var label = string.IsNullOrWhiteSpace(next.Label) ? CountdownFormatter.Untitled(locale) : next.Label;
+        return Strings.Format(locale, Str.WidgetsA_Countdown_Next, ("label", label), ("when", CountdownFormatter.Ahead(next.Target, now, locale)));
     }
 
     /// <summary>

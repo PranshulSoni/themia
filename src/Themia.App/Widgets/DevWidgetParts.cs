@@ -8,6 +8,7 @@ using Themia.App.Services;
 using Themia.App.Shell;
 using Themia.Core.Developer;
 using Themia.Core.Diagnostics;
+using Themia.Core.Localization;
 using Themia.Core.Widgets;
 using Windows.ApplicationModel.DataTransfer;
 
@@ -58,7 +59,7 @@ internal sealed class DevChrome
 
         _accountsLink = new HyperlinkButton
         {
-            Content = "Open Accounts settings",
+            Content = Str.WidgetsA_Office_OpenAccounts.Text(),
             HorizontalAlignment = HorizontalAlignment.Center,
             Padding = new Thickness(Fluent.Space2, Fluent.Space1, Fluent.Space2, Fluent.Space1),
             Visibility = Visibility.Collapsed,
@@ -453,7 +454,7 @@ internal static class DevRows
         dot.Margin = new Thickness(0, 0, Fluent.Space2, 0);
         dot.VerticalAlignment = VerticalAlignment.Center;
         dot.Opacity = unread ? 1 : 0;
-        AutomationProperties.SetName(dot, unread ? "Unread" : string.Empty);
+        AutomationProperties.SetName(dot, unread ? Str.WidgetsA_Github_Unread.Text() : string.Empty);
         return dot;
     }
 
@@ -539,12 +540,12 @@ internal static class DevRows
     public static MenuFlyout LinkMenu(string url, string? repoUrl)
     {
         var menu = new MenuFlyout();
-        menu.Items.Add(Item(Glyphs.OpenExternal, "Open in browser", () => Open(url)));
-        menu.Items.Add(Item(Glyphs.Copy, "Copy link", () => CopyLink(url)));
+        menu.Items.Add(Item(Glyphs.OpenExternal, Str.Github_OpenInBrowser.Text(), () => Open(url)));
+        menu.Items.Add(Item(Glyphs.Copy, Str.WidgetsA_Github_CopyLink.Text(), () => CopyLink(url)));
 
         if (repoUrl is not null && !string.Equals(repoUrl, url, StringComparison.OrdinalIgnoreCase))
         {
-            menu.Items.Add(Item(Glyphs.Code, "Open repository", () => Open(repoUrl)));
+            menu.Items.Add(Item(Glyphs.Code, Str.WidgetsA_Github_OpenRepository.Text(), () => Open(repoUrl)));
         }
 
         return menu;

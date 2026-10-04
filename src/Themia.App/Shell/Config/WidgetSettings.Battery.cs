@@ -1,4 +1,5 @@
 using Microsoft.UI.Xaml;
+using Themia.Core.Localization;
 using Themia.Core.Model;
 
 namespace Themia.App.Shell.Config;
@@ -15,41 +16,41 @@ internal static partial class WidgetSettings
         ArgumentNullException.ThrowIfNull(battery);
         ArgumentNullException.ThrowIfNull(save);
 
-        rows.Add(FluentLayout.Header("Show"));
+        rows.Add(FluentLayout.Header(Str.WidgetsB_Settings_Meters_Show.Text()));
 
-        rows.Add(FluentLayout.Row(Glyphs.Timer, "Time remaining",
-            "Windows' estimate while on battery; time to full while charging",
+        rows.Add(FluentLayout.Row(Glyphs.Timer, Str.WidgetsB_Settings_Battery_TimeRemaining_Label.Text(),
+            Str.WidgetsB_Settings_Battery_TimeRemaining_Desc.Text(),
             FluentLayout.Toggle(battery.ShowTimeRemaining, value => { battery.ShowTimeRemaining = value; save(); }),
             "eta", "time to full", "time to empty"));
 
-        rows.Add(FluentLayout.Row(Glyphs.Battery, "Health",
-            "How much the battery holds now against what it held new",
+        rows.Add(FluentLayout.Row(Glyphs.Battery, Str.WidgetsB_Settings_Battery_Health_Label.Text(),
+            Str.WidgetsB_Settings_Battery_Health_Desc.Text(),
             FluentLayout.Toggle(battery.ShowHealth, value => { battery.ShowHealth = value; save(); }),
             "wear", "design capacity", "full charge capacity"));
 
-        rows.Add(FluentLayout.Row(Glyphs.Lightning, "Charge rate",
-            "How fast the battery is charging or draining, in watts",
+        rows.Add(FluentLayout.Row(Glyphs.Lightning, Str.WidgetsB_Settings_Battery_Rate_Label.Text(),
+            Str.WidgetsB_Settings_Battery_Rate_Desc.Text(),
             FluentLayout.Toggle(battery.ShowRate, value => { battery.ShowRate = value; save(); }),
             "watts", "power draw"));
 
-        rows.Add(FluentLayout.Row(Glyphs.Refresh, "Cycle count",
-            "Charge cycles, where the battery counts them",
+        rows.Add(FluentLayout.Row(Glyphs.Refresh, Str.WidgetsB_Settings_Battery_Cycles_Label.Text(),
+            Str.WidgetsB_Settings_Battery_Cycles_Desc.Text(),
             FluentLayout.Toggle(battery.ShowCycles, value => { battery.ShowCycles = value; save(); }),
             "cycles"));
 
-        rows.Add(FluentLayout.Row(Glyphs.Gauge, "Voltage",
-            "The battery's voltage right now",
+        rows.Add(FluentLayout.Row(Glyphs.Gauge, Str.WidgetsB_Settings_Battery_Voltage_Label.Text(),
+            Str.WidgetsB_Settings_Battery_Voltage_Desc.Text(),
             FluentLayout.Toggle(battery.ShowVoltage, value => { battery.ShowVoltage = value; save(); })));
 
-        rows.Add(FluentLayout.Row(Glyphs.Thermometer, "Temperature",
-            "Most batteries have no sensor; shows N/A then",
+        rows.Add(FluentLayout.Row(Glyphs.Thermometer, Str.WidgetsB_Settings_Battery_Temperature_Label.Text(),
+            Str.WidgetsB_Settings_Battery_Temperature_Desc.Text(),
             FluentLayout.Toggle(battery.ShowTemperature, value => { battery.ShowTemperature = value; save(); })));
 
-        rows.Add(FluentLayout.Row(Glyphs.Power, "Power source and plan",
-            "Plugged in or on battery, the power plan and battery saver",
+        rows.Add(FluentLayout.Row(Glyphs.Power, Str.WidgetsB_Settings_Battery_Power_Label.Text(),
+            Str.WidgetsB_Settings_Battery_Power_Desc.Text(),
             FluentLayout.Toggle(battery.ShowPower, value => { battery.ShowPower = value; save(); }),
             "power plan", "battery saver", "plugged in"));
 
-        MeterRows(rows, battery, save, "the charge is read");
+        MeterRows(rows, battery, save, Str.WidgetsB_Settings_Battery_Refresh.Text());
     }
 }

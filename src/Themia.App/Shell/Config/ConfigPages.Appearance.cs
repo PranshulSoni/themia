@@ -7,6 +7,7 @@ using Microsoft.UI.Xaml.Media;
 using Themia.App.Services;
 using Themia.App.Widgets;
 using Themia.Core.Diagnostics;
+using Themia.Core.Localization;
 using Themia.Core.Model;
 using Themia.Core.Settings;
 using Themia.Core.Widgets;
@@ -25,7 +26,7 @@ internal static partial class ConfigPages
 
     private static FrameworkElement BuildAppearance(AppHost host)
     {
-        var page = Page("Appearance", []);
+        var page = Page(Str.Settings_Section_Appearance.Text(), []);
         FillAppearance(page, host);
         return page;
     }
@@ -42,83 +43,83 @@ internal static partial class ConfigPages
 
         var rows = new List<FrameworkElement>
         {
-            FluentLayout.Header("Style"),
+            FluentLayout.Header(Str.Settings_Nav_Style.Text()),
 
             // [S-834] One pick sets the look; changing anything it owns afterwards reads as Custom.
-            FluentLayout.Row(Glyphs.Palette, "Style", "Sets theme, colours, font, border and shape together. Text size and widget scale stay yours",
+            FluentLayout.Row(Glyphs.Palette, Str.Settings_Nav_Style.Text(), Str.Shell_Appearance_StyleDesc.Text(),
                 PresetChoice(page, host)),
 
-            FluentLayout.Row(Glyphs.Theme, "Theme", "Follows Windows unless you pick one",
+            FluentLayout.Row(Glyphs.Theme, Str.Settings_Theme_Label.Text(), Str.Shell_Appearance_ThemeDesc.Text(),
                 FluentLayout.Choice(
-                    [(AppTheme.System, "Use system setting"), (AppTheme.Light, "Light"), (AppTheme.Dark, "Dark")],
+                    [(AppTheme.System, Str.Shell_Appearance_UseSystem.Text()), (AppTheme.Light, Str.Settings_Theme_Light.Text()), (AppTheme.Dark, Str.Settings_Theme_Dark.Text())],
                     design.Theme,
                     value => host.Mutate(s => s.Design.Theme = value))),
 
-            FluentLayout.Header("Colours"),
+            FluentLayout.Header(Str.Shell_Appearance_Colours.Text()),
 
-            FluentLayout.ColorPickerRow(Glyphs.Palette, "Accent", "The colour of highlights, meters and selections",
+            FluentLayout.ColorPickerRow(Glyphs.Palette, Str.Shell_Appearance_Accent.Text(), Str.Shell_Appearance_AccentDesc.Text(),
                 design.PrimaryColor, value => host.Mutate(s => s.Design.PrimaryColor = value),
-                new ColorChoiceOptions { DefaultLabel = "Windows accent colour", DefaultColor = ColorChoice.WindowsAccent }),
+                new ColorChoiceOptions { DefaultLabel = Str.Shell_Appearance_WindowsAccent.Text(), DefaultColor = ColorChoice.WindowsAccent }),
 
-            FluentLayout.ColorPickerRow(Glyphs.Surface, "Widget background", "The fill behind every widget",
+            FluentLayout.ColorPickerRow(Glyphs.Surface, Str.Settings_Style_WidgetBg_Label.Text(), Str.Shell_Appearance_WidgetBgDesc.Text(),
                 design.WidgetBackgroundColor, value => host.Mutate(s => s.Design.WidgetBackgroundColor = value),
-                new ColorChoiceOptions { DefaultLabel = "Theme colour", Presets = ColorPresets.Surfaces }),
+                new ColorChoiceOptions { DefaultLabel = Str.Shell_Appearance_ThemeColour.Text(), Presets = ColorPresets.Surfaces }),
 
-            FluentLayout.Row(Glyphs.Opacity, "Widget opacity", null,
+            FluentLayout.Row(Glyphs.Opacity, Str.Settings_Style_WidgetOpacity_Label.Text(), null,
                 FluentLayout.Slider(design.SurfaceOpacity * 100, 20, 100, 5, "%",
                     value => host.Mutate(s => s.Design.SurfaceOpacity = value / 100))),
 
             // [S-828] The header strip, on its own terms, as in the original.
-            FluentLayout.ColorPickerRow(Glyphs.Surface, "Header background", "The strip with the widget's name. The default shares the widget's fill",
+            FluentLayout.ColorPickerRow(Glyphs.Surface, Str.Settings_Style_HeaderBg_Label.Text(), Str.Shell_Appearance_HeaderBgDesc.Text(),
                 design.HeaderBackgroundColor, value => host.Mutate(s => s.Design.HeaderBackgroundColor = value),
-                new ColorChoiceOptions { DefaultLabel = "Same as the widget", Presets = ColorPresets.Surfaces }),
+                new ColorChoiceOptions { DefaultLabel = Str.Shell_Appearance_SameAsWidget.Text(), Presets = ColorPresets.Surfaces }),
 
-            FluentLayout.Row(Glyphs.Opacity, "Header opacity", "Applies to a header background of its own",
+            FluentLayout.Row(Glyphs.Opacity, Str.Settings_Style_HeaderOpacity_Label.Text(), Str.Shell_Appearance_HeaderOpacityDesc.Text(),
                 FluentLayout.Slider(design.HeaderOpacity * 100, 0, 100, 5, "%",
                     value => host.Mutate(s => s.Design.HeaderOpacity = value / 100))),
 
-            FluentLayout.Header("Shape"),
+            FluentLayout.Header(Str.Shell_Appearance_Shape.Text()),
 
-            FluentLayout.Row(Glyphs.Surface, "Corner radius", null,
+            FluentLayout.Row(Glyphs.Surface, Str.Settings_Style_CornerRadius_Label.Text(), null,
                 FluentLayout.Slider(design.CornerRadiusPx, 0, 32, 1, "px",
                     value => host.Mutate(s => s.Design.CornerRadiusPx = value))),
 
             // [S-1540] One group, as Settings folds related options under one card: the style is
             // the header's own control, its width, colour and opacity fold under it.
-            FluentLayout.Expander(Glyphs.Grid, "Border", "The line round every widget",
+            FluentLayout.Expander(Glyphs.Grid, Str.Settings_Style_Border.Text(), Str.Shell_Appearance_BorderDesc.Text(),
                 FluentLayout.Choice(
                     [
-                        (WidgetBorderStyle.None, "None"),
-                        (WidgetBorderStyle.Solid, "Solid"),
-                        (WidgetBorderStyle.Dashed, "Dashed"),
-                        (WidgetBorderStyle.Dotted, "Dotted"),
+                        (WidgetBorderStyle.None, Str.Settings_Style_None.Text()),
+                        (WidgetBorderStyle.Solid, Str.Settings_Style_Solid.Text()),
+                        (WidgetBorderStyle.Dashed, Str.Settings_Style_Dashed.Text()),
+                        (WidgetBorderStyle.Dotted, Str.Settings_Style_Dotted.Text()),
                     ],
                     design.BorderStyle,
                     value => host.Mutate(s => s.Design.BorderStyle = value)),
                 [
-                    FluentLayout.Row(Glyphs.Grid, "Border width", null,
+                    FluentLayout.Row(Glyphs.Grid, Str.Settings_Style_BorderWidth_Label.Text(), null,
                         FluentLayout.Slider(design.BorderWidthPx, 0, 8, 1, "px",
                             value => host.Mutate(s => s.Design.BorderWidthPx = value))),
 
-                    FluentLayout.ColorPickerRow(Glyphs.Palette, "Border colour", null,
+                    FluentLayout.ColorPickerRow(Glyphs.Palette, Str.Shell_Appearance_BorderColour.Text(), null,
                         design.BorderColor, value => host.Mutate(s => s.Design.BorderColor = value),
-                        new ColorChoiceOptions { DefaultLabel = "Theme colour", Presets = ColorPresets.Surfaces }),
+                        new ColorChoiceOptions { DefaultLabel = Str.Shell_Appearance_ThemeColour.Text(), Presets = ColorPresets.Surfaces }),
 
-                    FluentLayout.Row(Glyphs.Opacity, "Border opacity", null,
+                    FluentLayout.Row(Glyphs.Opacity, Str.Settings_Style_BorderOpacity_Label.Text(), null,
                         FluentLayout.Slider(design.BorderOpacity * 100, 0, 100, 5, "%",
                             value => host.Mutate(s => s.Design.BorderOpacity = value / 100))),
                 ]),
 
-            FluentLayout.Header("Text"),
+            FluentLayout.Header(Str.Shell_Appearance_Text.Text()),
 
-            FluentLayout.Row(Glyphs.Font, "Font", "Any family installed on this PC. Icons keep their own font",
+            FluentLayout.Row(Glyphs.Font, Str.Settings_Font_FamilyLabel.Text(), Str.Shell_Appearance_FontDesc.Text(),
                 FontChoice(host, design.FontFamily)),
 
-            FluentLayout.Row(Glyphs.TextSize, "Text size", "Every widget's text, along the same type ramp, so layouts still fit",
+            FluentLayout.Row(Glyphs.TextSize, Str.Shell_Appearance_TextSize.Text(), Str.Shell_Appearance_TextSizeDesc.Text(),
                 FluentLayout.Slider(design.FontScale * 100, FluentType.MinTextScale * 100, FluentType.MaxTextScale * 100, 5, "%",
                     value => host.Mutate(s => s.Design.FontScale = value / 100))),
 
-            FluentLayout.Row(Glyphs.Scale, "Widget scale", "Scales widget content without moving the widgets",
+            FluentLayout.Row(Glyphs.Scale, Str.Display_WidgetScale_Label.Text(), Str.Shell_Appearance_WidgetScaleDesc.Text(),
                 FluentLayout.Slider(design.UiScale * 100, 50, 300, 5, "%",
                     value => host.Mutate(s => s.Design.UiScale = value / 100))),
         };
@@ -145,7 +146,7 @@ internal static partial class ConfigPages
 
         if (match is null)
         {
-            options.Add((CustomPreset, "Custom"));
+            options.Add((CustomPreset, Str.Settings_Style_Preset_Custom.Text()));
         }
 
         return FluentLayout.Choice(options, match is { } id ? (int)id : CustomPreset, value =>
@@ -178,10 +179,10 @@ internal static partial class ConfigPages
 
         void Add(string family, string label) => combo.Items.Add(new ComboBoxItem { Content = label, Tag = family });
 
-        Add(DesignLook.SystemFont, "System default");
-        Add(DesignLook.SansFont, "Sans serif");
-        Add(DesignLook.SerifFont, "Serif");
-        Add(DesignLook.MonoFont, "Monospace");
+        Add(DesignLook.SystemFont, Str.Shell_Appearance_SystemFont.Text());
+        Add(DesignLook.SansFont, Str.Shell_Appearance_SansFont.Text());
+        Add(DesignLook.SerifFont, Str.Settings_Font_Serif.Text());
+        Add(DesignLook.MonoFont, Str.Settings_Font_Mono.Text());
 
         var listedOwn = !DesignLook.FontPresets.Contains(current, StringComparer.OrdinalIgnoreCase) && DesignLook.IsFamilyName(current);
         if (listedOwn)

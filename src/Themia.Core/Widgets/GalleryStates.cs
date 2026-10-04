@@ -1,4 +1,5 @@
 using Themia.Core.Model;
+using Themia.Core.Localization;
 
 namespace Themia.Core.Widgets;
 
@@ -78,27 +79,32 @@ public static class GalleryFormatting
     /// the thing to do about it — a message that only says something went wrong leaves the reader
     /// with the same blank card they started with.
     /// </summary>
-    public static string StatusMessage(GalleryStatus status, FolderPathProblem problem, GallerySource source = GallerySource.Folder) => status switch
-    {
-        GalleryStatus.Loading when source == GallerySource.Bing => "Loading today's photo…",
-        GalleryStatus.Loading => "Loading pictures…",
-        GalleryStatus.NoFolder => "No folder chosen.\nPick one in this widget's settings.",
-        GalleryStatus.NoFile => "No picture chosen.\nPick one in this widget's settings.",
-        GalleryStatus.NotFound when source == GallerySource.File => "That picture is not there any more.",
-        GalleryStatus.NotFound => "That folder is not there any more.",
-        GalleryStatus.NotAPicture => "That file is not a picture this app can show.",
-        GalleryStatus.Offline => "Offline. Today's photo loads when the network is back.",
-        GalleryStatus.Unavailable => "Could not load today's photo.",
-        GalleryStatus.NotAFolder => "That is a file, not a folder.",
-        GalleryStatus.AccessDenied when source == GallerySource.File => "Windows will not let this app read that picture.",
-        GalleryStatus.AccessDenied => "Windows will not let this app read that folder.",
-        GalleryStatus.NoImages => "No pictures in this folder.\nTurn on subfolders, or pick another.",
-        GalleryStatus.InvalidPath => FolderFormatting.PathMessage(problem),
-        GalleryStatus.Failed when source == GallerySource.File => "That picture could not be read.",
-        GalleryStatus.Failed => "That folder could not be read.",
+    public static string StatusMessage(GalleryStatus status, FolderPathProblem problem, GallerySource source = GallerySource.Folder)
+        => StatusMessage(Strings.Current, status, problem, source);
 
-        // Ok with nothing in it is the same emptiness as NoImages, and saying "no pictures" is
-        // truer than saying nothing.
-        _ => "No pictures in this folder.\nTurn on subfolders, or pick another.",
-    };
+    /// <summary><see cref="StatusMessage(GalleryStatus, FolderPathProblem, GallerySource)"/> in <paramref name="locale"/>.</summary>
+    public static string StatusMessage(Locale locale, GalleryStatus status, FolderPathProblem problem, GallerySource source = GallerySource.Folder)
+        => status == GalleryStatus.InvalidPath
+            ? FolderFormatting.PathMessage(locale, problem)
+            : Strings.Get(locale, status switch
+            {
+                GalleryStatus.Loading when source == GallerySource.Bing => Str.WidgetsB_Gallery_Status_LoadingPhoto,
+                GalleryStatus.Loading => Str.WidgetsB_Gallery_Status_Loading,
+                GalleryStatus.NoFolder => Str.WidgetsB_Gallery_Status_NoFolder,
+                GalleryStatus.NoFile => Str.WidgetsB_Gallery_Status_NoFile,
+                GalleryStatus.NotFound when source == GallerySource.File => Str.WidgetsB_Gallery_Status_PictureGone,
+                GalleryStatus.NotFound => Str.WidgetsB_Gallery_Status_FolderGone,
+                GalleryStatus.NotAPicture => Str.WidgetsB_Gallery_Status_NotAPicture,
+                GalleryStatus.Offline => Str.WidgetsB_Gallery_Status_Offline,
+                GalleryStatus.Unavailable => Str.WidgetsB_Gallery_Status_Unavailable,
+                GalleryStatus.NotAFolder => Str.WidgetsB_Gallery_Status_NotAFolder,
+                GalleryStatus.AccessDenied when source == GallerySource.File => Str.WidgetsB_Gallery_Status_PictureDenied,
+                GalleryStatus.AccessDenied => Str.WidgetsB_Gallery_Status_FolderDenied,
+                GalleryStatus.Failed when source == GallerySource.File => Str.WidgetsB_Gallery_Status_PictureFailed,
+                GalleryStatus.Failed => Str.WidgetsB_Gallery_Status_FolderFailed,
+
+                // Ok with nothing in it is the same emptiness as NoImages, and saying "no pictures" is
+                // truer than saying nothing.
+                _ => Str.WidgetsB_Gallery_Status_NoImages,
+            });
 }

@@ -3,6 +3,7 @@ using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
 using Themia.App.Shell;
+using Themia.Core.Localization;
 using Themia.Core.Model;
 using Themia.Core.Widgets;
 
@@ -98,12 +99,12 @@ internal sealed partial class ScreenTimeView
     private static Grid GoalBar(ScreenTimeGoal goal, bool perDay)
     {
         var label = Fluent.Text(FluentType.Caption, "TextFillColorTertiaryBrush");
-        label.Text = "Daily limit";
+        label.Text = Str.WidgetsC_ScreenTime_DailyLimit.Text();
 
         var value = Fluent.Text(FluentType.Caption, "TextFillColorSecondaryBrush");
         value.Text = perDay
-            ? $"{ScreenTimeRules.FormatDuration(goal.Used)}/day of {ScreenTimeRules.FormatLimit(goal.Limit)}"
-            : $"{ScreenTimeRules.FormatDuration(goal.Used)} of {ScreenTimeRules.FormatLimit(goal.Limit)}";
+            ? Str.WidgetsC_ScreenTime_UsedPerDayOf.Format(("used", ScreenTimeRules.FormatDuration(goal.Used)), ("limit", ScreenTimeRules.FormatLimit(goal.Limit)))
+            : Str.WidgetsC_ScreenTime_UsedOf.Format(("used", ScreenTimeRules.FormatDuration(goal.Used)), ("limit", ScreenTimeRules.FormatLimit(goal.Limit)));
         value.HorizontalAlignment = HorizontalAlignment.Right;
         Grid.SetColumn(value, 1);
 
@@ -169,7 +170,7 @@ internal sealed partial class ScreenTimeView
             }
 
             var label = Fluent.Text(FluentType.Caption, "TextFillColorTertiaryBrush");
-            label.Text = wide ? DayShort[(int)date.DayOfWeek] : DayLetters[(int)date.DayOfWeek];
+            label.Text = wide ? DayShort(date.DayOfWeek) : DayLetter(date.DayOfWeek);
             label.HorizontalAlignment = HorizontalAlignment.Center;
             label.TextTrimming = TextTrimming.None;
             label.Margin = new Thickness(0, 2, 0, 0);

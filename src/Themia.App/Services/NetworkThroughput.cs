@@ -1,6 +1,7 @@
 using System.Net.NetworkInformation;
 using System.Net.Sockets;
 using Themia.Core.Diagnostics;
+using Themia.Core.Localization;
 using Themia.Core.Widgets;
 
 namespace Themia.App.Services;
@@ -168,8 +169,8 @@ internal static class NetworkThroughput
     {
         NetworkInterfaceType.Wireless80211 => "Wi-Fi",
         NetworkInterfaceType.Ethernet or NetworkInterfaceType.GigabitEthernet or NetworkInterfaceType.FastEthernetT or NetworkInterfaceType.FastEthernetFx => "Ethernet",
-        NetworkInterfaceType.Ppp => "Dial-up",
-        NetworkInterfaceType.Wwanpp or NetworkInterfaceType.Wwanpp2 => "Cellular",
-        _ => "Network",
+        NetworkInterfaceType.Ppp => Str.Shell_Adapter_DialUp.Text(),
+        NetworkInterfaceType.Wwanpp or NetworkInterfaceType.Wwanpp2 => Str.Shell_Adapter_Cellular.Text(),
+        _ => Str.Shell_Adapter_Network.Text(),
     };
 }

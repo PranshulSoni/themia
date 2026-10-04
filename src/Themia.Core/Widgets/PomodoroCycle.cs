@@ -1,4 +1,5 @@
 using System.Globalization;
+using Themia.Core.Localization;
 using Themia.Core.Model;
 
 namespace Themia.Core.Widgets;
@@ -104,7 +105,11 @@ public static class PomodoroCycle
     }
 
     /// <summary>The word for a phase, as the widget says it.</summary>
-    public static string PhaseLabel(PomodoroPhase phase) => phase == PomodoroPhase.Work ? "Focus" : "Break";
+    public static string PhaseLabel(PomodoroPhase phase) => PhaseLabel(Strings.Current, phase);
+
+    /// <summary><see cref="PhaseLabel(PomodoroPhase)"/> in an explicit language.</summary>
+    public static string PhaseLabel(Locale locale, PomodoroPhase phase)
+        => Strings.Get(locale, phase == PomodoroPhase.Work ? Str.WidgetUi_Focus : Str.WidgetUi_Break);
 
     /// <summary>The phase after <paramref name="phase"/>.</summary>
     public static PomodoroPhase Other(PomodoroPhase phase) => phase == PomodoroPhase.Work ? PomodoroPhase.Break : PomodoroPhase.Work;
@@ -121,11 +126,14 @@ public static class PomodoroCycle
     }
 
     /// <summary>[S-1466] "Next: Break 5:00" — what the flip will load.</summary>
-    public static string NextLine(PomodoroPhase phase, PomodoroConfig config)
+    public static string NextLine(PomodoroPhase phase, PomodoroConfig config) => NextLine(Strings.Current, phase, config);
+
+    /// <summary><see cref="NextLine(PomodoroPhase, PomodoroConfig)"/> in an explicit language.</summary>
+    public static string NextLine(Locale locale, PomodoroPhase phase, PomodoroConfig config)
     {
         ArgumentNullException.ThrowIfNull(config);
         var next = Other(phase);
-        return $"Next: {PhaseLabel(next)} {Clock(PhaseSeconds(next, config))}";
+        return Strings.Format(locale, Str.WidgetsC_Pomodoro_Next, ("phase", PhaseLabel(locale, next)), ("time", Clock(PhaseSeconds(next, config))));
     }
 
     /// <summary>

@@ -1,3 +1,4 @@
+using Themia.Core.Localization;
 namespace Themia.Core.Widgets;
 
 /// <summary>One application the Start menu knows about.</summary>
@@ -120,7 +121,7 @@ public static class InstalledAppRules
     }
 
     /// <summary>What the top-level bucket is called: apps that sit in no Start-menu folder.</summary>
-    public const string TopLevelTitle = "Other";
+    public static string TopLevelTitle(Locale locale) => Strings.Get(locale, Str.Category_Other);
 
     /// <summary>
     /// [S-1523] What the widget shows: the scan less what the user hid — by shortcut path, then by
@@ -159,11 +160,11 @@ public static class InstalledAppRules
 
     /// <summary>
     /// [S-1521] The list in folder sections (original S-01 / S-05): named folders in alphabetical
-    /// order, then the top-level apps as <see cref="TopLevelTitle"/>. The order inside a section is
+    /// order, then the top-level apps as <see cref="TopLevelTitle"/> in <paramref name="locale"/>. The order inside a section is
     /// the list's own (by name). Not grouping is one untitled section. Callers show the titles only
     /// when there is more than one section: a lone bucket under a heading is a heading over nothing.
     /// </summary>
-    public static List<AppSection> Sections(IReadOnlyList<InstalledApp> apps, bool group)
+    public static List<AppSection> Sections(IReadOnlyList<InstalledApp> apps, bool group, Locale locale)
     {
         ArgumentNullException.ThrowIfNull(apps);
 
@@ -199,7 +200,7 @@ public static class InstalledAppRules
             _ => string.Compare(a, b, StringComparison.OrdinalIgnoreCase),
         });
 
-        return order.Select(key => new AppSection(key, CategoryTitle(key), buckets[key])).ToList();
+        return order.Select(key => new AppSection(key, CategoryTitle(key, locale), buckets[key])).ToList();
     }
 
     /// <summary>[S-1524] Every folder the scan found, in section order, for the settings page and the folder chips.</summary>
@@ -220,9 +221,9 @@ public static class InstalledAppRules
         return found;
     }
 
-    /// <summary>A folder's name as shown: the top level reads <see cref="TopLevelTitle"/>.</summary>
-    public static string CategoryTitle(string? category)
-        => string.IsNullOrEmpty(category) ? TopLevelTitle : category;
+    /// <summary>A folder's name as shown (Windows names the folders in its own language): the top level reads <see cref="TopLevelTitle"/>.</summary>
+    public static string CategoryTitle(string? category, Locale locale)
+        => string.IsNullOrEmpty(category) ? TopLevelTitle(locale) : category;
 
     /// <summary>
     /// [S-1522] The initials a tile shows until its icon arrives, or for good when it has none

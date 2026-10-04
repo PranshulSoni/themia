@@ -5,6 +5,7 @@ using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Shapes;
 using Themia.App.Shell;
+using Themia.Core.Localization;
 using Themia.Core.Model;
 using Themia.Core.Widgets;
 using Windows.Foundation;
@@ -26,8 +27,11 @@ internal sealed partial class ScreenTimeView
     /// <summary>A calendar cell needs this much to have a weekday letter over its column.</summary>
     private const double LabelledCell = 12;
 
-    private static readonly string[] DayLetters = ["S", "M", "T", "W", "T", "F", "S"];
-    private static readonly string[] DayShort = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+    /// <summary>A weekday's one-letter name over a narrow column ("M" / "M" / "月").</summary>
+    private static string DayLetter(DayOfWeek day) => LocaleFormat.WeekdayName(Strings.Current, day, NameWidth.Narrow);
+
+    /// <summary>A weekday's short name over a column with room for it ("Mon" / "Mo.").</summary>
+    private static string DayShort(DayOfWeek day) => LocaleFormat.WeekdayName(Strings.Current, day, NameWidth.Short);
     private static readonly Brush AccentBrush = FluentLayout.Themed("AccentFillColorDefaultBrush", Colors.DodgerBlue);
     private static readonly Brush EmptyCellBrush = FluentLayout.Themed("ControlFillColorSecondaryBrush", Colors.Gray);
     private static readonly Brush TodayLabelBrush = FluentLayout.Themed("AccentTextFillColorPrimaryBrush", Colors.DodgerBlue);
@@ -122,7 +126,7 @@ internal sealed partial class ScreenTimeView
     private void Segment(int legendRows)
     {
         var cap = ScreenTimeRules.DrawingCap(_config.MaxApps, legendRows, _model.Apps.Count);
-        _segments = ScreenTimeRules.Segments(_model.Apps, _model.Total, cap, "Other");
+        _segments = ScreenTimeRules.Segments(_model.Apps, _model.Total, cap, Str.Screentime_Other.Text());
     }
 
     /// <summary>[S-452] The ring with the total in its hole, and the legend beside or under it.</summary>
@@ -305,7 +309,7 @@ internal sealed partial class ScreenTimeView
 
             arc.Stroke = AppBrush(segment);
             arc.StrokeThickness = thickness;
-            ToolTipService.SetToolTip(arc, $"{segment.Name} — {ScreenTimeRules.FormatDuration(segment.Seconds)} · {Math.Round(ScreenTimeRules.Share(segment.Seconds, _model.Total) * 100)}%");
+            ToolTipService.SetToolTip(arc, $"{segment.Name} — {ScreenTimeRules.FormatDuration(segment.Seconds)} · {LocaleFormat.Percent(Strings.Current, Math.Round(ScreenTimeRules.Share(segment.Seconds, _model.Total) * 100))}");
             Hoverable(arc, segment.Key);
             AttachHideMenu(arc, segment);
             canvas.Children.Add(arc);
@@ -456,7 +460,7 @@ internal sealed partial class ScreenTimeView
             if (labels && LocalDay.TryParse(day.Date, out var date))
             {
                 var label = Fluent.Text(FluentType.Caption, "TextFillColorTertiaryBrush");
-                label.Text = width / count >= 36 ? DayShort[(int)date.DayOfWeek] : DayLetters[(int)date.DayOfWeek];
+                label.Text = width / count >= 36 ? DayShort(date.DayOfWeek) : DayLetter(date.DayOfWeek);
                 label.HorizontalAlignment = HorizontalAlignment.Center;
                 label.TextTrimming = TextTrimming.None;
 
@@ -567,7 +571,7 @@ internal sealed partial class ScreenTimeView
             {
                 labelled[column] = true;
                 var label = Fluent.Text(FluentType.Caption, "TextFillColorTertiaryBrush");
-                label.Text = DayLetters[(int)day.DayOfWeek];
+                label.Text = DayLetter(day.DayOfWeek);
                 label.HorizontalAlignment = HorizontalAlignment.Center;
                 label.TextTrimming = TextTrimming.None;
                 SetRow(label, 0);
@@ -618,8 +622,8 @@ internal sealed partial class ScreenTimeView
                 segment,
                 AppBrush(segment),
                 dots && !segment.IsOther,
-                showAverage ? $"{ScreenTimeRules.FormatDuration(average)}/day" : null,
-                showPercent ? string.Create(CultureInfo.InvariantCulture, $"{Math.Round(ScreenTimeRules.Share(segment.Seconds, _model.Total) * 100)}%") : null,
+                showAverage ? Str.Screentime_PerDay.Format(("value", ScreenTimeRules.FormatDuration(average))) : null,
+                showPercent ? LocaleFormat.Percent(Strings.Current, Math.Round(ScreenTimeRules.Share(segment.Seconds, _model.Total) * 100)) : null,
                 goal);
         }
     }

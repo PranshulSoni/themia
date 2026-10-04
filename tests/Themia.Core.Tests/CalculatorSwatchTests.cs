@@ -1,4 +1,5 @@
 using Themia.Core.Geometry;
+using Themia.Core.Localization;
 using Themia.Core.Model;
 using Themia.Core.Storage;
 using Themia.Core.Widgets;
@@ -128,7 +129,7 @@ public sealed class CalculatorSwatchTests : IDisposable
             foreach (var key in row)
             {
                 Assert.False(string.IsNullOrEmpty(CalculatorKeypad.Label(key)));
-                Assert.False(string.IsNullOrEmpty(CalculatorKeypad.Name(key)));
+                Assert.False(string.IsNullOrEmpty(CalculatorKeypad.Name(key, Locale.En)));
             }
         }
 

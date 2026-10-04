@@ -6,6 +6,7 @@ using Themia.App.Services.Tasks;
 using Themia.App.Shell;
 using Themia.Core.Accounts;
 using Themia.Core.Diagnostics;
+using Themia.Core.Localization;
 using Themia.Core.Model;
 using Themia.Core.Tasks;
 using Themia.Core.Widgets;
@@ -144,7 +145,7 @@ internal sealed partial class TasksView : Grid, IWidgetView, IWidgetHeaderConten
 
         _emptyLocal = new HyperlinkButton
         {
-            Content = "Keep a list on this PC",
+            Content = Str.WidgetsC_Tasks_KeepLocal.Text(),
             HorizontalAlignment = HorizontalAlignment.Center,
             Padding = new Thickness(Fluent.Space2, 0, Fluent.Space2, Fluent.Space1),
             Visibility = Visibility.Collapsed,
@@ -217,8 +218,18 @@ internal sealed partial class TasksView : Grid, IWidgetView, IWidgetHeaderConten
         }
 
         _config = config as TasksConfig ?? new TasksConfig();
+        Strings.Changed += OnLanguage;
         Resubscribe();
         Rebind();
+    }
+
+    /// <summary>[S-1110] The fixed texts again, then the list redrawn from what is in hand (no fetch).</summary>
+    private void OnLanguage(Locale locale)
+    {
+        _emptyLocal.Content = Str.WidgetsC_Tasks_KeepLocal.Text();
+        _addLabel.Text = Str.WidgetsC_Tasks_AddTask.Text();
+        PublishTitle();
+        Render();
     }
 
     public void ApplyConfig(WidgetConfig config)
@@ -255,16 +266,16 @@ internal sealed partial class TasksView : Grid, IWidgetView, IWidgetHeaderConten
 
             if (!IsLocal && _feed is not null)
             {
-                actions.Add(new WidgetAction(Glyphs.Refresh, "Refresh", Refresh));
+                actions.Add(new WidgetAction(Glyphs.Refresh, Str.Common_Refresh.Text(), Refresh));
             }
 
             actions.Add(_config.ViewMode == TaskViewMode.Compact
-                ? new WidgetAction(Glyphs.Preview, "List view", () => SetViewMode(TaskViewMode.List))
-                : new WidgetAction(Glyphs.Count, "Compact view", () => SetViewMode(TaskViewMode.Compact)));
+                ? new WidgetAction(Glyphs.Preview, Str.WidgetsC_Tasks_ListView.Text(), () => SetViewMode(TaskViewMode.List))
+                : new WidgetAction(Glyphs.Count, Str.WidgetsC_Tasks_CompactView.Text(), () => SetViewMode(TaskViewMode.Compact)));
 
             actions.Add(new WidgetAction(
                 Glyphs.Done,
-                _config.ShowCompleted ? "Hide completed" : "Show completed",
+                (_config.ShowCompleted ? Str.Todo_HideCompleted : Str.Todo_ShowCompletedCtx).Text(),
                 () =>
                 {
                     _config.ShowCompleted = !_config.ShowCompleted;
@@ -528,12 +539,12 @@ internal sealed partial class TasksView : Grid, IWidgetView, IWidgetHeaderConten
         {
             if (_service?.Local.Find(_localListId) is { } list)
             {
-                title = string.IsNullOrWhiteSpace(list.Name) ? "Untitled list" : list.Name;
+                title = string.IsNullOrWhiteSpace(list.Name) ? Str.WidgetsC_Tasks_UntitledList.Text() : list.Name;
             }
         }
         else if (TaskRules.IsToday(_config.ListId))
         {
-            title = "Today";
+            title = Str.Todo_TodayList.Text();
         }
         else
         {
@@ -661,7 +672,7 @@ internal sealed partial class TasksView : Grid, IWidgetView, IWidgetHeaderConten
         var warning = IsLocal ? _service?.Local.Problem
             : _feed?.WriteProblem
             ?? (_feed is { Loaded: true, Failure: { } failure }
-                ? $"Could not refresh: {FetchState.Message(failure.ToFetchStatus())}. Showing the tasks from {FetchState.Freshness(_feed.FetchedAt ?? DateTimeOffset.Now, DateTimeOffset.Now).ToLowerInvariant()}."
+                ? Str.WidgetUi_RefreshFailedSince.Format(("reason", FetchState.Message(failure.ToFetchStatus())), ("time", FetchState.Freshness(_feed.FetchedAt ?? DateTimeOffset.Now, DateTimeOffset.Now)))
                 : null);
 
         _warning.Visibility = warning is null ? Visibility.Collapsed : Visibility.Visible;
@@ -672,10 +683,10 @@ internal sealed partial class TasksView : Grid, IWidgetView, IWidgetHeaderConten
     {
         if (_feed?.IsToday == true)
         {
-            return "Nothing due today.";
+            return Str.WidgetsC_Tasks_NothingDueToday.Text();
         }
 
-        return _config.ShowCompleted ? "No tasks on this list yet." : "Nothing open. All done.";
+        return (_config.ShowCompleted ? Str.WidgetsC_Tasks_ListEmpty : Str.WidgetsC_Tasks_AllDone).Text();
     }
 
     /// <summary>Say what is actually true, because every one of these needs a different action ([S-181]).</summary>
@@ -696,23 +707,23 @@ internal sealed partial class TasksView : Grid, IWidgetView, IWidgetHeaderConten
         switch (screen)
         {
             case Screen.Starting:
-                ShowEmpty("Themia is still starting.", null);
+                ShowEmpty(Str.WidgetsC_OneDrive_Starting.Text(), null);
                 break;
 
             case Screen.NoAccount:
-                ShowEmpty("Sign in to see your tasks, or keep a list on this PC.", EmptyAction.Accounts, offerLocal: true);
+                ShowEmpty(Str.WidgetsC_Tasks_SignInOrLocal.Text(), EmptyAction.Accounts, offerLocal: true);
                 break;
 
             case Screen.AccountGone:
-                ShowEmpty("The account this widget showed is no longer signed in.", EmptyAction.Accounts);
+                ShowEmpty(Str.WidgetsC_OneDrive_AccountGone.Text(), EmptyAction.Accounts);
                 break;
 
             case Screen.NeedsSignIn:
-                ShowEmpty($"{who ?? "This account"} needs you to sign in again.", EmptyAction.Accounts);
+                ShowEmpty(who is null ? Str.WidgetsC_Tasks_ThisAccountNeedsSignIn.Text() : Str.WidgetsC_OneDrive_AccountNeedsSignIn.Format(("account", who)), EmptyAction.Accounts);
                 break;
 
             case Screen.NoLists:
-                ShowEmpty($"{who ?? "This account"} has no task lists.", null);
+                ShowEmpty(who is null ? Str.WidgetsC_Tasks_NoListsThisAccount.Text() : Str.WidgetsC_Tasks_NoLists.Format(("account", who)), null);
                 break;
 
             case Screen.ListsFailed:
@@ -720,11 +731,11 @@ internal sealed partial class TasksView : Grid, IWidgetView, IWidgetHeaderConten
                 break;
 
             case Screen.NoLocalList:
-                ShowEmpty("Pick or start a list kept on this PC.", EmptyAction.StartLocalList);
+                ShowEmpty(Str.WidgetsC_Tasks_PickLocal.Text(), EmptyAction.StartLocalList);
                 break;
 
             case Screen.Loading:
-                ShowEmpty("Loading tasks…", null);
+                ShowEmpty(Str.WidgetsC_Tasks_Loading.Text(), null);
                 break;
 
             case Screen.Failed:
@@ -740,12 +751,12 @@ internal sealed partial class TasksView : Grid, IWidgetView, IWidgetHeaderConten
     /// <summary>A failure in the user's words: the network state, else what the provider said.</summary>
     private static string Explain(AccountException? failure) => failure?.Error switch
     {
-        null => "Could not read the tasks.",
-        AccountError.SignInRequired => "This account needs you to sign in again.",
-        AccountError.Forbidden => "This account does not allow Themia to read its tasks. Sign in again to grant it.",
-        AccountError.NotFound => "That task list is not there any more. Pick another in this widget's settings.",
-        AccountError.UnknownAccount => "The account this widget showed is no longer signed in.",
-        _ => FetchState.Message(failure.ToFetchStatus()) is { Length: > 0 } message ? $"{message}." : "Could not read the tasks.",
+        null => Str.WidgetsC_Tasks_ReadFailed.Text(),
+        AccountError.SignInRequired => Str.WidgetsC_Tasks_ThisAccountNeedsSignIn.Text(),
+        AccountError.Forbidden => Str.WidgetsC_Tasks_Error_Forbidden.Text(),
+        AccountError.NotFound => Str.WidgetsC_Tasks_Error_NotFound.Text(),
+        AccountError.UnknownAccount => Str.WidgetsC_OneDrive_AccountGone.Text(),
+        _ => FetchState.Message(failure.ToFetchStatus()) is { Length: > 0 } message ? message : Str.WidgetsC_Tasks_ReadFailed.Text(),
     };
 
     private enum EmptyAction
@@ -765,9 +776,9 @@ internal sealed partial class TasksView : Grid, IWidgetView, IWidgetHeaderConten
         _emptyAction.Tag = action;
         _emptyAction.Content = action switch
         {
-            EmptyAction.Accounts => "Open Accounts settings",
-            EmptyAction.Retry => "Try again",
-            EmptyAction.StartLocalList => "Start a list",
+            EmptyAction.Accounts => Str.WidgetsC_OneDrive_OpenAccounts.Text(),
+            EmptyAction.Retry => Str.Connect_TryAgain.Text(),
+            EmptyAction.StartLocalList => Str.WidgetsC_Tasks_StartList.Text(),
             _ => null,
         };
 
@@ -793,7 +804,7 @@ internal sealed partial class TasksView : Grid, IWidgetView, IWidgetHeaderConten
             case EmptyAction.StartLocalList when _service is not null:
                 // [S-604] The list it had if that still exists, else the first, else a new one.
                 _config.Source = TaskSource.Local;
-                _config.LocalListId = _service.Local.Ensure(_config.LocalListId, "My tasks");
+                _config.LocalListId = _service.Local.Ensure(_config.LocalListId, Str.Todo_LocalLists_DefaultName.Text());
                 _surface?.RequestSave();
                 Resubscribe();
                 Rebind();
@@ -824,6 +835,7 @@ internal sealed partial class TasksView : Grid, IWidgetView, IWidgetHeaderConten
         _rowFocused = false;
         _detached = true;
         _bindGeneration++;
+        Strings.Changed -= OnLanguage;
 
         _emptyAction.Click -= OnEmptyActionClicked;
         _emptyLocal.Click -= OnEmptyActionClicked;

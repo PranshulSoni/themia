@@ -7,6 +7,7 @@ using Microsoft.UI.Xaml.Documents;
 using Microsoft.UI.Xaml.Media;
 using Themia.App.Services;
 using Themia.App.Shell;
+using Themia.Core.Localization;
 using Themia.Core.Model;
 using Themia.Core.Widgets;
 using Glyphs = Themia.App.Shell.Glyphs;
@@ -80,14 +81,14 @@ internal sealed partial class ScreenTimeView : Grid, IWidgetView, IWidgetSurface
         _readout.Children.Add(_total);
         _readout.Children.Add(_detail);
 
-        _emptyText.Text = "No activity yet";
+        _emptyText.Text = Str.Screentime_NoActivity.Text();
         _empty = Fluent.EmptyState(Glyphs.ScreenTime, _emptyText, out _);
         _empty.Visibility = Visibility.Collapsed;
 
         // [S-454] The day navigation rides on the card's header, the way the calendar's does.
-        _back = NavButton(ChevronLeft, "Previous day", () => Navigate(-1));
-        _forward = NavButton(ChevronRight, "Next day", () => Navigate(1));
-        _today = NavButton(Glyphs.Calendar, "Today", () => { _pinned = null; Render(); });
+        _back = NavButton(ChevronLeft, Str.Screentime_PrevDay.Text(), () => Navigate(-1));
+        _forward = NavButton(ChevronRight, Str.Screentime_NextDay.Text(), () => Navigate(1));
+        _today = NavButton(Glyphs.Calendar, Str.Screentime_BackToToday.Text(), () => { _pinned = null; Render(); });
         _navLabel.VerticalAlignment = VerticalAlignment.Center;
         _navLabel.TextAlignment = TextAlignment.Center;
         _navLabel.Margin = new Thickness(Fluent.Space1, 0, Fluent.Space1, 0);
@@ -119,6 +120,8 @@ internal sealed partial class ScreenTimeView : Grid, IWidgetView, IWidgetSurface
     {
         _detached = false;
         _config = config as ScreenTimeConfig ?? new ScreenTimeConfig();
+        Strings.Changed -= OnLanguage;
+        Strings.Changed += OnLanguage;
 
         // [S-450] No timer of its own: the tracker ticks, and says so.
         if (_source is null)
@@ -140,9 +143,19 @@ internal sealed partial class ScreenTimeView : Grid, IWidgetView, IWidgetSurface
         Render();
     }
 
+    /// <summary>[S-1110] The header buttons' tooltips again; <see cref="Render"/> re-reads every other text.</summary>
+    private void OnLanguage(Locale locale)
+    {
+        ToolTipService.SetToolTip(_back, Str.Screentime_PrevDay.Text());
+        ToolTipService.SetToolTip(_forward, Str.Screentime_NextDay.Text());
+        ToolTipService.SetToolTip(_today, Str.Screentime_BackToToday.Text());
+        Render();
+    }
+
     public void Detach()
     {
         _detached = true;
+        Strings.Changed -= OnLanguage;
 
         if (_source is not null)
         {
@@ -256,7 +269,7 @@ internal sealed partial class ScreenTimeView : Grid, IWidgetView, IWidgetSurface
 
         if (_source is null)
         {
-            ShowEmpty("Screen time is recorded while Themia runs");
+            ShowEmpty(Str.WidgetsC_ScreenTime_NotRecording.Text());
             return;
         }
 
@@ -264,7 +277,7 @@ internal sealed partial class ScreenTimeView : Grid, IWidgetView, IWidgetSurface
 
         if (_model.Total <= 0)
         {
-            ShowEmpty(_model.Window ? "No activity in this period" : "No activity yet");
+            ShowEmpty((_model.Window ? Str.WidgetsC_ScreenTime_NoActivityPeriod : Str.Screentime_NoActivity).Text());
             return;
         }
 
@@ -328,7 +341,7 @@ internal sealed partial class ScreenTimeView : Grid, IWidgetView, IWidgetSurface
             if (_segments.FirstOrDefault(s => s.Key == focus) is { } segment)
             {
                 var share = ScreenTimeRules.Share(segment.Seconds, _model.Total);
-                return (segment.Seconds, $"{segment.Name} · {Math.Round(share * 100)}%", false);
+                return (segment.Seconds, $"{segment.Name} · {LocaleFormat.Percent(Strings.Current, Math.Round(share * 100))}", false);
             }
 
             var day = _model.Totals.FirstOrDefault(t => t.Date == focus);
@@ -347,25 +360,25 @@ internal sealed partial class ScreenTimeView : Grid, IWidgetView, IWidgetSurface
 
             if (_config.ShowAverage)
             {
-                parts.Add($"{ScreenTimeRules.FormatDuration(average)}/day");
+                parts.Add(Str.Screentime_PerDay.Format(("value", ScreenTimeRules.FormatDuration(average))));
             }
 
             // [S-457] A window judges its daily average against the daily limit.
             if (ScreenTimeRules.Goal(average, DayLimit) is { } goal)
             {
-                parts.Add($"of {ScreenTimeRules.FormatLimit(goal.Limit)}/day");
+                parts.Add(Str.Screentime_GoalPerDay.Format(("value", ScreenTimeRules.FormatLimit(goal.Limit))));
                 over = goal.Over;
             }
         }
         else if (ScreenTimeRules.Goal(_model.Total, DayLimit) is { } goal)
         {
-            parts.Add($"of {ScreenTimeRules.FormatLimit(goal.Limit)}");
+            parts.Add(Str.Screentime_OfGoal.Format(("value", ScreenTimeRules.FormatLimit(goal.Limit))));
             over = goal.Over;
         }
 
         if (_config.ShowSwitches && _model.Switches > 0)
         {
-            parts.Add(_model.Switches == 1 ? "1 switch" : string.Create(CultureInfo.InvariantCulture, $"{_model.Switches} switches"));
+            parts.Add(Str.WidgetsC_ScreenTime_Switches.Plural(_model.Switches));
         }
 
         return (_model.Total, string.Join(" · ", parts), over);
@@ -471,7 +484,7 @@ internal sealed partial class ScreenTimeView : Grid, IWidgetView, IWidgetSurface
 
         element.RightTapped += (_, args) =>
         {
-            var hide = new MenuFlyoutItem { Text = "Hide from list", Icon = new FontIcon { Glyph = Glyphs.Hide } };
+            var hide = new MenuFlyoutItem { Text = Str.Screentime_HideApp.Text(), Icon = new FontIcon { Glyph = Glyphs.Hide } };
             hide.Click += (_, _) => Hide(segment.Key);
 
             var menu = new MenuFlyout();

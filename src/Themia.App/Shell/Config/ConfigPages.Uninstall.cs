@@ -4,6 +4,7 @@ using Microsoft.UI.Xaml.Controls;
 using Themia.App.Services;
 using Themia.App.Widgets;
 using Themia.Core.Diagnostics;
+using Themia.Core.Localization;
 using Themia.Core.Settings;
 using Themia.Core.Storage;
 
@@ -31,11 +32,11 @@ internal static partial class ConfigPages
 
     private static Border UninstallRow(AppHost host)
     {
-        var button = new Button { Content = "Uninstall" };
+        var button = new Button { Content = Str.Shell_Uninstall_Action.Text() };
         button.Click += (_, _) => _ = UninstallAsync(host, button);
 
-        return FluentLayout.DangerRow(Glyphs.Delete, "Uninstall Themia",
-            "Remove Themia from this PC, and if you want, everything it keeps", button);
+        return FluentLayout.DangerRow(Glyphs.Delete, Str.Shell_Uninstall_Title.Text(),
+            Str.Shell_Uninstall_Desc.Text(), button);
     }
 
     private static async Task UninstallAsync(AppHost host, Button source)
@@ -87,13 +88,13 @@ internal static partial class ConfigPages
         {
             TextWrapping = TextWrapping.Wrap,
             Text = plan.Route == UninstallRoute.RemovePackage
-                ? "Themia closes and is removed from this PC, together with your widgets, settings and accounts."
-                : "Themia closes, and Windows' Installed apps opens so you can remove it there.",
+                ? Str.Shell_Uninstall_Package.Text()
+                : Str.Shell_Uninstall_InstalledApps.Text(),
         };
 
         var body = new StackPanel { Spacing = Fluent.Space3, MaxWidth = 440, Children = { what } };
 
-        var deleteData = new CheckBox { Content = "Also delete my widgets, settings and accounts" };
+        var deleteData = new CheckBox { Content = Str.Shell_Uninstall_DeleteData.Text() };
 
         var where = new TextBlock { Text = string.Join(Environment.NewLine, plan.FoldersToDelete) };
         FluentLayout.ApplyStyle(where, "SettingsCaptionTextBlockStyle");
@@ -116,10 +117,10 @@ internal static partial class ConfigPages
         {
             XamlRoot = root,
             RequestedTheme = source.ActualTheme,
-            Title = "Uninstall Themia?",
+            Title = Str.Shell_Uninstall_Confirm.Text(),
             Content = body,
-            PrimaryButtonText = "Uninstall",
-            CloseButtonText = "Cancel",
+            PrimaryButtonText = Str.Shell_Uninstall_Action.Text(),
+            CloseButtonText = Str.Common_Cancel.Text(),
             DefaultButton = ContentDialogButton.Close,
         };
 

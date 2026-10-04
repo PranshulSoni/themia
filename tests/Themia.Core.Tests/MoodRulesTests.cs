@@ -1,3 +1,4 @@
+using Themia.Core.Localization;
 using Themia.Core.Model;
 using Themia.Core.Widgets;
 using Xunit;
@@ -91,25 +92,27 @@ public class MoodRulesTests
     public void S322_a_day_describes_itself_in_words()
     {
         var byDay = MoodRules.ByDay([At("2026-06-15", 9, 4)]);
-        var described = MoodRules.Describe(MoodRules.Read(byDay, Today));
+        var described = MoodRules.Describe(Locale.En, MoodRules.Read(byDay, Today));
 
-        Assert.Equal("Monday 15 Jun 2026: Good (4 of 5)", described);
+        Assert.Equal("Monday, June 15, 2026: Good (4 of 5)", described);
+        Assert.Equal("Montag, 15. Juni 2026: Gut (4 von 5)", MoodRules.Describe(Locale.De, MoodRules.Read(byDay, Today)));
     }
 
     [Fact]
     public void S322_a_day_with_several_entries_says_how_many_and_the_mean()
     {
         var byDay = MoodRules.ByDay([At("2026-06-15", 9, 4), At("2026-06-15", 18, 3)]);
-        var described = MoodRules.Describe(MoodRules.Read(byDay, Today));
+        var described = MoodRules.Describe(Locale.En, MoodRules.Read(byDay, Today));
 
-        Assert.Equal("Monday 15 Jun 2026: Good (4 of 5), average 3.5 of 2 entries", described);
+        Assert.Equal("Monday, June 15, 2026: Good (4 of 5), average 3.5 of 2 entries", described);
+        Assert.Equal("Montag, 15. Juni 2026: Gut (4 von 5), Durchschnitt 3,5 aus 2 Einträgen", MoodRules.Describe(Locale.De, MoodRules.Read(byDay, Today)));
     }
 
     [Fact]
     public void S322_an_empty_day_says_so_rather_than_saying_nothing()
         => Assert.Equal(
-            "Monday 15 Jun 2026: nothing logged",
-            MoodRules.Describe(MoodRules.Read(new Dictionary<LocalDay, MoodDay>(), Today)));
+            "Monday, June 15, 2026: nothing logged",
+            MoodRules.Describe(Locale.En, MoodRules.Read(new Dictionary<LocalDay, MoodDay>(), Today)));
 
     [Theory]
     [InlineData(1, "Awful")]
@@ -118,7 +121,7 @@ public class MoodRulesTests
     [InlineData(0, "Not logged")]
     [InlineData(9, "Not logged")]
     public void S322_every_level_has_a_name(int level, string expected)
-        => Assert.Equal(expected, MoodRules.LevelName(level));
+        => Assert.Equal(expected, MoodRules.LevelName(Locale.En, level));
 
     // -----------------------------------------------------------------------------------------
     // [S-323] the entry list is untrusted

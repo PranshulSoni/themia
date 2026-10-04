@@ -4,6 +4,7 @@ using Microsoft.UI.Xaml.Controls;
 using Themia.App.Services;
 using Themia.App.Shell;
 using Themia.Core.Diagnostics;
+using Themia.Core.Localization;
 using Themia.Core.Model;
 using Themia.Core.Widgets;
 
@@ -412,7 +413,7 @@ internal sealed partial class GalleryView : Grid, IWidgetView, IWidgetHeaderCont
     {
         var title = _config.Source switch
         {
-            GallerySource.Bing => "Photo of the day",
+            GallerySource.Bing => Str.WidgetsB_Gallery_PhotoOfTheDay.Text(),
             GallerySource.File => FileTitle(_config.FilePath),
             _ => FolderPath.DisplayName(_config.Path),
         };

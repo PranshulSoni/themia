@@ -1,4 +1,5 @@
 using Themia.Core.Geometry;
+using Themia.Core.Localization;
 using Themia.Core.Model;
 using Themia.Core.Storage;
 using Xunit;
@@ -119,7 +120,7 @@ public sealed class SettingsTransferTests : IDisposable
     {
         var state = Sample();
 
-        var preview = SettingsTransfer.Compare(state, Copy(state), [], Displays);
+        var preview = SettingsTransfer.Compare(Locale.En, state, Copy(state), [], Displays);
 
         Assert.Empty(preview.Changes);
         Assert.Empty(preview.Notes);
@@ -132,7 +133,7 @@ public sealed class SettingsTransferTests : IDisposable
         var incoming = Copy(state);
         incoming.Views[0].Name = "Office";
 
-        var preview = SettingsTransfer.Compare(state, incoming, [], Displays);
+        var preview = SettingsTransfer.Compare(Locale.En, state, incoming, [], Displays);
 
         var line = Assert.Single(preview.Changes);
         Assert.Contains("Renames", line, StringComparison.Ordinal);
@@ -151,7 +152,7 @@ public sealed class SettingsTransferTests : IDisposable
             view.Id = Guid.NewGuid().ToString("n");
         }
 
-        var preview = SettingsTransfer.Compare(state, incoming, [], Displays);
+        var preview = SettingsTransfer.Compare(Locale.En, state, incoming, [], Displays);
 
         Assert.DoesNotContain(preview.Changes, c => c.StartsWith("Removes", StringComparison.Ordinal));
         Assert.DoesNotContain(preview.Changes, c => c.StartsWith("Adds", StringComparison.Ordinal));
@@ -168,7 +169,7 @@ public sealed class SettingsTransferTests : IDisposable
         work.Widgets.Add(WidgetInstance.Create(WidgetKind.Notes, new FracRect(0.1, 0.5, 0.2, 0.2)));
         work.Widgets.Add(WidgetInstance.Create(WidgetKind.Memory, new FracRect(0.5, 0.5, 0.2, 0.2)));
 
-        var preview = SettingsTransfer.Compare(state, incoming, [], Displays);
+        var preview = SettingsTransfer.Compare(Locale.En, state, incoming, [], Displays);
 
         var line = Assert.Single(preview.Changes);
         Assert.Equal("“Work”: 2 widgets added, 1 widget removed, 1 widget changed", line);
@@ -183,7 +184,7 @@ public sealed class SettingsTransferTests : IDisposable
         incoming.Views.Add(ViewState.Create("Travel"));
         incoming.ActiveViewId = incoming.Views[0].Id;
 
-        var preview = SettingsTransfer.Compare(state, incoming, [], Displays);
+        var preview = SettingsTransfer.Compare(Locale.En, state, incoming, [], Displays);
 
         Assert.Contains("Adds the view “Travel” with 0 widgets", preview.Changes);
         Assert.Contains("Removes the view “Work” and its 2 widgets", preview.Changes);
@@ -198,11 +199,26 @@ public sealed class SettingsTransferTests : IDisposable
         incoming.Design.PrimaryColor = "#FF8800";
         incoming.Design.WidgetGapPx = 12;
 
-        var preview = SettingsTransfer.Compare(state, incoming, [], Displays);
+        var preview = SettingsTransfer.Compare(Locale.En, state, incoming, [], Displays);
 
         Assert.Contains("Theme: System → Dark", preview.Changes);
         Assert.Contains("Accent colour: theme → #FF8800", preview.Changes);
         Assert.Contains("Gap between widgets: 8px → 12px", preview.Changes);
+    }
+
+    [Fact]
+    public void S1100_the_preview_is_worded_in_the_asked_language()
+    {
+        var state = Sample();
+        var incoming = Copy(state);
+        incoming.Design.Theme = AppTheme.Dark;
+
+        var preview = SettingsTransfer.Compare(Locale.De, state, incoming, [], Displays);
+
+        var line = Assert.Single(preview.Changes);
+        Assert.Equal(
+            $"{Strings.Get(Locale.De, Str.Settings_Theme_Label)}: {Strings.Get(Locale.De, Str.Settings_Theme_System)} → {Strings.Get(Locale.De, Str.Settings_Theme_Dark)}",
+            line);
     }
 
     [Fact]
@@ -212,7 +228,7 @@ public sealed class SettingsTransferTests : IDisposable
         var incoming = Copy(state);
         incoming.MonitorViews["\\\\.\\DISPLAY9"] = incoming.Views[1].Id;
 
-        var preview = SettingsTransfer.Compare(state, incoming, ["widget 'x' was off-screen"], Displays);
+        var preview = SettingsTransfer.Compare(Locale.En, state, incoming, ["widget 'x' was off-screen"], Displays);
 
         Assert.Empty(preview.Changes);
         Assert.Equal(2, preview.Notes.Count);

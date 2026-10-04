@@ -2,6 +2,7 @@ using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Themia.App.Services;
 using Themia.Core.Developer;
+using Themia.Core.Localization;
 using Themia.Core.Model;
 using Windows.System;
 
@@ -25,7 +26,7 @@ internal static partial class WidgetSettings
         ArgumentNullException.ThrowIfNull(save);
         ArgumentNullException.ThrowIfNull(navigate);
 
-        rows.Add(FluentLayout.Header("Repository"));
+        rows.Add(FluentLayout.Header(Str.Github_RepositoryLabel.Text()));
 
         var address = new TextBox { Text = config.Repo, Width = 260, MaxLength = 300, PlaceholderText = "owner/name" };
         var verdict = FluentLayout.Verdict();
@@ -42,7 +43,7 @@ internal static partial class WidgetSettings
             // on every tick. Written as typed: a pasted web address keeps working as one.
             if (typed.Length > 0 && GitHubRules.ParseRepo(typed) is null)
             {
-                FluentLayout.Refuse(verdict, "Use owner/name, or the repository's web address.");
+                FluentLayout.Refuse(verdict, Str.WidgetsA_Dev_Settings_RepoInvalid.Text());
                 return;
             }
 
@@ -61,18 +62,18 @@ internal static partial class WidgetSettings
         };
         address.LostFocus += (_, _) => Commit();
 
-        rows.Add(FluentLayout.FieldRow(Glyphs.Code, "Repository",
-            "owner/name or its web address. Requests go to the account's own GitHub, Enterprise included", address, verdict));
+        rows.Add(FluentLayout.FieldRow(Glyphs.Code, Str.Github_RepositoryLabel.Text(),
+            Str.WidgetsA_Dev_Settings_Repo_Desc.Text(), address, verdict));
 
         SingleAccountRow(rows, AppServices.GitHub?.Accounts ?? [], "GitHub", config.AccountIds.FirstOrDefault() ?? string.Empty,
             id => { config.AccountIds = id.Length == 0 ? [] : [id]; save(); }, navigate, anonymous: true);
 
-        rows.Add(FluentLayout.Header("Lists"));
+        rows.Add(FluentLayout.Header(Str.WidgetsA_Dev_Settings_Lists.Text()));
 
         // [S-740] Filling, a count is on or off: 0 still hides a list, any other number shows as many as fit.
-        rows.Add(FillRow(config, save, "Each list shows as many as fit; a count of 0 still hides it"));
+        rows.Add(FillRow(config, save, Str.WidgetsA_Dev_Settings_FillLists_Desc.Text()));
 
-        rows.Add(CountRow(Glyphs.Code, "Commits", "The newest commits on the default branch; 0 hides the list",
+        rows.Add(CountRow(Glyphs.Code, Str.Github_CommitsLabel.Text(), Str.WidgetsA_Dev_Settings_Commits_Desc.Text(),
             config.EffectiveCommitCount, 0, GitHubConfig.MaxListCount, value => { config.CommitCount = value; save(); }));
 
         var pullRows = new List<FrameworkElement>();
@@ -85,29 +86,29 @@ internal static partial class WidgetSettings
             }
         }
 
-        rows.Add(CountRow(Glyphs.PullRequest, "Pull requests", "0 hides the list",
+        rows.Add(CountRow(Glyphs.PullRequest, Str.Github_PrsLabel.Text(), Str.WidgetsA_Dev_Settings_ZeroHides.Text(),
             config.EffectivePullCount, 0, GitHubConfig.MaxListCount, value => { config.PullCount = value; save(); ShowPullRows(); }));
 
         // [S-613] Only meaningful while there is a pull request list to filter.
-        pullRows.Add(FluentLayout.Row(Glyphs.View, "Show", "Closed includes merged",
+        pullRows.Add(FluentLayout.Row(Glyphs.View, Str.WidgetsA_Bluetooth_Settings_Show.Text(), Str.WidgetsA_Dev_Settings_PullState_Desc.Text(),
             FluentLayout.Choice<PullFilter>(
-                [(PullFilter.Open, "Open"), (PullFilter.Closed, "Closed"), (PullFilter.All, "All")],
+                [(PullFilter.Open, Str.Github_PrStateOpen.Text()), (PullFilter.Closed, Str.Github_PrStateClosed.Text()), (PullFilter.All, Str.Github_PrStateAll.Text())],
                 config.PullFilter,
                 value => { config.PullFilter = value; save(); })));
 
-        pullRows.Add(FluentLayout.Row(Glyphs.Sort, "Order", "By when each was opened",
+        pullRows.Add(FluentLayout.Row(Glyphs.Sort, Str.WidgetsA_Dev_Settings_Order_Label.Text(), Str.WidgetsA_Dev_Settings_Order_Desc.Text(),
             FluentLayout.Choice<PullOrder>(
-                [(PullOrder.Newest, "Newest first"), (PullOrder.Oldest, "Oldest first")],
+                [(PullOrder.Newest, Str.Github_PrSortNewest.Text()), (PullOrder.Oldest, Str.Github_PrSortOldest.Text())],
                 config.PullOrder,
                 value => { config.PullOrder = value; save(); })));
 
         rows.AddRange(pullRows);
         ShowPullRows();
 
-        rows.Add(CountRow(Glyphs.Issue, "Issues", "Open issues, newest first; 0 hides the list",
+        rows.Add(CountRow(Glyphs.Issue, Str.Github_IssuesLabel.Text(), Str.WidgetsA_Dev_Settings_Issues_Desc.Text(),
             config.EffectiveIssueCount, 0, GitHubConfig.MaxListCount, value => { config.IssueCount = value; save(); }));
 
-        rows.Add(CountRow(Glyphs.Refresh, "Workflow runs", "The newest run is always the header's CI status; 0 hides the list",
+        rows.Add(CountRow(Glyphs.Refresh, Str.WidgetsA_Github_WorkflowRuns.Text(), Str.WidgetsA_Dev_Settings_Runs_Desc.Text(),
             config.EffectiveRunCount, 0, GitHubConfig.MaxListCount, value => { config.RunCount = value; save(); }));
 
         FluentLayout.RefreshChoice(rows, config.RefreshMinutes, value => { config.RefreshMinutes = value; save(); });
@@ -122,14 +123,14 @@ internal static partial class WidgetSettings
 
         GitHubAccountRows(rows, config, save, navigate);
 
-        rows.Add(FluentLayout.Header("Issues"));
+        rows.Add(FluentLayout.Header(Str.Github_IssuesLabel.Text()));
 
-        var count = CountRow(Glyphs.Count, "Issues", "The most recently updated, across every account",
+        var count = CountRow(Glyphs.Count, Str.Github_IssuesLabel.Text(), Str.WidgetsA_Dev_Settings_RecentAcross.Text(),
             config.EffectiveCount, GitHubIssuesConfig.MinCount, GitHubIssuesConfig.MaxCount, value => { config.Count = value; save(); });
-        rows.Add(FillRow(config, save, "As many as fit, newest first", count));
+        rows.Add(FillRow(config, save, Str.WidgetsA_Dev_Settings_Fill_Desc.Text(), count));
         rows.Add(count);
 
-        rows.Add(FluentLayout.Row(Glyphs.Contact, "Include mentions", "Also open issues that mention you",
+        rows.Add(FluentLayout.Row(Glyphs.Contact, Str.WidgetsA_Dev_Settings_Mentions_Label.Text(), Str.WidgetsA_Dev_Settings_Mentions_Desc.Text(),
             FluentLayout.Toggle(config.IncludeMentioned, value => { config.IncludeMentioned = value; save(); })));
 
         FluentLayout.RefreshChoice(rows, config.RefreshMinutes, value => { config.RefreshMinutes = value; save(); });
@@ -144,14 +145,14 @@ internal static partial class WidgetSettings
 
         GitHubAccountRows(rows, config, save, navigate);
 
-        rows.Add(FluentLayout.Header("Pull requests"));
+        rows.Add(FluentLayout.Header(Str.Github_PrsLabel.Text()));
 
-        var count = CountRow(Glyphs.Count, "Pull requests", "The most recently updated, across every account",
+        var count = CountRow(Glyphs.Count, Str.Github_PrsLabel.Text(), Str.WidgetsA_Dev_Settings_RecentAcross.Text(),
             config.EffectiveCount, GitHubReviewsConfig.MinCount, GitHubReviewsConfig.MaxCount, value => { config.Count = value; save(); });
-        rows.Add(FillRow(config, save, "As many as fit, newest first", count));
+        rows.Add(FillRow(config, save, Str.WidgetsA_Dev_Settings_Fill_Desc.Text(), count));
         rows.Add(count);
 
-        rows.Add(FluentLayout.Row(Glyphs.Edit, "Include drafts", "A draft is not asking for a review yet",
+        rows.Add(FluentLayout.Row(Glyphs.Edit, Str.Github_IncludeDraftsLabel.Text(), Str.WidgetsA_Dev_Settings_Drafts_Desc.Text(),
             FluentLayout.Toggle(config.IncludeDrafts, value => { config.IncludeDrafts = value; save(); })));
 
         FluentLayout.RefreshChoice(rows, config.RefreshMinutes, value => { config.RefreshMinutes = value; save(); });
@@ -166,24 +167,24 @@ internal static partial class WidgetSettings
 
         GitHubAccountRows(rows, config, save, navigate);
 
-        rows.Add(FluentLayout.Header("Notifications"));
+        rows.Add(FluentLayout.Header(Str.Github_NotificationsLabel.Text()));
 
-        var count = CountRow(Glyphs.Count, "Notifications", "The newest, across every account",
+        var count = CountRow(Glyphs.Count, Str.Github_NotificationsLabel.Text(), Str.WidgetsA_Dev_Settings_NewestAcross.Text(),
             config.EffectiveCount, GitHubNotificationsConfig.MinCount, GitHubNotificationsConfig.MaxCount, value => { config.Count = value; save(); });
-        rows.Add(FillRow(config, save, "As many as fit, newest first", count));
+        rows.Add(FillRow(config, save, Str.WidgetsA_Dev_Settings_Fill_Desc.Text(), count));
         rows.Add(count);
 
-        rows.Add(FluentLayout.Row(Glyphs.MailRead, "Show read", "Also list notifications you have already read",
+        rows.Add(FluentLayout.Row(Glyphs.MailRead, Str.Github_ShowReadLabel.Text(), Str.WidgetsA_Dev_Settings_ShowRead_Desc.Text(),
             FluentLayout.Toggle(config.IncludeRead, value => { config.IncludeRead = value; save(); })));
 
-        rows.Add(FluentLayout.Row(Glyphs.Contact, "Participating only", "Only threads you take part in or were mentioned in",
+        rows.Add(FluentLayout.Row(Glyphs.Contact, Str.Github_ParticipatingLabel.Text(), Str.WidgetsA_Dev_Settings_Participating_Desc.Text(),
             FluentLayout.Toggle(config.ParticipatingOnly, value => { config.ParticipatingOnly = value; save(); })));
 
-        rows.Add(FluentLayout.Row(Glyphs.Group, "Group by repository", "A heading over each repository's notifications",
+        rows.Add(FluentLayout.Row(Glyphs.Group, Str.WidgetsA_Dev_Settings_GroupRepo_Label.Text(), Str.WidgetsA_Dev_Settings_GroupRepo_Desc.Text(),
             FluentLayout.Toggle(config.GroupByRepository, value => { config.GroupByRepository = value; save(); })));
 
         FluentLayout.RefreshChoice(rows, config.RefreshMinutes, value => { config.RefreshMinutes = value; save(); });
-        rows.Add(FluentLayout.Note("GitHub may ask for a slower pace than this; the widget follows it."));
+        rows.Add(FluentLayout.Note(Str.WidgetsA_Dev_Settings_SlowerNote.Text()));
     }
 
     public static void ClaudeUsage(List<FrameworkElement> rows, ClaudeUsageConfig config, Action save, Action<ConfigTarget> navigate)
@@ -193,26 +194,26 @@ internal static partial class WidgetSettings
         ArgumentNullException.ThrowIfNull(save);
         ArgumentNullException.ThrowIfNull(navigate);
 
-        rows.Add(FluentLayout.Header("Account"));
+        rows.Add(FluentLayout.Header(Str.ClaudeUsage_AccountLabel.Text()));
 
         SingleAccountRow(rows, AppServices.ClaudeUsage?.Accounts ?? [], "Claude", config.AccountId,
             id => { config.AccountId = id; save(); }, navigate);
 
-        rows.Add(FluentLayout.Header("Limits"));
+        rows.Add(FluentLayout.Header(Str.WidgetsA_Dev_Settings_Limits.Text()));
 
-        rows.Add(FluentLayout.Row(Glyphs.Gauge, "Weekly Opus limit", "Its own bar; 0% while the plan sets no separate limit",
+        rows.Add(FluentLayout.Row(Glyphs.Gauge, Str.ClaudeUsage_OpusLabel.Text(), Str.WidgetsA_Dev_Settings_ModelLimit_Desc.Text(),
             FluentLayout.Toggle(config.ShowOpus, value => { config.ShowOpus = value; save(); })));
 
-        rows.Add(FluentLayout.Row(Glyphs.Gauge, "Weekly Sonnet limit", "Its own bar; 0% while the plan sets no separate limit",
+        rows.Add(FluentLayout.Row(Glyphs.Gauge, Str.ClaudeUsage_SonnetLabel.Text(), Str.WidgetsA_Dev_Settings_ModelLimit_Desc.Text(),
             FluentLayout.Toggle(config.ShowSonnet, value => { config.ShowSonnet = value; save(); })));
 
         // [S-796] Any five minutes from 5 to 60, as the classic stepper allowed; the preset box would
         // have snapped a stored 10 or 45 back to 15.
-        rows.Add(FluentLayout.Header("Updating"));
-        rows.Add(FluentLayout.Row(Glyphs.Timer, "Refresh", "How often Anthropic is asked; its limits are strict",
-            FluentLayout.Slider(config.RefreshMinutes, 5, 60, 5, " min",
+        rows.Add(FluentLayout.Header(Str.WidgetsA_Dev_Settings_Updating.Text()));
+        rows.Add(FluentLayout.Row(Glyphs.Timer, Str.Common_Refresh.Text(), Str.WidgetsA_Dev_Settings_ClaudeRefresh_Desc.Text(),
+            FluentLayout.Slider(config.RefreshMinutes, 5, 60, 5, Str.WidgetsA_Dev_Settings_MinutesUnit.Text(),
                 value => { config.RefreshMinutes = ClaudeUsageRules.ClampRefreshMinutes((int)Math.Round(value)); save(); })));
-        rows.Add(FluentLayout.Note("Read from the endpoint the Claude CLI uses for its own usage. It is undocumented and may change."));
+        rows.Add(FluentLayout.Note(Str.WidgetsA_Dev_Settings_ClaudeEndpointNote.Text()));
     }
 
     /// <summary>
@@ -230,7 +231,7 @@ internal static partial class WidgetSettings
         }
 
         ShowCount();
-        return FluentLayout.Row(Glyphs.View, "Fill the tile", description,
+        return FluentLayout.Row(Glyphs.View, Str.WidgetsA_Dev_Settings_Fill_Label.Text(), description,
             FluentLayout.Toggle(config.FillTile, on => { config.FillTile = on; save(); ShowCount(); }));
     }
 
@@ -247,15 +248,15 @@ internal static partial class WidgetSettings
     {
         var accounts = AppServices.GitHub?.Accounts ?? [];
 
-        rows.Add(FluentLayout.Header("Accounts"));
+        rows.Add(FluentLayout.Header(Str.WidgetUi_AccountsLabel.Text()));
 
-        var manage = new Button { Content = accounts.Count == 0 ? "Add an account" : "Manage accounts" };
+        var manage = new Button { Content = (accounts.Count == 0 ? Str.WidgetsA_Office_AddAccount : Str.WidgetsA_Office_ManageAccounts).Text() };
         manage.Click += (_, _) => navigate(new ConfigTarget.App(AppPage.Accounts));
 
         if (accounts.Count == 0)
         {
-            rows.Add(FluentLayout.Row(Glyphs.Code, "No GitHub account yet",
-                "Sign in to GitHub (or GitHub Enterprise) on the Accounts page", manage));
+            rows.Add(FluentLayout.Row(Glyphs.Code, Str.WidgetsA_Dev_Settings_NoGithub.Text(),
+                Str.WidgetsA_Dev_Settings_NoGithub_Desc.Text(), manage));
             return;
         }
 
@@ -275,7 +276,7 @@ internal static partial class WidgetSettings
             }
         }
 
-        rows.Add(FluentLayout.Row(Glyphs.Code, "Every GitHub account", "Accounts you add later are included too",
+        rows.Add(FluentLayout.Row(Glyphs.Code, Str.WidgetsA_Dev_Settings_EveryGithub.Text(), Str.WidgetsA_Office_EveryDesc.Text(),
             FluentLayout.Toggle(every, on =>
             {
                 config.AccountIds = on ? [] : [.. accounts.Select(a => a.Id)];
@@ -330,7 +331,7 @@ internal static partial class WidgetSettings
             rows.Add(row);
         }
 
-        rows.Add(FluentLayout.Row(Glyphs.Contact, "Accounts", "Sign in, sign out and rename on the Accounts page", manage));
+        rows.Add(FluentLayout.Row(Glyphs.Contact, Str.WidgetUi_AccountsLabel.Text(), Str.WidgetsA_Office_ManageDesc.Text(), manage));
         ShowChoice();
     }
 
@@ -348,8 +349,8 @@ internal static partial class WidgetSettings
         combo.Items.Add(new ComboBoxItem
         {
             Content = accounts.Count > 0
-                ? $"First {service} account ({accounts[0].Label})"
-                : anonymous ? "No account: public repositories only" : $"First {service} account to sign in",
+                ? Str.WidgetsA_Dev_Settings_FirstAccountNamed.Format(("service", service), ("account", accounts[0].Label))
+                : anonymous ? Str.WidgetsA_Dev_Settings_PublicOnly.Text() : Str.WidgetsA_Dev_Settings_FirstAccount.Format(("service", service)),
             Tag = string.Empty,
         });
 
@@ -363,7 +364,7 @@ internal static partial class WidgetSettings
 
             combo.Items.Add(new ComboBoxItem
             {
-                Content = account.Problem is null ? account.Label : $"{account.Label} — sign in again",
+                Content = account.Problem is null ? account.Label : Str.WidgetsA_Dev_Settings_SignInAgainNamed.Format(("account", account.Label)),
                 Tag = account.Id,
             });
         }
@@ -379,16 +380,16 @@ internal static partial class WidgetSettings
         };
 
         // [S-746] Optional where public data can be read without one.
-        rows.Add(FluentLayout.Row(Glyphs.Contact, "Account",
+        rows.Add(FluentLayout.Row(Glyphs.Contact, Str.ClaudeUsage_AccountLabel.Text(),
             anonymous
-                ? "Optional: an account reads private repositories and has a far higher rate limit. Without one, Themia asks at most every 15 minutes"
-                : accounts.Count == 0 ? $"No {service} account is signed in" : $"Which {service} account to read with",
+                ? Str.WidgetsA_Dev_Settings_OptionalAccount.Text()
+                : accounts.Count == 0 ? Str.WidgetsA_Dev_Settings_NoneSignedIn.Format(("service", service)) : Str.WidgetsA_Dev_Settings_WhichAccount.Format(("service", service)),
             combo));
 
         if (accounts.Count == 0 || accounts.Any(a => a.Problem is not null))
         {
-            rows.Add(FluentLayout.NavRow(Glyphs.Contact, "Accounts",
-                accounts.Count == 0 ? $"Sign in to {service}" : "An account needs you to sign in again",
+            rows.Add(FluentLayout.NavRow(Glyphs.Contact, Str.WidgetUi_AccountsLabel.Text(),
+                accounts.Count == 0 ? Str.WidgetsA_Dev_Settings_SignInTo.Format(("service", service)) : Str.WidgetsA_Dev_Settings_AccountNeedsSignIn.Text(),
                 () => navigate(new ConfigTarget.App(AppPage.Accounts))));
         }
     }

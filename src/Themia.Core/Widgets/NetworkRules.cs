@@ -1,6 +1,6 @@
-using System.Globalization;
 using System.Net;
 using System.Text;
+using Themia.Core.Localization;
 
 namespace Themia.Core.Widgets;
 
@@ -224,7 +224,10 @@ public static class NetworkRules
     /// [S-1193] A negotiated link speed as Windows Settings prints it: "1 Gbps", "2.5 Gbps",
     /// "866 Mbps". Null for an adapter that reports none (0, or the −1 some virtual adapters use).
     /// </summary>
-    public static string? LinkSpeed(long bitsPerSecond)
+    public static string? LinkSpeed(long bitsPerSecond) => LinkSpeed(Strings.Current, bitsPerSecond);
+
+    /// <summary><see cref="LinkSpeed(long)"/> in <paramref name="locale"/>.</summary>
+    public static string? LinkSpeed(Locale locale, long bitsPerSecond)
     {
         if (bitsPerSecond <= 0)
         {
@@ -234,15 +237,15 @@ public static class NetworkRules
         if (bitsPerSecond >= 1_000_000_000)
         {
             var g = bitsPerSecond / 1e9;
-            return $"{g.ToString(g % 1 == 0 ? "F0" : "0.#", CultureInfo.InvariantCulture)} Gbps";
+            return Strings.Format(locale, Str.WidgetsB_Units_Gbps, ("value", LocaleFormat.Number(locale, g, Math.Round(g, 1) % 1 == 0 ? 0 : 1)));
         }
 
         if (bitsPerSecond >= 1_000_000)
         {
-            return $"{Math.Round(bitsPerSecond / 1e6).ToString("F0", CultureInfo.InvariantCulture)} Mbps";
+            return Strings.Format(locale, Str.WidgetsB_Units_Mbps, ("value", LocaleFormat.Number(locale, Math.Round(bitsPerSecond / 1e6), 0)));
         }
 
-        return $"{Math.Max(1, Math.Round(bitsPerSecond / 1e3)).ToString("F0", CultureInfo.InvariantCulture)} Kbps";
+        return Strings.Format(locale, Str.WidgetsB_Units_Kbps, ("value", LocaleFormat.Number(locale, Math.Max(1, Math.Round(bitsPerSecond / 1e3)), 0)));
     }
 
     /// <summary>
@@ -305,7 +308,7 @@ public static class NetworkRules
 
         if (signalPercent is >= 0 and <= 100)
         {
-            parts.Add($"{signalPercent.Value.ToString(CultureInfo.InvariantCulture)}%");
+            parts.Add(LocaleFormat.Percent(Strings.Current, signalPercent.Value));
         }
 
         if (linkSpeed is not null)

@@ -1,4 +1,5 @@
 using Themia.App.Services;
+using Themia.Core.Localization;
 using Themia.Core.Model;
 using Themia.Core.Widgets;
 
@@ -43,7 +44,7 @@ internal sealed class BatteryMeter : MeterPart
     public override int ListWanted => _capacityRows;
 
     /// <summary>The icon sits beside the number, about two characters wide at the reading's size.</summary>
-    public override double ReadingCharacters => 6;
+    public override double ReadingCharacters => base.ReadingCharacters + 2;
 
     public override MeterPressure PressureOf(MeterReading reading)
         => MeterPressures.For(PressureScale.Charge, reading.Available ? reading.Fraction : null, _charging);
@@ -68,20 +69,20 @@ internal sealed class BatteryMeter : MeterPart
     {
         if (Power() is not { } power)
         {
-            host.Present(MeterReading.Unavailable("unavailable"));
+            host.Present(MeterReading.Unavailable(Str.WidgetsB_Meters_Unavailable.Text()));
             return;
         }
 
         if (!power.HasBattery)
         {
             _history.Clear();
-            host.Present(MeterReading.Missing("No battery"));
+            host.Present(MeterReading.Missing(Str.WidgetsB_Battery_None.Text()));
             return;
         }
 
         if (power.Percent is not { } percent)
         {
-            host.Present(MeterReading.Unavailable("unavailable"));
+            host.Present(MeterReading.Unavailable(Str.WidgetsB_Meters_Unavailable.Text()));
             return;
         }
 
@@ -107,12 +108,12 @@ internal sealed class BatteryMeter : MeterPart
             .ToList();
 
         var list = demand.ListRows > 0 && capacity.Count > 0
-            ? new MeterList("Capacity", capacity.Take(demand.ListRows).Select(row => new MeterRow(row.Label, row.Value, row.Fraction)).ToList())
+            ? new MeterList(Str.WidgetsB_Battery_Capacity.Text(), capacity.Take(demand.ListRows).Select(row => new MeterRow(row.Label, row.Value, row.Fraction)).ToList())
             : null;
 
         host.Present(new MeterReading(
             percent / 100.0,
-            $"{percent}%",
+            LocaleFormat.Percent(Strings.Current, percent),
             BatteryRules.Status(power, _config.ShowTimeRemaining),
             true,
             Details: details,

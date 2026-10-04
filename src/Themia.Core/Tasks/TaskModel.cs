@@ -1,4 +1,5 @@
 using System.Text.Json.Serialization;
+using Themia.Core.Localization;
 
 namespace Themia.Core.Tasks;
 
@@ -47,7 +48,7 @@ public sealed record TaskItem(
     string? DueRaw = null)
 {
     /// <summary>What the row shows: an untitled task is named rather than drawn as a gap.</summary>
-    public string DisplayTitle => string.IsNullOrWhiteSpace(Title) ? "(untitled task)" : Title;
+    public string DisplayTitle => string.IsNullOrWhiteSpace(Title) ? Str.WidgetsC_Tasks_UntitledTask.Text() : Title;
 }
 
 /// <summary>A task list on an account.</summary>

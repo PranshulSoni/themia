@@ -8,6 +8,7 @@ using System.Text;
 using Themia.App.Services.Net;
 using Themia.Core.Accounts;
 using Themia.Core.Diagnostics;
+using Themia.Core.Localization;
 using Themia.Core.Widgets;
 
 namespace Themia.App.Services.Accounts;
@@ -158,7 +159,7 @@ internal static class AccountHttp
 
         if (template.Url.Scheme != Uri.UriSchemeHttps && template.Url.Scheme != Uri.UriSchemeHttp)
         {
-            throw new AccountException(AccountError.Refused, $"Refused a request to a {template.Url.Scheme}: address.");
+            throw new AccountException(AccountError.Refused, Str.Shell_Net_RefusedScheme.Format(("scheme", template.Url.Scheme)));
         }
 
         var retries = 0;
@@ -257,7 +258,7 @@ internal static class AccountHttp
             }
             catch (IOException ex)
             {
-                throw new AccountException(AccountError.Unreachable, $"The connection to {url.Host} dropped.", 0, ex);
+                throw new AccountException(AccountError.Unreachable, Str.Shell_Net_Dropped.Format(("host", url.Host)), 0, ex);
             }
         }
 
@@ -298,7 +299,7 @@ internal static class AccountHttp
 
             if (buffer.Length + read > MaxBytes)
             {
-                throw new AccountException(AccountError.BadResponse, $"The reply was larger than {MaxBytes / (1024 * 1024)} MB.");
+                throw new AccountException(AccountError.BadResponse, Str.Shell_Net_TooLarge.Format(("size", Formatting.Bytes(MaxBytes))));
             }
 
             buffer.Write(chunk, 0, read);
@@ -318,12 +319,12 @@ internal static class AccountHttp
 
         if (!NetworkInterface.GetIsNetworkAvailable())
         {
-            return new AccountException(AccountError.Offline, "This PC is not connected to a network.", 0, ex);
+            return new AccountException(AccountError.Offline, Str.Shell_Net_Offline.Text(), 0, ex);
         }
 
         if (ex.InnerException is AuthenticationException)
         {
-            return new AccountException(AccountError.Unreachable, $"The secure connection to {url.Host} could not be set up.", 0, ex);
+            return new AccountException(AccountError.Unreachable, Str.Shell_Net_TlsFailed.Format(("host", url.Host)), 0, ex);
         }
 
         if (ex.InnerException is SocketException socket)
@@ -333,13 +334,13 @@ internal static class AccountHttp
                 SocketError.HostNotFound or SocketError.NoData or SocketError.TryAgain
                     => new AccountException(AccountError.Unreachable, $"{url.Host} could not be found.", 0, ex),
                 SocketError.NetworkDown or SocketError.NetworkUnreachable
-                    => new AccountException(AccountError.Offline, "This PC is not connected to a network.", 0, ex),
+                    => new AccountException(AccountError.Offline, Str.Shell_Net_Offline.Text(), 0, ex),
                 SocketError.TimedOut
                     => new AccountException(AccountError.TimedOut, $"{url.Host} did not answer.", 0, ex),
-                _ => new AccountException(AccountError.Unreachable, $"Could not connect to {url.Host}.", 0, ex),
+                _ => new AccountException(AccountError.Unreachable, Str.Shell_Net_CouldNotConnect.Format(("host", url.Host)), 0, ex),
             };
         }
 
-        return new AccountException(AccountError.Unreachable, $"Could not reach {url.Host}.", 0, ex);
+        return new AccountException(AccountError.Unreachable, Str.Shell_Net_CouldNotReach.Format(("host", url.Host)), 0, ex);
     }
 }

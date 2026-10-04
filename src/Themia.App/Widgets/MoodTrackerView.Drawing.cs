@@ -5,6 +5,7 @@ using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Shapes;
 using Themia.App.Shell;
+using Themia.Core.Localization;
 using Themia.Core.Model;
 using Themia.Core.Widgets;
 
@@ -77,7 +78,7 @@ internal sealed partial class MoodTrackerView
             logged.Sort(static (left, right) => left.At.CompareTo(right.At));
 
             var tooltip = MoodInsights.Tooltip(mood, logged);
-            cell.Show(mood, shown == _today, shown == _today ? $"Today. {tooltip}" : tooltip);
+            cell.Show(mood, shown == _today, shown == _today ? Str.WidgetsB_Mood_TodayTip.Format(("tooltip", tooltip)) : tooltip);
         }
     }
 
@@ -94,11 +95,11 @@ internal sealed partial class MoodTrackerView
         _caption.Visibility = caption is null ? Visibility.Collapsed : Visibility.Visible;
 
         var named = _plan.Recent && caption is not null
-            ? $"{caption}: the whole month does not fit this tile"
+            ? Str.WidgetsB_Mood_MonthDoesNotFit.Format(("caption", caption))
             : caption;
 
         ToolTipService.SetToolTip(_cells, named);
-        AutomationProperties.SetName(_cells, named ?? "Mood map");
+        AutomationProperties.SetName(_cells, named ?? Str.WidgetsB_Mood_Map.Text());
     }
 
     /// <summary>
@@ -238,7 +239,7 @@ internal sealed partial class MoodTrackerView
         {
             var id = entry.Id;
             menu.Add(new(null, MoodInsights.EntryLine(entry), static () => { },
-                Children: [new(Glyphs.Delete, "Delete this entry", () => DeleteEntry(id), Danger: true)]));
+                Children: [new(Glyphs.Delete, Str.WidgetsB_Mood_DeleteEntry.Text(), () => DeleteEntry(id), Danger: true)]));
         }
 
         return menu;
@@ -248,7 +249,12 @@ internal sealed partial class MoodTrackerView
     // The insights ([S-1454])
     // -----------------------------------------------------------------------------------------
 
-    private const double InsightNameWidth = 44;
+    /// <summary>
+    /// The name column of the insight bars: wide enough for the longest level name in the current
+    /// language ("Schrecklich" is twice "Awful"), never narrower than the English layout's 44.
+    /// </summary>
+    private static double InsightNameWidth
+        => Math.Max(44, FluentType.EstimateWidth(FluentType.Caption, MoodRules.LevelNames.Max(name => name.Length)));
 
     private const double InsightValueWidth = 28;
 
@@ -272,13 +278,13 @@ internal sealed partial class MoodTrackerView
         {
             var counts = MoodInsights.Distribution(entries, grid.First, grid.Last);
             var most = Math.Max(1, counts.Max());
-            var section = Section("How it went", spacing: 2);
+            var section = Section(Str.WidgetsB_Mood_HowItWent.Text(), spacing: 2);
 
             for (var i = 0; i < counts.Length; i++)
             {
                 var level = MoodRules.MinLevel + i;
                 section.Children.Add(BarRow(MoodRules.LevelName(level), barRoom * counts[i] / most, Wash[level],
-                    counts[i].ToString(CultureInfo.InvariantCulture)));
+                    LocaleFormat.Integer(counts[i])));
             }
 
             _insights.Children.Add(section);
@@ -287,7 +293,7 @@ internal sealed partial class MoodTrackerView
         if (_plan.Weekdays)
         {
             var averages = MoodInsights.WeekdayAverages(entries, grid.First, grid.Last, _config.FirstDayOfWeek);
-            var section = Section("By weekday", spacing: 0);
+            var section = Section(Str.WidgetsB_Mood_ByWeekday.Text(), spacing: 0);
 
             for (var i = 0; i < averages.Length; i++)
             {
@@ -295,7 +301,7 @@ internal sealed partial class MoodTrackerView
                 section.Children.Add(BarRow(grid.Headers[i],
                     average is { } a ? barRoom * a / MoodRules.MaxLevel : 0,
                     average is { } b ? Wash[Math.Clamp(MoodRules.Bucket(b), 1, MoodRules.MaxLevel)] : 0,
-                    average is { } c ? c.ToString("0.0", CultureInfo.InvariantCulture) : "–"));
+                    average is { } c ? LocaleFormat.Number(c, 1) : "–"));
             }
 
             _insights.Children.Add(section);
@@ -304,10 +310,10 @@ internal sealed partial class MoodTrackerView
         if (_plan.Summary)
         {
             var summary = MoodInsights.Summary(entries, grid.First, grid.Last, _today);
-            var section = Section("In this window", spacing: 0);
-            section.Children.Add(SummaryLine($"Logged {summary.LoggedDays.ToString(CultureInfo.InvariantCulture)} of {summary.Days.ToString(CultureInfo.InvariantCulture)} days"));
-            section.Children.Add(SummaryLine(summary.BestRun == 1 ? "Best run 1 day" : $"Best run {summary.BestRun.ToString(CultureInfo.InvariantCulture)} days"));
-            section.Children.Add(SummaryLine(summary.Thoughts == 1 ? "1 thought written" : $"{summary.Thoughts.ToString(CultureInfo.InvariantCulture)} thoughts written"));
+            var section = Section(Str.WidgetsB_Mood_InThisWindow.Text(), spacing: 0);
+            section.Children.Add(SummaryLine(Str.WidgetsB_Mood_LoggedDays.Plural(summary.Days, ("logged", summary.LoggedDays))));
+            section.Children.Add(SummaryLine(Str.WidgetsB_Mood_BestRunDays.Plural(summary.BestRun)));
+            section.Children.Add(SummaryLine(Str.WidgetsB_Mood_ThoughtsWritten.Plural(summary.Thoughts)));
             _insights.Children.Add(section);
         }
 
@@ -317,7 +323,7 @@ internal sealed partial class MoodTrackerView
             _recent.Width = _plan.MapWidth;
 
             var title = Fluent.Text(FluentType.Caption, "TextFillColorSecondaryBrush");
-            title.Text = "Recent thoughts";
+            title.Text = Str.WidgetsB_Mood_RecentThoughts.Text();
             _recent.Children.Add(title);
 
             var notes = MoodInsights.RecentNotes(entries, _plan.RecentNotes);
@@ -325,7 +331,7 @@ internal sealed partial class MoodTrackerView
             if (notes.Count == 0)
             {
                 var none = Fluent.Text(FluentType.Body, "TextFillColorTertiaryBrush");
-                none.Text = "The thoughts you add to a mood appear here.";
+                none.Text = Str.WidgetsB_Mood_NoThoughts.Text();
                 none.MaxLines = 1;
                 none.TextTrimming = TextTrimming.CharacterEllipsis;
                 _recent.Children.Add(none);
@@ -405,7 +411,7 @@ internal sealed partial class MoodTrackerView
         row.Children.Add(bar);
         row.Children.Add(number);
 
-        AutomationProperties.SetName(row, $"{name}: {value}");
+        AutomationProperties.SetName(row, Str.WidgetsB_Mood_BarName.Format(("name", name), ("value", value)));
         return row;
     }
 
@@ -465,7 +471,7 @@ internal sealed partial class MoodTrackerView
                 BorderThickness = new Thickness(Fluent.Hairline),
             };
 
-            var name = $"{MoodRules.LevelName(level)}, {level} of {MoodRules.MaxLevel}";
+            var name = Str.WidgetsB_Mood_LevelButton.Format(("level", MoodRules.LevelName(level)), ("value", level), ("max", MoodRules.MaxLevel));
             AutomationProperties.SetName(Host, name);
             ToolTipService.SetToolTip(Host, name);
 
@@ -484,7 +490,7 @@ internal sealed partial class MoodTrackerView
         {
             Host.BorderBrush = cursor ? focus : selected ? ring : noRing;
             Host.BorderThickness = new Thickness(cursor || selected ? Fluent.Space1 / 2 : Fluent.Hairline);
-            AutomationProperties.SetItemStatus(Host, selected ? "Logged today" : string.Empty);
+            AutomationProperties.SetItemStatus(Host, selected ? Str.WidgetsB_Mood_LoggedToday.Text() : string.Empty);
         }
 
         private void OnClick(object sender, RoutedEventArgs args) => _picked(Level);

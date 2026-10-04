@@ -1,4 +1,5 @@
 using System.Globalization;
+using Themia.Core.Localization;
 
 namespace Themia.Core.Widgets;
 
@@ -151,10 +152,10 @@ public static class ViewSwitcherRules
     /// [S-1657] The line under a view's name: "No widgets", "1 widget", "N widgets". A negative count
     /// (never stored, but the summary is plain data) reads as none.
     /// </summary>
-    public static string CountText(int count) => count switch
-    {
-        <= 0 => "No widgets",
-        1 => "1 widget",
-        _ => count.ToString(CultureInfo.CurrentCulture) + " widgets",
-    };
+    public static string CountText(int count) => CountText(Strings.Current, count);
+
+    /// <inheritdoc cref="CountText(int)"/>
+    public static string CountText(Locale locale, int count) => count <= 0
+        ? Strings.Get(locale, Str.WidgetsC_ViewSwitcher_NoWidgets)
+        : Strings.Plural(locale, Str.WidgetsC_ViewSwitcher_WidgetCount, count);
 }

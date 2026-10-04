@@ -219,6 +219,12 @@ internal static class SettingsRender
             state.Design.Theme = request.Theme;
             // [S-991] --dev renders with developer mode on: the banner, and the Logs page in the navigation.
             state.Preferences.DevMode = Environment.GetCommandLineArgs().Contains("--dev");
+            // [S-1109] --lang: the host applies the state's language, so the demo state carries it.
+            if (RenderLanguage.Setting(Environment.GetCommandLineArgs()) is { } language)
+            {
+                state.Preferences.Language = language;
+            }
+
             host = new AppHost(dispatcher, AppStateStore.Detached(statePath), state);
             ApplyLicenseFixture(host);
 

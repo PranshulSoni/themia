@@ -3,6 +3,7 @@ using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Media.Imaging;
 using Themia.App.Services;
+using Themia.Core.Localization;
 using Themia.Core.Model;
 using Themia.Core.Widgets;
 
@@ -47,41 +48,14 @@ internal sealed partial class ThemiaView : Grid, IWidgetView, IWidgetSizeAware
 
     public ThemiaView()
     {
-        Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(_logo, "Themia logo");
-
         _name.Text = "Themia";
         _version.Text = $"v{AppInfo.Version}";
-        _tagline.Text = "Your desktop, your widgets.";
         _tagline.TextWrapping = TextWrapping.Wrap;
 
-        var by = Fluent.Text(FluentType.Caption, "TextFillColorTertiaryBrush");
-        by.Text = "Made by";
-        by.VerticalAlignment = VerticalAlignment.Center;
-
-        _maker = new StackPanel
-        {
-            Orientation = Orientation.Horizontal,
-            Children = { by, AppActions.Link("Lometics", AppActions.MakerUrl) },
-        };
-
-        _actions = new StackPanel
-        {
-            Orientation = Orientation.Horizontal,
-            Spacing = Fluent.Space2,
-            Children = { AppActions.EditLayout(), AppActions.Settings() },
-        };
-
-        _links = new StackPanel
-        {
-            Orientation = Orientation.Horizontal,
-            Spacing = Fluent.Space1,
-            Children =
-            {
-                AppActions.Link("Release notes", AppActions.ReleaseNotesUrl),
-                AppActions.Link("Feedback", AppActions.FeedbackUrl),
-                AppActions.Link("Source", AppActions.SourceUrl),
-            },
-        };
+        _maker = new StackPanel { Orientation = Orientation.Horizontal };
+        _actions = new StackPanel { Orientation = Orientation.Horizontal, Spacing = Fluent.Space2 };
+        _links = new StackPanel { Orientation = Orientation.Horizontal, Spacing = Fluent.Space1 };
+        Fill();
 
         _words = new StackPanel
         {
@@ -100,7 +74,54 @@ internal sealed partial class ThemiaView : Grid, IWidgetView, IWidgetSizeAware
         Children.Add(_stack);
     }
 
-    public void Attach(Ticker ticker, WidgetConfig config) => _detached = false;
+    /// <summary>
+    /// The words, set again on a language change: the tagline, the maker line, the buttons and the
+    /// links are rebuilt (their captions are the buttons' content); the name and version are not words.
+    /// </summary>
+    private void Fill()
+    {
+        Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(_logo, Str.WidgetsC_Themia_Logo.Text());
+        _tagline.Text = Str.WidgetsC_Themia_Tagline.Text();
+
+        var by = Fluent.Text(FluentType.Caption, "TextFillColorTertiaryBrush");
+        by.Text = Str.WidgetsC_Themia_MadeBy.Text();
+        by.VerticalAlignment = VerticalAlignment.Center;
+
+        Replace(_maker, by, AppActions.Link("Lometics", AppActions.MakerUrl));
+        Replace(_actions, AppActions.EditLayout(), AppActions.Settings());
+        Replace(_links,
+            AppActions.Link(Str.WidgetsC_Themia_ReleaseNotes.Text(), AppActions.ReleaseNotesUrl),
+            AppActions.Link(Str.WidgetsC_Themia_Feedback.Text(), AppActions.FeedbackUrl),
+            AppActions.Link(Str.WidgetsC_Themia_Source.Text(), AppActions.SourceUrl));
+    }
+
+    private static void Replace(StackPanel panel, params UIElement[] children)
+    {
+        panel.Children.Clear();
+
+        foreach (var child in children)
+        {
+            panel.Children.Add(child);
+        }
+    }
+
+    public void Attach(Ticker ticker, WidgetConfig config)
+    {
+        _detached = false;
+        Strings.Changed -= OnLanguage;
+        Strings.Changed += OnLanguage;
+    }
+
+    private void OnLanguage(Locale locale)
+    {
+        if (_detached)
+        {
+            return;
+        }
+
+        Fill();
+        Lay();
+    }
 
     public void ApplyConfig(WidgetConfig config)
     {
@@ -233,5 +254,9 @@ internal sealed partial class ThemiaView : Grid, IWidgetView, IWidgetSizeAware
         };
     }
 
-    public void Detach() => _detached = true;
+    public void Detach()
+    {
+        _detached = true;
+        Strings.Changed -= OnLanguage;
+    }
 }

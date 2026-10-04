@@ -1,5 +1,6 @@
 using Microsoft.UI.Xaml;
 using Themia.App.Services;
+using Themia.Core.Localization;
 using Themia.Core.Model;
 using Themia.Core.Widgets;
 
@@ -14,23 +15,23 @@ internal static partial class WidgetSettings
         ArgumentNullException.ThrowIfNull(config);
         ArgumentNullException.ThrowIfNull(save);
 
-        rows.Add(FluentLayout.Header("Pomodoro"));
+        rows.Add(FluentLayout.Header(Str.Pomodoro_Timing.Text()));
 
         // [S-01] Seeded from the clamped accessors, so a value that got onto disk out of range shows
         // as the value actually in use rather than snapping when the slider is first touched.
-        rows.Add(FluentLayout.Row(Glyphs.Pomodoro, "Focus", "How long a work phase runs",
-            FluentLayout.Slider(config.EffectiveWorkMinutes, 1, 180, 1, " min",
+        rows.Add(FluentLayout.Row(Glyphs.Pomodoro, Str.Pomodoro_FocusLength_Label.Text(), Str.Pomodoro_FocusLength_Desc.Text(),
+            FluentLayout.Slider(config.EffectiveWorkMinutes, 1, 180, 1, Str.WidgetsC_Pomodoro_MinutesUnit.Text(),
                 value => { config.WorkMinutes = (int)Math.Round(value); save(); })));
 
-        rows.Add(FluentLayout.Row(Glyphs.Timer, "Break", "How long a break runs",
-            FluentLayout.Slider(config.EffectiveBreakMinutes, 1, 180, 1, " min",
+        rows.Add(FluentLayout.Row(Glyphs.Timer, Str.Pomodoro_BreakLength_Label.Text(), Str.Pomodoro_BreakLength_Desc.Text(),
+            FluentLayout.Slider(config.EffectiveBreakMinutes, 1, 180, 1, Str.WidgetsC_Pomodoro_MinutesUnit.Text(),
                 value => { config.BreakMinutes = (int)Math.Round(value); save(); })));
 
         // [S-1460] Off or one of twelve ringtones, gentle to insistent; the volume row only while a
         // sound is chosen. Changing either previews the focus cue, so a choice is made by ear.
         FrameworkElement? volumeRow = null;
 
-        rows.Add(FluentLayout.Row(Glyphs.Sound, "Sound", "Plays when the phase changes",
+        rows.Add(FluentLayout.Row(Glyphs.Sound, Str.Pomodoro_AlarmSound_Label.Text(), Str.Pomodoro_AlarmSound_Desc.Text(),
             FluentLayout.Choice(
                 PomodoroSounds.Order.Select(sound => (sound, PomodoroSounds.Label(sound))).ToArray(),
                 config.Sound,
@@ -42,7 +43,7 @@ internal static partial class WidgetSettings
                     Preview(config);
                 })));
 
-        volumeRow = FluentLayout.Row(Glyphs.Volume, "Volume", "How loud the sound plays",
+        volumeRow = FluentLayout.Row(Glyphs.Volume, Str.Pomodoro_AlarmVolume_Label.Text(), Str.Pomodoro_AlarmVolume_Desc.Text(),
             FluentLayout.Slider(config.EffectiveVolume, 0, 100, 1, "%",
                 value => { config.Volume = (int)Math.Round(value); save(); Preview(config); }));
         volumeRow.Visibility = config.Sound == AlarmSound.Off ? Visibility.Collapsed : Visibility.Visible;

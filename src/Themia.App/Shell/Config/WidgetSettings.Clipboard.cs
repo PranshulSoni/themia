@@ -1,6 +1,7 @@
 using Microsoft.UI;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Themia.Core.Localization;
 using Themia.Core.Model;
 using Themia.Core.Widgets;
 
@@ -24,21 +25,19 @@ internal static partial class WidgetSettings
         ArgumentNullException.ThrowIfNull(config);
         ArgumentNullException.ThrowIfNull(save);
 
-        rows.Add(FluentLayout.Header("Clipboard"));
+        rows.Add(FluentLayout.Header(Str.WidgetsA_Catalog_Clipboard_Label.Text()));
 
         rows.Add(FluentLayout.Note(
-            "This widget keeps copied text in memory only, for as long as the app is running. "
-            + "Nothing is written to disk, and copied files and images are never read. "
-            + "Closing Themia forgets the lot."));
+            Str.WidgetsA_Clipboard_Settings_PrivacyNote.Text()));
 
-        rows.Add(FluentLayout.Row(Glyphs.Clock, "Show when it was copied",
-            "Beside each entry, or under it on a tall widget; hidden when the widget is small",
+        rows.Add(FluentLayout.Row(Glyphs.Clock, Str.WidgetsA_Clipboard_Settings_Timestamp_Label.Text(),
+            Str.WidgetsA_Clipboard_Settings_Timestamp_Desc.Text(),
             FluentLayout.Toggle(config.ShowTimestamp, value => { config.ShowTimestamp = value; save(); })));
 
         // The one setting here that genuinely changes exposure, so it says so: fewer entries kept
         // is less sitting in memory.
-        rows.Add(FluentLayout.Row(Glyphs.Count, "Entries",
-            "How many the list holds, 1 to 200. Lowering it forgets the oldest straight away",
+        rows.Add(FluentLayout.Row(Glyphs.Count, Str.WidgetsA_Clipboard_Settings_Entries_Label.Text(),
+            Str.WidgetsA_Clipboard_Settings_Entries_Desc.Format(("min", ClipboardHistory.MinCapacity), ("max", ClipboardHistory.MaxCapacity)),
             FluentLayout.Slider(
                 config.EffectiveCapacity,
                 ClipboardHistory.MinCapacity,
@@ -51,11 +50,11 @@ internal static partial class WidgetSettings
         // confirmation every destructive action in the app uses, and two ways to destroy the same
         // thing is one too many. It is still marked as a danger row so it lands with the rest of
         // them at the bottom of the page, where somebody looking for it will look.
-        rows.Add(FluentLayout.DangerRow(Glyphs.Clear, "Clear history",
-            "Use the bin button on the widget itself; it asks first",
+        rows.Add(FluentLayout.DangerRow(Glyphs.Clear, Str.Clipboard_ClearHistory.Text(),
+            Str.WidgetsA_Clipboard_Settings_Clear_Desc.Text(),
             new TextBlock
             {
-                Text = "On the widget",
+                Text = Str.WidgetsA_Clipboard_Settings_Clear_Where.Text(),
                 FontSize = 12,
                 Foreground = FluentLayout.Themed("TextFillColorTertiaryBrush", Colors.Gray),
             }));

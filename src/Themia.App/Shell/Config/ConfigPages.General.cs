@@ -17,7 +17,7 @@ internal static partial class ConfigPages
 {
     private static FrameworkElement BuildGeneral(AppHost host)
     {
-        var rows = new List<FrameworkElement> { FluentLayout.Header("System") };
+        var rows = new List<FrameworkElement> { FluentLayout.Header(Str.Shell_Settings_General_System.Text()) };
 
         rows.Add(LanguageRow(host));
 
@@ -35,11 +35,11 @@ internal static partial class ConfigPages
         editToggle.Loaded += (_, _) => host.EditModeChanged += OnEditMode;
         editToggle.Unloaded += (_, _) => host.EditModeChanged -= OnEditMode;
 
-        rows.Add(FluentLayout.Row(Glyphs.Edit, "Edit layout",
-            "Show the drag handles and the snap grid on the desktop", editToggle));
+        rows.Add(FluentLayout.Row(Glyphs.Edit, Str.Shell_Card_EditLayout.Text(),
+            Str.Shell_Settings_General_EditLayoutDesc.Text(), editToggle));
 
         // [S-847] A display Themia has not seen before shows this view instead of an empty one of its own.
-        var newDisplayOptions = new List<(string Value, string Label)> { (string.Empty, "A new view of its own") };
+        var newDisplayOptions = new List<(string Value, string Label)> { (string.Empty, Str.Shell_Settings_General_NewDisplayOwnView.Text()) };
         newDisplayOptions.AddRange(host.State.Views.Select(v => (v.Id, v.Name)));
         var newDisplayView = new ComboBox { MinWidth = 220 };
         foreach (var (value, label) in newDisplayOptions)
@@ -56,31 +56,31 @@ internal static partial class ConfigPages
             }
         };
 
-        rows.Add(FluentLayout.Row(Glyphs.Display, "New displays show",
-            "The view a monitor shows the first time it is connected", newDisplayView, "monitor", "default view"));
+        rows.Add(FluentLayout.Row(Glyphs.Display, Str.Shell_Settings_General_NewDisplays.Text(),
+            Str.Shell_Settings_General_NewDisplaysDesc.Text(), newDisplayView, "monitor", "default view"));
 
         // [S-1301]/[S-965] The network guard's one switch, as in the original: off, a feed, a
         // favicon, a pinned page or an account server may not make Themia reach loopback, the LAN
         // or a cloud metadata address.
-        rows.Add(FluentLayout.Row(Glyphs.Network, "Local network access",
-            "Let feeds, web elements and accounts reach addresses on this computer and your local network, such as a self-hosted feed, a mail or calendar server on a NAS, or a router page. Off blocks them, which protects against pages that try to reach your network",
+        rows.Add(FluentLayout.Row(Glyphs.Network, Str.Shell_Settings_General_LocalNetwork.Text(),
+            Str.Shell_Settings_General_LocalNetworkDesc.Text(),
             FluentLayout.Toggle(host.State.Preferences.AllowPrivateNetwork,
                 value => host.Mutate(s => s.Preferences.AllowPrivateNetwork = value, relayout: false)),
             "private network", "LAN", "SSRF"));
 
-        rows.Add(FluentLayout.Header("Data"));
+        rows.Add(FluentLayout.Header(Str.Settings_Section_Data.Text()));
 
-        var openFolder = new Button { Content = "Open data folder" };
+        var openFolder = new Button { Content = Str.Shell_Settings_General_OpenDataFolder.Text() };
         openFolder.Click += (_, _) => OpenDataFolder();
 
-        rows.Add(FluentLayout.Row(Glyphs.Info, "Settings",
-            "Where the layout and settings live", openFolder));
+        rows.Add(FluentLayout.Row(Glyphs.Info, Str.Common_Settings.Text(),
+            Str.Shell_Settings_General_DataDesc.Text(), openFolder));
 
         // [S-990] Kept last, as in the original. Developer mode adds the Logs page to the menu and,
         // with it, the verbose switch; leaving it turns verbose logging off too ([S-982]).
-        rows.Add(FluentLayout.Header("Developer"));
-        rows.Add(FluentLayout.Row(Glyphs.Code, "Developer mode",
-            "Adds the Logs page with verbose logging, for troubleshooting. What it unlocks is not meant for everyday use",
+        rows.Add(FluentLayout.Header(Str.Settings_Section_Developer.Text()));
+        rows.Add(FluentLayout.Row(Glyphs.Code, Str.Shell_Settings_General_DevMode.Text(),
+            Str.Shell_Settings_General_DevModeDesc.Text(),
             FluentLayout.Toggle(host.State.Preferences.DevMode, value => host.Mutate(s =>
             {
                 s.Preferences.DevMode = value;
@@ -91,7 +91,7 @@ internal static partial class ConfigPages
             }, relayout: false)),
             "developer", "dev mode", "logs", "debug"));
 
-        return Page("General", rows);
+        return Page(Str.Settings_Nav_General.Text(), rows);
     }
 
     /// <summary>

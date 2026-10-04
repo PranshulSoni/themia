@@ -1,3 +1,4 @@
+using Themia.Core.Localization;
 using Themia.Core.Model;
 
 namespace Themia.Core.Widgets;
@@ -145,15 +146,15 @@ public static class LayoutPlan
             .ToList();
 
     /// <summary>[S-1405] A layout's detail line (original S-57): "No apps yet", "1 app", "3 apps".</summary>
-    public static string Summary(LayoutNode? root)
+    public static string Summary(LayoutNode? root) => Summary(Strings.Current, root);
+
+    /// <inheritdoc cref="Summary(LayoutNode?)"/>
+    public static string Summary(Locale locale, LayoutNode? root)
     {
         var count = LayoutTree.AssignedCount(root);
-        return count switch
-        {
-            0 => "No apps yet",
-            1 => "1 app",
-            _ => $"{count} apps",
-        };
+        return count == 0
+            ? Strings.Get(locale, Str.WidgetsC_Shortcuts_AppLayout_NoApps)
+            : Strings.Plural(locale, Str.Shortcut_AppCount, count);
     }
 }
 

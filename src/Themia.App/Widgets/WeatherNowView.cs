@@ -1,4 +1,3 @@
-using System.Globalization;
 using Microsoft.UI;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
@@ -6,6 +5,7 @@ using Microsoft.UI.Xaml.Media;
 using Themia.App.Services;
 using Themia.App.Services.Web;
 using Themia.App.Shell;
+using Themia.Core.Localization;
 using Themia.Core.Model;
 using Themia.Core.Widgets;
 
@@ -170,14 +170,21 @@ internal sealed partial class WeatherNowView : Grid, IWidgetView, IWidgetHeaderC
 
     /// <summary>[S-730] "Refresh": the network now, past both the back-off and the cache.</summary>
     public IReadOnlyList<WidgetAction> ContextActions =>
-        _config.HasLocation ? [new WidgetAction(Glyphs.Refresh, "Refresh", () => { _schedule.Reset(); Reload(force: true); })] : [];
+        _config.HasLocation ? [new WidgetAction(Glyphs.Refresh, Str.Common_Refresh.Text(), () => { _schedule.Reset(); Reload(force: true); })] : [];
 
     public void Attach(Ticker ticker, WidgetConfig config)
     {
         _ticker = ticker;
         _detached = false;
+
+        // [S-1110] The texts follow the app's language. A static event: Detach unsubscribes.
+        Strings.Changed -= OnLanguage;
+        Strings.Changed += OnLanguage;
         ApplyConfig(config);
     }
+
+    /// <summary>The language changed: every text on the tile is rebuilt from the reading in hand.</summary>
+    private void OnLanguage(Locale locale) => Render();
 
     /// <inheritdoc />
     public void Bind(IWidgetSurface surface)
@@ -369,7 +376,7 @@ internal sealed partial class WeatherNowView : Grid, IWidgetView, IWidgetHeaderC
             var status = _schedule.Status;
 
             _emptyMessage.Text = status == FetchStatus.NotConfigured
-                ? "Choose a place in settings"
+                ? Str.WidgetsC_Weather_ChoosePlace.Text()
                 : FetchState.Message(status);
 
             _emptyIcon.Glyph = Glyphs.Weather;
@@ -387,9 +394,9 @@ internal sealed partial class WeatherNowView : Grid, IWidgetView, IWidgetHeaderC
         _condition.Text = WeatherReport.Describe(reading.Code);
         _look.Glyph = LookGlyph(WeatherReport.Look(reading.Code));
         _highLow.Text = reading.Today is { } today ? WeatherReport.HighLow(today.High, today.Low) : string.Empty;
-        _feels.Text = $"Feels {WeatherReport.Temperature(reading.FeelsLike, _config.Unit)}";
+        _feels.Text = Str.WidgetsC_Weather_FeelsShort.Format(("temperature", WeatherReport.Temperature(reading.FeelsLike, _config.Unit)));
 
-        _facts = WeatherFacts.For(reading, _config.Unit, CultureInfo.CurrentCulture);
+        _facts = WeatherFacts.For(reading, _config.Unit);
 
         // The chart starts at the current hour; hours already past are not "next".
         var hourAgo = now.AddMinutes(-59);
@@ -407,11 +414,12 @@ internal sealed partial class WeatherNowView : Grid, IWidgetView, IWidgetHeaderC
         _freshness.Text = age;
         _freshness.Foreground = stale ? _staleBrush : _freshBrush;
 
+        var inline = InlineAge(age);
         ToolTipService.SetToolTip(
             _freshness,
-            failed ? $"{FetchState.Message(held.Status)}. Showing the reading from {age.ToLowerInvariant()}."
-            : held.Restored ? $"Saved reading from {age.ToLowerInvariant()}; refreshing."
-            : $"Updated {age.ToLowerInvariant()}");
+            failed ? Str.WidgetsC_Weather_Tooltip_ReadingFailed.Format(("problem", FetchState.Message(held.Status)), ("age", inline))
+            : held.Restored ? Str.WidgetsC_Weather_Tooltip_ReadingSaved.Format(("age", inline))
+            : Str.WidgetsC_Weather_Tooltip_Updated.Format(("age", inline)));
 
         _built = null;
         Lay();
@@ -711,6 +719,14 @@ internal sealed partial class WeatherNowView : Grid, IWidgetView, IWidgetHeaderC
         _look.FontSize = IconFor(step);
     }
 
+    /// <summary>
+    /// The age for use inside a sentence: "Just now" starts the header line but reads "just now"
+    /// mid-sentence. Only the first letter changes, so a German noun later in the phrase keeps its
+    /// capital; a language without case is untouched.
+    /// </summary>
+    internal static string InlineAge(string age)
+        => age.Length == 0 ? age : char.ToLowerInvariant(age[0]) + age[1..];
+
     private static double IconFor(TypeStep step) => Math.Clamp(step.FontSize * 0.8, Fluent.Space6, 72);
 
     private static void Collapse(params UIElement[] parts)
@@ -752,6 +768,7 @@ internal sealed partial class WeatherNowView : Grid, IWidgetView, IWidgetHeaderC
     public void Detach()
     {
         _detached = true;
+        Strings.Changed -= OnLanguage;
 
         _subscription?.Dispose();
         _subscription = null;

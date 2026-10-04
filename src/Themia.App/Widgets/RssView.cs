@@ -7,6 +7,7 @@ using Themia.App.Services;
 using Themia.App.Services.Web;
 using Themia.App.Shell;
 using Themia.Core.Diagnostics;
+using Themia.Core.Localization;
 using Themia.Core.Model;
 using Themia.Core.Widgets;
 
@@ -117,14 +118,23 @@ internal sealed partial class RssView : Grid, IWidgetView, IWidgetHeaderContent,
 
     /// <summary>[S-1303] Refresh: the network now, past the cache and any back-off.</summary>
     public IReadOnlyList<WidgetAction> ContextActions =>
-        _config.FeedUrls.Count == 0 ? [] : [new WidgetAction(Glyphs.Refresh, "Refresh", () => Reload(force: true))];
+        _config.FeedUrls.Count == 0 ? [] : [new WidgetAction(Glyphs.Refresh, Str.Common_Refresh.Text(), () => Reload(force: true))];
 
     public void Attach(Ticker ticker, WidgetConfig config)
     {
         _ticker = ticker;
         _detached = false;
         _fade = new ScrollFade(_scroll, _rows);
+        Strings.Changed -= OnLanguage;
+        Strings.Changed += OnLanguage;
         ApplyConfig(config);
+    }
+
+    /// <summary>[S-1110] The fixed button text, then the list redrawn from what is in hand (no fetch).</summary>
+    private void OnLanguage(Locale locale)
+    {
+        _openText.Text = Str.WidgetsC_Rss_OpenArticle.Text();
+        Render();
     }
 
     /// <inheritdoc />
@@ -368,7 +378,7 @@ internal sealed partial class RssView : Grid, IWidgetView, IWidgetHeaderContent,
         if (_config.FeedUrls.Count == 0)
         {
             var refused = _config.ResolvedFeeds.FirstOrDefault(r => !r.IsValid);
-            return _config.ResolvedFeeds.Count == 0 ? "Add a feed in settings" : WebInput.Explain(refused.Problem);
+            return _config.ResolvedFeeds.Count == 0 ? Str.WidgetsC_Rss_AddFeedFirst.Text() : WebInput.Explain(refused.Problem);
         }
 
         if (_merged.Failures.Count > 0 && _parts.Count >= _config.FeedUrls.Count)
@@ -376,7 +386,7 @@ internal sealed partial class RssView : Grid, IWidgetView, IWidgetHeaderContent,
             // Every reason, not the first (S-33): with several feeds, "the second one is 404" is
             // the answer. A refusal by the network guard carries its own sentence.
             return _merged.Failures.Count == 1 && _parts.Values.All(p => p.Status == FetchStatus.Empty)
-                ? "This feed has no articles"
+                ? Str.WidgetsC_Rss_NoArticles.Text()
                 : string.Join("\n", _merged.Failures);
         }
 
@@ -407,11 +417,16 @@ internal sealed partial class RssView : Grid, IWidgetView, IWidgetHeaderContent,
         _freshness.Text = age;
         _freshness.Foreground = stale ? _staleBrush : _freshBrush;
 
+        // [S-1303] A compact tile's header has room for its title or the age, not both: the age is a
+        // phrase in some languages ("vor 3 Min."), and it would sit on top of the title. The title
+        // wins; the age stays one step away in the tooltip and on every larger size.
+        _freshness.Visibility = _area.IsMeasured && _area.WidthClass == SizeClass.Compact ? Visibility.Collapsed : Visibility.Visible;
+
         var tip = failed
-            ? $"Last refresh failed: {string.Join("; ", _merged.Failures)}. Showing articles from {age.ToLowerInvariant()}."
+            ? Str.WidgetUi_RefreshFailedSince.Format(("reason", string.Join("; ", _merged.Failures)), ("time", age))
             : restored
-                ? $"Saved {age.ToLowerInvariant()}; refreshing"
-                : $"Refreshed {age.ToLowerInvariant()}";
+                ? Str.WidgetsC_Rss_SavedRefreshing.Format(("age", age))
+                : Str.WidgetsC_Rss_Refreshed.Format(("age", age));
 
         ToolTipService.SetToolTip(_freshness, tip);
     }
@@ -448,6 +463,7 @@ internal sealed partial class RssView : Grid, IWidgetView, IWidgetHeaderContent,
     public void Detach()
     {
         _detached = true;
+        Strings.Changed -= OnLanguage;
 
         ClearRows();
         ClearPaneHooks();

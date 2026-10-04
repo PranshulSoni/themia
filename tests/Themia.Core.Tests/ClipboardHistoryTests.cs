@@ -1,3 +1,4 @@
+using Themia.Core.Localization;
 using Themia.Core.Widgets;
 using Xunit;
 
@@ -264,6 +265,6 @@ public class ClipboardFormattingTests
     [InlineData("one\ntwo\nthree", "3 lines")]
     public void A_description_says_how_much_there_is(string text, string expected)
     {
-        Assert.Equal(expected, ClipboardFormatting.Describe(text));
+        Assert.Equal(expected, ClipboardFormatting.Describe(text, Locale.En));
     }
 }

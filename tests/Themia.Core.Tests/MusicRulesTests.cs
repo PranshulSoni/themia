@@ -1,3 +1,4 @@
+using Themia.Core.Localization;
 using Themia.Core.Widgets;
 using Xunit;
 
@@ -133,7 +134,7 @@ public class MusicRulesTests
 
     [Fact]
     public void S253_A_track_with_no_title_still_says_something()
-        => Assert.Equal("Unknown track", MusicRules.Title("   "));
+        => Assert.Equal("Unknown track", MusicRules.Title("   ", Locale.En));
 
     [Fact]
     public void S253_A_title_from_another_app_is_collapsed_to_one_line_and_capped()
@@ -176,8 +177,33 @@ public class MusicRulesTests
     [Fact]
     public void S254_Every_idle_state_says_which_idle_state_it_is()
     {
-        Assert.Equal("Nothing is playing on this PC", MusicRules.StatusMessage(MusicState.NoSession));
-        Assert.Equal("Nothing playing", MusicRules.StatusMessage(MusicState.Idle));
-        Assert.Equal("Reading the media session", MusicRules.StatusMessage(MusicState.Loading));
+        Assert.Equal("Nothing is playing on this PC", MusicRules.StatusMessage(MusicState.NoSession, Locale.En));
+        Assert.Equal("Nothing playing", MusicRules.StatusMessage(MusicState.Idle, Locale.En));
+        Assert.Equal("Reading the media session", MusicRules.StatusMessage(MusicState.Loading, Locale.En));
+        Assert.Equal(string.Empty, MusicRules.StatusMessage(MusicState.Playing, Locale.En));
+    }
+
+    [Fact]
+    public void S254_the_idle_states_speak_the_language()
+    {
+        Assert.Equal("Auf diesem PC wird nichts wiedergegeben", MusicRules.StatusMessage(MusicState.NoSession, Locale.De));
+        Assert.Equal("Keine Wiedergabe", MusicRules.StatusMessage(MusicState.Idle, Locale.De));
+    }
+
+    [Fact]
+    public void S1475_the_state_line_names_the_app_only_when_the_session_does()
+    {
+        Assert.Equal("Playing · Spotify", MusicRules.StateLine(true, "Spotify", Locale.En));
+        Assert.Equal("Paused", MusicRules.StateLine(false, string.Empty, Locale.En));
+        Assert.Equal("Wird wiedergegeben · Spotify", MusicRules.StateLine(true, "Spotify", Locale.De));
+        Assert.Equal("Angehalten", MusicRules.StateLine(false, string.Empty, Locale.De));
+    }
+
+    [Fact]
+    public void S253_a_missing_title_is_unknown_in_the_language()
+    {
+        Assert.Equal("Unknown track", MusicRules.Title(null, Locale.En));
+        Assert.Equal("Unbekannter Titel", MusicRules.Title("  ", Locale.De));
+        Assert.Equal("Track", MusicRules.Title("Track", Locale.De));
     }
 }

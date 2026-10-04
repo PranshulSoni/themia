@@ -4,6 +4,7 @@ using Themia.App.Services;
 using Themia.App.Services.Developer;
 using Themia.App.Shell;
 using Themia.Core.Developer;
+using Themia.Core.Localization;
 using Themia.Core.Model;
 using Themia.Core.Widgets;
 
@@ -76,6 +77,7 @@ internal sealed partial class GitHubSearchView : Grid, IWidgetView, IWidgetHeade
     public void Attach(Ticker ticker, WidgetConfig config)
     {
         _detached = false;
+        Strings.Changed += OnLanguage;
         _source = AppServices.GitHub;
 
         if (_source is not null)
@@ -184,8 +186,9 @@ internal sealed partial class GitHubSearchView : Grid, IWidgetView, IWidgetHeade
             single: false,
             snapshot.Outcomes,
             items.Count > 0,
-            Reviews ? "No pull requests are waiting for your review." : "No open issues are assigned to you.",
+            (Reviews ? Str.WidgetsA_Github_NoReviews : Str.WidgetsA_Github_NoIssues).Text(),
             now,
+            Strings.Current,
             savedAt: snapshot.SavedAt);
 
         if (!_chrome.Show(screen, _area.Height))
@@ -202,7 +205,7 @@ internal sealed partial class GitHubSearchView : Grid, IWidgetView, IWidgetHeade
         foreach (var item in items)
         {
             var meta = Reviews && item.Author.Length > 0 && !_layout.Detail ? $"{item.Repo} · {item.Author}" : item.Repo;
-            var lead = Reviews && item.Draft ? $"#{item.Number} draft" : $"#{item.Number}";
+            var lead = Reviews && item.Draft ? Str.WidgetsA_Github_NumberDraft.Format(("number", $"#{item.Number}")) : $"#{item.Number}";
 
             var row = DevRows.Build(
                 new DevRowText(
@@ -210,10 +213,10 @@ internal sealed partial class GitHubSearchView : Grid, IWidgetView, IWidgetHeade
                     lead,
                     Reviews ? DevBrushes.Pull(PullState.Open, item.Draft) : DevBrushes.Success,
                     meta,
-                    GitHubRules.Ago(item.UpdatedAt, now),
+                    GitHubRules.Ago(item.UpdatedAt, now, Strings.Current),
                     item.Draft,
                     item.HtmlUrl,
-                    GitHubRules.ItemDetail(item.Author, item.Comments),
+                    GitHubRules.ItemDetail(item.Author, item.Comments, Strings.Current),
                     item.Labels),
                 _layout,
                 _hovers,
@@ -231,14 +234,14 @@ internal sealed partial class GitHubSearchView : Grid, IWidgetView, IWidgetHeade
 
         if (Reviews)
         {
-            menu.Items.Add(DevRows.Item(Glyphs.PullRequest, "Open changed files", () => DevRows.Open(item.HtmlUrl.TrimEnd('/') + "/files")));
+            menu.Items.Add(DevRows.Item(Glyphs.PullRequest, Str.WidgetsA_Github_OpenFiles.Text(), () => DevRows.Open(item.HtmlUrl.TrimEnd('/') + "/files")));
         }
 
         return menu;
     }
 
     /// <inheritdoc />
-    public IReadOnlyList<WidgetAction> ContextActions => [new(Glyphs.Refresh, "Refresh", () => _feed?.Refresh())];
+    public IReadOnlyList<WidgetAction> ContextActions => [new(Glyphs.Refresh, Str.Common_Refresh.Text(), () => _feed?.Refresh())];
 
     private void ClearRows()
     {
@@ -252,12 +255,17 @@ internal sealed partial class GitHubSearchView : Grid, IWidgetView, IWidgetHeade
         _list.Children.Clear();
     }
 
+    /// <summary>[S-1109] Everything on the tile is worded from the snapshot in hand; nothing is refetched.</summary>
+    private void OnLanguage(Locale locale) => Render();
+
     public void Detach()
     {
         if (_detached)
         {
             return;
         }
+
+        Strings.Changed -= OnLanguage;
 
         _detached = true;
         _chrome.Detach();

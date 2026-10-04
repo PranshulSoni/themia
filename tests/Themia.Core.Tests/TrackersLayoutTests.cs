@@ -1,3 +1,4 @@
+using Themia.Core.Localization;
 using Themia.Core.Model;
 using Themia.Core.Widgets;
 using Xunit;
@@ -133,8 +134,8 @@ public class TrackersLayoutTests
     public void S1446_next_line_names_the_soonest_other_upcoming()
     {
         var timers = Timers(30, -1, 5, 100);
-        Assert.Equal("Next: t0 in 1d 6h", CountdownLayout.NextLine(timers, 2, Now));
-        Assert.Null(CountdownLayout.NextLine(Timers(5, -1), 0, Now));
+        Assert.Equal("Next: t0 in 1d 6h", CountdownLayout.NextLine(timers, 2, Now, Locale.En));
+        Assert.Null(CountdownLayout.NextLine(Timers(5, -1), 0, Now, Locale.En));
     }
 
     [Fact]
@@ -351,7 +352,8 @@ public class TrackersLayoutTests
 
         var notes = MoodInsights.RecentNotes(newestFirst, 2);
         Assert.Equal(["a", "c"], notes.Select(n => n.Id));
-        Assert.Equal("Sat 3 Oct · Bad: rain", MoodInsights.RecentLine(notes[1]));
+        Assert.Equal("Sat, Oct 3 · Bad: rain", MoodInsights.RecentLine(Themia.Core.Localization.Locale.En, notes[1]));
+        Assert.Equal("Sa., 3. Okt. · Schlecht: rain", MoodInsights.RecentLine(Themia.Core.Localization.Locale.De, notes[1]));
     }
 
     [Fact]
@@ -362,10 +364,12 @@ public class TrackersLayoutTests
 
         var dayEntries = MoodInsights.EntriesOn(entries, day);
         var byDay = MoodRules.ByDay(entries);
-        var tooltip = MoodInsights.Tooltip(MoodRules.Read(byDay, day), dayEntries);
+        var tooltip = MoodInsights.Tooltip(Themia.Core.Localization.Locale.En, MoodRules.Read(byDay, day), dayEntries).Replace(' ', ' ');
+        var german = MoodInsights.Tooltip(Themia.Core.Localization.Locale.De, MoodRules.Read(byDay, day), dayEntries);
 
         Assert.Equal(["a", "b"], dayEntries.Select(e => e.Id));
-        Assert.EndsWith("\n09:00 · Bad\n14:00 · Great: dinner", tooltip);
+        Assert.EndsWith("\n9:00 AM · Bad\n2:00 PM · Great: dinner", tooltip);
+        Assert.EndsWith("\n09:00 · Schlecht\n14:00 · Super: dinner", german);
     }
 
     [Fact]

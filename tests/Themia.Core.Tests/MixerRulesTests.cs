@@ -1,3 +1,4 @@
+using Themia.Core.Localization;
 using Themia.Core.Widgets;
 using Xunit;
 
@@ -255,5 +256,19 @@ public sealed class MixerRulesTests
         writes.Post("a", true);
         writes.Post("a", false);
         Assert.Equal([("a", false)], writes.Drain());
+    }
+
+    [Theory]
+    [InlineData(Locale.En, false, false, true, false, "Playing")]
+    [InlineData(Locale.En, true, false, true, false, "Muted")]
+    [InlineData(Locale.De, false, false, true, false, "Spielt")]
+    [InlineData(Locale.De, false, false, false, false, "Still")]
+    [InlineData(Locale.De, false, true, true, false, "Windows-Klänge")]
+    [InlineData(Locale.De, false, false, true, true, "Alle Apps auf diesem Gerät")]
+    public void S1624_the_caption_speaks_the_language(Locale locale, bool muted, bool system, bool active, bool master, string expected)
+    {
+        var row = new MixerRow(master ? MixerRules.MasterKey : "app", "App", null, 0.5, muted, active, system, 1);
+
+        Assert.Equal(expected, MixerFill.Detail(row, locale));
     }
 }

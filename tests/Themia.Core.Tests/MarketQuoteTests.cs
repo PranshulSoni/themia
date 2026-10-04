@@ -1,3 +1,4 @@
+using Themia.Core.Localization;
 using Themia.Core.Model;
 using Themia.Core.Widgets;
 using Xunit;
@@ -84,14 +85,21 @@ public class MarketQuoteTests
     [InlineData(1.1567, 4, "1.1567")]
     [InlineData(84470.0, null, "84,470.00")]
     public void A_price_is_grouped_and_printed_to_its_own_precision(double price, int? hint, string expected)
-        => Assert.Equal(expected, MarketQuote.Price(price, hint));
+        => Assert.Equal(expected, MarketQuote.Price(Locale.En, price, hint));
+
+    [Fact]
+    public void S1106_a_price_uses_the_language_s_separators()
+    {
+        Assert.Equal("1.234,50", MarketQuote.Price(Locale.De, 1234.5));
+        Assert.Equal("+1,24 %", MarketQuote.ChangePercent(Locale.De, 1.2356));
+    }
 
     [Theory]
     [InlineData(null)]
     [InlineData(double.NaN)]
     [InlineData(double.NegativeInfinity)]
     public void A_missing_price_prints_and_never_throws(double? price)
-        => Assert.Equal("--", MarketQuote.Price(price));
+        => Assert.Equal("--", MarketQuote.Price(Locale.En, price));
 
     // ---- change --------------------------------------------------------------------------
 
@@ -102,7 +110,7 @@ public class MarketQuoteTests
     public void A_move_carries_its_sign_in_the_text_and_not_only_in_the_colour(double percent, string expected)
     {
         // A state a reader can only get from a colour is a state some readers never get.
-        Assert.Equal(expected, MarketQuote.ChangePercent(percent));
+        Assert.Equal(expected, MarketQuote.ChangePercent(Locale.En, percent));
     }
 
     [Fact]
@@ -186,7 +194,11 @@ public class MarketQuoteTests
     [InlineData(MarketPhase.Pre, "Pre-market")]
     [InlineData(MarketPhase.Post, "After hours")]
     public void Only_the_phases_worth_saying_get_a_badge(MarketPhase phase, string expected)
-        => Assert.Equal(expected, MarketQuote.PhaseLabel(phase));
+        => Assert.Equal(expected, MarketQuote.PhaseLabel(Locale.En, phase));
+
+    [Fact]
+    public void S1100_the_badge_is_in_the_language_asked_for()
+        => Assert.Equal("Markt geschlossen", MarketQuote.PhaseLabel(Locale.De, MarketPhase.Closed));
 
     // ---- the series ------------------------------------------------------------------------
 

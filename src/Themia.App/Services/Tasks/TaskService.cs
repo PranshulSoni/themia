@@ -1,6 +1,7 @@
 using Themia.App.Services.Web;
 using Themia.Core.Accounts;
 using Themia.Core.Diagnostics;
+using Themia.Core.Localization;
 using Themia.Core.Tasks;
 using Themia.Core.Widgets;
 
@@ -226,7 +227,7 @@ internal sealed class TaskService : IDisposable
         var ticket = feed.Edits.Begin(TaskEdit.Complete(task.Id, completed));
         feed.Raise();
 
-        return WriteAsync(feed, ticket, completed ? "complete the task" : "reopen the task", async cancellation =>
+        return WriteAsync(feed, ticket, completed ? "complete the task" : "reopen the task", completed ? Str.Shell_Tasks_CompleteFailed : Str.Shell_Tasks_ReopenFailed, async cancellation =>
         {
             await _remote.SetCompletedAsync(feed.AccountId, task.ListId, task.Id, completed, cancellation).ConfigureAwait(true);
             return null;
@@ -248,7 +249,7 @@ internal sealed class TaskService : IDisposable
         var ticket = feed.Edits.Begin(TaskEdit.Rename(task.Id, clean));
         feed.Raise();
 
-        return WriteAsync(feed, ticket, "rename the task", async cancellation =>
+        return WriteAsync(feed, ticket, "rename the task", Str.Shell_Tasks_RenameFailed, async cancellation =>
         {
             await _remote.RenameAsync(feed.AccountId, task.ListId, task.Id, clean, cancellation).ConfigureAwait(true);
             return null;
@@ -269,7 +270,7 @@ internal sealed class TaskService : IDisposable
         var ticket = feed.Edits.Begin(TaskEdit.Delete(task.Id));
         feed.Raise();
 
-        return WriteAsync(feed, ticket, "delete the task", async cancellation =>
+        return WriteAsync(feed, ticket, "delete the task", Str.Shell_Tasks_DeleteFailed, async cancellation =>
         {
             await _remote.DeleteAsync(feed.AccountId, task.ListId, task.Id, cancellation).ConfigureAwait(true);
             return null;
@@ -303,7 +304,7 @@ internal sealed class TaskService : IDisposable
             }
             catch (AccountException ex)
             {
-                feed.WriteProblem = $"Could not add the task: {ex.Message}";
+                feed.WriteProblem = Str.Shell_Common_ProblemReason.Format(("problem", Str.Shell_Tasks_AddFailed.Text()), ("reason", ex.Message));
                 Log.Warn(Scope, "could not read the lists to add a task to", ex);
                 feed.Raise();
                 return null;
@@ -311,7 +312,7 @@ internal sealed class TaskService : IDisposable
 
             if (TaskRules.CreateTarget(lists) is not { } target)
             {
-                feed.WriteProblem = "Could not add the task: this account has no task list to put it in.";
+                feed.WriteProblem = Str.Shell_Tasks_NoList.Text();
                 feed.Raise();
                 return null;
             }
@@ -336,7 +337,7 @@ internal sealed class TaskService : IDisposable
         feed.Raise();
 
         TaskItem? created = null;
-        await WriteAsync(feed, ticket, "add the task", async cancellation =>
+        await WriteAsync(feed, ticket, "add the task", Str.Shell_Tasks_AddFailed, async cancellation =>
         {
             created = await _remote.CreateAsync(feed.AccountId, listId, clean, due, cancellation).ConfigureAwait(true);
             return created;
@@ -410,7 +411,7 @@ internal sealed class TaskService : IDisposable
             // Anything the account layer did not already type is a bug or a provider oddity; the
             // widget says the service answered unexpectedly and the log says what it was.
             Log.Error(Scope, $"reading task list {feed.ListId} failed unexpectedly", ex);
-            feed.Failure = new AccountException(AccountError.BadResponse, "The task list could not be read.", 0, ex);
+            feed.Failure = new AccountException(AccountError.BadResponse, Str.Shell_Tasks_Unreadable.Text(), 0, ex);
             feed.Schedule.Record(FetchStatus.BadResponse, interval, ex.Message, DateTimeOffset.Now);
         }
         finally
@@ -430,7 +431,9 @@ internal sealed class TaskService : IDisposable
     /// [S-597] One write, through the account's gate: writes to an account go out one at a time and
     /// in the order they were made, so "complete, then reopen" can never arrive reopened-first.
     /// </summary>
-    private async Task WriteAsync(TaskFeed feed, long ticket, string what, Func<CancellationToken, Task<TaskItem?>> write)
+    /// <param name="what">The step, for the log (English).</param>
+    /// <param name="failed">The step's failure, as the widget says it.</param>
+    private async Task WriteAsync(TaskFeed feed, long ticket, string what, Str failed, Func<CancellationToken, Task<TaskItem?>> write)
     {
         if (!_writeGates.TryGetValue(feed.AccountId, out var gate))
         {
@@ -451,13 +454,13 @@ internal sealed class TaskService : IDisposable
         catch (AccountException ex)
         {
             feed.Edits.Failed(ticket);
-            feed.WriteProblem = $"Could not {what}: {ex.Message}";
+            feed.WriteProblem = Str.Shell_Common_ProblemReason.Format(("problem", failed.Text()), ("reason", ex.Message));
             Log.Warn(Scope, $"could not {what} on {feed.AccountId}", ex);
         }
         catch (Exception ex)
         {
             feed.Edits.Failed(ticket);
-            feed.WriteProblem = $"Could not {what}.";
+            feed.WriteProblem = Str.Shell_Common_ProblemSentence.Format(("problem", failed.Text()));
             Log.Error(Scope, $"could not {what} on {feed.AccountId}", ex);
         }
         finally

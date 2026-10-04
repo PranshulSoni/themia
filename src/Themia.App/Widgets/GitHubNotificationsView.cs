@@ -4,6 +4,7 @@ using Themia.App.Services;
 using Themia.App.Services.Developer;
 using Themia.App.Shell;
 using Themia.Core.Developer;
+using Themia.Core.Localization;
 using Themia.Core.Model;
 using Themia.Core.Widgets;
 
@@ -65,6 +66,7 @@ internal sealed partial class GitHubNotificationsView : Grid, IWidgetView, IWidg
     public void Attach(Ticker ticker, WidgetConfig config)
     {
         _detached = false;
+        Strings.Changed += OnLanguage;
         _source = AppServices.GitHub;
 
         if (_source is not null)
@@ -194,8 +196,9 @@ internal sealed partial class GitHubNotificationsView : Grid, IWidgetView, IWidg
             single: false,
             snapshot.Outcomes,
             items.Count > 0,
-            _config.IncludeRead ? "No notifications." : "No unread notifications.",
+            (_config.IncludeRead ? Str.Github_NotificationsEmpty : Str.WidgetsA_Github_NoUnread).Text(),
             now,
+            Strings.Current,
             savedAt: snapshot.SavedAt);
 
         if (!_chrome.Show(screen, _area.Height, _actionProblem))
@@ -223,7 +226,7 @@ internal sealed partial class GitHubNotificationsView : Grid, IWidgetView, IWidg
             _lists.Reset(1);
             foreach (var item in items)
             {
-                AddRow(_lists[0], item, item.Repo, GitHubRules.SubjectLabel(item.SubjectType), marks, now);
+                AddRow(_lists[0], item, item.Repo, GitHubRules.SubjectLabel(item.SubjectType, Strings.Current), marks, now);
             }
 
             return;
@@ -256,19 +259,19 @@ internal sealed partial class GitHubNotificationsView : Grid, IWidgetView, IWidg
             used += cost;
 
             var list = _lists[column];
-            list.Children.Add(DevRows.Section(group.Repo, group.Unread > 0 ? $"{group.Unread} unread" : null));
+            list.Children.Add(DevRows.Section(group.Repo, group.Unread > 0 ? Str.WidgetsA_Github_UnreadCount.Plural(group.Unread) : null));
 
             foreach (var item in group.Items)
             {
                 // [S-743] Grouped, the subject type is the meta; nothing more to say beside it.
-                AddRow(list, item, GitHubRules.SubjectLabel(item.SubjectType), string.Empty, marks, now);
+                AddRow(list, item, GitHubRules.SubjectLabel(item.SubjectType, Strings.Current), string.Empty, marks, now);
             }
         }
     }
 
     private void AddRow(StackPanel list, NotificationItem item, string meta, string detail, bool marks, DateTimeOffset now)
     {
-        var reason = GitHubRules.ReasonLabel(item.Reason);
+        var reason = GitHubRules.ReasonLabel(item.Reason, Strings.Current);
 
         // "CI · CI" says nothing twice.
         if (string.Equals(meta, reason, StringComparison.OrdinalIgnoreCase))
@@ -287,7 +290,7 @@ internal sealed partial class GitHubNotificationsView : Grid, IWidgetView, IWidg
                 reason,
                 item.Unread ? DevBrushes.Reason(GitHubRules.ToneOf(item.Reason)) : DevBrushes.Tertiary,
                 meta,
-                GitHubRules.Ago(item.UpdatedAt, now),
+                GitHubRules.Ago(item.UpdatedAt, now, Strings.Current),
                 !item.Unread,
                 item.HtmlUrl,
                 detail,
@@ -306,9 +309,9 @@ internal sealed partial class GitHubNotificationsView : Grid, IWidgetView, IWidg
         var menu = DevRows.LinkMenu(item.HtmlUrl, item.RepoHtmlUrl);
         menu.Items.Add(new MenuFlyoutSeparator());
 
-        menu.Items.Add(DevRows.Item(Glyphs.MailRead, "Mark as read", () => _ = ChangeAsync([item], s => s.MarkReadAsync(item)), item.Unread));
+        menu.Items.Add(DevRows.Item(Glyphs.MailRead, Str.Github_MarkAsRead.Text(), () => _ = ChangeAsync([item], s => s.MarkReadAsync(item)), item.Unread));
 
-        menu.Items.Add(DevRows.Item(Glyphs.Done, $"Mark all in {item.Repo} as read", () => _ = ChangeAsync(
+        menu.Items.Add(DevRows.Item(Glyphs.Done, Str.WidgetsA_Github_MarkRepoRead.Format(("repo", item.Repo)), () => _ = ChangeAsync(
             [.. Items().Where(i => i.AccountId == item.AccountId && string.Equals(i.RepoHtmlUrl, item.RepoHtmlUrl, StringComparison.OrdinalIgnoreCase))],
             s => s.MarkRepositoryReadAsync(item))));
 
@@ -349,7 +352,7 @@ internal sealed partial class GitHubNotificationsView : Grid, IWidgetView, IWidg
                 _readHere.Remove((item.AccountId, item.Id));
             }
 
-            _actionProblem = $"Could not mark as read: {problem}";
+            _actionProblem = Str.WidgetsA_Github_MarkReadFailed.Format(("problem", problem));
         }
 
         Render();
@@ -382,8 +385,8 @@ internal sealed partial class GitHubNotificationsView : Grid, IWidgetView, IWidg
     /// <inheritdoc />
     public IReadOnlyList<WidgetAction> ContextActions =>
     [
-        new(Glyphs.Refresh, "Refresh", Refresh),
-        new(Glyphs.Done, "Mark all as read", MarkAllRead),
+        new(Glyphs.Refresh, Str.Common_Refresh.Text(), Refresh),
+        new(Glyphs.Done, Str.WidgetsA_Github_MarkAllRead.Text(), MarkAllRead),
     ];
 
     private void Refresh()
@@ -405,12 +408,17 @@ internal sealed partial class GitHubNotificationsView : Grid, IWidgetView, IWidg
         _lists.Reset(_lists.Count);
     }
 
+    /// <summary>[S-1109] Everything on the tile is worded from the snapshot in hand; nothing is refetched.</summary>
+    private void OnLanguage(Locale locale) => Render();
+
     public void Detach()
     {
         if (_detached)
         {
             return;
         }
+
+        Strings.Changed -= OnLanguage;
 
         _detached = true;
         _chrome.Detach();

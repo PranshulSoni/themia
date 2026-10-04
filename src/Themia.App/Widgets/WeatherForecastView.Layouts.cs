@@ -1,8 +1,8 @@
-using System.Globalization;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
 using Themia.App.Shell;
+using Themia.Core.Localization;
 using Themia.Core.Widgets;
 
 namespace Themia.App.Widgets;
@@ -462,7 +462,7 @@ internal sealed partial class WeatherForecastView
         if (plan.Sun && day.Sunrise is not null && day.Sunset is not null)
         {
             var sun = Fluent.Text(FluentType.Caption, "TextFillColorTertiaryBrush");
-            sun.Text = $"{WeatherReport.Clock(day.Sunrise, CultureInfo.CurrentCulture)} – {WeatherReport.Clock(day.Sunset, CultureInfo.CurrentCulture)}";
+            sun.Text = $"{WeatherReport.Clock(day.Sunrise)} – {WeatherReport.Clock(day.Sunset)}";
             stack.Children.Add(sun);
         }
 
@@ -486,13 +486,11 @@ internal sealed partial class WeatherForecastView
     /// </summary>
     private FrameworkElement TodayPanel(ForecastDay day, bool beside)
     {
-        var culture = CultureInfo.CurrentCulture;
-
         var icon = Fluent.Icon(LookGlyph(WeatherReport.Look(day.Code)), "TextFillColorSecondaryBrush", beside ? 56 : 28);
         icon.HorizontalAlignment = HorizontalAlignment.Left;
 
         var title = Fluent.Text(FluentType.Caption, "AccentTextFillColorPrimaryBrush");
-        title.Text = "Today";
+        title.Text = Str.Common_Today.Text();
 
         var sky = Fluent.Text(FluentType.Body, "TextFillColorSecondaryBrush");
         sky.Text = WeatherReport.Describe(day.Code);
@@ -516,11 +514,11 @@ internal sealed partial class WeatherForecastView
             panel.Children.Add(sky);
 
             var facts = new StackPanel { Spacing = Fluent.Space2, Margin = new Thickness(0, Fluent.Space4, 0, 0) };
-            AddFact(facts, Glyphs.Droplet, "Precipitation", JoinNonEmpty(WeatherReport.Precipitation(day.Precipitation), WeatherReport.Chance(day.PrecipitationChance)));
-            AddFact(facts, Glyphs.Wind, "Wind", day.WindMax is null ? string.Empty : WeatherReport.Wind(day.WindMax));
-            AddFact(facts, Glyphs.Sun, "UV index", day.UvMax is null ? string.Empty : WeatherReport.Uv(day.UvMax));
-            AddFact(facts, Glyphs.Sun, "Sunrise", day.Sunrise is null ? string.Empty : WeatherReport.Clock(day.Sunrise, culture));
-            AddFact(facts, Glyphs.Moon, "Sunset", day.Sunset is null ? string.Empty : WeatherReport.Clock(day.Sunset, culture));
+            AddFact(facts, Glyphs.Droplet, Str.WidgetsC_Weather_Fact_Precipitation.Text(), JoinNonEmpty(WeatherReport.Precipitation(day.Precipitation), WeatherReport.Chance(day.PrecipitationChance)));
+            AddFact(facts, Glyphs.Wind, Str.Weather_Wind.Text(), day.WindMax is null ? string.Empty : WeatherReport.Wind(day.WindMax));
+            AddFact(facts, Glyphs.Sun, Str.WidgetsC_Weather_Fact_UvIndex.Text(), day.UvMax is null ? string.Empty : WeatherReport.Uv(day.UvMax));
+            AddFact(facts, Glyphs.Sun, Str.WidgetUi_Sunrise.Text(), day.Sunrise is null ? string.Empty : WeatherReport.Clock(day.Sunrise));
+            AddFact(facts, Glyphs.Moon, Str.WidgetUi_Sunset.Text(), day.Sunset is null ? string.Empty : WeatherReport.Clock(day.Sunset));
             panel.Children.Add(facts);
         }
         else

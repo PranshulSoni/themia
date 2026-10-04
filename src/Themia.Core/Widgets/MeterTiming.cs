@@ -1,3 +1,6 @@
+
+using Themia.Core.Localization;
+
 namespace Themia.Core.Widgets;
 
 /// <summary>
@@ -76,12 +79,13 @@ public static class MeterTiming
     }
 
     /// <summary>A span in words, for the choice row: "30 seconds", "1 minute", "20 minutes", "1 hour".</summary>
-    public static string SpanLabel(int seconds) => seconds switch
+    public static string SpanLabel(int seconds) => SpanLabel(Strings.Current, seconds);
+
+    /// <summary><see cref="SpanLabel(int)"/> in <paramref name="locale"/>.</summary>
+    public static string SpanLabel(Locale locale, int seconds) => seconds switch
     {
-        < 60 => $"{seconds} seconds",
-        60 => "1 minute",
-        3600 => "1 hour",
-        _ when seconds % 3600 == 0 => $"{seconds / 3600} hours",
-        _ => $"{Math.Round(seconds / 60.0)} minutes",
+        < 60 => Strings.Plural(locale, Str.WidgetsB_Meters_SpanSeconds, seconds),
+        _ when seconds % 3600 == 0 => Strings.Plural(locale, Str.WidgetsB_Meters_SpanHours, seconds / 3600),
+        _ => Strings.Plural(locale, Str.WidgetsB_Meters_SpanMinutes, (long)Math.Round(seconds / 60.0)),
     };
 }

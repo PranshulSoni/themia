@@ -5,6 +5,7 @@ using Microsoft.UI.Xaml.Media;
 using Themia.App.Services;
 using Themia.App.Services.Web;
 using Themia.App.Shell;
+using Themia.Core.Localization;
 using Themia.Core.Model;
 using Themia.Core.Widgets;
 
@@ -86,7 +87,7 @@ internal sealed partial class WeatherForecastView : Grid, IWidgetView, IWidgetHe
 
     /// <summary>
     /// [S-730] Refresh, and [S-724] the layouts other than the one on screen — a flat list, as the
-    /// menu has no submenus: picking one pins it, and "Automatic layout" hands it back to the tile.
+    /// menu has no submenus: picking one pins it, and Str.WidgetsC_Weather_Action_Auto.Text() hands it back to the tile.
     /// </summary>
     public IReadOnlyList<WidgetAction> ContextActions
     {
@@ -96,29 +97,29 @@ internal sealed partial class WeatherForecastView : Grid, IWidgetView, IWidgetHe
 
             if (_config.HasLocation)
             {
-                actions.Add(new WidgetAction(Glyphs.Refresh, "Refresh", () => { _schedule.Reset(); Reload(force: true); }));
+                actions.Add(new WidgetAction(Glyphs.Refresh, Str.Common_Refresh.Text(), () => { _schedule.Reset(); Reload(force: true); }));
             }
 
             var shown = WeatherForecastLayout.Resolve(_config.Layout, _area);
 
             if (shown != ForecastLayout.Rows)
             {
-                actions.Add(new WidgetAction(Glyphs.ListLayout, "Rows layout", () => SetLayout(ForecastLayout.Rows)));
+                actions.Add(new WidgetAction(Glyphs.ListLayout, Str.WidgetsC_Weather_Action_Rows.Text(), () => SetLayout(ForecastLayout.Rows)));
             }
 
             if (shown != ForecastLayout.Columns)
             {
-                actions.Add(new WidgetAction(Glyphs.ColumnsLayout, "Columns layout", () => SetLayout(ForecastLayout.Columns)));
+                actions.Add(new WidgetAction(Glyphs.ColumnsLayout, Str.WidgetsC_Weather_Action_Columns.Text(), () => SetLayout(ForecastLayout.Columns)));
             }
 
             if (shown != ForecastLayout.Grid)
             {
-                actions.Add(new WidgetAction(Glyphs.GridLayout, "Grid layout", () => SetLayout(ForecastLayout.Grid)));
+                actions.Add(new WidgetAction(Glyphs.GridLayout, Str.WidgetsC_Weather_Action_Grid.Text(), () => SetLayout(ForecastLayout.Grid)));
             }
 
             if (_config.Layout != ForecastLayout.Auto)
             {
-                actions.Add(new WidgetAction(Glyphs.Grid, "Automatic layout", () => SetLayout(ForecastLayout.Auto)));
+                actions.Add(new WidgetAction(Glyphs.Grid, Str.WidgetsC_Weather_Action_Auto.Text(), () => SetLayout(ForecastLayout.Auto)));
             }
 
             return actions;
@@ -137,8 +138,15 @@ internal sealed partial class WeatherForecastView : Grid, IWidgetView, IWidgetHe
     {
         _ticker = ticker;
         _detached = false;
+
+        // [S-1110] The texts follow the app's language. A static event: Detach unsubscribes.
+        Strings.Changed -= OnLanguage;
+        Strings.Changed += OnLanguage;
         ApplyConfig(config);
     }
+
+    /// <summary>The language changed: the days are rebuilt from the forecast in hand.</summary>
+    private void OnLanguage(Locale locale) => Render();
 
     /// <inheritdoc />
     public void Bind(IWidgetSurface surface)
@@ -317,7 +325,7 @@ internal sealed partial class WeatherForecastView : Grid, IWidgetView, IWidgetHe
             var status = _schedule.Status;
 
             _emptyMessage.Text = status == FetchStatus.NotConfigured
-                ? "Choose a place in settings"
+                ? Str.WidgetsC_Weather_ChoosePlace.Text()
                 : FetchState.Message(status);
 
             _emptyState.Visibility = Visibility.Visible;
@@ -345,11 +353,12 @@ internal sealed partial class WeatherForecastView : Grid, IWidgetView, IWidgetHe
         _freshness.Text = age;
         _freshness.Foreground = stale ? _staleBrush : _freshBrush;
 
+        var inline = WeatherNowView.InlineAge(age);
         ToolTipService.SetToolTip(
             _freshness,
-            failed ? $"{FetchState.Message(held.Status)}. Showing the forecast from {age.ToLowerInvariant()}."
-            : held.Restored ? $"Saved forecast from {age.ToLowerInvariant()}; refreshing."
-            : $"Updated {age.ToLowerInvariant()}");
+            failed ? Str.WidgetsC_Weather_Tooltip_ForecastFailed.Format(("problem", FetchState.Message(held.Status)), ("age", inline))
+            : held.Restored ? Str.WidgetsC_Weather_Tooltip_ForecastSaved.Format(("age", inline))
+            : Str.WidgetsC_Weather_Tooltip_Updated.Format(("age", inline)));
     }
 
     /// <summary>Pick the layout and its plan for the current area, and rebuild only if either changed.</summary>
@@ -440,6 +449,7 @@ internal sealed partial class WeatherForecastView : Grid, IWidgetView, IWidgetHe
     public void Detach()
     {
         _detached = true;
+        Strings.Changed -= OnLanguage;
 
         ClearBody();
 

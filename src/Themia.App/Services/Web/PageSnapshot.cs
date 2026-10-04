@@ -5,6 +5,7 @@ using System.Text.Json;
 using Microsoft.Web.WebView2.Core;
 using Themia.App.Interop;
 using Themia.Core.Diagnostics;
+using Themia.Core.Localization;
 using Themia.Core.Model;
 using Themia.Core.Widgets;
 using Windows.Foundation;
@@ -137,7 +138,7 @@ internal static class PageSnapshot
             }
             catch (OperationCanceledException) when (!token.IsCancellationRequested)
             {
-                return Failed("The page took too long to load");
+                return Failed(Str.Shell_Web_TooSlow.Text());
             }
         }
         finally
@@ -150,7 +151,7 @@ internal static class PageSnapshot
 
     private static SnapshotResult Refused(GuardResult verdict)
         => new(verdict.Status == FetchStatus.Refused ? SnapshotStatus.Refused : SnapshotStatus.Failed, null, 0, 0, 1,
-            verdict.Reason ?? "The page was refused");
+            verdict.Reason ?? Str.Shell_Picker_PageRefused.Text());
 
     private static async Task<SnapshotResult> RenderAsync(Uri url, string selector, SnapshotTarget target, CancellationToken token)
     {
@@ -168,14 +169,14 @@ internal static class PageSnapshot
 
         if (environment is null)
         {
-            return Failed("The WebView2 runtime is not available");
+            return Failed(Str.Shell_Picker_NoWebView.Text());
         }
 
         using var window = HostWindow.Create(ViewportWidth, ViewportHeight);
 
         if (window is null)
         {
-            return Failed("Could not create the render window");
+            return Failed(Str.Shell_Web_NoWindow.Text());
         }
 
         CoreWebView2Controller? controller = null;
@@ -238,7 +239,7 @@ internal static class PageSnapshot
                     return new SnapshotResult(SnapshotStatus.NotFound, null, 0, 0, 1, null);
 
                 case ElementProbeStatus.Invalid:
-                    return Failed("The page did not finish loading");
+                    return Failed(Str.Shell_Web_NotFinished.Text());
             }
 
             // [S-1317] Captured at the size it will be drawn: a small element in a large widget is
@@ -251,13 +252,13 @@ internal static class PageSnapshot
             var png = WebElementRules.ParseScreenshot(reply);
 
             return png is null
-                ? Failed("The page could not be captured")
+                ? Failed(Str.Shell_Web_NotCaptured.Text())
                 : new SnapshotResult(SnapshotStatus.Ok, png, probe.Box.Width, probe.Box.Height, zoom, null);
         }
         catch (COMException ex)
         {
             Log.Warn(Scope, "rendering a page failed", ex);
-            return Failed("The browser stopped while rendering");
+            return Failed(Str.Shell_Web_BrowserStopped.Text());
         }
         finally
         {
@@ -285,16 +286,16 @@ internal static class PageSnapshot
                     return null;
 
                 case NavigationOutcome.Failed:
-                    return Failed(detail ?? "The page did not load");
+                    return Failed(detail ?? Str.Shell_Web_DidNotLoad.Text());
 
                 case NavigationOutcome.Refused:
-                    return new SnapshotResult(SnapshotStatus.Refused, null, 0, 0, 1, detail ?? "Only http and https pages are rendered");
+                    return new SnapshotResult(SnapshotStatus.Refused, null, 0, 0, 1, detail ?? Str.Shell_Web_HttpOnly.Text());
             }
 
             // Stopped at a host not cleared yet: ask the guard about it.
             if (navigator.TakeStopped() is not { } stopped)
             {
-                return Failed("The page did not load");
+                return Failed(Str.Shell_Web_DidNotLoad.Text());
             }
 
             var verdict = await navigator.Gate.CheckAsync(stopped, token).ConfigureAwait(true);
@@ -307,7 +308,7 @@ internal static class PageSnapshot
             next = stopped;
         }
 
-        return Failed("The page redirected too many times");
+        return Failed(Str.Shell_Web_TooManyRedirects.Text());
     }
 
     private enum NavigationOutcome
@@ -377,7 +378,7 @@ internal static class PageSnapshot
 
             if (!http)
             {
-                _pending?.TrySetResult((NavigationOutcome.Refused, "Only http and https pages are rendered"));
+                _pending?.TrySetResult((NavigationOutcome.Refused, Str.Shell_Web_HttpOnly.Text()));
                 return;
             }
 
@@ -400,15 +401,15 @@ internal static class PageSnapshot
         {
             CoreWebView2WebErrorStatus.HostNameNotResolved or CoreWebView2WebErrorStatus.CannotConnect
                 or CoreWebView2WebErrorStatus.ConnectionAborted or CoreWebView2WebErrorStatus.ConnectionReset
-                or CoreWebView2WebErrorStatus.Disconnected or CoreWebView2WebErrorStatus.ServerUnreachable => (NavigationOutcome.Failed, "Can't reach the page"),
-            CoreWebView2WebErrorStatus.Timeout => (NavigationOutcome.Failed, "The page timed out"),
+                or CoreWebView2WebErrorStatus.Disconnected or CoreWebView2WebErrorStatus.ServerUnreachable => (NavigationOutcome.Failed, Str.Shell_Web_Unreachable.Text()),
+            CoreWebView2WebErrorStatus.Timeout => (NavigationOutcome.Failed, Str.Shell_Web_TimedOut.Text()),
             CoreWebView2WebErrorStatus.CertificateCommonNameIsIncorrect or CoreWebView2WebErrorStatus.CertificateExpired
                 or CoreWebView2WebErrorStatus.ClientCertificateContainsErrors or CoreWebView2WebErrorStatus.CertificateRevoked
-                or CoreWebView2WebErrorStatus.CertificateIsInvalid => (NavigationOutcome.Failed, "The page's certificate is not valid"),
+                or CoreWebView2WebErrorStatus.CertificateIsInvalid => (NavigationOutcome.Failed, Str.Shell_Web_BadCertificate.Text()),
 
             // A 404 or 500 still renders a document; whether the element is on it is the probe's call.
             CoreWebView2WebErrorStatus.ErrorHttpInvalidServerResponse => (NavigationOutcome.Loaded, null),
-            _ => (NavigationOutcome.Failed, $"The page did not load ({error})"),
+            _ => (NavigationOutcome.Failed, Str.Shell_Web_DidNotLoadCode.Format(("code", error.ToString()))),
         };
 
         public void Dispose()

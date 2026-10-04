@@ -1,5 +1,6 @@
 using System.Globalization;
 using Themia.App.Services;
+using Themia.Core.Localization;
 using Themia.Core.Model;
 using Themia.Core.Widgets;
 
@@ -89,7 +90,7 @@ internal sealed class CpuMeter : MeterPart
             return CpuRules.Gigahertz(mhz);
         }
 
-        return string.Create(CultureInfo.InvariantCulture, $"{Environment.ProcessorCount} logical");
+        return Str.WidgetsB_Cpu_Logical.Format(("count", Environment.ProcessorCount));
     }
 
     /// <summary>
@@ -106,24 +107,26 @@ internal sealed class CpuMeter : MeterPart
 
             if (_config.ShowTemperature && CpuRules.TemperatureText(sensors.Polled, sensors.Celsius) is { } temperature)
             {
-                lines.Add(new MeterFact("Temperature", temperature));
+                lines.Add(new MeterFact(Str.WidgetsB_Meters_Temperature.Text(), temperature));
             }
 
             if (_config.ShowFan && CpuRules.FanText(sensors.Polled, sensors.FanRpm) is { } fan)
             {
-                lines.Add(new MeterFact("Fan", fan));
+                lines.Add(new MeterFact(Str.WidgetsB_Meters_Fan.Text(), fan));
             }
         }
 
         if (_config.ShowUptime)
         {
-            lines.Add(new MeterFact("Uptime", CpuRules.Uptime(TimeSpan.FromMilliseconds(Environment.TickCount64))));
+            lines.Add(new MeterFact(Str.WidgetUi_Uptime.Text(), CpuRules.Uptime(TimeSpan.FromMilliseconds(Environment.TickCount64))));
         }
 
         if (_config.ShowProcessCount && snapshot is { Totals: { Processes: > 0 } totals })
         {
-            lines.Add(new MeterFact("Processes", $"{CpuRules.Count(totals.Processes)} · {CpuRules.Count(totals.Threads)} threads"));
-            lines.Add(new MeterFact("Handles", CpuRules.Count(totals.Handles)));
+            lines.Add(new MeterFact(Str.WidgetUi_Processes.Text(), Str.WidgetsB_Cpu_Totals.Format(
+                ("processes", CpuRules.Count(totals.Processes)),
+                ("threads", Str.WidgetsB_Cpu_ThreadCount.Plural(totals.Threads)))));
+            lines.Add(new MeterFact(Str.WidgetsB_Cpu_Handles.Text(), CpuRules.Count(totals.Handles)));
         }
 
         return lines;
@@ -141,17 +144,17 @@ internal sealed class CpuMeter : MeterPart
                 ProcessLabels.For(process),
                 process.CpuText,
                 process.CpuKnown ? process.CpuFraction : null,
-                $"{process.Name}.exe (pid {process.Pid})"));
+                Str.WidgetsB_Meters_ProcessTooltipExe.Format(("name", process.Name), ("pid", process.Pid.ToString(CultureInfo.InvariantCulture)))));
         }
 
-        return new MeterList("Top processes", shown);
+        return new MeterList(Str.WidgetUi_TopProcsLabel.Text(), shown);
     }
 
     /// <summary>[S-1142] One bar per logical processor, each in its own pressure colour.</summary>
     private static MeterCells? Cores()
     {
         var count = Math.Clamp(Environment.ProcessorCount, 1, 64);
-        var title = string.Create(CultureInfo.InvariantCulture, $"{count} logical processors");
+        var title = Str.WidgetsB_Cpu_LogicalProcessors.Plural(count);
 
         if (ProcessorStatus.CoreLoads() is not { } loads)
         {

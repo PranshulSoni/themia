@@ -1,3 +1,4 @@
+using Themia.Core.Localization;
 namespace Themia.Core.Widgets;
 
 /// <summary>
@@ -87,17 +88,20 @@ public static class VolumeRules
     {
         if (muted)
         {
-            return "Muted";
+            return Str.WidgetsC_Volume_Muted.Text();
         }
 
         if (Percent(scalar) == 0)
         {
-            return "Turned down";
+            return Str.WidgetsC_Volume_TurnedDown.Text();
         }
 
-        return string.IsNullOrWhiteSpace(device) ? "Output level" : device.Trim();
+        return string.IsNullOrWhiteSpace(device) ? Str.WidgetsC_Volume_OutputLevel.Text() : device.Trim();
     }
 
     /// <summary>The big number. Kept separate from the caption so the tile can drop one and not the other.</summary>
-    public static string Readout(double scalar) => $"{Percent(scalar)}%";
+    public static string Readout(double scalar) => Readout(Strings.Current, scalar);
+
+    /// <summary><see cref="Readout(double)"/> in an explicit language: "42%", "42 %".</summary>
+    public static string Readout(Locale locale, double scalar) => LocaleFormat.Percent(locale, Percent(scalar));
 }

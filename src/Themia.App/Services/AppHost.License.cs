@@ -2,6 +2,7 @@ using Themia.App.Services.Licensing;
 using Themia.App.Shell.Config;
 using Themia.Core.Diagnostics;
 using Themia.Core.Licensing;
+using Themia.Core.Localization;
 using Themia.Core.Model;
 
 namespace Themia.App.Services;
@@ -36,11 +37,11 @@ internal sealed partial class AppHost
 
         Log.Info("license", $"refused to create {widgets} widget(s), {views} view(s): free tier holds {usage.Widgets} widgets, {usage.Views} views");
         var refusal = LicenseText.Refusal(usage, widgets, views);
-        Notices.Show(new Themia.Core.Shell.Notice(Themia.Core.Shell.NoticeKind.Warning, "Free plan limit reached")
+        Notices.Show(new Themia.Core.Shell.Notice(Themia.Core.Shell.NoticeKind.Warning, Str.Shell_License_PlanLimit.Text())
         {
             Message = refusal,
             Key = "license",
-            Action = new Themia.Core.Shell.NoticeAction("See plans", () =>
+            Action = new Themia.Core.Shell.NoticeAction(Str.Shell_License_SeePlans.Text(), () =>
             {
                 // The License page says the refusal once, at the top, when it is opened from here.
                 LastRefusal = refusal;

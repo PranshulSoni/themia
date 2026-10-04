@@ -4,6 +4,7 @@ using Themia.App.Services;
 using Themia.App.Widgets;
 using Themia.Core.Diagnostics;
 using Themia.Core.Licensing;
+using Themia.Core.Localization;
 
 namespace Themia.App.Shell.Config;
 
@@ -19,7 +20,7 @@ internal static partial class ConfigPages
 {
     private static FrameworkElement BuildLicense(AppHost host)
     {
-        var page = Page("License", []);
+        var page = Page(Str.Settings_Nav_License.Text(), []);
 
         // Said once, under the refusal that opened the page; a later visit starts clean.
         var refusal = host.LastRefusal;
@@ -52,7 +53,7 @@ internal static partial class ConfigPages
                 IsOpen = true,
                 IsClosable = true,
                 Severity = InfoBarSeverity.Warning,
-                Title = "Free limit reached",
+                Title = Str.Shell_License_LimitReached.Text(),
                 Message = refusal,
                 Margin = new Thickness(0, 0, 0, Fluent.Space2),
             });
@@ -73,13 +74,13 @@ internal static partial class ConfigPages
         if (status.IsLimited)
         {
             var usage = Themia.Core.Licensing.LicenseUsage.Of(host.State);
-            rows.Add(FluentLayout.Header("Free version"));
-            rows.Add(FluentLayout.Row(Glyphs.Grid, "Widgets", "Across all views, groups and their members included",
+            rows.Add(FluentLayout.Header(Str.Shell_License_FreeVersion.Text()));
+            rows.Add(FluentLayout.Row(Glyphs.Grid, Str.Settings_License_QuotaWidgets.Text(), Str.Shell_License_WidgetsDesc.Text(),
                 Quota(usage.Widgets, LicenseRules.FreeWidgetLimit)));
-            rows.Add(FluentLayout.Row(Glyphs.View, "Views", null, Quota(usage.Views, LicenseRules.FreeViewLimit)));
+            rows.Add(FluentLayout.Row(Glyphs.View, Str.Settings_License_QuotaViews.Text(), null, Quota(usage.Views, LicenseRules.FreeViewLimit)));
         }
 
-        rows.Add(FluentLayout.Header("Microsoft Store"));
+        rows.Add(FluentLayout.Header("Microsoft Store")); // brand name, as Windows writes it in every language
 
         if (status.Tier != LicenseTier.Pro)
         {
@@ -95,7 +96,7 @@ internal static partial class ConfigPages
     {
         var text = new TextBlock
         {
-            Text = $"{used} of {limit}",
+            Text = Str.Shell_View_Position.Format(("n", used), ("total", limit)),
             HorizontalAlignment = HorizontalAlignment.Right,
         };
         FluentLayout.ApplyStyle(text, "SettingsCaptionTextBlockStyle");
@@ -115,7 +116,7 @@ internal static partial class ConfigPages
     private static Border UpgradeRow(Services.Licensing.LicenseService license)
     {
         var verdict = FluentLayout.Verdict();
-        var upgrade = new Button { Content = "Upgrade", IsEnabled = license.CanPurchase };
+        var upgrade = new Button { Content = Str.Common_Upgrade.Text(), IsEnabled = license.CanPurchase };
         if (Application.Current.Resources.TryGetValue("AccentButtonStyle", out var style) && style is Style accent)
         {
             upgrade.Style = accent;
@@ -157,7 +158,7 @@ internal static partial class ConfigPages
         };
 
         var description = license.CanPurchase
-            ? "Unlimited widgets and views. One purchase, every PC you sign in to with your Microsoft account."
+            ? Str.Shell_License_ProPitch.Text()
             : LicenseText.Purchase(PurchaseOutcome.NotConfigured);
 
         var row = FluentLayout.Row(Glyphs.Shop, "Themia Pro", description, control);
@@ -177,7 +178,7 @@ internal static partial class ConfigPages
         {
             if (await license.ProPriceAsync().ConfigureAwait(true) is { } price)
             {
-                upgrade.Content = $"Upgrade · {price}";
+                upgrade.Content = Str.Shell_License_UpgradePrice.Format(("price", price));
             }
         }
         catch (Exception ex)
@@ -189,7 +190,7 @@ internal static partial class ConfigPages
     private static Border RefreshRow(Services.Licensing.LicenseService license)
     {
         var verdict = FluentLayout.Verdict();
-        var refresh = new Button { Content = "Check again" };
+        var refresh = new Button { Content = Str.Shell_License_CheckAgain.Text() };
         refresh.Click += async (_, _) =>
         {
             refresh.IsEnabled = false;
@@ -209,8 +210,8 @@ internal static partial class ConfigPages
             }
         };
 
-        return FluentLayout.Row(Glyphs.Refresh, "Restore purchases",
-            "Asks the Microsoft Store again, for example after buying Pro on another PC",
+        return FluentLayout.Row(Glyphs.Refresh, Str.Shell_License_Restore.Text(),
+            Str.Shell_License_RestoreDesc.Text(),
             new StackPanel
             {
                 Spacing = Fluent.Space1,

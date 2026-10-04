@@ -8,6 +8,7 @@ using Microsoft.UI.Xaml.Media;
 using Themia.App.Services;
 using Themia.App.Shell;
 using Themia.Core.Diagnostics;
+using Themia.Core.Localization;
 using Themia.Core.Model;
 using Themia.Core.Widgets;
 
@@ -351,7 +352,7 @@ internal sealed partial class MoodTrackerView : Grid, IWidgetView, IWidgetSurfac
     {
         // Disabled until something is logged today, with a placeholder that says why. [S-05]
         _note.IsEnabled = latest is not null;
-        _note.PlaceholderText = latest is null ? "Log how you feel to add a thought" : "What was behind it?";
+        _note.PlaceholderText = latest is null ? Str.WidgetsB_Mood_NotePlaceholderEmpty.Text() : Str.WidgetsB_Mood_NotePlaceholder.Text();
 
         var text = latest?.Note ?? string.Empty;
 
@@ -387,22 +388,16 @@ internal sealed partial class MoodTrackerView : Grid, IWidgetView, IWidgetSurfac
         if (average is null)
         {
             // Nothing in the window at all: no average, rather than a misleading zero. [S-09]
-            _stats.Text = "Nothing logged yet";
-            AutomationProperties.SetName(_stats, "Nothing logged in this window yet");
+            _stats.Text = Str.WidgetsB_Mood_NothingYet.Text();
+            AutomationProperties.SetName(_stats, Str.WidgetsB_Mood_NothingInWindow.Text());
             return;
         }
 
-        var run = streak switch
-        {
-            0 => "no run",
-            1 => "1 day run",
-            _ => $"{streak.ToString(CultureInfo.InvariantCulture)} day run",
-        };
+        var run = streak == 0 ? Str.WidgetsB_Mood_NoRun.Text() : Str.WidgetsB_Mood_DayRun.Plural(streak);
+        var mean = LocaleFormat.Number(average.Value, 1);
 
-        var mean = average.Value.ToString("0.0", CultureInfo.InvariantCulture);
-
-        _stats.Text = $"{run}  ·  average {mean}";
-        AutomationProperties.SetName(_stats, $"{run}, average {mean} out of {MoodRules.MaxLevel}");
+        _stats.Text = Str.WidgetsB_Mood_Stats.Format(("run", run), ("average", mean));
+        AutomationProperties.SetName(_stats, Str.WidgetsB_Mood_StatsSpoken.Format(("run", run), ("average", mean), ("max", MoodRules.MaxLevel)));
     }
 
     // -----------------------------------------------------------------------------------------

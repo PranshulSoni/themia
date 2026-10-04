@@ -1,3 +1,5 @@
+using Themia.Core.Localization;
+
 namespace Themia.Core.Shell;
 
 /// <summary>
@@ -197,18 +199,15 @@ public static class AutostartRules
     /// [S-935] What to tell the user when a change did not take: what to <i>do</i>, not just that it
     /// failed. Null when there is nothing to say. The raw detail goes under this, never instead of it.
     /// </summary>
-    public static string? Advice(AutostartProblem problem) => problem switch
+    public static string? Advice(AutostartProblem problem) => Advice(Strings.Current, problem);
+
+    /// <summary><see cref="Advice(AutostartProblem)"/> in <paramref name="locale"/>.</summary>
+    public static string? Advice(Locale locale, AutostartProblem problem) => problem switch
     {
-        AutostartProblem.TurnedOffInWindows =>
-            "Themia is switched off as a startup app in Windows, and only Windows can switch it back on. " +
-            "Open Settings › Apps › Startup (or Task Manager › Startup apps) and turn Themia on.",
-        AutostartProblem.Policy =>
-            "Your organisation's policy decides whether Themia starts with Windows on this PC, so it cannot be changed here.",
-        AutostartProblem.AccessDenied =>
-            "Windows refused the change. A security tool or a policy may be blocking startup entries; " +
-            "you can also add Themia to the Startup folder by hand, with the --autostart argument.",
-        AutostartProblem.Failed =>
-            "The startup setting could not be changed. Try again; if it keeps failing, the log has the details.",
+        AutostartProblem.TurnedOffInWindows => Strings.Get(locale, Str.Shell_Autostart_TurnedOffInWindows),
+        AutostartProblem.Policy => Strings.Get(locale, Str.Shell_Autostart_Policy),
+        AutostartProblem.AccessDenied => Strings.Get(locale, Str.Shell_Autostart_AccessDenied),
+        AutostartProblem.Failed => Strings.Get(locale, Str.Shell_Autostart_Failed),
         _ => null,
     };
 

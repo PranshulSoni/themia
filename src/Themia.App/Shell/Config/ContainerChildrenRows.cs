@@ -2,6 +2,7 @@ using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Themia.App.Services;
 using Themia.App.Widgets;
+using Themia.Core.Localization;
 using Themia.Core.Model;
 
 namespace Themia.App.Shell.Config;
@@ -24,9 +25,9 @@ internal static class ContainerChildrenRows
 
         var kind = WidgetTree.ContainerOf(container.Kind);
         var ordered = kind != ContainerKind.Group;
-        var takeOut = kind == ContainerKind.Group ? "Remove from group" : "Take out";
+        var takeOut = kind == ContainerKind.Group ? Str.Group_RemoveFromGroup.Text() : Str.Shell_Container_TakeOut.Text();
 
-        rows.Add(FluentLayout.Header("Widgets inside"));
+        rows.Add(FluentLayout.Header(Str.Shell_Container_WidgetsInside.Text()));
 
         var list = new StackPanel { Spacing = Fluent.Space1 };
         rows.Add(list);
@@ -39,8 +40,8 @@ internal static class ContainerChildrenRows
             if (children.Count == 0)
             {
                 list.Children.Add(FluentLayout.Note(kind == ContainerKind.Group
-                    ? "Nothing in this group yet. Add a widget below, or drag one onto it in edit mode."
-                    : "Nothing in here yet. Add a widget below, or drag one onto it in edit mode."));
+                    ? Str.Shell_Container_EmptyGroup.Text()
+                    : Str.Shell_Container_Empty.Text()));
                 return;
             }
 
@@ -52,11 +53,11 @@ internal static class ContainerChildrenRows
 
                 if (ordered)
                 {
-                    var up = FluentLayout.IconCommand(Glyphs.MoveUp, "Move up");
+                    var up = FluentLayout.IconCommand(Glyphs.MoveUp, Str.ChildList_MoveUp.Text());
                     up.IsEnabled = view.CanMoveChild(id, -1);
                     up.Click += (_, _) => Change(() => view.MoveChild(id, -1));
 
-                    var down = FluentLayout.IconCommand(Glyphs.MoveDown, "Move down");
+                    var down = FluentLayout.IconCommand(Glyphs.MoveDown, Str.ChildList_MoveDown.Text());
                     down.IsEnabled = view.CanMoveChild(id, 1);
                     down.Click += (_, _) => Change(() => view.MoveChild(id, 1));
 
@@ -64,7 +65,7 @@ internal static class ContainerChildrenRows
                     commands.Children.Add(down);
                 }
 
-                var settings = FluentLayout.IconCommand(Glyphs.Settings, "Its settings");
+                var settings = FluentLayout.IconCommand(Glyphs.Settings, Str.Shell_Container_ItsSettings.Text());
                 settings.Click += (_, _) => host.ShowConfig(new ConfigTarget.Widget(id));
 
                 // The widget is not deleted, only let go of: back on the desktop at its own rect.
@@ -92,8 +93,8 @@ internal static class ContainerChildrenRows
         Rebuild();
 
         // [S-870] The picker on the desktop, with this container chosen; only while its view is shown.
-        var add = new Button { Content = "Add widget" };
+        var add = new Button { Content = Str.Shell_Toolbar_AddWidget.Text() };
         add.Click += (_, _) => add.IsEnabled = host.AddInside(container.Id);
-        rows.Add(FluentLayout.Row(Glyphs.Add, "Add a widget inside", "Opens the widget picker on the desktop, with this one chosen", add));
+        rows.Add(FluentLayout.Row(Glyphs.Add, Str.Shell_Container_AddInside.Text(), Str.Shell_Container_AddInsideDesc.Text(), add));
     }
 }

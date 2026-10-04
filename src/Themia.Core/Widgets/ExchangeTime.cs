@@ -1,4 +1,4 @@
-using System.Globalization;
+using Themia.Core.Localization;
 using Themia.Core.Model;
 
 namespace Themia.Core.Widgets;
@@ -55,20 +55,29 @@ public static class ExchangeTime
 
     /// <summary>One label: "14:30" for an intraday chart, "Mar 4" (or "Mar 4, 2025") otherwise.</summary>
     public static string Label(long epochSeconds, TimeSpan? offset, QuoteRange range, TimeSpan localOffset)
+        => Label(Strings.Current, epochSeconds, offset, range, localOffset);
+
+    /// <summary>The same label on <paramref name="locale"/>'s clock and calendar.</summary>
+    public static string Label(Locale locale, long epochSeconds, TimeSpan? offset, QuoteRange range, TimeSpan localOffset)
     {
         var at = DateTimeOffset.FromUnixTimeSeconds(epochSeconds).ToOffset(offset ?? localOffset);
+        var wall = at.DateTime;
 
         if (Intraday(range))
         {
-            return at.ToString("HH:mm", CultureInfo.InvariantCulture);
+            return LocaleFormat.Time(locale, wall);
         }
 
         if (range == QuoteRange.FiveDays)
         {
-            return at.ToString("ddd HH:mm", CultureInfo.InvariantCulture);
+            return Strings.Format(
+                locale,
+                Str.WidgetsC_Stocks_WeekdayTime,
+                ("weekday", LocaleFormat.WeekdayName(locale, wall.DayOfWeek, NameWidth.Short)),
+                ("time", LocaleFormat.Time(locale, wall)));
         }
 
-        return at.ToString(WithYear(range) ? "MMM d, yyyy" : "MMM d", CultureInfo.InvariantCulture);
+        return LocaleFormat.Date(locale, wall, WithYear(range) ? DateStyle.Medium : DateStyle.MonthDayShort);
     }
 
     /// <summary>
@@ -76,6 +85,15 @@ public static class ExchangeTime
     /// (a wide chart). Empty for fewer than two bars.
     /// </summary>
     public static IReadOnlyList<string> Labels(
+        IReadOnlyList<QuoteBar> bars,
+        TimeSpan? offset,
+        QuoteRange range,
+        TimeSpan localOffset,
+        bool withMiddle)
+        => Labels(Strings.Current, bars, offset, range, localOffset, withMiddle);
+
+    public static IReadOnlyList<string> Labels(
+        Locale locale,
         IReadOnlyList<QuoteBar> bars,
         TimeSpan? offset,
         QuoteRange range,
@@ -89,14 +107,19 @@ public static class ExchangeTime
             return [];
         }
 
-        var first = Label(bars[0].Time, offset, range, localOffset);
-        var last = Label(bars[^1].Time, offset, range, localOffset);
+        var first = Label(locale, bars[0].Time, offset, range, localOffset);
+        var last = Label(locale, bars[^1].Time, offset, range, localOffset);
 
         return withMiddle
-            ? [first, Label(bars[bars.Count / 2].Time, offset, range, localOffset), last]
+            ? [first, Label(locale, bars[bars.Count / 2].Time, offset, range, localOffset), last]
             : [first, last];
     }
 
     /// <summary>"Prices in EDT" style suffix for a tooltip, or empty without a zone name.</summary>
-    public static string ZoneNote(string zone) => zone.Length == 0 ? "Times in your time zone" : $"Times in {zone}, the exchange's time";
+    public static string ZoneNote(string zone) => ZoneNote(Strings.Current, zone);
+
+    public static string ZoneNote(Locale locale, string zone)
+        => zone.Length == 0
+            ? Strings.Get(locale, Str.WidgetsC_Stocks_Zone_Local)
+            : Strings.Format(locale, Str.WidgetsC_Stocks_Zone_Exchange, ("zone", zone));
 }

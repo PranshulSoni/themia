@@ -1,3 +1,4 @@
+using Themia.Core.Localization;
 using Themia.Core.Widgets;
 using Xunit;
 
@@ -25,27 +26,44 @@ public class FetchStateTests
     [InlineData(FetchStatus.Empty)]
     [InlineData(FetchStatus.Refused)]
     public void Every_state_but_success_has_its_own_sentence(FetchStatus status)
-        => Assert.NotEqual(string.Empty, FetchState.Message(status));
+        => Assert.NotEqual(string.Empty, FetchState.Message(Locale.En, status));
 
-    [Fact]
-    public void No_two_states_share_a_sentence()
+    [Theory]
+    [MemberData(nameof(AllLocales))]
+    public void No_two_states_share_a_sentence(Locale locale)
     {
         // The point of naming them separately. The original app collapsed a 403, a DNS failure and
-        // a genuinely empty feed into one message and made the difference undiagnosable.
+        // a genuinely empty feed into one message and made the difference undiagnosable — in every
+        // language, not only English.
         var seen = new HashSet<string>(StringComparer.Ordinal);
 
         foreach (var status in Enum.GetValues<FetchStatus>())
         {
-            var message = FetchState.Message(status);
+            var message = FetchState.Message(locale, status);
 
             if (message.Length == 0)
             {
                 continue;
             }
 
-            Assert.True(seen.Add(message), $"{status} reuses another state's sentence");
+            Assert.True(seen.Add(message), $"{status} reuses another state's sentence in {locale}");
         }
     }
+
+    public static TheoryData<Locale> AllLocales()
+    {
+        var data = new TheoryData<Locale>();
+        foreach (var locale in LanguageResolver.All)
+        {
+            data.Add(locale);
+        }
+
+        return data;
+    }
+
+    [Fact]
+    public void S1106_the_state_is_said_in_the_asked_language()
+        => Assert.Equal("Kein Netzwerk", FetchState.Message(Locale.De, FetchStatus.Offline));
 
     [Theory]
     [InlineData(FetchStatus.NotConfigured, false)]
@@ -70,20 +88,27 @@ public class FetchStateTests
     [Theory]
     [InlineData(0, "Just now")]
     [InlineData(59, "Just now")]
-    [InlineData(60, "1m ago")]
-    [InlineData(4 * 60, "4m ago")]
-    [InlineData(3599, "59m ago")]
-    [InlineData(3600, "1h ago")]
-    [InlineData(23 * 3600, "23h ago")]
-    [InlineData(48 * 3600, "2d ago")]
+    [InlineData(60, "1 min. ago")]
+    [InlineData(4 * 60, "4 min. ago")]
+    [InlineData(3599, "59 min. ago")]
+    [InlineData(3600, "1 hr. ago")]
+    [InlineData(23 * 3600, "23 hr. ago")]
+    [InlineData(48 * 3600, "2 days ago")]
     public void The_age_of_the_data_is_said_in_the_units_that_carry(int secondsOld, string expected)
-        => Assert.Equal(expected, FetchState.Freshness(Now.AddSeconds(-secondsOld), Now));
+        => Assert.Equal(expected, FetchState.Freshness(Locale.En, Now.AddSeconds(-secondsOld), Now));
+
+    [Fact]
+    public void S1107_the_age_follows_the_language()
+    {
+        Assert.Equal("Gerade eben", FetchState.Freshness(Locale.De, Now, Now));
+        Assert.Equal("vor 4 Min.", FetchState.Freshness(Locale.De, Now.AddMinutes(-4), Now));
+    }
 
     [Fact]
     public void A_provider_clock_running_ahead_is_not_the_future()
     {
         // Clock skew between a service and this machine is routine, and "-3m ago" reads as a bug.
-        Assert.Equal("Just now", FetchState.Freshness(Now.AddMinutes(5), Now));
+        Assert.Equal("Just now", FetchState.Freshness(Locale.En, Now.AddMinutes(5), Now));
     }
 
     [Fact]

@@ -4,6 +4,7 @@ using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
 using Themia.App.Services;
 using Themia.App.Shell;
+using Themia.Core.Localization;
 using Themia.Core.Model;
 using Themia.Core.Widgets;
 
@@ -35,6 +36,7 @@ internal sealed partial class QuoteView : Grid, IWidgetView, IWidgetHeaderConten
     private WidgetArea _area;
 
     private readonly StackPanel _empty;
+    private readonly TextBlock _emptyText = new();
 
     private QuoteConfig _config = new();
     private Ticker? _ticker;
@@ -53,14 +55,15 @@ internal sealed partial class QuoteView : Grid, IWidgetView, IWidgetHeaderConten
     {
         RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
 
-        _next = CommandButton(Glyphs.Reset, "Show another quote");
+        _next = CommandButton(Glyphs.Reset, Str.WidgetsC_Quote_ShowAnother.Text());
         _next.Click += OnNextClicked;
 
         _body = BuildBody();
 
+        _emptyText.Text = Str.WidgetsC_Quote_Empty.Text();
         _empty = Fluent.EmptyState(
             WidgetCatalog.Definition(WidgetKind.Quote).Glyph,
-            new TextBlock { Text = "No quotes yet. Add some in settings." },
+            _emptyText,
             out _);
 
         _empty.Visibility = Visibility.Collapsed;
@@ -161,7 +164,16 @@ internal sealed partial class QuoteView : Grid, IWidgetView, IWidgetHeaderConten
     public void Attach(Ticker ticker, WidgetConfig config)
     {
         _ticker = ticker;
+        Strings.Changed += OnLanguage;
         ApplyConfig(config);
+    }
+
+    /// <summary>[S-1110] Re-read the fixed texts and set the quote again, in the new language's marks.</summary>
+    private void OnLanguage(Locale locale)
+    {
+        ToolTipService.SetToolTip(_next, Str.WidgetsC_Quote_ShowAnother.Text());
+        _emptyText.Text = Str.WidgetsC_Quote_Empty.Text();
+        Render();
     }
 
     public void ApplyConfig(WidgetConfig config)
@@ -341,14 +353,14 @@ internal sealed partial class QuoteView : Grid, IWidgetView, IWidgetHeaderConten
     /// <summary>"Quote of the day · 3 of 16": which rotation this is, and where in the list.</summary>
     private string Caption(int index, int count)
     {
-        var name = _config.Cadence switch
+        var name = (_config.Cadence switch
         {
-            QuoteCadence.Daily => "Quote of the day",
-            QuoteCadence.Hourly => "Quote of the hour",
-            _ => "Quote",
-        };
+            QuoteCadence.Daily => Str.WidgetsC_Quote_OfTheDay,
+            QuoteCadence.Hourly => Str.WidgetsC_Quote_OfTheHour,
+            _ => Str.WidgetsC_Quote_Quote,
+        }).Text();
 
-        return count > 1 ? $"{name} · {index + 1} of {count}" : name;
+        return count > 1 ? Str.WidgetsC_Quote_CaptionPosition.Format(("name", name), ("position", index + 1), ("count", count)) : name;
     }
 
     public void Detach()
@@ -359,6 +371,7 @@ internal sealed partial class QuoteView : Grid, IWidgetView, IWidgetHeaderConten
         }
 
         _detached = true;
+        Strings.Changed -= OnLanguage;
         _subscription?.Dispose();
         _subscription = null;
         _ticker = null;

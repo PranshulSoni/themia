@@ -1,6 +1,7 @@
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Themia.App.Widgets;
+using Themia.Core.Localization;
 using Themia.Core.Model;
 using Themia.Core.Widgets;
 
@@ -21,51 +22,51 @@ internal static partial class WidgetSettings
         ArgumentNullException.ThrowIfNull(config);
         ArgumentNullException.ThrowIfNull(save);
 
-        rows.Add(FluentLayout.Header("Quotes"));
+        rows.Add(FluentLayout.Header(Str.WidgetsC_Quote_Settings_Quotes.Text()));
 
         FluentLayout.ListEditor(rows, new ListEditorOptions<QuoteItem>
         {
             Items = config.Quotes,
             Save = save,
-            EmptyText = "There are no quotes left. The widget will say so until one is added.",
-            AddTitle = "Add a quote",
-            AddDescription = "A line of your own, with an attribution if you want one",
-            AddAction = "Add",
-            RemoveTooltip = "Remove quote",
+            EmptyText = Str.WidgetsC_Quote_Settings_EmptyList.Text(),
+            AddTitle = Str.WidgetsC_Quote_Settings_Add_Title.Text(),
+            AddDescription = Str.WidgetsC_Quote_Settings_Add_Desc.Text(),
+            AddAction = Str.Common_Add.Text(),
+            RemoveTooltip = Str.WidgetsC_Quote_Settings_Remove.Text(),
             Capacity = QuoteRotation.MaxQuotes,
             Create = () => new QuoteItem(),
             Body = item => QuoteBody(item, save),
         });
 
-        rows.Add(FluentLayout.Row(Glyphs.Contact, "Show author", "The attribution under the quote",
+        rows.Add(FluentLayout.Row(Glyphs.Contact, Str.WidgetsC_Quote_Settings_ShowAuthor_Label.Text(), Str.WidgetsC_Quote_Settings_ShowAuthor_Desc.Text(),
             FluentLayout.Toggle(config.ShowAuthor, value => { config.ShowAuthor = value; save(); })));
 
-        rows.Add(FluentLayout.Header("Behaviour"));
+        rows.Add(FluentLayout.Header(Str.WidgetsC_Quote_Settings_Behaviour.Text()));
 
-        rows.Add(FluentLayout.Row(Glyphs.Shuffle, "Shuffle",
-            "Off walks the list in order; on picks an unrelated one each turn",
+        rows.Add(FluentLayout.Row(Glyphs.Shuffle, Str.Quote_Shuffle.Text(),
+            Str.WidgetsC_Quote_Settings_Shuffle_Desc.Text(),
             FluentLayout.Toggle(config.Shuffle, value => { config.Shuffle = value; save(); })));
 
         // The shuffle is a pure function of a seed, so "reshuffle" is a new seed and nothing else.
         // That is what makes the same quote come back on the same day on every machine.
-        var reshuffle = new Button { Content = "Reshuffle" };
+        var reshuffle = new Button { Content = Str.WidgetsC_Quote_Settings_Reshuffle_Label.Text() };
         reshuffle.Click += (_, _) =>
         {
             config.Seed = unchecked(config.Seed + 1);
             save();
         };
 
-        rows.Add(FluentLayout.Row(Glyphs.Reset, "Reshuffle", "Deal the list out in a different order", reshuffle));
+        rows.Add(FluentLayout.Row(Glyphs.Reset, Str.WidgetsC_Quote_Settings_Reshuffle_Label.Text(), Str.WidgetsC_Quote_Settings_Reshuffle_Desc.Text(), reshuffle));
 
-        rows.Add(FluentLayout.Header("Updating"));
+        rows.Add(FluentLayout.Header(Str.WidgetsC_Quote_Settings_Updating.Text()));
 
-        rows.Add(FluentLayout.Row(Glyphs.Timer, "Refresh",
-            "How often a different quote comes up. A click always brings one",
+        rows.Add(FluentLayout.Row(Glyphs.Timer, Str.Common_Refresh.Text(),
+            Str.WidgetsC_Quote_Settings_Refresh_Desc.Text(),
             FluentLayout.Choice(
                 [
-                    (QuoteCadence.Manual, "On click only"),
-                    (QuoteCadence.Hourly, "Every hour"),
-                    (QuoteCadence.Daily, "Every day"),
+                    (QuoteCadence.Manual, Str.WidgetsC_Quote_Settings_Cadence_Manual.Text()),
+                    (QuoteCadence.Hourly, Str.WidgetsC_Quote_Settings_Cadence_Hourly.Text()),
+                    (QuoteCadence.Daily, Str.WidgetsC_Quote_Settings_Cadence_Daily.Text()),
                 ],
                 config.Cadence,
                 value => { config.Cadence = value; save(); })));
@@ -80,7 +81,7 @@ internal static partial class WidgetSettings
         var text = new TextBox
         {
             Text = item.Text,
-            PlaceholderText = "Something worth rereading",
+            PlaceholderText = Str.WidgetsC_Quote_Settings_TextPlaceholder.Text(),
             TextWrapping = TextWrapping.Wrap,
             AcceptsReturn = false,
             IsSpellCheckEnabled = false,
@@ -97,7 +98,7 @@ internal static partial class WidgetSettings
         var author = new TextBox
         {
             Text = item.Author,
-            PlaceholderText = "Who said it",
+            PlaceholderText = Str.WidgetsC_Quote_Settings_AuthorPlaceholder.Text(),
             Margin = new Thickness(0, Fluent.Space2, 0, 0),
         };
 

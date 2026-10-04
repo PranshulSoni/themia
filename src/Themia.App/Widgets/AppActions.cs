@@ -2,6 +2,7 @@ using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Themia.App.Services;
 using Themia.App.Shell;
+using Themia.Core.Localization;
 using Themia.Core.Widgets;
 
 namespace Themia.App.Widgets;
@@ -28,10 +29,10 @@ internal static class AppActions
     public const string MakerUrl = "https://lometics.com/";
 
     /// <summary>"Edit widgets": the same edit mode as Ctrl+Alt+W.</summary>
-    public static Button EditLayout() => Command(Glyphs.Edit, "Edit widgets", () => AppServices.EditLayout?.Invoke());
+    public static Button EditLayout() => Command(Glyphs.Edit, Str.WidgetsA_AppActions_EditWidgets.Text(), () => AppServices.EditLayout?.Invoke());
 
     /// <summary>"Settings": the settings window, on its first page.</summary>
-    public static Button Settings() => Command(Glyphs.Settings, "Settings", () => AppServices.ShowSettings?.Invoke());
+    public static Button Settings() => Command(Glyphs.Settings, Str.Common_Settings.Text(), () => AppServices.ShowSettings?.Invoke());
 
     /// <summary>A text link that opens <paramref name="url"/> in the browser.</summary>
     public static HyperlinkButton Link(string text, string url)

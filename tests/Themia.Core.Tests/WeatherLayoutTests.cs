@@ -1,4 +1,5 @@
 using System.Globalization;
+using Themia.Core.Localization;
 using Themia.Core.Model;
 using Themia.Core.Widgets;
 using Xunit;
@@ -201,6 +202,19 @@ public class WeatherLayoutTests
     }
 
     [Fact]
+    public void S725_beside_the_today_panel_the_wind_goes_before_the_sky_is_trimmed()
+    {
+        // German skies are long ("Teilweise bewölkt"): the ~510px list beside the panel keeps the
+        // description and the chance but sheds the wind; the full-width large tile keeps all three.
+        var xl = WeatherForecastLayout.Rows(Xl, 7);
+        Assert.True(xl.Description);
+        Assert.True(xl.Chance);
+        Assert.False(xl.Wind);
+
+        Assert.True(WeatherForecastLayout.Rows(L, 7).Wind);
+    }
+
+    [Fact]
     public void S726_a_column_never_draws_more_than_its_height_holds()
     {
         // The smallest tile: day and high only. A glyph here clipped the low off the card.
@@ -262,7 +276,7 @@ public class WeatherLayoutTests
     {
         var reading = new CurrentWeather(18, 17, 63, 11, 2) { WindDirection = 315, Pressure = null, UvIndex = 3 };
 
-        var facts = WeatherFacts.For(reading, TemperatureUnit.Celsius, CultureInfo.InvariantCulture);
+        var facts = WeatherFacts.For(Locale.En, reading, TemperatureUnit.Celsius);
 
         Assert.Equal(
             [WeatherFactKind.FeelsLike, WeatherFactKind.Humidity, WeatherFactKind.Wind, WeatherFactKind.Uv],
@@ -279,20 +293,33 @@ public class WeatherLayoutTests
 
         Assert.Equal("80%", Value(dry, WeatherFactKind.Precipitation));
         Assert.Equal("0.6 mm", Value(wet, WeatherFactKind.Precipitation));
+        Assert.Equal("0,6 mm", Value(wet, WeatherFactKind.Precipitation, Locale.De));
     }
 
     [Fact]
-    public void S722_sunrise_and_sunset_come_from_today_in_the_culture_s_time_format()
+    public void S722_sunrise_and_sunset_come_from_today_on_the_language_s_clock()
     {
         var today = new ForecastDay(new DateOnly(2026, 10, 4), 0, 9, 15, 0) { Sunrise = new TimeOnly(7, 31), Sunset = new TimeOnly(18, 54) };
         var reading = new CurrentWeather(15, 14, 50, 5, 0) { Days = [today] };
 
-        Assert.Equal("07:31", Value(reading, WeatherFactKind.Sunrise));
-        Assert.Equal("18:54", Value(reading, WeatherFactKind.Sunset));
+        Assert.Equal("7:31 AM", Value(reading, WeatherFactKind.Sunrise));
+        Assert.Equal("6:54 PM", Value(reading, WeatherFactKind.Sunset));
+        Assert.Equal("07:31", Value(reading, WeatherFactKind.Sunrise, Locale.De));
+        Assert.Equal("18:54", Value(reading, WeatherFactKind.Sunset, Locale.De));
     }
 
-    private static string? Value(CurrentWeather reading, WeatherFactKind kind)
-        => WeatherFacts.For(reading, TemperatureUnit.Celsius, CultureInfo.InvariantCulture)
+    [Fact]
+    public void S1100_the_readings_are_labelled_in_the_language_asked_for()
+    {
+        var reading = new CurrentWeather(18, 17, 63, 11, 2) { Pressure = 1013 };
+
+        var labels = WeatherFacts.For(Locale.De, reading, TemperatureUnit.Celsius).Select(fact => fact.Label);
+
+        Assert.Equal(["Gefühlt", "Luftfeuchte", "Wind", "Luftdruck"], labels);
+    }
+
+    private static string? Value(CurrentWeather reading, WeatherFactKind kind, Locale locale = Locale.En)
+        => WeatherFacts.For(locale, reading, TemperatureUnit.Celsius)
             .Where(fact => fact.Kind == kind)
             .Select(fact => fact.Value)
             .FirstOrDefault();

@@ -1,3 +1,5 @@
+using Themia.Core.Localization;
+
 namespace Themia.Core.Accounts;
 
 /// <summary>
@@ -104,9 +106,9 @@ public static class AccountProviders
     {
         AccountProvider.Microsoft => "Microsoft",
         AccountProvider.Google => "Google",
-        AccountProvider.Imap => "Mail (IMAP)",
-        AccountProvider.CalDav => "Calendar (CalDAV)",
-        AccountProvider.CardDav => "Contacts (CardDAV)",
+        AccountProvider.Imap => Str.Shell_Accounts_Provider_Imap.Text(),
+        AccountProvider.CalDav => Str.Shell_Accounts_Provider_CalDav.Text(),
+        AccountProvider.CardDav => Str.Shell_Accounts_Provider_CardDav.Text(),
         AccountProvider.GitHub => "GitHub",
         AccountProvider.Claude => "Claude",
         _ => provider.ToString(),

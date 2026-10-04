@@ -1,3 +1,4 @@
+using Themia.Core.Localization;
 using Themia.Core.Model;
 using Themia.Core.Widgets;
 
@@ -197,22 +198,22 @@ public static class CalendarFit
     };
 
     /// <summary>[S-568] The header title for a paging layout ("October 2026", "4 Oct – 8 Oct"); none for the others.</summary>
-    public static string Title(CalendarLayout layout, CalendarViewMode wanted, DateOnly anchor, WeekStartDay start, int stripDays)
+    public static string Title(CalendarLayout layout, CalendarViewMode wanted, DateOnly anchor, WeekStartDay start, int stripDays, Locale locale)
     {
         switch (layout)
         {
             case CalendarLayout.Strip:
                 var first = StripStart(wanted, anchor, start);
-                return $"{Formatting.ShortDate(first)} – {Formatting.ShortDate(first.AddDays(Math.Max(1, stripDays) - 1))}";
+                return CalendarRules.Range(first, first.AddDays(Math.Max(1, stripDays) - 1), locale);
 
             case CalendarLayout.Month or CalendarLayout.MonthAgendaBelow or CalendarLayout.MonthAgendaBeside:
-                return CalendarRules.Title(CalendarViewMode.Month, anchor, start);
+                return CalendarRules.Title(CalendarViewMode.Month, anchor, start, locale);
 
             case CalendarLayout.Week:
-                return CalendarRules.Title(CalendarViewMode.Week, anchor, start);
+                return CalendarRules.Title(CalendarViewMode.Week, anchor, start, locale);
 
             case CalendarLayout.Day:
-                return CalendarRules.Title(CalendarViewMode.Day, anchor, start);
+                return CalendarRules.Title(CalendarViewMode.Day, anchor, start, locale);
 
             default:
                 return string.Empty;

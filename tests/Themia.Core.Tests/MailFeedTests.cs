@@ -3,6 +3,7 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 using Themia.Core.Accounts;
 using Themia.Core.Geometry;
+using Themia.Core.Localization;
 using Themia.Core.Mail;
 using Themia.Core.Model;
 using Themia.Core.Storage;
@@ -192,7 +193,7 @@ public class MailFeedTests
     [Fact]
     public void S548_relative_times()
     {
-        var us = CultureInfo.InvariantCulture;
+        var us = Locale.En;
 
         Assert.Equal(string.Empty, MailTime.Short(null, Now, us));
         Assert.Equal("now", MailTime.Short(Now.AddSeconds(-20), Now, us));
@@ -202,9 +203,34 @@ public class MailFeedTests
         Assert.Equal("2d", MailTime.Short(Now.AddDays(-2), Now, us));
         Assert.Equal("Sep 20", MailTime.Short(new DateTimeOffset(2026, 9, 20, 8, 0, 0, TimeSpan.Zero), Now, us));
 
-        Assert.Equal("09:05", MailTime.Full(new DateTimeOffset(2026, 10, 4, 9, 5, 0, TimeSpan.Zero), Now, us));
+        Assert.Equal("9:05\u202FAM", MailTime.Full(new DateTimeOffset(2026, 10, 4, 9, 5, 0, TimeSpan.Zero), Now, us).Replace(' ', '\u202F'));
         Assert.Equal("Fri", MailTime.Full(new DateTimeOffset(2026, 10, 2, 9, 5, 0, TimeSpan.Zero), Now, us));
         Assert.Equal("Sep 20", MailTime.Full(new DateTimeOffset(2026, 9, 20, 9, 5, 0, TimeSpan.Zero), Now, us));
+    }
+
+    /// <summary>[S-548] The same times in German: its compact units, its 24-hour clock, day before month.</summary>
+    [Fact]
+    public void S548_relative_times_follow_the_language()
+    {
+        var de = Locale.De;
+
+        Assert.Equal("jetzt", MailTime.Short(Now.AddSeconds(-20), Now, de));
+        Assert.Equal("5 Min.", MailTime.Short(Now.AddMinutes(-5), Now, de));
+        Assert.Equal("3 Std.", MailTime.Short(Now.AddHours(-3), Now, de));
+        Assert.Equal("2 T.", MailTime.Short(Now.AddDays(-2), Now, de));
+        Assert.Equal("09:05", MailTime.Full(new DateTimeOffset(2026, 10, 4, 9, 5, 0, TimeSpan.Zero), Now, de));
+        Assert.Equal(LocaleFormat.Date(de, new DateOnly(2026, 9, 20), DateStyle.MonthDayShort), MailTime.Short(new DateTimeOffset(2026, 9, 20, 8, 0, 0, TimeSpan.Zero), Now, de));
+    }
+
+    /// <summary>[S-548] The screens and warnings in German, with the account name and folder filled in.</summary>
+    [Fact]
+    public void S548_screens_follow_the_language()
+    {
+        var empty = MailScreens.Decide(Locale.De, [Work], [], [new MailAccountOutcome("w", MailAccountState.Ok, FetchStatus.Ok, null)], 0, MailFolder.Junk);
+        Assert.Equal("Keine Nachrichten in Spam.", empty.Text);
+
+        var none = MailScreens.Decide(Locale.De, [], [], [], 0, MailFolder.Inbox);
+        Assert.Equal("Noch kein E-Mail-Konto.", none.Text);
     }
 
     [Fact]

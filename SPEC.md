@@ -3888,7 +3888,7 @@ displays, the ghost following the pointer across displays, Ctrl+A/Ctrl+D/Escape 
   master (its keys, in order, are the enum). `Themia.Localization.Generator` (Roslyn incremental
   generator, build-time only) compiles them; a malformed file, a bad key, a duplicate, a key en.json
   lacks, an unknown locale file or two keys clashing on one member name is a build error
-  (`THEMIALOC001`..`007`) with the file position. Each language's table is built on first use.
+  (`THEMIALOC001`..`009`) with the file position. Each language's table is built on first use.
 - **[S-1102]** Placeholders are `{name}` (ASCII letters, digits, `_`), filled in one pass; a value is
   never re-scanned; a placeholder without an argument stays visible; number arguments are formatted
   for the language (`1,500` / `1.500`).
@@ -3920,6 +3920,16 @@ displays, the ghost following the pointer across displays, Ctrl+A/Ctrl+D/Escape 
   changed (not when it is set to the same one). The settings window redraws its navigation, search
   index and open page on it (queued behind the event that caused it). Cards, widgets and the
   surfaces subscribe in the extraction round; every subscriber unsubscribes on Detach/close.
+- **[S-1111]** Area fragments: a language may also be split into `Locales/<area>/<code>.json`
+  (`<area>` lowercase, `-` between parts, e.g. `shell`, `widgets-a`; one folder level only), so
+  parallel authors never edit the same file. All of a language's files merge into one table; English
+  key (enum) order is the root file, then areas by name. A key is defined once per language: a second
+  definition is `THEMIALOC008` naming both files. A fragment may only hold keys the `en.json` of its
+  own area has (`THEMIALOC006`, which also covers an area with no `en.json`), so a stray or
+  misplaced key fails the build; an unknown-language fragment is `THEMIALOC003`, a bad area folder
+  name `THEMIALOC009`. `$englishOnly` lists keys of its own file. The root `en.json` is still required;
+  the root files stay valid. The S1105 completeness tests run on the merged result; the generator
+  rules are tested in-process by `LocaleFragmentTests`.
 - Ported from `main`: 1,673 of the original's 1,748 keys with all nine translations (key names
   kept; `folder.showHidden_`/`showExt_` → `showHiddenMenu`/`showExtMenu`; `shortcut.appCountOne/Other`
   and `binCountOne/Other` → plural keys; `<br/>` → newline; `settings.language.system` takes the

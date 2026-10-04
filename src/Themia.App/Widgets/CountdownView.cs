@@ -4,6 +4,7 @@ using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
 using Themia.App.Services;
 using Themia.App.Shell;
+using Themia.Core.Localization;
 using Themia.Core.Model;
 using Themia.Core.Widgets;
 
@@ -38,6 +39,7 @@ internal sealed partial class CountdownView : Grid, IWidgetView, IWidgetSizeAwar
     private readonly StackPanel _list = new() { Spacing = 0 };
     private readonly ScrollViewer _scroll;
     private readonly StackPanel _empty;
+    private readonly TextBlock _emptyText = new() { Text = Str.WidgetsA_Countdown_Empty.Text() };
     private readonly List<Row> _rows = [];
 
     private readonly StackPanel _hero = new() { Spacing = 0 };
@@ -86,7 +88,7 @@ internal sealed partial class CountdownView : Grid, IWidgetView, IWidgetSizeAwar
         // shared empty state — glyph, secondary text, shedding to fit — like every sibling.
         _empty = Fluent.EmptyState(
             WidgetCatalog.Definition(WidgetKind.Countdown).Glyph,
-            new TextBlock { Text = "No timers.\nAdd one in this widget's settings." },
+            _emptyText,
             out _);
         _empty.Visibility = Visibility.Collapsed;
         SetRowSpan(_empty, 2);
@@ -125,7 +127,15 @@ internal sealed partial class CountdownView : Grid, IWidgetView, IWidgetSizeAwar
     public void Attach(Ticker ticker, WidgetConfig config)
     {
         _ticker = ticker;
+        Strings.Changed += OnLanguage;
         ApplyConfig(config);
+    }
+
+    /// <summary>[S-1109] Every reading and date is worded again in the new language.</summary>
+    private void OnLanguage(Locale locale)
+    {
+        _emptyText.Text = Str.WidgetsA_Countdown_Empty.Text();
+        Rebuild();
     }
 
     public void ApplyConfig(WidgetConfig config)
@@ -371,14 +381,14 @@ internal sealed partial class CountdownView : Grid, IWidgetView, IWidgetSizeAwar
             return;
         }
 
-        var reading = CountdownFormatter.Read(featured.Target, now, featured.Format);
-        _heroLabel.Text = string.IsNullOrWhiteSpace(featured.Label) ? CountdownFormatter.UntitledLabel : featured.Label;
+        var reading = CountdownFormatter.Read(featured.Target, now, featured.Format, Strings.Current);
+        _heroLabel.Text = string.IsNullOrWhiteSpace(featured.Label) ? CountdownFormatter.Untitled(Strings.Current) : featured.Label;
         _heroValue.Text = reading.Text;
 
         // [C-40] Gone by: the readout carries it in the theme's critical colour.
         _heroValue.Foreground = reading.Elapsed ? _critical : _primary;
-        _heroDate.Text = CountdownFormatter.TargetLabel(featured.Target, now, zone);
-        ToolTipService.SetToolTip(_hero, CountdownFormatter.FullTargetLabel(featured.Target, zone));
+        _heroDate.Text = CountdownFormatter.TargetLabel(featured.Target, now, zone, Strings.Current);
+        ToolTipService.SetToolTip(_hero, CountdownFormatter.FullTargetLabel(featured.Target, zone, Strings.Current));
 
         if (_heroProgressShown && CountdownLayout.Progress(featured, now) is { } progress)
         {
@@ -390,7 +400,7 @@ internal sealed partial class CountdownView : Grid, IWidgetView, IWidgetSizeAwar
             _heroProgress.Visibility = Visibility.Collapsed;
         }
 
-        _next.Text = _nextShown ? CountdownLayout.NextLine(_config.Timers, _config.Timers.IndexOf(featured), now) ?? string.Empty : string.Empty;
+        _next.Text = _nextShown ? CountdownLayout.NextLine(_config.Timers, _config.Timers.IndexOf(featured), now, Strings.Current) ?? string.Empty : string.Empty;
         _next.Visibility = _nextShown && _next.Text.Length > 0 ? Visibility.Visible : Visibility.Collapsed;
     }
 
@@ -414,16 +424,16 @@ internal sealed partial class CountdownView : Grid, IWidgetView, IWidgetSizeAwar
             return [];
         }
 
-        var entries = new List<ItemMenuEntry> { new(null, "Display", static () => { }, Disabled: true) };
+        var entries = new List<ItemMenuEntry> { new(null, Str.Countdown_CtxDisplay.Text(), static () => { }, Disabled: true) };
 
         foreach (var format in Formats)
         {
             var value = format;
-            entries.Add(new(null, CountdownFormatter.FormatLabel(value), () => SetFormat(id, value), Checked: timer.Format == value));
+            entries.Add(new(null, CountdownFormatter.FormatLabel(value, Strings.Current), () => SetFormat(id, value), Checked: timer.Format == value));
         }
 
         entries.Add(ItemMenuEntry.Separator);
-        entries.Add(new(Glyphs.Delete, "Remove…", () => _ = RemoveAsync(id), Danger: true));
+        entries.Add(new(Glyphs.Delete, Str.WidgetsA_Common_RemoveEllipsis.Text(), () => _ = RemoveAsync(id), Danger: true));
         return entries;
     }
 
@@ -453,8 +463,9 @@ internal sealed partial class CountdownView : Grid, IWidgetView, IWidgetSizeAwar
             return;
         }
 
-        var name = string.IsNullOrWhiteSpace(timer.Label) ? CountdownFormatter.UntitledLabel : timer.Label;
-        var confirmed = await FluentLayout.ConfirmAsync(this, $"Remove \"{name}\"?", "The timer is deleted from this widget.", "Remove");
+        var name = string.IsNullOrWhiteSpace(timer.Label) ? CountdownFormatter.Untitled(Strings.Current) : timer.Label;
+        var confirmed = await FluentLayout.ConfirmAsync(this, Str.WidgetsA_Countdown_RemoveConfirm_Title.Format(("name", name)),
+            Str.WidgetsA_Countdown_RemoveConfirm_Body.Text(), Str.Common_Remove.Text());
 
         if (!confirmed || _detached || !_config.Timers.Remove(timer))
         {
@@ -473,6 +484,7 @@ internal sealed partial class CountdownView : Grid, IWidgetView, IWidgetSizeAwar
         }
 
         _detached = true;
+        Strings.Changed -= OnLanguage;
         _subscription?.Dispose();
         _subscription = null;
         _heroMenu.Dispose();
@@ -510,7 +522,7 @@ internal sealed partial class CountdownView : Grid, IWidgetView, IWidgetSizeAwar
             _primary = primary;
             _critical = critical;
 
-            _label.Text = string.IsNullOrWhiteSpace(timer.Label) ? CountdownFormatter.UntitledLabel : timer.Label;
+            _label.Text = string.IsNullOrWhiteSpace(timer.Label) ? CountdownFormatter.Untitled(Strings.Current) : timer.Label;
             _label.MaxLines = 1;
             _label.TextTrimming = TextTrimming.CharacterEllipsis;
 
@@ -563,10 +575,10 @@ internal sealed partial class CountdownView : Grid, IWidgetView, IWidgetSizeAwar
 
         public void Update(DateTimeOffset now, TimeZoneInfo zone)
         {
-            var reading = CountdownFormatter.Read(_timer.Target, now, _timer.Format);
+            var reading = CountdownFormatter.Read(_timer.Target, now, _timer.Format, Strings.Current);
 
             _remaining.Text = reading.Text;
-            _date.Text = CountdownFormatter.TargetLabel(_timer.Target, now, zone);
+            _date.Text = CountdownFormatter.TargetLabel(_timer.Target, now, zone, Strings.Current);
             _inlineDate.Text = _date.Text;
 
             // [C-40] [S-140] Gone by: the label steps back, the duration carries it in critical.
@@ -578,7 +590,7 @@ internal sealed partial class CountdownView : Grid, IWidgetView, IWidgetSizeAwar
             _progress.Value = progress ?? 0;
 
             // [C-05] The whole instant, for a row whose subtitle is necessarily abbreviated.
-            ToolTipService.SetToolTip(Host, CountdownFormatter.FullTargetLabel(_timer.Target, zone));
+            ToolTipService.SetToolTip(Host, CountdownFormatter.FullTargetLabel(_timer.Target, zone, Strings.Current));
         }
 
         /// <summary>

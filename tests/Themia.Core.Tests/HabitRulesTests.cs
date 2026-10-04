@@ -1,3 +1,4 @@
+using Themia.Core.Localization;
 using Themia.Core.Widgets;
 using Xunit;
 
@@ -307,14 +308,38 @@ public class HabitRulesTests
     {
         var at = new DateTimeOffset(2026, 9, 30, 14, 20, 0, TimeSpan.FromHours(2));
 
-        Assert.Equal("Wednesday 30 Sep 2026", HabitPeriods.Describe(HabitPeriods.At(at, Daily, Zurich), Daily));
-        Assert.Equal("14:00, Wednesday 30 Sep 2026", HabitPeriods.Describe(HabitPeriods.At(at, new HabitCadence(HabitPeriod.Hourly), Zurich), new HabitCadence(HabitPeriod.Hourly)));
-        Assert.Equal("Week of Monday 28 Sep 2026", HabitPeriods.Describe(HabitPeriods.At(at, new HabitCadence(HabitPeriod.Weekly), Zurich), new HabitCadence(HabitPeriod.Weekly)));
-        Assert.Equal("September 2026", HabitPeriods.Describe(HabitPeriods.At(at, new HabitCadence(HabitPeriod.Monthly), Zurich), new HabitCadence(HabitPeriod.Monthly)));
+        Assert.Equal("Wednesday, September 30, 2026", HabitPeriods.Describe(Locale.En, HabitPeriods.At(at, Daily, Zurich), Daily));
+        Assert.Equal("2:00 PM, Wednesday, September 30, 2026", HabitPeriods.Describe(Locale.En, HabitPeriods.At(at, new HabitCadence(HabitPeriod.Hourly), Zurich), new HabitCadence(HabitPeriod.Hourly)));
+        Assert.Equal("Week of Monday, September 28, 2026", HabitPeriods.Describe(Locale.En, HabitPeriods.At(at, new HabitCadence(HabitPeriod.Weekly), Zurich), new HabitCadence(HabitPeriod.Weekly)));
+        Assert.Equal("September 2026", HabitPeriods.Describe(Locale.En, HabitPeriods.At(at, new HabitCadence(HabitPeriod.Monthly), Zurich), new HabitCadence(HabitPeriod.Monthly)));
 
         var custom = new HabitCadence(HabitPeriod.Custom, 30);
-        Assert.Equal("14:00 to 14:30, Wednesday 30 Sep 2026", HabitPeriods.Describe(HabitPeriods.At(at, custom, Zurich), custom));
+        Assert.Equal("2:00 PM to 2:30 PM, Wednesday, September 30, 2026", HabitPeriods.Describe(Locale.En, HabitPeriods.At(at, custom, Zurich), custom));
     }
+
+    /// <summary>[S-1426] The same dots in German: its date order, its 24-hour clock, its month names.</summary>
+    [Fact]
+    public void S1426_a_dot_is_described_in_the_current_language()
+    {
+        var at = new DateTimeOffset(2026, 9, 30, 14, 20, 0, TimeSpan.FromHours(2));
+        var hourly = new HabitCadence(HabitPeriod.Hourly);
+
+        Assert.Equal("Mittwoch, 30. September 2026", HabitPeriods.Describe(Locale.De, HabitPeriods.At(at, Daily, Zurich), Daily));
+        Assert.Equal("14:00, Mittwoch, 30. September 2026", HabitPeriods.Describe(Locale.De, HabitPeriods.At(at, hourly, Zurich), hourly));
+        Assert.Equal("September 2026", HabitPeriods.Describe(Locale.De, HabitPeriods.At(at, new HabitCadence(HabitPeriod.Monthly), Zurich), new HabitCadence(HabitPeriod.Monthly)));
+    }
+
+    /// <summary>[S-1422] Counted units follow each language's plural rules (Polish has three forms).</summary>
+    [Theory]
+    [InlineData(Locale.En, 1, "1 day")]
+    [InlineData(Locale.En, 3, "3 days")]
+    [InlineData(Locale.De, 3, "3 Tage")]
+    [InlineData(Locale.Pl, 1, "1 dzień")]
+    [InlineData(Locale.Pl, 3, "3 dni")]
+    [InlineData(Locale.Pl, 5, "5 dni")]
+    [InlineData(Locale.Ja, 3, "3日")]
+    public void S1422_units_follow_the_plural_rules(Locale locale, int count, string expected)
+        => Assert.Equal(expected, HabitPeriods.Units(locale, HabitPeriod.Daily, count));
 
     [Fact]
     public void S1427_done_in_counts_the_window_including_now()

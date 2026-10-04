@@ -1,5 +1,6 @@
 using System.Net.NetworkInformation;
 using Themia.Core.Diagnostics;
+using Themia.Core.Localization;
 using Themia.Core.Widgets;
 
 namespace Themia.App.Services;
@@ -53,14 +54,14 @@ internal static class NetworkMetrics
 
         if (target.Length == 0)
         {
-            return new PingOutcome(MeterReading.Unavailable("no host"), "no host configured");
+            return new PingOutcome(MeterReading.Unavailable(Str.Shell_Ping_NoHost.Text()), "no host configured");
         }
 
         // The persisted value gets the same check the settings box applies, because a hand-edited
         // state file never went through the box. See HostAddress.
         if (!HostAddress.IsPlausible(target))
         {
-            return new PingOutcome(Unreachable(target, "not a host"), $"refused to probe {target}: not a plausible host");
+            return new PingOutcome(Unreachable(target, Str.Shell_Ping_NotHost.Text()), $"refused to probe {target}: not a plausible host");
         }
 
         try
@@ -75,7 +76,7 @@ internal static class NetworkMetrics
                 var timedOut = reply.Status == IPStatus.TimedOut;
 
                 return new PingOutcome(
-                    Unreachable(target, timedOut ? "timed out" : "unreachable"),
+                    Unreachable(target, timedOut ? Str.Shell_Ping_TimedOut.Text() : Str.Shell_Ping_Unreachable.Text()),
                     $"{target}: {reply.Status}");
             }
 
@@ -92,12 +93,12 @@ internal static class NetworkMetrics
         }
         catch (PingException ex)
         {
-            return new PingOutcome(Unreachable(target, "unreachable"), $"could not ping {target}: {ex.Message}");
+            return new PingOutcome(Unreachable(target, Str.Shell_Ping_Unreachable.Text()), $"could not ping {target}: {ex.Message}");
         }
         catch (System.Net.Sockets.SocketException ex)
         {
             // Name resolution failures arrive here rather than as a reply status.
-            return new PingOutcome(Unreachable(target, "unknown host"), $"could not resolve {target}: {ex.Message}");
+            return new PingOutcome(Unreachable(target, Str.Shell_Ping_UnknownHost.Text()), $"could not resolve {target}: {ex.Message}");
         }
     }
 

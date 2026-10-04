@@ -1,4 +1,5 @@
 using System.Buffers.Binary;
+using Themia.Core.Localization;
 using Themia.Core.Model;
 using Themia.Core.Widgets;
 using Xunit;
@@ -300,8 +301,22 @@ public class PomodoroLadderRulesTests
     public void S1466_the_next_line_names_the_phase_the_flip_loads()
     {
         var config = new PomodoroConfig { WorkMinutes = 50, BreakMinutes = 10 };
-        Assert.Equal("Next: Break 10:00", PomodoroCycle.NextLine(PomodoroPhase.Work, config));
-        Assert.Equal("Next: Focus 50:00", PomodoroCycle.NextLine(PomodoroPhase.Break, config));
+        Assert.Equal("Next: Break 10:00", PomodoroCycle.NextLine(Locale.En, PomodoroPhase.Work, config));
+        Assert.Equal("Next: Focus 50:00", PomodoroCycle.NextLine(Locale.En, PomodoroPhase.Break, config));
+        Assert.Equal("Danach: Pause 10:00", PomodoroCycle.NextLine(Locale.De, PomodoroPhase.Work, config));
+    }
+
+    [Fact]
+    public void S1460_every_sound_has_a_name_in_every_language()
+    {
+        foreach (var locale in Enum.GetValues<Locale>())
+        {
+            var names = PomodoroSounds.Order.Select(sound => PomodoroSounds.Label(locale, sound)).ToList();
+            Assert.All(names, name => Assert.False(string.IsNullOrWhiteSpace(name)));
+            Assert.Equal(names.Count, names.Distinct().Count());
+        }
+
+        Assert.Equal("Singing bowl", PomodoroSounds.Label(Locale.En, AlarmSound.Zen));
     }
 
     [Fact]

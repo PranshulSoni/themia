@@ -1,3 +1,4 @@
+using Themia.Core.Localization;
 using Themia.Core.Model;
 
 namespace Themia.Core.Widgets;
@@ -34,23 +35,26 @@ public static class PomodoroSounds
     ];
 
     /// <summary>The name a person reads in the settings list.</summary>
-    public static string Label(AlarmSound sound) => sound switch
+    public static string Label(AlarmSound sound) => Label(Strings.Current, sound);
+
+    /// <summary><see cref="Label(AlarmSound)"/> in an explicit language (the original's own sound names).</summary>
+    public static string Label(Locale locale, AlarmSound sound) => Strings.Get(locale, sound switch
     {
-        AlarmSound.Off => "Off",
-        AlarmSound.Chime => "Chime",
-        AlarmSound.Marimba => "Marimba",
-        AlarmSound.Crystal => "Crystal",
-        AlarmSound.Pluck => "Pluck",
-        AlarmSound.Droplet => "Droplet",
-        AlarmSound.Birdsong => "Birdsong",
-        AlarmSound.Zen => "Zen bowl",
-        AlarmSound.Bell => "Bell",
-        AlarmSound.Gong => "Gong",
-        AlarmSound.Arcade => "Arcade",
-        AlarmSound.Digital => "Digital",
-        AlarmSound.Buzzer => "Buzzer",
-        _ => "Chime",
-    };
+        AlarmSound.Off => Str.Pomodoro_AlarmSound_Off,
+        AlarmSound.Chime => Str.Pomodoro_AlarmSound_Chime,
+        AlarmSound.Marimba => Str.Pomodoro_AlarmSound_Marimba,
+        AlarmSound.Crystal => Str.Pomodoro_AlarmSound_Crystal,
+        AlarmSound.Pluck => Str.Pomodoro_AlarmSound_Pluck,
+        AlarmSound.Droplet => Str.Pomodoro_AlarmSound_Droplet,
+        AlarmSound.Birdsong => Str.Pomodoro_AlarmSound_Birdsong,
+        AlarmSound.Zen => Str.Pomodoro_AlarmSound_Zen,
+        AlarmSound.Bell => Str.Pomodoro_AlarmSound_Bell,
+        AlarmSound.Gong => Str.Pomodoro_AlarmSound_Gong,
+        AlarmSound.Arcade => Str.Pomodoro_AlarmSound_Arcade,
+        AlarmSound.Digital => Str.Pomodoro_AlarmSound_Digital,
+        AlarmSound.Buzzer => Str.Pomodoro_AlarmSound_Buzzer,
+        _ => Str.Pomodoro_AlarmSound_Chime,
+    });
 
     /// <summary>
     /// The pitches of a sound's notes in the order they sound for <paramref name="entering"/>:

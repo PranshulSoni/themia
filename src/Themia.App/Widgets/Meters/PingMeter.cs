@@ -6,6 +6,7 @@ using Microsoft.UI.Xaml.Shapes;
 using Themia.App.Services;
 using Themia.App.Shell;
 using Themia.Core.Diagnostics;
+using Themia.Core.Localization;
 using Themia.Core.Model;
 using Themia.Core.Widgets;
 
@@ -53,7 +54,7 @@ internal sealed class PingMeter : MeterPart
     public override MeterUnit Unit => MeterUnit.Latency;
 
     /// <summary>"999 ms".</summary>
-    public override double ReadingCharacters => 6;
+    public override double ReadingCharacters => Formatting.Latency(999).Length;
 
     /// <summary>"Checking…", the longest status word, so the caption never hops between probes.</summary>
     public override double CaptionCharacters(string live) => PingStats.StatusCharacters;
@@ -121,7 +122,7 @@ internal sealed class PingMeter : MeterPart
 
     /// <summary>[S-1174] Refresh: probe now — unless one is already out, which is the answer coming.</summary>
     public override IReadOnlyList<WidgetAction> ContextActions(IMeterHost host)
-        => [new WidgetAction(Glyphs.Refresh, "Refresh", host.SampleNow)];
+        => [new WidgetAction(Glyphs.Refresh, Str.Common_Refresh.Text(), host.SampleNow)];
 
     /// <summary>
     /// Send one probe, unless the last one is still out.
@@ -239,9 +240,9 @@ internal sealed class PingMeter : MeterPart
 
         return
         [
-            new MeterFact("Fastest", Formatting.Latency(min)),
-            new MeterFact("Average", Formatting.Latency(average)),
-            new MeterFact("Slowest", Formatting.Latency(max)),
+            new MeterFact(Str.WidgetsB_Ping_Fastest.Text(), Formatting.Latency(min)),
+            new MeterFact(Str.WidgetsB_Meters_Average.Text(), Formatting.Latency(average)),
+            new MeterFact(Str.WidgetsB_Ping_Slowest.Text(), Formatting.Latency(max)),
         ];
     }
 
@@ -255,23 +256,23 @@ internal sealed class PingMeter : MeterPart
 
         if (_config.ShowJitter && summary.Jitter is { } jitter)
         {
-            lines.Add(new MeterFact("Jitter", Formatting.Latency(jitter)));
+            lines.Add(new MeterFact(Str.WidgetUi_Jitter.Text(), Formatting.Latency(jitter)));
         }
 
         if (_config.ShowLoss && summary.Loss is { } loss)
         {
-            lines.Add(new MeterFact("Loss", Formatting.Percent(loss)));
+            lines.Add(new MeterFact(Str.WidgetUi_Loss.Text(), Formatting.Percent(loss)));
         }
 
         // Only beside a label: without one the header already shows the address.
         if (_config.EffectiveLabel is not null)
         {
-            lines.Add(new MeterFact("Address", _config.EffectiveHost));
+            lines.Add(new MeterFact(Str.Ping_AddressLabel.Text(), _config.EffectiveHost));
         }
 
         if (summary.Samples > 0)
         {
-            lines.Add(new MeterFact("Probes", PingStats.AnsweredText(summary)));
+            lines.Add(new MeterFact(Str.WidgetsB_Ping_Probes.Text(), PingStats.AnsweredText(summary)));
         }
 
         return lines;

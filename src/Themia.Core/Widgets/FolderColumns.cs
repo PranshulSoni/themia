@@ -1,4 +1,5 @@
 using System.Text.Json.Serialization;
+using Themia.Core.Localization;
 
 namespace Themia.Core.Widgets;
 
@@ -47,12 +48,12 @@ public static class FolderColumns
 
     public static string Title(FolderColumn column) => column switch
     {
-        FolderColumn.Size => "Size",
-        FolderColumn.Modified => "Modified",
-        FolderColumn.Type => "Type",
-        FolderColumn.Cloud => "Cloud",
-        FolderColumn.Git => "Git",
-        FolderColumn.ItemCount => "Items",
+        FolderColumn.Size => Str.Folder_ColSize.Text(),
+        FolderColumn.Modified => Str.Folder_ColModified.Text(),
+        FolderColumn.Type => Str.Folder_ColType.Text(),
+        FolderColumn.Cloud => Str.WidgetsB_Folder_ColCloud.Text(),
+        FolderColumn.Git => Str.WidgetsB_Folder_ColGit.Text(),
+        FolderColumn.ItemCount => Str.WidgetsB_Folder_ColItems.Text(),
         _ => column.ToString(),
     };
 

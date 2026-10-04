@@ -1,3 +1,4 @@
+using Glyphs = Themia.App.Shell.Glyphs;
 using Microsoft.UI;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
@@ -5,9 +6,9 @@ using Microsoft.UI.Xaml.Media;
 using Themia.App.Services;
 using Themia.App.Shell;
 using Themia.Core.Diagnostics;
+using Themia.Core.Localization;
 using Themia.Core.Model;
 using Themia.Core.Widgets;
-using Glyphs = Themia.App.Shell.Glyphs;
 
 namespace Themia.App.Widgets;
 
@@ -47,7 +48,7 @@ internal sealed partial class GpuView : Grid, IWidgetView, IWidgetSurfaceAware, 
 
     public GpuView()
     {
-        _emptyText.Text = "No graphics adapter to read";
+        _emptyText.Text = Str.WidgetsB_Gpu_NoAdapter.Text();
         _empty = Fluent.EmptyState(Glyphs.Gpu, _emptyText, out _);
         _empty.Visibility = Visibility.Collapsed;
 
@@ -166,7 +167,7 @@ internal sealed partial class GpuView : Grid, IWidgetView, IWidgetSurfaceAware, 
         // as a state, not as a tile of dashes.
         var none = snapshot.Adapters.Count == 0;
         var gone = !none && _selection.All(index => index >= snapshot.Readings.Count);
-        _emptyText.Text = none ? "No graphics adapter to read" : "The chosen graphics adapter is not here";
+        _emptyText.Text = none ? Str.WidgetsB_Gpu_NoAdapter.Text() : Str.WidgetsB_Gpu_AdapterMissing.Text();
         _empty.Visibility = none || gone ? Visibility.Visible : Visibility.Collapsed;
         _panels.Visibility = none || gone ? Visibility.Collapsed : Visibility.Visible;
 

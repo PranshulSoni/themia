@@ -1,3 +1,4 @@
+using Themia.Core.Localization;
 using Themia.Core.Model;
 using Themia.Core.Widgets;
 
@@ -105,13 +106,14 @@ public static class ContactRules
         _ => string.Empty,
     };
 
-    public static string ColumnTitle(ContactColumn column) => column switch
+    /// <summary>A column's heading in <paramref name="locale"/>.</summary>
+    public static string ColumnTitle(ContactColumn column, Locale locale) => column switch
     {
-        ContactColumn.Name => "Name",
-        ContactColumn.Email => "Email",
-        ContactColumn.Phone => "Phone",
-        ContactColumn.Company => "Company",
-        ContactColumn.Title => "Title",
+        ContactColumn.Name => Strings.Get(locale, Str.Contacts_Col_Name),
+        ContactColumn.Email => Strings.Get(locale, Str.Contacts_Col_Email),
+        ContactColumn.Phone => Strings.Get(locale, Str.Contacts_Col_Phone),
+        ContactColumn.Company => Strings.Get(locale, Str.Contacts_Col_Company),
+        ContactColumn.Title => Strings.Get(locale, Str.Contacts_Col_Title),
         _ => string.Empty,
     };
 

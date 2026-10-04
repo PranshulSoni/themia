@@ -2,6 +2,7 @@ using System.Net.Security;
 using System.Net.Sockets;
 using System.Text;
 using Themia.App.Services.Web;
+using Themia.Core.Localization;
 using Themia.Core.Net;
 using Themia.Core.Widgets;
 
@@ -85,7 +86,7 @@ internal static class GuardedTcp
         var verdict = await NetGuard.CheckDestinationAsync(question, proxied: true, token).ConfigureAwait(false);
         if (!verdict.Allowed)
         {
-            throw new NetRefusedException(host, verdict.Reason ?? $"{host} was refused");
+            throw new NetRefusedException(host, verdict.Reason ?? Str.Shell_Net_HostRefused.Format(("host", host)));
         }
 
         var socket = await NetGuard.OpenProxySocketAsync(proxy!.IdnHost, proxy.Port, token).ConfigureAwait(false);
@@ -120,12 +121,12 @@ internal static class GuardedTcp
         {
             if (count == read.Length)
             {
-                throw new ProxyTunnelException($"The proxy at {proxy.Authority} sent an answer too long to be a tunnel reply.");
+                throw new ProxyTunnelException(Str.Shell_Proxy_TooLong.Format(("proxy", proxy.Authority)));
             }
 
             if (await stream.ReadAsync(read.AsMemory(count, 1), token).ConfigureAwait(false) == 0)
             {
-                throw new ProxyTunnelException($"The proxy at {proxy.Authority} closed the connection instead of opening a tunnel to {host}:{port}.");
+                throw new ProxyTunnelException(Str.Shell_Proxy_Closed.Format(("proxy", proxy.Authority), ("target", $"{host}:{port}")));
             }
 
             count++;
@@ -139,13 +140,13 @@ internal static class GuardedTcp
                 return;
 
             case TunnelReply.AuthenticationRequired:
-                throw new ProxyTunnelException($"The proxy at {proxy.Authority} requires authentication, which Themia cannot provide for mail.");
+                throw new ProxyTunnelException(Str.Shell_Proxy_Auth.Format(("proxy", proxy.Authority)));
 
             case TunnelReply.Refused:
-                throw new ProxyTunnelException($"The proxy at {proxy.Authority} would not open a tunnel to {host}:{port} ({line}).");
+                throw new ProxyTunnelException(Str.Shell_Proxy_Refused.Format(("proxy", proxy.Authority), ("target", $"{host}:{port}"), ("status", line)));
 
             default:
-                throw new ProxyTunnelException($"The proxy at {proxy.Authority} did not answer as an HTTP proxy.");
+                throw new ProxyTunnelException(Str.Shell_Proxy_NotHttp.Format(("proxy", proxy.Authority)));
         }
     }
 }

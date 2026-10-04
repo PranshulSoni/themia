@@ -1,6 +1,7 @@
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Themia.App.Widgets;
+using Themia.Core.Localization;
 using Themia.Core.Model;
 using Themia.Core.Widgets;
 using Windows.System;
@@ -23,28 +24,28 @@ internal static partial class WidgetSettings
         ArgumentNullException.ThrowIfNull(config);
         ArgumentNullException.ThrowIfNull(save);
 
-        rows.Add(FluentLayout.Header("Stream"));
+        rows.Add(FluentLayout.Header(Str.WidgetsC_VideoStream_Settings_Stream.Text()));
 
         rows.Add(AddressRow(
-            "Address",
-            "An MJPEG stream, a snapshot, MP4 or HLS, over http or https",
+            Str.WidgetsC_WebElement_Settings_Address_Label.Text(),
+            Str.WidgetsC_VideoStream_Settings_Address_Desc.Text(),
             "http://192.168.1.50:8080/?action=stream",
             () => config.Url,
             value => { config.Url = value; save(); },
             out _));
 
-        rows.Add(FluentLayout.Header("Picture"));
+        rows.Add(FluentLayout.Header(Str.WidgetsC_VideoStream_Settings_Picture.Text()));
 
-        rows.Add(FluentLayout.Row(Glyphs.Fit, "Fit", "How the picture fills the widget",
+        rows.Add(FluentLayout.Row(Glyphs.Fit, Str.WidgetsC_VideoStream_Settings_Fit_Label.Text(), Str.VideoStream_FitDesc.Text(),
             FluentLayout.Choice(
-                [(StreamFit.Contain, "Whole picture"), (StreamFit.Cover, "Fill and crop"), (StreamFit.Stretch, "Stretch")],
+                [(StreamFit.Contain, Str.WidgetsC_VideoStream_Settings_Fit_Whole.Text()), (StreamFit.Cover, Str.WidgetsC_VideoStream_Settings_Fit_Crop.Text()), (StreamFit.Stretch, Str.VideoStream_FitStretch.Text())],
                 config.EffectiveFit,
                 value => { config.Fit = value; save(); })));
 
-        rows.Add(FluentLayout.Row(Glyphs.Rotate, "Rotation", "For a camera mounted sideways or upside down",
+        rows.Add(FluentLayout.Row(Glyphs.Rotate, Str.VideoStream_RotationLabel.Text(), Str.VideoStream_RotationDesc.Text(),
             FluentLayout.Choice(
                 [
-                    (StreamRotation.None, "None"),
+                    (StreamRotation.None, Str.Common_None.Text()),
                     (StreamRotation.Quarter, "90°"),
                     (StreamRotation.Half, "180°"),
                     (StreamRotation.ThreeQuarter, "270°"),
@@ -54,25 +55,25 @@ internal static partial class WidgetSettings
 
         FluentLayout.RefreshSeconds(
             rows,
-            "a frame is grabbed. 0 keeps the stream open at the camera's own rate; anything else grabs one frame and hangs up until the next",
+            Str.WidgetsC_VideoStream_Settings_Refresh_Desc.Text(),
             config.EffectiveRefreshSeconds,
             VideoStreamRules.LiveRefreshSeconds,
             VideoStreamRules.MaxRefreshSeconds,
             1,
             value => { config.RefreshSeconds = value; save(); });
 
-        rows.Add(FluentLayout.Header("Overlay"));
+        rows.Add(FluentLayout.Header(Str.WidgetsC_VideoStream_Settings_Overlay.Text()));
 
         // [S-1312] Both off the picture until there is room: never on the small sizes.
-        rows.Add(FluentLayout.Row(Glyphs.Mouse, "Controls on hover",
-            "With the pointer on the picture: live state and frame age from medium size; pause, rotate, refresh, resolution and frame rate from large",
+        rows.Add(FluentLayout.Row(Glyphs.Mouse, Str.WidgetsC_VideoStream_Settings_Hover_Label.Text(),
+            Str.WidgetsC_VideoStream_Settings_Hover_Desc.Text(),
             FluentLayout.Toggle(config.HoverControls, value => { config.HoverControls = value; save(); })));
 
-        rows.Add(FluentLayout.Row(Glyphs.Info, "Status chip",
-            "Always shows LIVE, reconnecting or the interval, and the stream type, at the largest size",
+        rows.Add(FluentLayout.Row(Glyphs.Info, Str.WidgetsC_VideoStream_Settings_Chip_Label.Text(),
+            Str.WidgetsC_VideoStream_Settings_Chip_Desc.Text(),
             FluentLayout.Toggle(config.ShowStatus, value => { config.ShowStatus = value; save(); })));
 
-        rows.Add(FluentLayout.Note("Pause, rotate and reconnect from the widget's right-click menu too. A paused camera stays paused across restarts and uses no network. Cameras that need a user name and password are not supported."));
+        rows.Add(FluentLayout.Note(Str.WidgetsC_VideoStream_Settings_Note.Text()));
     }
 
     public static void WebElement(List<FrameworkElement> rows, WebElementConfig config, Action save)
@@ -81,7 +82,7 @@ internal static partial class WidgetSettings
         ArgumentNullException.ThrowIfNull(config);
         ArgumentNullException.ThrowIfNull(save);
 
-        rows.Add(FluentLayout.Header("Page"));
+        rows.Add(FluentLayout.Header(Str.WidgetsC_WebElement_Settings_Page.Text()));
 
         var selectorBox = new TextBox
         {
@@ -93,8 +94,8 @@ internal static partial class WidgetSettings
 
         var pickedLabel = new TextBlock();
         var address = AddressRow(
-            "Address",
-            "The page the element is on, http or https",
+            Str.WidgetsC_WebElement_Settings_Address_Label.Text(),
+            Str.WidgetsC_WebElement_Settings_Address_Desc.Text(),
             "https://example.com/",
             () => config.Url,
             value => { config.Url = value; save(); },
@@ -114,17 +115,17 @@ internal static partial class WidgetSettings
         };
 
         // [S-1315] Unpin without hunting for the selector box.
-        var clear = FluentLayout.IconCommand(Glyphs.Clear, "Clear the pinned element");
+        var clear = FluentLayout.IconCommand(Glyphs.Clear, Str.WidgetsC_WebElement_Settings_ClearPinned.Text());
 
         void Describe()
         {
             var selector = config.EffectiveSelector;
-            pickedLabel.Text = selector.Length == 0 ? "Nothing pinned yet"
-                : config.PickedLabel.Length > 0 ? $"“{config.PickedLabel}”"
+            pickedLabel.Text = selector.Length == 0 ? Str.WidgetsC_WebElement_Settings_NothingPinned.Text()
+                : config.PickedLabel.Length > 0 ? QuoteLayout.Quoted(config.PickedLabel)
                 : selector;
 
             // [S-1315] The button says what it will do: pick, or pick a different element.
-            pickText.Text = selector.Length == 0 ? "Pick element…" : "Pick again…";
+            pickText.Text = (selector.Length == 0 ? Str.WidgetsC_WebElement_Settings_PickEllipsis : Str.WidgetsC_WebElement_Settings_PickAgain).Text();
             clear.Visibility = selector.Length == 0 ? Visibility.Collapsed : Visibility.Visible;
         }
 
@@ -143,7 +144,7 @@ internal static partial class WidgetSettings
 
             if (!start.IsValid || !Uri.TryCreate(start.Url, UriKind.Absolute, out var uri))
             {
-                pickedLabel.Text = "Enter the page's address first";
+                pickedLabel.Text = Str.WidgetsC_WebElement_Settings_AddressFirst.Text();
                 return;
             }
 
@@ -164,13 +165,13 @@ internal static partial class WidgetSettings
 
         Describe();
 
-        var pickRow = FluentLayout.Row(Glyphs.Pick, "Element",
-            "Opens the page: browse to it, then click Pick element and click what to pin", pick);
+        var pickRow = FluentLayout.Row(Glyphs.Pick, Str.WidgetsC_WebElement_Settings_Element_Label.Text(),
+            Str.WidgetsC_WebElement_Settings_Element_Desc.Text(), pick);
         rows.Add(pickRow);
         pickedLabel.VerticalAlignment = VerticalAlignment.Center;
         pickedLabel.TextTrimming = TextTrimming.CharacterEllipsis;
         pickedLabel.MaxWidth = 260;
-        rows.Add(FluentLayout.Row(Glyphs.Preview, "Pinned", null, new StackPanel
+        rows.Add(FluentLayout.Row(Glyphs.Preview, Str.WidgetsC_WebElement_Settings_Pinned.Text(), null, new StackPanel
         {
             Orientation = Orientation.Horizontal,
             Spacing = Fluent.Space2,
@@ -190,7 +191,7 @@ internal static partial class WidgetSettings
 
             if (typed.Length > 0 && !WebElementRules.IsPlausibleSelector(typed))
             {
-                FluentLayout.Refuse(verdict, "That is not a CSS selector");
+                FluentLayout.Refuse(verdict, Str.WidgetsC_WebElement_Settings_NotSelector.Text());
                 return;
             }
 
@@ -214,15 +215,15 @@ internal static partial class WidgetSettings
 
         selectorBox.LostFocus += (_, _) => CommitSelector();
 
-        rows.Add(FluentLayout.FieldRow(Glyphs.Code, "Selector",
-            "The CSS selector the picker wrote. Edit it by hand if a page changed", selectorBox, verdict));
+        rows.Add(FluentLayout.FieldRow(Glyphs.Code, Str.WidgetsC_WebElement_Settings_Selector_Label.Text(),
+            Str.WidgetsC_WebElement_Settings_Selector_Desc.Text(), selectorBox, verdict));
 
-        rows.Add(FluentLayout.Header("Picture"));
+        rows.Add(FluentLayout.Header(Str.WidgetsC_VideoStream_Settings_Picture.Text()));
 
         // [S-1316] How the element fills the widget.
-        rows.Add(FluentLayout.Row(Glyphs.Fit, "Fit", "Whole element shows all of it, larger as the widget grows; fill width uses the full width and cuts off the bottom",
+        rows.Add(FluentLayout.Row(Glyphs.Fit, Str.WidgetsC_VideoStream_Settings_Fit_Label.Text(), Str.WidgetsC_WebElement_Settings_Fit_Desc.Text(),
             FluentLayout.Choice(
-                [(ElementFit.Whole, "Whole element"), (ElementFit.FillWidth, "Fill width")],
+                [(ElementFit.Whole, Str.WidgetsC_WebElement_Settings_Fit_Whole.Text()), (ElementFit.FillWidth, Str.WidgetsC_WebElement_Settings_Fit_Width.Text())],
                 config.EffectiveFit,
                 value => { config.Fit = value; save(); })));
 
@@ -230,7 +231,7 @@ internal static partial class WidgetSettings
             value => { config.RefreshMinutes = value; save(); });
 
         rows.Add(FluentLayout.Note(
-            "The page is drawn by a browser that runs only while the widget refreshes, then closes. Sign-ins and cookie choices made in the picker are kept for it. The last picture is kept, so it shows at once after a restart. Pages on your local network are refused unless local network access is on in Settings › General."));
+            Str.WidgetsC_WebElement_Settings_Note.Text()));
     }
 
     /// <summary>
@@ -271,7 +272,7 @@ internal static partial class WidgetSettings
             if (typed.Length > 0 && !checkedUrl.IsValid)
             {
                 FluentLayout.Refuse(verdict, checkedUrl.Problem == WebUrlProblem.UnsupportedScheme
-                    ? "Only http and https addresses"
+                    ? Str.WidgetsC_WebElement_Settings_OnlyHttp.Text()
                     : WebInput.Explain(checkedUrl.Problem));
                 return;
             }

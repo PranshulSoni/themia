@@ -1,3 +1,4 @@
+using Themia.Core.Localization;
 using Themia.Core.Model;
 using Themia.Core.Widgets;
 using Xunit;
@@ -247,9 +248,9 @@ public class ResponsiveLayoutTests
     public void S665_a_larger_clock_adds_the_week_and_the_zone()
     {
         var config = new ClockConfig { TimeZoneId = "Etc/UTC" };
-        var details = ClockFormatter.Details(new DateTimeOffset(2026, 10, 4, 13, 52, 0, TimeSpan.Zero), config);
+        var details = ClockFormatter.Details(new DateTimeOffset(2026, 10, 4, 13, 52, 0, TimeSpan.Zero), config, Locale.En);
 
-        Assert.Equal("Sun 4 Oct", details.ShortDate);
+        Assert.Equal("Sun, Oct 4", details.ShortDate);
         Assert.Equal("Week 40 · Day 277", details.Week);
         Assert.StartsWith("UTC", details.Zone, StringComparison.Ordinal);
     }
@@ -268,7 +269,7 @@ public class ResponsiveLayoutTests
         var config = new ClockConfig { TimeZoneId = "Etc/UTC" };
 
         // 1 January 2027 is a Friday, so it still belongs to ISO week 53 of 2026.
-        var details = ClockFormatter.Details(new DateTimeOffset(2027, 1, 1, 12, 0, 0, TimeSpan.Zero), config);
+        var details = ClockFormatter.Details(new DateTimeOffset(2027, 1, 1, 12, 0, 0, TimeSpan.Zero), config, Locale.En);
 
         Assert.Equal("Week 53 · Day 1", details.Week);
     }

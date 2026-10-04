@@ -7,6 +7,7 @@ using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Shapes;
 using Themia.App.Services;
 using Themia.App.Shell;
+using Themia.Core.Localization;
 using Themia.Core.Model;
 using Themia.Core.Widgets;
 using Glyphs = Themia.App.Shell.Glyphs;
@@ -63,7 +64,7 @@ internal sealed partial class VolumeView : Grid, IWidgetView, IWidgetSizeAware, 
     private readonly FontIcon _muteIcon;
     private readonly Grid _band = new();
     private readonly StackPanel _empty;
-    private readonly TextBlock _emptyText = new() { Text = "No output device" };
+    private readonly TextBlock _emptyText = new() { Text = Str.WidgetsC_Volume_NoDevice.Text() };
 
     // Looked up once: the readout swaps between them on every change.
     private readonly Brush _readingBrush = FluentLayout.Themed("TextFillColorPrimaryBrush", Colors.White);
@@ -160,7 +161,7 @@ internal sealed partial class VolumeView : Grid, IWidgetView, IWidgetSizeAware, 
         _reading.Children.Add(_device);
 
         // [S-1231] The apps playing on the device, read-only.
-        _appsCaption.Text = "Apps on this device";
+        _appsCaption.Text = Str.WidgetsC_Volume_AppsOnDevice.Text();
         _apps.Children.Add(_appsCaption);
         _apps.Margin = new Thickness(WidgetLayout.ContentInset, 0, WidgetLayout.ContentInset, Fluent.Space2);
         SetRow(_apps, 1);
@@ -190,7 +191,7 @@ internal sealed partial class VolumeView : Grid, IWidgetView, IWidgetSizeAware, 
         _mute.VerticalAlignment = VerticalAlignment.Center;
         _mute.IsTabStop = false;
         _mute.Click += OnMuteClicked;
-        ToolTipService.SetToolTip(_mute, "Mute");
+        ToolTipService.SetToolTip(_mute, Str.Mixer_Mute.Text());
 
         _slider.Minimum = 0;
         _slider.Maximum = 100;
@@ -247,7 +248,16 @@ internal sealed partial class VolumeView : Grid, IWidgetView, IWidgetSizeAware, 
     {
         // [S-1220] No ticker: the level moves when Core Audio says it moved.
         _detached = false;
+        Strings.Changed -= OnLanguage;
+        Strings.Changed += OnLanguage;
         ApplyConfig(config);
+    }
+
+    /// <summary>[S-1110] The fixed caption again; the next lay-out re-reads every other text.</summary>
+    private void OnLanguage(Locale locale)
+    {
+        _appsCaption.Text = Str.WidgetsC_Volume_AppsOnDevice.Text();
+        Lay();
     }
 
     public void ApplyConfig(WidgetConfig config)
@@ -265,7 +275,7 @@ internal sealed partial class VolumeView : Grid, IWidgetView, IWidgetSizeAware, 
     /// <inheritdoc />
     public IReadOnlyList<WidgetAction> ContextActions => _config.DeviceId is null
         ? []
-        : [new WidgetAction(Glyphs.Speakers, "Follow the default output", () => PickDevice(null))];
+        : [new WidgetAction(Glyphs.Speakers, Str.WidgetsC_Volume_FollowDefault.Text(), () => PickDevice(null))];
 
     private void OnLoaded(object sender, RoutedEventArgs args)
     {
@@ -368,9 +378,9 @@ internal sealed partial class VolumeView : Grid, IWidgetView, IWidgetSizeAware, 
         {
             _emptyText.Text = snapshot.Status switch
             {
-                AudioStatus.DeviceMissing => $"{AudioRules.DeviceName(_config.DeviceId, snapshot.Devices, _config.DeviceName)} is not connected",
-                AudioStatus.NoDevice => "No output device",
-                _ => "Sound is not available",
+                AudioStatus.DeviceMissing => Str.WidgetsC_Volume_NotConnected.Format(("device", AudioRules.DeviceName(_config.DeviceId, snapshot.Devices, _config.DeviceName))),
+                AudioStatus.NoDevice => Str.WidgetsC_Volume_NoDevice.Text(),
+                _ => Str.WidgetsC_Volume_Unavailable.Text(),
             };
 
             _empty.Visibility = Visibility.Visible;
@@ -407,10 +417,10 @@ internal sealed partial class VolumeView : Grid, IWidgetView, IWidgetSizeAware, 
 
         if (mic && snapshot.Microphone is { } microphone)
         {
-            _micName.Text = microphone.Name.Length > 0 ? microphone.Name : "Microphone";
+            _micName.Text = microphone.Name.Length > 0 ? microphone.Name : Str.WidgetsC_Volume_Microphone.Text();
             ToolTipService.SetToolTip(_micName, _micName.Text);
             var held = _overrides.TryGetValue(MixerRules.MicrophoneKey, out var micLevel) ? micLevel : microphone.Level;
-            _mic.Show(held, microphone.Muted, microphone.Muted ? "Unmute the microphone" : "Mute the microphone");
+            _mic.Show(held, microphone.Muted, (microphone.Muted ? Str.WidgetsC_Volume_UnmuteMic : Str.WidgetsC_Volume_MuteMic).Text());
         }
 
         ShowApps(appRows, snapshot);
@@ -445,12 +455,12 @@ internal sealed partial class VolumeView : Grid, IWidgetView, IWidgetSizeAware, 
         _device.IsHitTestVisible = _switcher;
         _device.IsTabStop = false;
         _chevron.Visibility = _switcher ? Visibility.Visible : Visibility.Collapsed;
-        ToolTipService.SetToolTip(_device, _switcher ? "Choose the output device" : null);
+        ToolTipService.SetToolTip(_device, _switcher ? Str.WidgetsC_Volume_ChooseDevice.Text() : null);
     }
 
     private void ShowLevel(double level, bool muted, AudioSnapshot snapshot)
     {
-        _readout.Text = muted ? "0%" : VolumeRules.Readout(level);
+        _readout.Text = VolumeRules.Readout(muted ? 0 : level);
 
         // [S-1232] The device's name where "Output level" used to be.
         _caption.Text = VolumeRules.Caption(level, muted, snapshot.Output?.Name);
@@ -459,7 +469,7 @@ internal sealed partial class VolumeView : Grid, IWidgetView, IWidgetSizeAware, 
         // thing on the desktop uses and it follows the theme.
         _readout.Foreground = muted ? _mutedBrush : _readingBrush;
         _muteIcon.Glyph = LevelRow.OutputGlyph(level, muted);
-        ToolTipService.SetToolTip(_mute, muted ? "Unmute" : "Mute");
+        ToolTipService.SetToolTip(_mute, (muted ? Str.Mixer_Unmute : Str.Mixer_Mute).Text());
 
         // Echoing: this is a snapshot writing back what it just read, and the ValueChanged it raises
         // must not be mistaken for somebody moving the control.
@@ -497,7 +507,7 @@ internal sealed partial class VolumeView : Grid, IWidgetView, IWidgetSizeAware, 
             }
         }
 
-        _appsCaption.Text = rows.Count == 0 ? "No app is playing audio" : "Apps on this device";
+        _appsCaption.Text = (rows.Count == 0 ? Str.Mixer_Empty : Str.WidgetsC_Volume_AppsOnDevice).Text();
     }
 
     private void ShowPeaks()
@@ -649,7 +659,7 @@ internal sealed partial class VolumeView : Grid, IWidgetView, IWidgetSizeAware, 
             if (after.Notice is { } notice)
             {
                 // [S-1616]/[S-880] Said once, as a notice: the widget is bound now, nothing to answer.
-                Themia.App.Services.Notices.Warning("Default output not changed", notice);
+                Themia.App.Services.Notices.Warning(Str.WidgetsC_Volume_DefaultNotChanged.Text(), notice);
             }
         }
         catch (Exception ex)
@@ -661,6 +671,7 @@ internal sealed partial class VolumeView : Grid, IWidgetView, IWidgetSizeAware, 
     public void Detach()
     {
         _detached = true;
+        Strings.Changed -= OnLanguage;
 
         Loaded -= OnLoaded;
         Unloaded -= OnUnloaded;
@@ -721,9 +732,9 @@ internal sealed partial class VolumeView : Grid, IWidgetView, IWidgetSizeAware, 
         public void Show(MixerRow row)
         {
             Root.Visibility = Visibility.Visible;
-            _name.Text = row.Name.Length > 0 ? row.Name : "Unknown app";
-            ToolTipService.SetToolTip(Root, row.Active ? _name.Text : $"{_name.Text} (not playing)");
-            _percent.Text = $"{MixerRules.DisplayPercent(row)}%";
+            _name.Text = row.Name.Length > 0 ? row.Name : Str.Mixer_UnknownApp.Text();
+            ToolTipService.SetToolTip(Root, row.Active ? _name.Text : Str.WidgetsC_Volume_NotPlaying.Format(("name", _name.Text)));
+            _percent.Text = LocaleFormat.Percent(Strings.Current, MixerRules.DisplayPercent(row));
             _levelScale.ScaleX = row.Muted ? 0 : MixerRules.ClampLevel(row.Level);
             _level.Fill = row.Active ? PlayingBrush : QuietBrush;
         }

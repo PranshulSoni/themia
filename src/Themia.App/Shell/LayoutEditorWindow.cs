@@ -10,6 +10,7 @@ using Themia.App.Interop;
 using Themia.App.Services;
 using Themia.App.Widgets;
 using Themia.Core.Diagnostics;
+using Themia.Core.Localization;
 using Themia.Core.Model;
 using Themia.Core.Widgets;
 using Windows.Graphics;
@@ -42,29 +43,32 @@ internal sealed class LayoutEditorWindow
     /// <summary>The tallest the pane picture gets.</summary>
     private const double MaxCanvasHeight = 440;
 
-    private static readonly (LayoutSource Value, string Label)[] Sources =
+    /// <summary>What a pane can open, labelled in the current language (built per pane, not cached).</summary>
+    private static (LayoutSource Value, string Label)[] Sources() =>
     [
-        (LayoutSource.App, "App"),
-        (LayoutSource.Url, "Web address"),
-        (LayoutSource.File, "File"),
-        (LayoutSource.Folder, "Folder"),
+        (LayoutSource.App, Str.Shortcut_KindApp.Text()),
+        (LayoutSource.Url, Str.WidgetsC_Shortcuts_Kind_Web.Text()),
+        (LayoutSource.File, Str.Shortcut_ChipFile.Text()),
+        (LayoutSource.Folder, Str.Shortcut_KindFolder.Text()),
     ];
 
     private readonly AppHost _host;
     private readonly Window _window = new();
     private readonly Grid _root = new();
     private readonly Grid _titleBar = new() { Height = 48 };
-    private readonly TextBox _name = new() { Width = 280 };
+    private readonly TextBlock _caption = new() { VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(16, 0, 0, 0) };
     private readonly TextBlock _summary = new();
     private readonly Border _canvas = new();
+    private readonly Border _canvasCard;
     private readonly StackPanel _page = new() { Spacing = 4, MaxWidth = 1000 };
     private readonly InfoBar _gone = new()
     {
-        Title = "This layout was removed",
-        Message = "The shortcut it belonged to is gone. Close this window.",
         Severity = InfoBarSeverity.Warning,
         IsClosable = false,
     };
+
+    /// <summary>The name box: made anew with the page on a language change, since its row is.</summary>
+    private TextBox _name = new();
 
     /// <summary>The source chosen for an empty pane (switching it clears the assignment, S-60).</summary>
     private readonly Dictionary<string, LayoutSource> _paneSource = new(StringComparer.Ordinal);
@@ -79,9 +83,11 @@ internal sealed class LayoutEditorWindow
     public LayoutEditorWindow(AppHost host)
     {
         _host = host;
+        _canvasCard = FluentLayout.Card(_canvas);
         BuildChrome();
         ConfigureWindow();
         _host.StateChanged += OnStateChanged;
+        Strings.Changed += OnLanguage;
     }
 
     /// <summary>Raised once, when the window has closed.</summary>
@@ -146,44 +152,18 @@ internal sealed class LayoutEditorWindow
             },
         };
 
-        var caption = new TextBlock { Text = "App layout", VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(16, 0, 0, 0) };
-        FluentLayout.ApplyStyle(caption, "CaptionTextBlockStyle");
+        FluentLayout.ApplyStyle(_caption, "CaptionTextBlockStyle");
 
-        _titleBar.Children.Add(new StackPanel { Orientation = Orientation.Horizontal, Children = { icon, caption } });
-
-        var title = new TextBlock { Text = "Edit app layout", Margin = new Thickness(0, 4, 0, 4) };
-        FluentLayout.ApplyStyle(title, "TitleTextBlockStyle");
-
-        _name.PlaceholderText = "App layout";
-        _name.KeyDown += (_, e) =>
-        {
-            if (e.Key == Windows.System.VirtualKey.Enter)
-            {
-                CommitName();
-                e.Handled = true;
-            }
-        };
-        _name.LostFocus += (_, _) => CommitName();
+        _titleBar.Children.Add(new StackPanel { Orientation = Orientation.Horizontal, Children = { icon, _caption } });
 
         _summary.Margin = new Thickness(0, 30, 0, 6);
         FluentLayout.ApplyStyle(_summary, "SettingsSectionHeaderTextBlockStyle");
 
         _canvas.SizeChanged += (_, e) => FitCanvas(e.NewSize.Width);
 
-        var done = new Button { Content = "Done", HorizontalAlignment = HorizontalAlignment.Right, Margin = new Thickness(0, 16, 0, 0) };
-        FluentLayout.ApplyStyle(done, "AccentButtonStyle");
-        done.Click += (_, _) => Close();
-
         _gone.IsOpen = false;
 
-        _page.Children.Add(title);
-        _page.Children.Add(FluentLayout.Note("Split the screen into panes and choose what opens in each. Opening the layout from its shortcut starts every app and puts its window in its pane, on the display the shortcut is on."));
-        _page.Children.Add(_gone);
-        _page.Children.Add(FluentLayout.Header("General"));
-        _page.Children.Add(FluentLayout.Row(Glyphs.Rename, "Name", "What the shortcut is called", _name));
-        _page.Children.Add(_summary);
-        _page.Children.Add(FluentLayout.Card(_canvas));
-        _page.Children.Add(done);
+        BuildPage();
 
         var scroll = new ScrollViewer
         {
@@ -207,7 +187,62 @@ internal sealed class LayoutEditorWindow
         };
 
         _window.Content = _root;
-        _window.Title = "App layout";
+    }
+
+    /// <summary>
+    /// The page's words and the rows that carry them, built again on a language change. The parts
+    /// that hold state — the "removed" bar, the summary, the pane picture's card — are kept and
+    /// moved over; the name box is made new because the row that frames it is.
+    /// </summary>
+    private void BuildPage()
+    {
+        _page.Children.Clear();
+
+        _caption.Text = ShortcutRules.LayoutKindLabel();
+        _window.Title = ShortcutRules.LayoutKindLabel();
+        _gone.Title = Str.WidgetsC_Shortcuts_LayoutEditor_Gone_Title.Text();
+        _gone.Message = Str.WidgetsC_Shortcuts_LayoutEditor_Gone_Message.Text();
+
+        var title = new TextBlock { Text = Str.WidgetsC_Shortcuts_LayoutEditor_Title.Text(), Margin = new Thickness(0, 4, 0, 4) };
+        FluentLayout.ApplyStyle(title, "TitleTextBlockStyle");
+
+        _name = new TextBox { Width = 280, PlaceholderText = ShortcutRules.LayoutKindLabel() };
+        var name = _name;
+        name.KeyDown += (_, e) =>
+        {
+            if (e.Key == Windows.System.VirtualKey.Enter)
+            {
+                CommitName();
+                e.Handled = true;
+            }
+        };
+        name.LostFocus += (_, _) => CommitName();
+
+        var done = new Button { Content = Str.Common_Done.Text(), HorizontalAlignment = HorizontalAlignment.Right, Margin = new Thickness(0, 16, 0, 0) };
+        FluentLayout.ApplyStyle(done, "AccentButtonStyle");
+        done.Click += (_, _) => Close();
+
+        _page.Children.Add(title);
+        _page.Children.Add(FluentLayout.Note(Str.WidgetsC_Shortcuts_LayoutEditor_Note.Text()));
+        _page.Children.Add(_gone);
+        _page.Children.Add(FluentLayout.Header(Str.Common_General.Text()));
+        _page.Children.Add(FluentLayout.Row(Glyphs.Rename, Str.Connect_Field_Name.Text(), Str.WidgetsC_Shortcuts_LayoutEditor_Name_Desc.Text(), _name));
+        _page.Children.Add(_summary);
+        _page.Children.Add(_canvasCard);
+        _page.Children.Add(done);
+    }
+
+    /// <summary>The language changed: the page's words, then the panes (their controls carry words too).</summary>
+    private void OnLanguage(Locale locale)
+    {
+        if (_closed)
+        {
+            return;
+        }
+
+        BuildPage();
+        _rendered = string.Empty;
+        Render();
     }
 
     private void ConfigureWindow()
@@ -245,6 +280,7 @@ internal sealed class LayoutEditorWindow
         {
             _closed = true;
             _host.StateChanged -= OnStateChanged;
+            Strings.Changed -= OnLanguage;
             Closed?.Invoke();
         };
     }
@@ -332,7 +368,7 @@ internal sealed class LayoutEditorWindow
             _name.Text = item.Label;
         }
 
-        _summary.Text = $"Panes · {LayoutPlan.Summary(layout)}";
+        _summary.Text = Str.WidgetsC_Shortcuts_LayoutEditor_Panes.Format(("apps", LayoutPlan.Summary(layout)));
 
         var single = layout.Kind == LayoutNodeKind.Pane;
         var host = new Grid { Height = 360 };
@@ -464,7 +500,7 @@ internal sealed class LayoutEditorWindow
             Child = grip,
         };
 
-        ToolTipService.SetToolTip(divider, "Drag to resize");
+        ToolTipService.SetToolTip(divider, Str.LayoutEditor_DragResize.Text());
         var dragging = false;
         var ratio = LayoutTree.ClampRatio(split.Ratio);
 
@@ -556,12 +592,12 @@ internal sealed class LayoutEditorWindow
             Spacing = 2,
         };
 
-        tools.Children.Add(Tool(Glyphs.SplitSideBySide, "Split side by side", () => Edit(root => Split(root, pane.Id, SplitDirection.Vertical))));
-        tools.Children.Add(Tool(Glyphs.SplitStacked, "Split top and bottom", () => Edit(root => Split(root, pane.Id, SplitDirection.Horizontal))));
+        tools.Children.Add(Tool(Glyphs.SplitSideBySide, Str.LayoutEditor_SplitVertical.Text(), () => Edit(root => Split(root, pane.Id, SplitDirection.Vertical))));
+        tools.Children.Add(Tool(Glyphs.SplitStacked, Str.LayoutEditor_SplitHorizontal.Text(), () => Edit(root => Split(root, pane.Id, SplitDirection.Horizontal))));
 
         if (!single)
         {
-            tools.Children.Add(Tool(Glyphs.Dismiss, "Remove pane", () => Edit(root => LayoutTree.Remove(root, pane.Id).Root)));
+            tools.Children.Add(Tool(Glyphs.Dismiss, Str.LayoutEditor_RemovePane.Text(), () => Edit(root => LayoutTree.Remove(root, pane.Id).Root)));
         }
 
         var middle = new StackPanel
@@ -579,12 +615,12 @@ internal sealed class LayoutEditorWindow
         else
         {
             var hint = Fluent.Text(FluentType.Body, "TextFillColorSecondaryBrush");
-            hint.Text = "Choose what opens here";
+            hint.Text = Str.WidgetsC_Shortcuts_LayoutEditor_EmptyPane.Text();
             hint.HorizontalAlignment = HorizontalAlignment.Center;
             middle.Children.Add(hint);
         }
 
-        var sourceBox = FluentLayout.Choice(Sources, source, value =>
+        var sourceBox = FluentLayout.Choice(Sources(), source, value =>
         {
             if (value == source)
             {
@@ -617,7 +653,7 @@ internal sealed class LayoutEditorWindow
 
             if (source is LayoutSource.App or LayoutSource.File)
             {
-                var reuse = new CheckBox { Content = "Move it if it is already open", IsChecked = assignment.ReuseIfRunning };
+                var reuse = new CheckBox { Content = Str.WidgetsC_Shortcuts_LayoutEditor_Reuse.Text(), IsChecked = assignment.ReuseIfRunning };
                 reuse.Click += (_, _) =>
                 {
                     var next = assignment.Clone();
@@ -627,7 +663,7 @@ internal sealed class LayoutEditorWindow
                 row.Children.Add(reuse);
             }
 
-            var clear = new Button { Content = "Clear", VerticalAlignment = VerticalAlignment.Center };
+            var clear = new Button { Content = Str.Common_Clear.Text(), VerticalAlignment = VerticalAlignment.Center };
             clear.Click += (_, _) => Edit(root => LayoutTree.Assign(root, pane.Id, null) ? root : null);
             Grid.SetColumn(clear, 1);
             row.Children.Add(clear);
@@ -744,7 +780,7 @@ internal sealed class LayoutEditorWindow
     {
         var box = new AutoSuggestBox
         {
-            PlaceholderText = "Search apps",
+            PlaceholderText = Str.LayoutEditor_SearchApps.Text(),
             Text = assignment?.Source == LayoutSource.App ? Label(assignment) : string.Empty,
             QueryIcon = new SymbolIcon(Symbol.Find),
             HorizontalAlignment = HorizontalAlignment.Stretch,
@@ -798,8 +834,8 @@ internal sealed class LayoutEditorWindow
             PlaceholderText = source switch
             {
                 LayoutSource.Url => "https://",
-                LayoutSource.Folder => @"C:\Folder",
-                _ => @"C:\Folder\File.ext",
+                LayoutSource.Folder => Str.WidgetsC_Shortcuts_LayoutEditor_FolderPlaceholder.Text(),
+                _ => Str.WidgetsC_Shortcuts_LayoutEditor_FilePlaceholder.Text(),
             },
             HorizontalAlignment = HorizontalAlignment.Stretch,
         };
@@ -824,7 +860,7 @@ internal sealed class LayoutEditorWindow
             if (target.Kind != wanted)
             {
                 FluentLayout.Refuse(verdict, target.IsValid
-                    ? (source == LayoutSource.Url ? "Type a web address starting with https://." : "Type a full path, starting with a drive letter or \\\\server.")
+                    ? (source == LayoutSource.Url ? Str.WidgetsC_Shortcuts_LayoutEditor_NeedWeb.Text() : Str.WidgetsC_Shortcuts_LayoutEditor_NeedPath.Text())
                     : LaunchTargets.RefusalMessage(target.Refusal));
                 return;
             }
@@ -857,7 +893,7 @@ internal sealed class LayoutEditorWindow
         }
         else
         {
-            var browse = new Button { Content = "Browse", VerticalAlignment = VerticalAlignment.Top };
+            var browse = new Button { Content = Str.WidgetUi_Browse.Text(), VerticalAlignment = VerticalAlignment.Top };
             browse.Click += async (_, _) =>
             {
                 if (await PickAsync(source == LayoutSource.Folder).ConfigureAwait(true) is { } picked)

@@ -4,6 +4,7 @@ using System.Text;
 using Themia.App.Services.Net;
 using Themia.App.Services.Web;
 using Themia.Core.Accounts;
+using Themia.Core.Localization;
 
 namespace Themia.App.Services.Accounts;
 
@@ -59,7 +60,9 @@ internal static class ImapLogin
             if (answer.Status != ImapStatus.Ok)
             {
                 throw new AccountException(AccountError.SignInRequired,
-                    $"The server refused the user name or password{(answer.Text.Length > 0 ? $": {answer.Text}" : ".")}");
+                    answer.Text.Length > 0
+                        ? Str.Shell_Accounts_ServerRefusedReason.Format(("reason", answer.Text))
+                        : Str.Shell_Accounts_ServerRefused.Text());
             }
 
             // ignore: a failed LOGOUT after a good LOGIN changes nothing about the verdict.
@@ -71,16 +74,16 @@ internal static class ImapLogin
         }
         catch (OperationCanceledException ex)
         {
-            throw new AccountException(AccountError.TimedOut, $"{login.Host} did not answer within {Deadline.TotalSeconds:F0} seconds.", 0, ex);
+            throw new AccountException(AccountError.TimedOut, Str.Shell_Net_NoAnswerWithin.Plural((long)Deadline.TotalSeconds, ("host", login.Host)), 0, ex);
         }
         catch (AuthenticationException ex)
         {
             throw new AccountException(AccountError.Unreachable,
-                $"The secure connection to {login.Host}:{login.Port} failed. Themia connects with TLS, usually on port 993.", 0, ex);
+                Str.Shell_Net_ImapTlsFailed.Format(("host", $"{login.Host}:{login.Port}")), 0, ex);
         }
         catch (SocketException ex)
         {
-            throw new AccountException(AccountError.Unreachable, $"Could not connect to {login.Host}:{login.Port} ({ex.SocketErrorCode}).", 0, ex);
+            throw new AccountException(AccountError.Unreachable, Str.Shell_Net_CouldNotConnectCode.Format(("host", $"{login.Host}:{login.Port}"), ("code", ex.SocketErrorCode.ToString())), 0, ex);
         }
         catch (NetRefusedException ex)
         {
@@ -92,7 +95,7 @@ internal static class ImapLogin
         }
         catch (IOException ex)
         {
-            throw new AccountException(AccountError.Unreachable, $"The connection to {login.Host} dropped.", 0, ex);
+            throw new AccountException(AccountError.Unreachable, Str.Shell_Net_Dropped.Format(("host", login.Host)), 0, ex);
         }
     }
 

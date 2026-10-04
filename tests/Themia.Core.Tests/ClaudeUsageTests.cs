@@ -1,3 +1,4 @@
+using Themia.Core.Localization;
 using Themia.Core.Developer;
 using Themia.Core.Model;
 using Xunit;
@@ -30,7 +31,7 @@ public sealed class ClaudeUsageTests
     [Fact]
     public void S633_parses_windows_and_ignores_unknown_buckets()
     {
-        var parsed = ClaudeUsageRules.Parse(Sample);
+        var parsed = ClaudeUsageRules.Parse(Sample, Locale.En);
 
         Assert.Null(parsed.Error);
         var usage = parsed.Report!;
@@ -45,7 +46,7 @@ public sealed class ClaudeUsageTests
     [Fact]
     public void S633_an_empty_object_is_an_unused_subscription()
     {
-        var usage = ClaudeUsageRules.Parse("{}").Report!;
+        var usage = ClaudeUsageRules.Parse("{}", Locale.En).Report!;
 
         Assert.Equal(0, usage.FiveHour.Utilization);
         Assert.Null(usage.SevenDay.ResetsAt);
@@ -59,7 +60,7 @@ public sealed class ClaudeUsageTests
     [InlineData("")]
     public void S633_a_malformed_body_is_an_error_not_a_zero_default(string body)
     {
-        var parsed = ClaudeUsageRules.Parse(body);
+        var parsed = ClaudeUsageRules.Parse(body, Locale.En);
 
         Assert.Null(parsed.Report);
         Assert.False(string.IsNullOrEmpty(parsed.Error));
@@ -70,7 +71,7 @@ public sealed class ClaudeUsageTests
     [Fact]
     public void S634_401_is_reconnect_not_permission()
     {
-        var message = ClaudeUsageRules.MapError(401, "Invalid authentication credentials");
+        var message = ClaudeUsageRules.MapError(401, "Invalid authentication credentials", Locale.En);
 
         Assert.Contains("reconnect", message, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("permission", message, StringComparison.OrdinalIgnoreCase);
@@ -79,18 +80,18 @@ public sealed class ClaudeUsageTests
     [Fact]
     public void S634_403_surfaces_anthropics_reason_and_does_not_say_reconnect()
     {
-        var message = ClaudeUsageRules.MapError(403, "OAuth token does not meet scope requirement user:profile");
+        var message = ClaudeUsageRules.MapError(403, "OAuth token does not meet scope requirement user:profile", Locale.En);
 
         Assert.Contains("user:profile", message, StringComparison.Ordinal);
         Assert.DoesNotContain("reconnect", message, StringComparison.OrdinalIgnoreCase);
-        Assert.Contains("permission", ClaudeUsageRules.MapError(403, null), StringComparison.Ordinal);
+        Assert.Contains("permission", ClaudeUsageRules.MapError(403, null, Locale.En), StringComparison.Ordinal);
     }
 
     [Fact]
     public void S634_anything_else_names_the_status()
     {
-        Assert.Equal("Anthropic answered HTTP 500: boom", ClaudeUsageRules.MapError(500, "boom"));
-        Assert.Equal("Anthropic answered HTTP 502", ClaudeUsageRules.MapError(502, "  "));
+        Assert.Equal("Anthropic answered HTTP 500: boom", ClaudeUsageRules.MapError(500, "boom", Locale.En));
+        Assert.Equal("Anthropic answered HTTP 502", ClaudeUsageRules.MapError(502, "  ", Locale.En));
     }
 
     // ---- [S-631] percentage and severity -------------------------------------------------------
@@ -130,18 +131,18 @@ public sealed class ClaudeUsageTests
     [Fact]
     public void S632_reset_labels()
     {
-        Assert.Equal(string.Empty, ClaudeUsageRules.ResetLabel(null, Now));
-        Assert.Equal(string.Empty, ClaudeUsageRules.ResetLabel(Now.AddHours(-1), Now));
-        Assert.Equal("resets in 45m", ClaudeUsageRules.ResetLabel(Now.AddMinutes(45), Now));
-        Assert.Equal("resets in 3h 20m", ClaudeUsageRules.ResetLabel(Now.AddHours(3).AddMinutes(20), Now));
-        Assert.Equal("resets in 2d 2h", ClaudeUsageRules.ResetLabel(Now.AddDays(2).AddHours(2), Now));
-        Assert.Equal("3h 20m", ClaudeUsageRules.ResetLabel(Now.AddHours(3).AddMinutes(20), Now, brief: true));
+        Assert.Equal(string.Empty, ClaudeUsageRules.ResetLabel(null, Now, Locale.En));
+        Assert.Equal(string.Empty, ClaudeUsageRules.ResetLabel(Now.AddHours(-1), Now, Locale.En));
+        Assert.Equal("resets in 45m", ClaudeUsageRules.ResetLabel(Now.AddMinutes(45), Now, Locale.En));
+        Assert.Equal("resets in 3h 20m", ClaudeUsageRules.ResetLabel(Now.AddHours(3).AddMinutes(20), Now, Locale.En));
+        Assert.Equal("resets in 2d 2h", ClaudeUsageRules.ResetLabel(Now.AddDays(2).AddHours(2), Now, Locale.En));
+        Assert.Equal("3h 20m", ClaudeUsageRules.ResetLabel(Now.AddHours(3).AddMinutes(20), Now, Locale.En, brief: true));
     }
 
     [Fact]
     public void S633_an_unreadable_reset_time_is_no_reset()
     {
-        var usage = ClaudeUsageRules.Parse("""{"five_hour":{"utilization":1,"resets_at":"not-a-date"}}""").Report!;
+        var usage = ClaudeUsageRules.Parse("""{"five_hour":{"utilization":1,"resets_at":"not-a-date"}}""", Locale.En).Report!;
         Assert.Null(usage.FiveHour.ResetsAt);
     }
 
@@ -164,9 +165,9 @@ public sealed class ClaudeUsageTests
     [Fact]
     public void S630_two_base_windows_always_and_models_when_toggled()
     {
-        Assert.Equal(["five_hour", "seven_day"], ClaudeUsageRules.BuildBars(Base, false, false).Select(b => b.Key));
+        Assert.Equal(["five_hour", "seven_day"], ClaudeUsageRules.BuildBars(Base, false, false, Locale.En).Select(b => b.Key));
 
-        var bars = ClaudeUsageRules.BuildBars(Base, true, true);
+        var bars = ClaudeUsageRules.BuildBars(Base, true, true, Locale.En);
         Assert.Equal(["five_hour", "seven_day", "opus", "sonnet"], bars.Select(b => b.Key));
         Assert.Equal(UsageWindow.Unused, bars[2].Window);
         Assert.Equal(UsageWindow.Unused, bars[3].Window);
@@ -175,14 +176,14 @@ public sealed class ClaudeUsageTests
     [Fact]
     public void S630_a_model_window_the_endpoint_sends_is_used()
     {
-        var bars = ClaudeUsageRules.BuildBars(Base with { Opus = new UsageWindow(55, null) }, true, false);
+        var bars = ClaudeUsageRules.BuildBars(Base with { Opus = new UsageWindow(55, null) }, true, false, Locale.En);
         Assert.Equal(55, bars[2].Window.Utilization);
     }
 
     [Fact]
     public void S635_every_label_width_stays_distinct()
     {
-        var bars = ClaudeUsageRules.BuildBars(Base, true, true);
+        var bars = ClaudeUsageRules.BuildBars(Base, true, true, Locale.En);
 
         foreach (var size in Enum.GetValues<UsageLabelSize>())
         {
@@ -255,7 +256,7 @@ public sealed class ClaudeUsageTests
     [Fact]
     public void S635_labels_shorten_with_the_width_and_inline_rows_need_more()
     {
-        var bars = ClaudeUsageRules.BuildBars(Base, false, false);
+        var bars = ClaudeUsageRules.BuildBars(Base, false, false, Locale.En);
 
         Assert.Equal(UsageLabelSize.Full, ClaudeUsageRules.LabelSize(bars, 300, UsageDensity.Full));
         Assert.Equal(UsageLabelSize.Short, ClaudeUsageRules.LabelSize(bars, 140, UsageDensity.Full));

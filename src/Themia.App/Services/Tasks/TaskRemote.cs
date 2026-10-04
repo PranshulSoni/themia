@@ -1,6 +1,7 @@
 using System.Net.Http;
 using Themia.App.Services.Accounts;
 using Themia.Core.Accounts;
+using Themia.Core.Localization;
 using Themia.Core.Tasks;
 
 namespace Themia.App.Services.Tasks;
@@ -113,11 +114,11 @@ internal sealed class AccountTaskRemote(AccountService accounts) : ITaskRemote
             .ConfigureAwait(false);
 
         return TaskWire.ParseCreated(provider, reply.Body, listId)
-            ?? throw new AccountException(AccountError.BadResponse, "The task was created, but the answer did not describe it.", reply.Status);
+            ?? throw new AccountException(AccountError.BadResponse, Str.Shell_Tasks_CreatedUndescribed.Text(), reply.Status);
     }
 
     private AccountProvider Provider(string accountId)
         => accounts.Find(accountId) is { } account && TaskWire.Supports(account.Provider)
             ? account.Provider
-            : throw new AccountException(AccountError.UnknownAccount, "That account is no longer signed in to Themia.");
+            : throw new AccountException(AccountError.UnknownAccount, Str.Shell_Accounts_NotSignedIn.Text());
 }

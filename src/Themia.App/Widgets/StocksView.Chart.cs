@@ -6,6 +6,7 @@ using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Shapes;
 using Themia.App.Shell;
+using Themia.Core.Localization;
 using Themia.Core.Model;
 using Themia.Core.Widgets;
 using Windows.Foundation;
@@ -81,17 +82,17 @@ internal sealed partial class StocksView
 
     private void BuildChips()
     {
-        (QuoteRange Range, string Text)[] ranges =
+        QuoteRange[] ranges =
         [
-            (QuoteRange.Day, "1D"), (QuoteRange.FiveDays, "5D"), (QuoteRange.Month, "1M"), (QuoteRange.ThreeMonths, "3M"),
-            (QuoteRange.SixMonths, "6M"), (QuoteRange.Year, "1Y"), (QuoteRange.FiveYears, "5Y"),
+            QuoteRange.Day, QuoteRange.FiveDays, QuoteRange.Month, QuoteRange.ThreeMonths,
+            QuoteRange.SixMonths, QuoteRange.Year, QuoteRange.FiveYears,
         ];
 
-        foreach (var (range, text) in ranges)
+        foreach (var range in ranges)
         {
             var button = new Button
             {
-                Content = text,
+                Content = ChipText(range),
                 Padding = new Thickness(Fluent.Space2, 0, Fluent.Space2, 0),
                 MinHeight = 24,
                 Height = 24,
@@ -109,6 +110,26 @@ internal sealed partial class StocksView
         SetRow(_chips, 0);
         SetColumnSpan(_chips, 2);
     }
+
+    /// <summary>The chips' short period names ("1D", "1T"), again after a language change.</summary>
+    private void LabelChips()
+    {
+        foreach (var (button, range) in _chipButtons)
+        {
+            button.Content = ChipText(range);
+        }
+    }
+
+    private static string ChipText(QuoteRange range) => (range switch
+    {
+        QuoteRange.Day => Str.WidgetsC_Stocks_Range_Day,
+        QuoteRange.FiveDays => Str.WidgetsC_Stocks_Range_FiveDays,
+        QuoteRange.Month => Str.WidgetsC_Stocks_Range_Month,
+        QuoteRange.ThreeMonths => Str.WidgetsC_Stocks_Range_ThreeMonths,
+        QuoteRange.SixMonths => Str.WidgetsC_Stocks_Range_SixMonths,
+        QuoteRange.Year => Str.WidgetsC_Stocks_Range_Year,
+        _ => Str.WidgetsC_Stocks_Range_FiveYears,
+    }).Text();
 
     /// <summary>[S-1311] A range chip sets the period, as the settings' Period choice does, and saves it.</summary>
     private void OnChipClick(object sender, RoutedEventArgs args)
@@ -189,12 +210,31 @@ internal sealed partial class StocksView
                 _stats.Margin = new Thickness(StockLayout.Inset, StockLayout.Gap, StockLayout.Inset, Fluent.Space2);
                 _stats.Width = double.NaN;
 
-                for (var i = 0; i < count; i++)
+                // [S-1109] A line whose label and value do not both fit the tile is shed rather than
+                // trimmed: "52-Wochen-Spanne 344,79…" says less than the lines that do fit. Measured,
+                // not estimated, because the words differ by language and a number is not a word.
+                var room = _area.Width - (2 * StockLayout.Inset);
+                var shown = 0;
+
+                for (var i = 0; i < facts.Count && shown < count; i++)
                 {
-                    _stats.RowDefinitions.Add(new RowDefinition { Height = new GridLength(StockLayout.StackLine) });
                     var line = Fact(facts[i], stacked: false);
-                    SetRow(line, i);
+                    line.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
+
+                    if (line.DesiredSize.Width > room)
+                    {
+                        continue;
+                    }
+
+                    _stats.RowDefinitions.Add(new RowDefinition { Height = new GridLength(StockLayout.StackLine) });
+                    SetRow(line, shown++);
                     _stats.Children.Add(line);
+                }
+
+                if (shown == 0)
+                {
+                    _stats.Visibility = Visibility.Collapsed;
+                    return;
                 }
 
                 Place(_stats, 5, 0, 1, 2);

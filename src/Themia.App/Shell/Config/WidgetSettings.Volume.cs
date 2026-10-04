@@ -2,6 +2,7 @@ using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Themia.App.Services;
 using Themia.Core.Diagnostics;
+using Themia.Core.Localization;
 using Themia.Core.Model;
 using Themia.Core.Widgets;
 
@@ -23,7 +24,7 @@ internal static partial class WidgetSettings
         ArgumentNullException.ThrowIfNull(config);
         ArgumentNullException.ThrowIfNull(save);
 
-        rows.Add(FluentLayout.Header("Volume"));
+        rows.Add(FluentLayout.Header(Str.Widget_Volume_Label.Text()));
 
         rows.Add(AudioDeviceRow(config.DeviceId, config.DeviceName, (id, name) =>
         {
@@ -32,32 +33,32 @@ internal static partial class WidgetSettings
             save();
         }));
 
-        rows.Add(FluentLayout.Row(Glyphs.Sound, "Show the slider",
-            "With it off the tile is a readout",
+        rows.Add(FluentLayout.Row(Glyphs.Sound, Str.WidgetsC_Volume_Settings_ShowSlider_Label.Text(),
+            Str.WidgetsC_Volume_Settings_ShowSlider_Desc.Text(),
             FluentLayout.Toggle(config.ShowSlider, value => { config.ShowSlider = value; save(); })));
 
-        rows.Add(FluentLayout.Row(Glyphs.Volume2, "Level meter",
-            "A live meter above the slider, from a medium tile up",
+        rows.Add(FluentLayout.Row(Glyphs.Volume2, Str.WidgetsC_Volume_Settings_Meter_Label.Text(),
+            Str.WidgetsC_Volume_Settings_Meter_Desc.Text(),
             FluentLayout.Toggle(config.ShowPeaks, value => { config.ShowPeaks = value; save(); })));
 
-        rows.Add(FluentLayout.Row(Glyphs.Microphone, "Microphone",
-            "The default microphone's level and mute on a large tile",
+        rows.Add(FluentLayout.Row(Glyphs.Microphone, Str.WidgetsC_Volume_Microphone.Text(),
+            Str.WidgetsC_Volume_Settings_Mic_Desc.Text(),
             FluentLayout.Toggle(config.ShowMicrophone, value => { config.ShowMicrophone = value; save(); })));
 
-        rows.Add(FluentLayout.Row(Glyphs.Apps, "Apps",
-            "The apps playing on the device, on a large tile with room",
+        rows.Add(FluentLayout.Row(Glyphs.Apps, Str.WidgetsC_Volume_Settings_Apps_Label.Text(),
+            Str.WidgetsC_Volume_Settings_Apps_Desc.Text(),
             FluentLayout.Toggle(config.ShowApps, value => { config.ShowApps = value; save(); })));
 
-        rows.Add(FluentLayout.Header("Behaviour"));
+        rows.Add(FluentLayout.Header(Str.WidgetsC_Volume_Settings_Behaviour.Text()));
 
         // Named for what it does rather than "read-only": a desktop widget sits under the path of
         // every pointer on the screen, and somebody who wants a gauge and not a control should be
         // able to say so without losing the gauge.
-        rows.Add(FluentLayout.Row(Glyphs.Edit, "Allow changes",
-            "Let this tile move the system volume",
+        rows.Add(FluentLayout.Row(Glyphs.Edit, Str.WidgetsC_Volume_Settings_Allow_Label.Text(),
+            Str.WidgetsC_Volume_Settings_Allow_Desc.Text(),
             FluentLayout.Toggle(config.AllowControl, value => { config.AllowControl = value; save(); })));
 
-        rows.Add(FluentLayout.Note("The tile follows Windows the moment the volume changes. Click it, then use the arrow keys or + and − to change the volume and M to mute."));
+        rows.Add(FluentLayout.Note(Str.WidgetsC_Volume_Settings_KeysNote.Text()));
     }
 
     /// <summary>
@@ -68,12 +69,12 @@ internal static partial class WidgetSettings
     private static Border AudioDeviceRow(string? chosenId, string? chosenName, Action<string?, string?> pick)
     {
         var box = new ComboBox { MinWidth = 220, MaxWidth = 320 };
-        box.Items.Add(new ComboBoxItem { Content = "Default output", Tag = null });
+        box.Items.Add(new ComboBoxItem { Content = Str.WidgetsC_Volume_Settings_DefaultOutput.Text(), Tag = null });
         box.SelectedIndex = 0;
 
         if (chosenId is not null)
         {
-            box.Items.Add(new ComboBoxItem { Content = chosenName ?? "Chosen device", Tag = new AudioDevice(chosenId, chosenName ?? string.Empty) });
+            box.Items.Add(new ComboBoxItem { Content = chosenName ?? Str.WidgetsC_Volume_Settings_ChosenDevice.Text(), Tag = new AudioDevice(chosenId, chosenName ?? string.Empty) });
             box.SelectedIndex = 1;
         }
 
@@ -100,7 +101,7 @@ internal static partial class WidgetSettings
 
                 filling = true;
                 box.Items.Clear();
-                box.Items.Add(new ComboBoxItem { Content = "Default output", Tag = null });
+                box.Items.Add(new ComboBoxItem { Content = Str.WidgetsC_Volume_Settings_DefaultOutput.Text(), Tag = null });
                 var selected = 0;
 
                 foreach (var device in devices)
@@ -117,7 +118,7 @@ internal static partial class WidgetSettings
                 {
                     box.Items.Add(new ComboBoxItem
                     {
-                        Content = $"{AudioRules.DeviceName(chosenId, devices, chosenName)} (not connected)",
+                        Content = Str.WidgetsC_Volume_Settings_DeviceNotConnected.Format(("device", AudioRules.DeviceName(chosenId, devices, chosenName))),
                         Tag = new AudioDevice(chosenId, chosenName ?? string.Empty),
                     });
                     selected = box.Items.Count - 1;
@@ -135,8 +136,8 @@ internal static partial class WidgetSettings
             }
         }
 
-        return FluentLayout.Row(Glyphs.Speakers, "Output device",
-            "Which device this widget shows. Picking one in the widget changes Windows' default instead",
+        return FluentLayout.Row(Glyphs.Speakers, Str.WidgetsC_Volume_Settings_Device_Label.Text(),
+            Str.WidgetsC_Volume_Settings_Device_Desc.Text(),
             box, "speaker", "headphones", "sound");
     }
 }

@@ -6,6 +6,7 @@ using Themia.App.Services.Accounts;
 using Themia.Core.Accounts;
 using Themia.Core.Developer;
 using Themia.Core.Diagnostics;
+using Themia.Core.Localization;
 using Themia.Core.Model;
 
 namespace Themia.App.Services.Developer;
@@ -207,7 +208,7 @@ internal sealed class GitHubService : IGitHubSource, IDisposable
 
         if (GitHubRules.ParseRepo(item.Repo) is not { } repo)
         {
-            return Task.FromResult<string?>("That repository's name is not one Themia can use.");
+            return Task.FromResult<string?>(Str.Shell_GitHub_BadRepo.Text());
         }
 
         return ChangeAsync(item.AccountId, HttpMethod.Put, GitHubRules.RepoNotificationsUrl(Api(item.AccountId), repo), "{}", $"mark {repo} read");
@@ -232,7 +233,7 @@ internal sealed class GitHubService : IGitHubSource, IDisposable
     {
         if (_hub.BlockedUntil(accountId, DateTimeOffset.UtcNow) is { } until)
         {
-            return $"GitHub asked Themia to slow down; try again after {until.ToLocalTime():HH:mm}.";
+            return Str.Shell_GitHub_SlowDown.Format(("time", LocaleFormat.Time(Strings.Current, until.ToLocalTime().DateTime)));
         }
 
         try
@@ -289,7 +290,7 @@ internal sealed class GitHubService : IGitHubSource, IDisposable
         }
 
         var summary = GitHubRules.ToRepo(wire)
-            ?? throw new AccountException(AccountError.BadResponse, "GitHub sent a repository without a name or address.");
+            ?? throw new AccountException(AccountError.BadResponse, Str.Shell_GitHub_RepoUnnamed.Text());
 
         // The rest is decoration around the repository's own numbers: one of them failing is
         // logged and drawn as absent, as in the classic app. A throttle or a lost sign-in is not
@@ -354,7 +355,7 @@ internal sealed class GitHubService : IGitHubSource, IDisposable
         var now = DateTimeOffset.UtcNow;
         if (_hub.BlockedUntil(accountId, now) is { } blocked)
         {
-            throw new AccountException(AccountError.RateLimited, $"GitHub's rate limit for {accountId} is spent.") { RetryAt = blocked };
+            throw new AccountException(AccountError.RateLimited, Str.Shell_GitHub_RateLimit.Text()) { RetryAt = blocked };
         }
 
         var key = accountId + " " + url.AbsoluteUri;
@@ -383,7 +384,7 @@ internal sealed class GitHubService : IGitHubSource, IDisposable
         {
             if (held is null)
             {
-                throw new AccountException(AccountError.BadResponse, "GitHub answered 304 to a request Themia had not made conditional.", 304);
+                throw new AccountException(AccountError.BadResponse, Str.Shell_GitHub_Unexpected304.Text(), 304);
             }
 
             held.At = now;
@@ -450,11 +451,11 @@ internal sealed class GitHubService : IGitHubSource, IDisposable
         try
         {
             return JsonSerializer.Deserialize(body, contract)
-                ?? throw new AccountException(AccountError.BadResponse, "GitHub sent an empty document.");
+                ?? throw new AccountException(AccountError.BadResponse, Str.Shell_GitHub_Empty.Text());
         }
         catch (JsonException ex)
         {
-            throw new AccountException(AccountError.BadResponse, $"GitHub sent something that does not parse: {ex.Message}", 0, ex);
+            throw new AccountException(AccountError.BadResponse, Str.Shell_GitHub_Unparsable.Format(("reason", ex.Message)), 0, ex);
         }
     }
 

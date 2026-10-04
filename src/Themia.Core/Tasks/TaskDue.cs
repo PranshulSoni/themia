@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Text.RegularExpressions;
+using Themia.Core.Localization;
 
 namespace Themia.Core.Tasks;
 
@@ -44,8 +45,6 @@ public readonly record struct Due(DateOnly Day, DueLabel Label, int Days)
 /// </summary>
 public static partial class TaskDue
 {
-    private static readonly string[] DayNames = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-    private static readonly string[] MonthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
     /// <summary>The intended day of a due value, or null when it is absent or not a date.</summary>
     public static DateOnly? Day(string? raw, TimeZoneInfo viewer)
@@ -122,35 +121,47 @@ public static partial class TaskDue
     /// The label in words. Overdue is said as a word, not only coloured ([S-186]): a state a reader
     /// can only get from a colour is one some readers do not get at all.
     /// </summary>
-    public static string Text(Due due) => due.Label switch
+    public static string Text(Due due) => Text(Strings.Current, due);
+
+    /// <summary><see cref="Text(Due)"/> in an explicit language.</summary>
+    public static string Text(Locale locale, Due due) => due.Label switch
     {
-        DueLabel.Overdue => "Overdue",
-        DueLabel.Today => "Today",
-        DueLabel.Tomorrow => "Tomorrow",
-        DueLabel.Weekday => DayNames[(int)due.Day.DayOfWeek],
-        _ => ShortDate(due.Day),
+        DueLabel.Overdue => Strings.Get(locale, Str.WidgetsC_Tasks_Overdue),
+        DueLabel.Today => Strings.Get(locale, Str.Common_Today),
+        DueLabel.Tomorrow => Strings.Get(locale, Str.Common_Tomorrow),
+        DueLabel.Weekday => LocaleFormat.WeekdayName(locale, due.Day.DayOfWeek, NameWidth.Short),
+        _ => ShortDate(locale, due.Day),
     };
 
     /// <summary>
     /// [S-789] The label with its date, for a due column with room for it: <c>Overdue · 2 Oct</c>,
     /// <c>Today</c>, <c>Tomorrow</c>, <c>Thu 8 Oct</c>. Today and tomorrow need no date to be exact.
     /// </summary>
-    public static string WideText(Due due) => due.Label switch
+    public static string WideText(Due due) => WideText(Strings.Current, due);
+
+    /// <summary><see cref="WideText(Due)"/> in an explicit language.</summary>
+    public static string WideText(Locale locale, Due due) => due.Label switch
     {
-        DueLabel.Overdue => $"Overdue · {ShortDate(due.Day)}",
-        DueLabel.Today => "Today",
-        DueLabel.Tomorrow => "Tomorrow",
-        _ => LongText(due),
+        DueLabel.Overdue => Strings.Format(locale, Str.WidgetsC_Tasks_OverdueOn, ("date", ShortDate(locale, due.Day))),
+        DueLabel.Today => Strings.Get(locale, Str.Common_Today),
+        DueLabel.Tomorrow => Strings.Get(locale, Str.Common_Tomorrow),
+        _ => LongText(locale, due),
     };
 
     /// <summary>[S-780] Whether a due date is worth a line on a tile with room for almost nothing.</summary>
     public static bool IsUrgent(Due due) => due.Label is DueLabel.Overdue or DueLabel.Today;
 
-    /// <summary>The whole date, for a tooltip: <c>Wed 14 Oct</c>.</summary>
-    public static string LongText(Due due) => $"{DayNames[(int)due.Day.DayOfWeek]} {ShortDate(due.Day)}";
+    /// <summary>The whole date, for a tooltip: <c>Wed, Oct 14</c> / <c>Mi., 14. Okt.</c>.</summary>
+    public static string LongText(Due due) => LongText(Strings.Current, due);
 
-    /// <summary>A day as the list writes it, <c>14 Oct</c>, the same shape every other widget here uses.</summary>
-    public static string ShortDate(DateOnly day) => $"{day.Day} {MonthNames[day.Month - 1]}";
+    /// <summary><see cref="LongText(Due)"/> in an explicit language.</summary>
+    public static string LongText(Locale locale, Due due) => LocaleFormat.Date(locale, due.Day, DateStyle.WeekdayMonthDayShort);
+
+    /// <summary>A day as the list writes it, <c>Oct 14</c> / <c>14. Okt.</c>: the language's short day and month.</summary>
+    public static string ShortDate(DateOnly day) => ShortDate(Strings.Current, day);
+
+    /// <summary><see cref="ShortDate(DateOnly)"/> in an explicit language.</summary>
+    public static string ShortDate(Locale locale, DateOnly day) => LocaleFormat.Date(locale, day, DateStyle.MonthDayShort);
 
     /// <summary>
     /// [S-597] A day as the one encoding both providers read back as the day meant: bare

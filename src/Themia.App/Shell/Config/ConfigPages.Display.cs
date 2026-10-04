@@ -1,6 +1,7 @@
 ﻿using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Themia.App.Services;
+using Themia.Core.Localization;
 using Themia.Core.Model;
 using Themia.Core.Storage;
 
@@ -16,7 +17,7 @@ internal static partial class ConfigPages
     {
         if (host.FindDisplay(monitorId) is not { } display)
         {
-            return Page("Display", [Note("This display is no longer connected.")]);
+            return Page(Str.App_MonitorLabelUnknown.Text(), [Note(Str.Shell_Display_Gone.Text())]);
         }
 
         var state = host.State;
@@ -42,16 +43,16 @@ internal static partial class ConfigPages
 
         var rows = new List<FrameworkElement>
         {
-            FluentLayout.Row(Glyphs.Display, "Show Themia on this display",
+            FluentLayout.Row(Glyphs.Display, Str.Shell_Display_Show.Text(),
                 canToggle
-                    ? "Off hides every widget here and lets the whole screen through to the desktop"
-                    : "Themia has to stay on at least one display",
+                    ? Str.Shell_Display_ShowDesc.Text()
+                    : Str.Shell_Display_ShowLast.Text(),
                 show, "enable", "disable", "hide", "monitor"),
 
-            FluentLayout.Row(Glyphs.View, "Shows", "Which view this display renders", ViewChoice(host, monitorId), "view"),
+            FluentLayout.Row(Glyphs.View, Str.Shell_Display_Shows.Text(), Str.Shell_Display_ShowsDesc.Text(), ViewChoice(host, monitorId), "view"),
 
-            FluentLayout.Row(Glyphs.Scale, "Widget scale",
-                "Makes everything inside the widgets on this display bigger or smaller; where they sit and their size stay the same",
+            FluentLayout.Row(Glyphs.Scale, Str.Display_WidgetScale_Label.Text(),
+                Str.Shell_Display_ScaleDesc.Text(),
                 FluentLayout.Slider(
                     (state.MonitorScales.TryGetValue(monitorId, out var scale) ? scale : 1.0) * 100,
                     AppStateStore.MinMonitorScale * 100,
@@ -61,11 +62,11 @@ internal static partial class ConfigPages
                     value => host.SetDisplayScale(monitorId, value / 100)),
                 "zoom", "size", "text size", "magnify"),
 
-            FluentLayout.Row(Glyphs.Display, "Resolution",
-                $"Widgets are laid out over the whole screen; the taskbar leaves {display.WorkArea.Width} × {display.WorkArea.Height} for placing new ones",
+            FluentLayout.Row(Glyphs.Display, Str.Shell_Display_Resolution.Text(),
+                Str.Shell_Display_ResolutionDesc.Format(("width", LocaleFormat.Integer(display.WorkArea.Width)), ("height", LocaleFormat.Integer(display.WorkArea.Height))),
                 new TextBlock
                 {
-                    Text = $"{display.Bounds.Width} × {display.Bounds.Height}",
+                    Text = Str.Shell_Display_Size.Format(("width", LocaleFormat.Integer(display.Bounds.Width)), ("height", LocaleFormat.Integer(display.Bounds.Height))),
                     VerticalAlignment = VerticalAlignment.Center,
                 },
                 "work area", "taskbar"),
@@ -83,39 +84,39 @@ internal static partial class ConfigPages
 
         var rows = new List<FrameworkElement>
         {
-            FluentLayout.Header("View bar"),
+            FluentLayout.Header(Str.Shell_ViewBar_Header.Text()),
 
-            FluentLayout.Row(Glyphs.View, "Show the view bar",
-                "Chips on the desktop for switching this display's view. With a single view it only shows if you picked that view below",
+            FluentLayout.Row(Glyphs.View, Str.Shell_ViewBar_Show.Text(),
+                Str.Shell_ViewBar_ShowDesc.Text(),
                 FluentLayout.Toggle(!bar.Hidden, on => Change(b => b.Hidden = !on)),
                 "views", "switcher", "chips"),
 
-            FluentLayout.Row(Glyphs.Display, "Position",
-                "Where on this display it sits, inside the area the taskbar leaves free. In edit mode it can also be dragged by its handle",
+            FluentLayout.Row(Glyphs.Display, Str.ViewBar_Position_Label.Text(),
+                Str.Shell_ViewBar_PositionDesc.Text(),
                 FluentLayout.Choice<ViewBarAnchor>(
                 [
-                    (ViewBarAnchor.TopLeft, "Top left"),
-                    (ViewBarAnchor.TopCenter, "Top centre"),
-                    (ViewBarAnchor.TopRight, "Top right"),
-                    (ViewBarAnchor.LeftCenter, "Left (vertical)"),
-                    (ViewBarAnchor.RightCenter, "Right (vertical)"),
-                    (ViewBarAnchor.BottomLeft, "Bottom left"),
-                    (ViewBarAnchor.BottomCenter, "Bottom centre"),
-                    (ViewBarAnchor.BottomRight, "Bottom right"),
+                    (ViewBarAnchor.TopLeft, Str.Shell_ViewBar_TopLeft.Text()),
+                    (ViewBarAnchor.TopCenter, Str.Shell_ViewBar_TopCentre.Text()),
+                    (ViewBarAnchor.TopRight, Str.Shell_ViewBar_TopRight.Text()),
+                    (ViewBarAnchor.LeftCenter, Str.Shell_ViewBar_LeftVertical.Text()),
+                    (ViewBarAnchor.RightCenter, Str.Shell_ViewBar_RightVertical.Text()),
+                    (ViewBarAnchor.BottomLeft, Str.Shell_ViewBar_BottomLeft.Text()),
+                    (ViewBarAnchor.BottomCenter, Str.Shell_ViewBar_BottomCentre.Text()),
+                    (ViewBarAnchor.BottomRight, Str.Shell_ViewBar_BottomRight.Text()),
                 ], bar.Anchor, value => Change(b => b.Anchor = value)),
                 "anchor", "corner", "vertical"),
 
-            FluentLayout.Row(Glyphs.Scale, "Size", null,
+            FluentLayout.Row(Glyphs.Scale, Str.ViewBar_Size_Label.Text(), null,
                 FluentLayout.Choice<ViewBarSize>(
                 [
-                    (ViewBarSize.Medium, "Medium"),
-                    (ViewBarSize.Large, "Large"),
-                    (ViewBarSize.ExtraLarge, "Extra large"),
+                    (ViewBarSize.Medium, Str.Shell_Size_Medium.Text()),
+                    (ViewBarSize.Large, Str.Shell_Size_Large.Text()),
+                    (ViewBarSize.ExtraLarge, Str.Shell_Size_ExtraLarge.Text()),
                 ], bar.Size, value => Change(b => b.Size = value)),
                 "bigger", "smaller"),
 
-            FluentLayout.Row(Glyphs.Rename, "Show view names",
-                "Off leaves each view's icon, or its initials; the name is still in the tooltip",
+            FluentLayout.Row(Glyphs.Rename, Str.Shell_ViewBar_ShowNames.Text(),
+                Str.Shell_ViewBar_ShowNamesDesc.Text(),
                 FluentLayout.Toggle(!bar.IconOnly, on => Change(b => b.IconOnly = !on)),
                 "labels", "icons only", "initials"),
         };
@@ -164,8 +165,8 @@ internal static partial class ConfigPages
 
         Sync();
 
-        rows.Add(FluentLayout.Expander(Glyphs.View, "Views on the bar",
-            "Each view switched on gets a chip here. With every one on, views you add later get one too",
+        rows.Add(FluentLayout.Expander(Glyphs.View, Str.Shell_ViewBar_Views.Text(),
+            Str.Shell_ViewBar_ViewsDesc.Text(),
             null, viewRows));
 
         return rows;
@@ -174,7 +175,7 @@ internal static partial class ConfigPages
     /// <summary>The view drop-down: an explicit view, or the active view.</summary>
     private static ComboBox ViewChoice(AppHost host, string monitorId)
     {
-        var options = new List<(string Value, string Label)> { (string.Empty, "Follow the active view") };
+        var options = new List<(string Value, string Label)> { (string.Empty, Str.Shell_Display_FollowActive.Text()) };
         options.AddRange(host.State.Views.Select(v => (v.Id, v.Name)));
 
         var selected = host.State.MonitorViews.TryGetValue(monitorId, out var assigned) ? assigned : string.Empty;

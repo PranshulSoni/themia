@@ -6,6 +6,7 @@ using Microsoft.UI.Xaml.Media;
 using Themia.App.Services;
 using Themia.App.Shell;
 using Themia.Core.Diagnostics;
+using Themia.Core.Localization;
 using Themia.Core.Model;
 using Themia.Core.Widgets;
 
@@ -79,7 +80,7 @@ internal sealed partial class ClipboardView : Grid, IWidgetView, IWidgetHeaderCo
         };
 
         _clear.Click += OnClearClicked;
-        ToolTipService.SetToolTip(_clear, "Clear history");
+        ToolTipService.SetToolTip(_clear, Str.Clipboard_ClearHistory.Text());
 
         _scroll = new ScrollViewer
         {
@@ -115,6 +116,7 @@ internal sealed partial class ClipboardView : Grid, IWidgetView, IWidgetHeaderCo
     public void Attach(Ticker ticker, WidgetConfig config)
     {
         _ticker = ticker;
+        Strings.Changed += OnLanguage;
 
         // The listener is shared by every Clipboard widget on every display: subscribers are
         // counted and the message window is created with the first and destroyed with the last.
@@ -206,8 +208,8 @@ internal sealed partial class ClipboardView : Grid, IWidgetView, IWidgetHeaderCo
             // Each state says which it is. "Nothing copied yet" and "the listener never started"
             // need very different things from the reader.
             _emptyText.Text = ClipboardWatcher.IsRunning || _surface?.IsPreview == true
-                ? "Nothing copied yet. Copy something and it appears here."
-                : "Windows would not let this app watch the clipboard.";
+                ? Str.WidgetsA_Clipboard_Empty.Text()
+                : Str.WidgetsA_Clipboard_NoListener.Text();
 
             _empty.Visibility = Visibility.Visible;
             _scroll.Visibility = Visibility.Collapsed;
@@ -234,7 +236,7 @@ internal sealed partial class ClipboardView : Grid, IWidgetView, IWidgetHeaderCo
         ShowCursor();
 
         _footer.Visibility = _plan.Footer ? Visibility.Visible : Visibility.Collapsed;
-        _footer.Text = ClipboardLayout.CountLine(_history.Count, _history.Capacity);
+        _footer.Text = ClipboardLayout.CountLine(_history.Count, _history.Capacity, Strings.Current);
     }
 
     private Border BuildRow(ClipboardEntry entry, bool current, DateTimeOffset now)
@@ -257,7 +259,7 @@ internal sealed partial class ClipboardView : Grid, IWidgetView, IWidgetHeaderCo
         {
             // When · how much, under the preview: the tall tiles' replacement for the time column.
             var detail = Fluent.Text(FluentType.Caption, "TextFillColorSecondaryBrush");
-            var size = ClipboardFormatting.Describe(entry.Text);
+            var size = ClipboardFormatting.Describe(entry.Text, Strings.Current);
             detail.Text = _config.ShowTimestamp ? $"{Formatting.Ago(entry.CapturedAt, now)} · {size}" : size;
             detail.MaxLines = 1;
             Microsoft.UI.Xaml.Documents.Typography.SetNumeralAlignment(detail, FontNumeralAlignment.Tabular);
@@ -313,7 +315,7 @@ internal sealed partial class ClipboardView : Grid, IWidgetView, IWidgetHeaderCo
         // do is put something back on the clipboard.
         row.Tapped += OnRowTapped;
 
-        ToolTipService.SetToolTip(row, ClipboardFormatting.Describe(entry.Text));
+        ToolTipService.SetToolTip(row, ClipboardFormatting.Describe(entry.Text, Strings.Current));
         return row;
     }
 
@@ -364,10 +366,10 @@ internal sealed partial class ClipboardView : Grid, IWidgetView, IWidgetHeaderCo
 
         return
         [
-            new(Glyphs.Copy, "Copy", () => CopyBack(text)),
-            new(Glyphs.Delete, "Remove from history", () => Remove(text), Danger: true),
+            new(Glyphs.Copy, Str.Common_Copy.Text(), () => CopyBack(text)),
+            new(Glyphs.Delete, Str.WidgetsA_Clipboard_Remove.Text(), () => Remove(text), Danger: true),
             ItemMenuEntry.Separator,
-            new(Glyphs.Clear, "Clear history…", () => _ = ConfirmClearAsync(), Danger: true),
+            new(Glyphs.Clear, Str.WidgetsA_Clipboard_ClearEllipsis.Text(), () => _ = ConfirmClearAsync(), Danger: true),
         ];
     }
 
@@ -521,9 +523,9 @@ internal sealed partial class ClipboardView : Grid, IWidgetView, IWidgetHeaderCo
 
         var confirmed = await FluentLayout.ConfirmAsync(
             this,
-            "Clear clipboard history?",
-            "Everything in this list is forgotten. This cannot be undone, and it does not change what is on the clipboard now.",
-            "Clear");
+            Str.WidgetsA_Clipboard_ClearConfirm_Title.Text(),
+            Str.WidgetsA_Clipboard_ClearConfirm_Body.Text(),
+            Str.Common_Clear.Text());
 
         if (!confirmed || _detached)
         {
@@ -531,6 +533,13 @@ internal sealed partial class ClipboardView : Grid, IWidgetView, IWidgetHeaderCo
         }
 
         _history.Clear();
+        Render();
+    }
+
+    /// <summary>[S-1109] Rows, sizes and the footer are worded again in the new language.</summary>
+    private void OnLanguage(Locale locale)
+    {
+        ToolTipService.SetToolTip(_clear, Str.Clipboard_ClearHistory.Text());
         Render();
     }
 
@@ -542,6 +551,7 @@ internal sealed partial class ClipboardView : Grid, IWidgetView, IWidgetHeaderCo
         }
 
         _detached = true;
+        Strings.Changed -= OnLanguage;
 
         _clear.Click -= OnClearClicked;
 

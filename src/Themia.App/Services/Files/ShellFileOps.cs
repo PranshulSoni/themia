@@ -3,6 +3,7 @@ using System.Diagnostics;
 using System.Runtime.InteropServices;
 using Themia.Core.Diagnostics;
 using Themia.Core.Files;
+using Themia.Core.Localization;
 using Themia.Core.Widgets;
 
 namespace Themia.App.Services.Files;
@@ -278,7 +279,7 @@ internal static unsafe partial class ShellFileOps
     {
         try
         {
-            var name = FileNames.Unique("New folder", Names(destination));
+            var name = FileNames.Unique(Str.Shell_Files_NewFolder.Text(), Names(destination));
             var path = Path.Combine(destination, name);
             Directory.CreateDirectory(path);
             Notify([destination]);
@@ -296,7 +297,7 @@ internal static unsafe partial class ShellFileOps
     {
         ArgumentNullException.ThrowIfNull(template);
 
-        var path = Path.Combine(destination, FileNames.Unique($"New {template.Label}{template.Extension}", Names(destination)));
+        var path = Path.Combine(destination, FileNames.Unique(Str.Shell_Files_NewFile.Format(("name", template.Label)) + template.Extension, Names(destination)));
 
         try
         {

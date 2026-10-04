@@ -1,3 +1,4 @@
+using Themia.Core.Localization;
 using Themia.Core.Widgets;
 using Xunit;
 
@@ -125,7 +126,7 @@ public class BluetoothLadderTests
         var classic = new BluetoothDeviceEntry("Headset", "a", true, BluetoothDeviceKind.Audio, null);
         var le = new BluetoothDeviceEntry("Headset", "b", true, BluetoothDeviceKind.Audio, 70, -62);
 
-        var merged = Assert.Single(BluetoothRules.Arrange([classic, le], connectedOnly: false, maxCount: 10));
+        var merged = Assert.Single(BluetoothRules.Arrange([classic, le], connectedOnly: false, maxCount: 10, locale: Locale.En));
 
         Assert.Equal(-62, merged.SignalDbm);
         Assert.Equal(70, merged.BatteryPercent);
@@ -136,9 +137,9 @@ public class BluetoothLadderTests
     {
         var device = new BluetoothDeviceEntry("Mouse", "id", true, BluetoothDeviceKind.Mouse, 45, null);
 
-        Assert.Equal("Mouse · Connected · 45%", BluetoothRules.DetailLine(device, true, true, true));
-        Assert.Equal("Mouse", BluetoothRules.DetailLine(device, false, false, true));
-        Assert.Equal("2 connected", BluetoothRules.ConnectedSummary(2));
-        Assert.Null(BluetoothRules.ConnectedSummary(0));
+        Assert.Equal("Mouse · Connected · 45%", BluetoothRules.DetailLine(device, true, true, true, Locale.En));
+        Assert.Equal("Mouse", BluetoothRules.DetailLine(device, false, false, true, Locale.En));
+        Assert.Equal("2 connected", BluetoothRules.ConnectedSummary(2, Locale.En));
+        Assert.Null(BluetoothRules.ConnectedSummary(0, Locale.En));
     }
 }

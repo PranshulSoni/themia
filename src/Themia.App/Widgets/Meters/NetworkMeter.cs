@@ -1,4 +1,5 @@
 using Themia.App.Services;
+using Themia.Core.Localization;
 using Themia.Core.Model;
 using Themia.Core.Widgets;
 
@@ -52,7 +53,7 @@ internal sealed class NetworkMeter : MeterPart
     {
         if (NetworkThroughput.Read() is not { } sample)
         {
-            host.Present(MeterReading.Unavailable("unavailable"));
+            host.Present(MeterReading.Unavailable(Str.WidgetsB_Meters_Unavailable.Text()));
             return;
         }
 
@@ -61,7 +62,7 @@ internal sealed class NetworkMeter : MeterPart
         if (_adapters == 0)
         {
             _window.Clear();
-            host.Present(MeterReading.Unavailable("no connection"));
+            host.Present(MeterReading.Unavailable(Str.WidgetsB_Network_NoConnection.Text()));
             return;
         }
 
@@ -120,20 +121,20 @@ internal sealed class NetworkMeter : MeterPart
 
         if (_config.ShowAddress && primary?.Details.Address is { } address)
         {
-            lines.Add(new MeterFact("IP address", address));
+            lines.Add(new MeterFact(Str.WidgetsB_Network_IpAddress.Text(), address));
         }
 
         if (_config.ShowPublicAddress)
         {
-            lines.Add(new MeterFact("Public IP", PublicAddress.Current()));
+            lines.Add(new MeterFact(Str.Net_PublicIp.Text(), PublicAddress.Current()));
         }
 
         if (_config.ShowSession)
         {
-            lines.Add(new MeterFact("Session", NetworkRules.Totals(sample.SessionDown, sample.SessionUp)));
+            lines.Add(new MeterFact(Str.WidgetUi_Session.Text(), NetworkRules.Totals(sample.SessionDown, sample.SessionUp)));
         }
 
-        lines.Add(new MeterFact("Peak", NetworkRules.Pair(_window.PeakDown, _window.PeakUp)));
+        lines.Add(new MeterFact(Str.WidgetsB_Meters_Peak.Text(), NetworkRules.Pair(_window.PeakDown, _window.PeakUp)));
         return lines;
     }
 
@@ -180,7 +181,7 @@ internal sealed class NetworkMeter : MeterPart
                     NetworkRules.Pair(rate.Down, rate.Up),
                     NetworkRules.LinkSpeed(d.LinkSpeed) is { } speed ? $"{d.Type} · {speed}" : d.Type,
                     d.Address,
-                    $"Session {NetworkRules.Totals(rate.SessionDown, rate.SessionUp)}",
+                    Str.WidgetsB_Network_SessionTotals.Format(("totals", NetworkRules.Totals(rate.SessionDown, rate.SessionUp))),
                 }.Where(line => !string.IsNullOrEmpty(line)))
                 : rate.Name;
 
@@ -191,6 +192,6 @@ internal sealed class NetworkMeter : MeterPart
                 tooltip));
         }
 
-        return new MeterList("Adapters", shown);
+        return new MeterList(Str.WidgetsB_Network_Adapters.Text(), shown);
     }
 }

@@ -3,6 +3,7 @@ using Microsoft.UI;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Themia.App.Shell;
+using Themia.Core.Localization;
 using Themia.Core.Widgets;
 
 namespace Themia.App.Widgets;
@@ -20,6 +21,7 @@ internal sealed partial class RssView
     private readonly TextBlock _paneDate = Fluent.Text(FluentType.Caption, "TextFillColorTertiaryBrush");
     private readonly TextBlock _paneSummary = Fluent.Text(FluentType.Body, "TextFillColorSecondaryBrush");
     private readonly Button _paneOpen = new();
+    private readonly TextBlock _openText = new();
     private string _paneLink = string.Empty;
 
     private void BuildPane()
@@ -27,6 +29,7 @@ internal sealed partial class RssView
         _paneTitle.TextWrapping = TextWrapping.Wrap;
         _paneSummary.TextWrapping = TextWrapping.Wrap;
 
+        _openText.Text = Str.WidgetsC_Rss_OpenArticle.Text();
         _paneOpen.Content = new StackPanel
         {
             Orientation = Orientation.Horizontal,
@@ -34,7 +37,7 @@ internal sealed partial class RssView
             Children =
             {
                 Fluent.Icon(Glyphs.OpenExternal, "TextFillColorPrimaryBrush", 14),
-                new TextBlock { Text = "Open article" },
+                _openText,
             },
         };
         _paneOpen.Margin = new Thickness(0, Fluent.Space2, 0, 0);
@@ -87,12 +90,15 @@ internal sealed partial class RssView
             _paneSource.Visibility = Visibility.Collapsed;
         }
 
-        _paneTitle.Text = entry.Title.Length > 0 ? entry.Title : "(untitled)";
+        _paneTitle.Text = entry.Title.Length > 0 ? entry.Title : Str.WidgetsC_Rss_Untitled.Text();
 
         if (entry.Published is { } published)
         {
             var local = published.ToLocalTime();
-            _paneDate.Text = $"{local.ToString("ddd d MMM yyyy, HH:mm", CultureInfo.InvariantCulture)} · {FetchState.Freshness(published, now)}";
+            _paneDate.Text = Str.WidgetsC_Rss_PaneDate.Format(
+                ("date", LocaleFormat.Date(Strings.Current, DateOnly.FromDateTime(local.DateTime), DateStyle.Full)),
+                ("time", LocaleFormat.Time(Strings.Current, local.DateTime)),
+                ("age", FetchState.Freshness(published, now)));
             _paneDate.Visibility = Visibility.Visible;
         }
         else

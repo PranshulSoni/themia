@@ -2,6 +2,7 @@ using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Themia.App.Services;
 using Themia.App.Widgets;
+using Themia.Core.Localization;
 using Themia.Core.Model;
 using Themia.Core.Widgets;
 
@@ -24,7 +25,7 @@ internal static partial class WidgetSettings
         ArgumentNullException.ThrowIfNull(config);
         ArgumentNullException.ThrowIfNull(save);
 
-        rows.Add(FluentLayout.Header("Screen time"));
+        rows.Add(FluentLayout.Header(Str.Widget_Screentime_Label.Text()));
 
         // [S-451] Two axes: what is covered, and how it is drawn. Changing the period writes both,
         // with the style clamped into the new period, so the pair stored is always drawable.
@@ -54,9 +55,9 @@ internal static partial class WidgetSettings
             }
         };
 
-        rows.Add(FluentLayout.Row(Glyphs.Calendar, "Period", "One day, or a rolling window that ends today",
+        rows.Add(FluentLayout.Row(Glyphs.Calendar, Str.Screentime_Cfg_Period.Text(), Str.WidgetsC_ScreenTime_Settings_Period_Desc.Text(),
             FluentLayout.Choice(
-                [(ScreenTimePeriod.Day, "Day"), (ScreenTimePeriod.Week, "Last 7 days"), (ScreenTimePeriod.Month, "Last 30 days")],
+                [(ScreenTimePeriod.Day, Str.Screentime_Cfg_PeriodDay.Text()), (ScreenTimePeriod.Week, Str.Screentime_Last7Days.Text()), (ScreenTimePeriod.Month, Str.Screentime_Last30Days.Text())],
                 ScreenTimeRules.ClampPeriod(config.Period),
                 value =>
                 {
@@ -66,43 +67,43 @@ internal static partial class WidgetSettings
                     FillStyles();
                 })));
 
-        rows.Add(FluentLayout.Row(Glyphs.Palette, "Style", "A day draws its apps; a window draws its days", style));
+        rows.Add(FluentLayout.Row(Glyphs.Palette, Str.Screentime_Cfg_Style.Text(), Str.WidgetsC_ScreenTime_Settings_Style_Desc.Text(), style));
 
         // [S-1211] The list is a switch; its length is a ceiling over what the tile has room for.
-        rows.Add(FluentLayout.Row(Glyphs.Apps, "List the apps", "Beside or under the drawing, busiest first",
+        rows.Add(FluentLayout.Row(Glyphs.Apps, Str.WidgetsC_ScreenTime_Settings_List_Label.Text(), Str.WidgetsC_ScreenTime_Settings_List_Desc.Text(),
             FluentLayout.Toggle(config.ShowList, value => { config.ShowList = value; save(); }),
             "legend"));
 
-        rows.Add(FluentLayout.Row(Glyphs.Count, "Most apps listed",
-            "0 lists as many as the widget has room for",
+        rows.Add(FluentLayout.Row(Glyphs.Count, Str.WidgetsC_ScreenTime_Settings_Most_Label.Text(),
+            Str.WidgetsC_ScreenTime_Settings_Most_Desc.Text(),
             FluentLayout.Slider(ScreenTimeRules.EffectiveMaxApps(config.MaxApps), 0, ScreenTimeRules.MaxAppsLimit, 1, string.Empty,
                 value => { config.MaxApps = (int)Math.Round(value); save(); }),
             "apps listed", "max apps"));
 
-        rows.Add(FluentLayout.Header("Figures"));
+        rows.Add(FluentLayout.Header(Str.WidgetsC_ScreenTime_Settings_Figures.Text()));
 
-        rows.Add(FluentLayout.Row(Glyphs.Hours, "Average per day", "In a window, beside the total and on each app",
+        rows.Add(FluentLayout.Row(Glyphs.Hours, Str.Screentime_Metric_Average.Text(), Str.WidgetsC_ScreenTime_Settings_Average_Desc.Text(),
             FluentLayout.Toggle(config.ShowAverage, value => { config.ShowAverage = value; save(); })));
 
-        rows.Add(FluentLayout.Row(Glyphs.Shuffle, "Switches", "How often you moved between apps",
+        rows.Add(FluentLayout.Row(Glyphs.Shuffle, Str.Screentime_Metric_Switches.Text(), Str.WidgetsC_ScreenTime_Settings_Switches_Desc.Text(),
             FluentLayout.Toggle(config.ShowSwitches, value => { config.ShowSwitches = value; save(); })));
 
-        rows.Add(FluentLayout.Row(Glyphs.Count, "Share", "Each app's part of the total, as a percentage",
+        rows.Add(FluentLayout.Row(Glyphs.Count, Str.Screentime_Metric_Percent.Text(), Str.WidgetsC_ScreenTime_Settings_Share_Desc.Text(),
             FluentLayout.Toggle(config.ShowPercent, value => { config.ShowPercent = value; save(); })));
 
         AddLimits(rows, config, save);
         AddHiddenApps(rows, config, save);
 
         rows.Add(FluentLayout.Note(
-            "Screen time is recorded on this PC only, while Themia is running. It is kept apart from your layout, so copying or exporting a widget never carries it."));
+            Str.WidgetsC_ScreenTime_Settings_Privacy.Text()));
     }
 
     private static string StyleName(ScreenTimeStyle style) => style switch
     {
-        ScreenTimeStyle.Doughnut => "Doughnut",
-        ScreenTimeStyle.Bars => "Bars",
-        ScreenTimeStyle.Heatmap => "Calendar",
-        _ => "None",
+        ScreenTimeStyle.Doughnut => Str.Screentime_Cfg_StyleDoughnut.Text(),
+        ScreenTimeStyle.Bars => Str.Screentime_Cfg_StyleBars.Text(),
+        ScreenTimeStyle.Heatmap => Str.WidgetsC_ScreenTime_Settings_StyleCalendar.Text(),
+        _ => Str.Screentime_Cfg_StyleNone.Text(),
     };
 
     /// <summary>
@@ -111,10 +112,10 @@ internal static partial class WidgetSettings
     /// </summary>
     private static void AddLimits(List<FrameworkElement> rows, ScreenTimeConfig config, Action save)
     {
-        rows.Add(FluentLayout.Header("Limits"));
+        rows.Add(FluentLayout.Header(Str.WidgetsC_ScreenTime_Settings_Limits.Text()));
 
-        rows.Add(FluentLayout.Row(Glyphs.Timer, "Daily limit", "Total screen time per day; 0 is off",
-            FluentLayout.Slider(Math.Clamp(config.GoalSeconds / 60, 0, 1440), 0, 1440, 15, " min",
+        rows.Add(FluentLayout.Row(Glyphs.Timer, Str.WidgetsC_ScreenTime_DailyLimit.Text(), Str.WidgetsC_ScreenTime_Settings_DailyLimit_Desc.Text(),
+            FluentLayout.Slider(Math.Clamp(config.GoalSeconds / 60, 0, 1440), 0, 1440, 15, Str.WidgetsC_Pomodoro_MinutesUnit.Text(),
                 value => { config.GoalSeconds = (int)Math.Round(value) * 60; save(); })));
 
         // The apps the history knows, so a limit is picked rather than typed and mistyped.
@@ -124,9 +125,9 @@ internal static partial class WidgetSettings
         {
             Items = config.AppLimits,
             Save = save,
-            EmptyText = "No app has a limit of its own.",
-            AddTitle = "Limit an app",
-            AddAction = "Add",
+            EmptyText = Str.WidgetsC_ScreenTime_Settings_NoAppLimits.Text(),
+            AddTitle = Str.WidgetsC_ScreenTime_Settings_LimitApp.Text(),
+            AddAction = Str.Common_Add.Text(),
             Create = () => new ScreenTimeAppLimit { App = known.Count > 0 ? known[0].App : string.Empty, Seconds = 3600 },
             Body = limit => LimitEditor(limit, known, save),
         });
@@ -158,7 +159,7 @@ internal static partial class WidgetSettings
             }
         };
 
-        var minutes = FluentLayout.Slider(Math.Clamp(limit.Seconds / 60, 15, 720), 15, 720, 15, " min",
+        var minutes = FluentLayout.Slider(Math.Clamp(limit.Seconds / 60, 15, 720), 15, 720, 15, Str.WidgetsC_Pomodoro_MinutesUnit.Text(),
             value => { limit.Seconds = (int)Math.Round(value) * 60; save(); });
 
         return new StackPanel { Spacing = Fluent.Space1, Children = { app, minutes } };
@@ -170,7 +171,7 @@ internal static partial class WidgetSettings
     /// </summary>
     private static void AddHiddenApps(List<FrameworkElement> rows, ScreenTimeConfig config, Action save)
     {
-        rows.Add(FluentLayout.Header("Hidden apps"));
+        rows.Add(FluentLayout.Header(Str.Screentime_Cfg_Hidden.Text()));
 
         var host = new StackPanel { Spacing = Fluent.Space1 };
         rows.Add(host);
@@ -183,13 +184,13 @@ internal static partial class WidgetSettings
 
             if (config.HiddenApps.Count == 0)
             {
-                host.Children.Add(FluentLayout.Note("No hidden apps. Right-click an app in the widget to hide it."));
+                host.Children.Add(FluentLayout.Note(Str.WidgetsC_ScreenTime_Settings_NoHidden.Text()));
                 return;
             }
 
             foreach (var key in config.HiddenApps.ToList())
             {
-                var show = FluentLayout.IconCommand(Glyphs.View, "Show again");
+                var show = FluentLayout.IconCommand(Glyphs.View, Str.WidgetsC_ScreenTime_Settings_ShowAgain.Text());
                 show.Click += (_, _) =>
                 {
                     config.HiddenApps.Remove(key);

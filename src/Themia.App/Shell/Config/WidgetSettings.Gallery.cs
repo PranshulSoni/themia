@@ -3,6 +3,7 @@ using Microsoft.UI.Xaml.Controls;
 using Themia.App.Interop;
 using Themia.App.Widgets;
 using Themia.Core.Diagnostics;
+using Themia.Core.Localization;
 using Themia.Core.Model;
 using Themia.Core.Widgets;
 using Windows.System;
@@ -66,12 +67,12 @@ internal static partial class WidgetSettings
             fitRow!.Visibility = folder && config.Layout == GalleryLayout.Mosaic ? Visibility.Collapsed : Visibility.Visible;
         }
 
-        rows.Add(FluentLayout.Header("Gallery"));
+        rows.Add(FluentLayout.Header(Str.WidgetsB_Settings_Gallery_Gallery.Text()));
 
         // [S-760] The source first: every other row depends on it.
-        rows.Add(FluentLayout.Row(Glyphs.Gallery, "Source", "Where the pictures come from",
+        rows.Add(FluentLayout.Row(Glyphs.Gallery, Str.Gallery_SourceLabel.Text(), Str.WidgetsB_Settings_Gallery_Source_Desc.Text(),
             FluentLayout.Choice(
-                [(GallerySource.Folder, "A folder"), (GallerySource.File, "One picture"), (GallerySource.Bing, "Bing photo of the day")],
+                [(GallerySource.Folder, Str.WidgetsB_Settings_Gallery_SourceFolder.Text()), (GallerySource.File, Str.WidgetsB_Settings_Gallery_SourceFile.Text()), (GallerySource.Bing, Str.WidgetsB_Settings_Gallery_SourceBing.Text())],
                 config.Source,
                 value => { config.Source = value; save(); Update(); })));
 
@@ -82,33 +83,33 @@ internal static partial class WidgetSettings
         fileRow = GalleryPathRow(config, save, pickFile: true);
         rows.Add(fileRow);
 
-        captionRow = FluentLayout.Row(Glyphs.Info, "Caption", "Show the photo's title and credit under it",
+        captionRow = FluentLayout.Row(Glyphs.Info, Str.Gallery_CaptionLabel.Text(), Str.WidgetsB_Settings_Gallery_Caption_Desc.Text(),
             FluentLayout.Toggle(config.ShowCaption, value => { config.ShowCaption = value; save(); }));
         rows.Add(captionRow);
 
-        var recursive = FluentLayout.Row(Glyphs.Folder, "Include subfolders",
-            "Look in the folders below this one too",
+        var recursive = FluentLayout.Row(Glyphs.Folder, Str.Gallery_RecursiveLabel.Text(),
+            Str.WidgetsB_Settings_Gallery_Recursive_Desc.Text(),
             FluentLayout.Toggle(config.Recursive, value => { config.Recursive = value; save(); }));
         rows.Add(recursive);
         folderOnly.Add(recursive);
 
-        var layout = FluentLayout.Row(Glyphs.Grid, "Layout", "One at a time, tiles, prints on a table, or a mosaic",
+        var layout = FluentLayout.Row(Glyphs.Grid, Str.Gallery_LayoutLabel.Text(), Str.WidgetsB_Settings_Gallery_Layout_Desc.Text(),
             FluentLayout.Choice(
-                [(GalleryLayout.Slideshow, "Slideshow"), (GalleryLayout.Grid, "Grid"), (GalleryLayout.Scatter, "Scatter"), (GalleryLayout.Mosaic, "Mosaic")],
+                [(GalleryLayout.Slideshow, Str.Gallery_ModeSlideshow.Text()), (GalleryLayout.Grid, Str.Gallery_ModeGrid.Text()), (GalleryLayout.Scatter, Str.Gallery_ModeScatter.Text()), (GalleryLayout.Mosaic, Str.Gallery_ModeMosaic.Text())],
                 config.Layout,
                 value => { config.Layout = value; save(); Update(); }));
         rows.Add(layout);
         folderOnly.Add(layout);
 
-        fitRow = FluentLayout.Row(Glyphs.Scale, "Picture size",
-            "Fill crops to the frame; fit shows the whole picture",
+        fitRow = FluentLayout.Row(Glyphs.Scale, Str.WidgetsB_Settings_Gallery_Fit_Label.Text(),
+            Str.WidgetsB_Settings_Gallery_Fit_Desc.Text(),
             FluentLayout.Choice(
-                [(GalleryFit.Fill, "Fill"), (GalleryFit.Fit, "Fit")],
+                [(GalleryFit.Fill, Str.WidgetsB_Settings_Gallery_Fill.Text()), (GalleryFit.Fit, Str.WidgetsB_Settings_Gallery_FitChoice.Text())],
                 config.Fit,
                 value => { config.Fit = value; save(); }));
         rows.Add(fitRow);
 
-        var count = FluentLayout.Row(Glyphs.Count, "Pictures", "How many are taken from the folder",
+        var count = FluentLayout.Row(Glyphs.Count, Str.WidgetsB_Settings_Gallery_Count_Label.Text(), Str.WidgetsB_Settings_Gallery_Count_Desc.Text(),
             FluentLayout.Slider(
                 config.EffectiveMaxImages,
                 1,
@@ -119,13 +120,13 @@ internal static partial class WidgetSettings
         rows.Add(count);
         folderOnly.Add(count);
 
-        var shuffle = FluentLayout.Row(Glyphs.Shuffle, "Shuffle",
-            "Take a different selection each time the folder is read",
+        var shuffle = FluentLayout.Row(Glyphs.Shuffle, Str.WidgetsB_Settings_Gallery_Shuffle_Label.Text(),
+            Str.WidgetsB_Settings_Gallery_Shuffle_Desc.Text(),
             FluentLayout.Toggle(config.Shuffle, value => { config.Shuffle = value; save(); }));
         rows.Add(shuffle);
         folderOnly.Add(shuffle);
 
-        var open = new Button { Content = "Open in Explorer" };
+        var open = new Button { Content = Str.Folder_OpenInExplorer.Text() };
 
         open.Click += (_, _) =>
         {
@@ -139,13 +140,13 @@ internal static partial class WidgetSettings
 
         // The widget will not move, rename or delete anything, so this is the way out to the place
         // that will.
-        var files = FluentLayout.Row(Glyphs.Open, "Files", "This widget only shows them; manage them in Explorer", open);
+        var files = FluentLayout.Row(Glyphs.Open, Str.WidgetsB_Settings_Gallery_Files_Label.Text(), Str.WidgetsB_Settings_Gallery_Files_Desc.Text(), open);
         rows.Add(files);
         folderOnly.Add(files);
 
-        rows.Add(FluentLayout.Header("Updating"));
+        rows.Add(FluentLayout.Header(Str.WidgetsB_Settings_Gallery_Updating.Text()));
 
-        var slide = FluentLayout.Row(Glyphs.Timer, "Slide time", "How long each picture is shown",
+        var slide = FluentLayout.Row(Glyphs.Timer, Str.WidgetsB_Settings_Gallery_Slide_Label.Text(), Str.WidgetsB_Settings_Gallery_Slide_Desc.Text(),
             FluentLayout.Slider(config.EffectiveSlideshowSeconds, GalleryConfig.MinSlideSeconds, 120, 1, "s",
                 value => { config.SlideshowSeconds = (int)Math.Round(value); save(); }));
         rows.Add(slide);
@@ -154,10 +155,10 @@ internal static partial class WidgetSettings
         // [S-772] The original's cadences. A folder changes when something writes to it, which no
         // timer can know; this is the backstop, and "Refresh images" on the widget is the way now.
         var refreshOptions = GalleryConfig.RefreshChoices
-            .Select(minutes => (minutes, minutes == 60 ? "Every hour" : $"Every {minutes} minutes"))
+            .Select(minutes => (minutes, minutes == 60 ? Str.WidgetsB_Settings_Gallery_EveryHour.Text() : Str.WidgetsB_Settings_Gallery_EveryMinutes.Plural(minutes)))
             .ToArray();
 
-        rows.Add(FluentLayout.Row(Glyphs.Refresh, "Refresh", "How often the pictures are read again",
+        rows.Add(FluentLayout.Row(Glyphs.Refresh, Str.Common_Refresh.Text(), Str.WidgetsB_Settings_Gallery_Refresh_Desc.Text(),
             FluentLayout.Choice(refreshOptions, config.EffectiveRefreshMinutes,
                 value => { config.RefreshMinutes = value; save(); })));
 
@@ -179,10 +180,10 @@ internal static partial class WidgetSettings
             // the value, and the box writes to it rather than shadowing it.
             Text = Current(),
             Width = 260,
-            PlaceholderText = pickFile ? "No picture chosen" : "No folder chosen",
+            PlaceholderText = pickFile ? Str.WidgetsB_Settings_Gallery_NoPicture.Text() : Str.WidgetsB_Settings_Gallery_NoFolder.Text(),
         };
 
-        var browse = new Button { Content = "Browse…" };
+        var browse = new Button { Content = Str.WidgetsB_Settings_Folder_Browse.Text() };
 
         void Commit()
         {
@@ -234,8 +235,8 @@ internal static partial class WidgetSettings
         var current = Current();
         ShowGalleryVerdict(verdict, current, current.Trim().Length == 0, FolderPath.Validate(current), pickFile, refusedType: false);
 
-        return FluentLayout.FieldRow(pickFile ? Glyphs.File : Glyphs.Folder, pickFile ? "Picture" : "Folder",
-            pickFile ? "The one picture to show" : "Where the pictures are",
+        return FluentLayout.FieldRow(pickFile ? Glyphs.File : Glyphs.Folder, pickFile ? Str.Gallery_ImageLabel.Text() : Str.Gallery_FolderLabel.Text(),
+            pickFile ? Str.WidgetsB_Settings_Gallery_Picture_Desc.Text() : Str.WidgetsB_Settings_Gallery_Folder_Desc.Text(),
             new StackPanel
             {
                 Orientation = Orientation.Horizontal,
@@ -292,19 +293,19 @@ internal static partial class WidgetSettings
     {
         if (refusedType)
         {
-            FluentLayout.Refuse(verdict, "That is not a picture this app can show.");
+            FluentLayout.Refuse(verdict, Str.WidgetsB_Settings_Gallery_NotAPicture.Text());
             return;
         }
 
         if (blank)
         {
-            FluentLayout.Confirm(verdict, pickFile ? "No picture chosen yet." : "No folder chosen yet.");
+            FluentLayout.Confirm(verdict, pickFile ? Str.WidgetsB_Settings_Gallery_NoPictureYet.Text() : Str.WidgetsB_Settings_Gallery_NoFolderYet.Text());
             return;
         }
 
         if (result.IsValid)
         {
-            FluentLayout.Confirm(verdict, $"Showing {FolderPath.DisplayName(current)}");
+            FluentLayout.Confirm(verdict, Str.WidgetsB_Settings_Gallery_Showing.Format(("name", FolderPath.DisplayName(current))));
             return;
         }
 

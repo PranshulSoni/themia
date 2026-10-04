@@ -8,6 +8,7 @@ using Themia.App.Services;
 using Themia.App.Services.Habits;
 using Themia.App.Shell;
 using Themia.Core.Habits;
+using Themia.Core.Localization;
 using Themia.Core.Model;
 using Themia.Core.Widgets;
 
@@ -280,7 +281,7 @@ internal sealed partial class HabitTrackerView : Grid, IWidgetView, IWidgetSurfa
         _done.Text = habits.Count == 0 ? string.Empty : string.Create(CultureInfo.InvariantCulture, $"{doneNow}/{habits.Count}");
         AutomationProperties.SetName(_done, habits.Count == 0
             ? string.Empty
-            : $"{doneNow} of {habits.Count} done {HabitPeriods.CurrentNoun(cadence.Period)}");
+            : Str.WidgetsB_Habits_DoneOf.Format(("done", doneNow), ("total", habits.Count), ("when", HabitPeriods.CurrentNoun(cadence.Period))));
 
         _doneNow = doneNow;
         _doneWindow = doneWindow;
@@ -292,17 +293,17 @@ internal sealed partial class HabitTrackerView : Grid, IWidgetView, IWidgetSurfa
     {
         if (_pool is null)
         {
-            return "Habits are not available.";
+            return Str.WidgetsB_Habits_Unavailable.Text();
         }
 
         if (_habitList is null)
         {
             return string.IsNullOrEmpty(_config.ListId) || !_pool.Writable
-                ? "The habit lists could not be read."
-                : "This habit list was deleted.\nPick a list in this widget's settings.";
+                ? Str.WidgetsB_Habits_Unreadable.Text()
+                : Str.WidgetsB_Habits_ListDeleted.Text();
         }
 
-        return Writable ? "No habits yet.\nAdd one below." : "No habits yet.";
+        return Writable ? Str.WidgetsB_Habits_EmptyAdd.Text() : Str.WidgetsB_Habits_Empty.Text();
     }
 
     /// <summary>[S-1427] Apply the ladder to what is drawn. Cheap: nothing is rebuilt here.</summary>
@@ -410,18 +411,20 @@ internal sealed partial class HabitTrackerView : Grid, IWidgetView, IWidgetSurfa
         var doneWindow = _doneWindow;
         var count = Habits.Count;
         var period = _config.Cadence.Period;
-        _summaryDone.Text = count == 0 ? string.Empty : $"{doneNow} of {count} done {HabitPeriods.CurrentNoun(period)}";
+        _summaryDone.Text = count == 0 ? string.Empty : Str.WidgetsB_Habits_DoneOf.Format(("done", doneNow), ("total", count), ("when", HabitPeriods.CurrentNoun(period)));
 
         var rate = count == 0 ? 0 : (int)Math.Round(100.0 * doneWindow / (count * HabitRules.RateWindow));
-        var window = $"last {HabitPeriods.Units(period, HabitRules.RateWindow)}";
+        var window = Str.WidgetsB_Habits_LastUnits.Format(("units", HabitPeriods.Units(period, HabitRules.RateWindow)));
+        var percent = LocaleFormat.Percent(Strings.Current, rate);
 
         // On a narrow tile the rate stands alone, so the count beside it is not cut; it says the rest
         // on hover and to a screen reader.
         _summaryRate.Text = _area.WidthClass >= SizeClass.Expanded
-            ? string.Create(CultureInfo.InvariantCulture, $"{rate}% · {window}")
-            : string.Create(CultureInfo.InvariantCulture, $"{rate}%");
-        ToolTipService.SetToolTip(_summaryRate, $"{rate}% done over the {window}");
-        AutomationProperties.SetName(_summaryRate, $"{rate}% done over the {window}");
+            ? $"{percent} · {window}"
+            : percent;
+        var rateWords = Str.WidgetsB_Habits_RateOver.Format(("percent", percent), ("window", window));
+        ToolTipService.SetToolTip(_summaryRate, rateWords);
+        AutomationProperties.SetName(_summaryRate, rateWords);
 
         _barDone.Width = new GridLength(doneNow, GridUnitType.Star);
         _barLeft.Width = new GridLength(Math.Max(0, count - doneNow), GridUnitType.Star);
@@ -463,7 +466,7 @@ internal sealed partial class HabitTrackerView : Grid, IWidgetView, IWidgetSurfa
 
         _chart.Height = plan.ChartHeight;
         _chart.Padding = new Thickness(plan.Inset, Fluent.Space2, plan.Inset, Fluent.Space2);
-        _chartCaption.Text = $"Last {HabitPeriods.Units(cadence.Period, bars)}";
+        _chartCaption.Text = Str.WidgetsB_Habits_LastUnitsTitle.Format(("units", HabitPeriods.Units(cadence.Period, bars)));
 
         var counts = new int[bars];
         HabitDot[] periods = [];
@@ -508,7 +511,7 @@ internal sealed partial class HabitTrackerView : Grid, IWidgetView, IWidgetSurfa
 
             if (i < periods.Length)
             {
-                var label = $"{HabitPeriods.Describe(periods[i].Bucket, cadence)}: {counts[i]} of {habits.Count}";
+                var label = Str.WidgetsB_Habits_BarLabel.Format(("period", HabitPeriods.Describe(periods[i].Bucket, cadence)), ("done", counts[i]), ("total", habits.Count));
                 ToolTipService.SetToolTip(column, label);
                 AutomationProperties.SetName(column, label);
             }

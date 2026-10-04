@@ -5,6 +5,7 @@ using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
 using Themia.App.Services.Files;
 using Themia.App.Shell;
+using Themia.Core.Localization;
 using Themia.Core.Model;
 using Themia.Core.Widgets;
 using Windows.Foundation;
@@ -109,12 +110,12 @@ internal sealed partial class FolderView
             Visibility = Visibility.Collapsed,
         };
 
-        _backButton = HeaderButton(Glyphs.Back, "Back", GoBack);
-        _forwardButton = HeaderButton(Glyphs.Forward, "Forward", GoForward);
-        _upButton = HeaderButton(Glyphs.MoveUp, "Up to the parent folder", GoUp);
-        _homeButton = HeaderButton(Glyphs.Home, "Back to the widget's folder", GoHome);
-        _searchButton = HeaderButton(Glyphs.Search, "Search this folder", ToggleSearch);
-        _sortButton = HeaderButton(Glyphs.Sort, "Reverse the order", () => Edit(c => c.Descending = !c.Descending));
+        _backButton = HeaderButton(Glyphs.Back, Str.Common_Back.Text(), GoBack);
+        _forwardButton = HeaderButton(Glyphs.Forward, Str.Folder_Forward.Text(), GoForward);
+        _upButton = HeaderButton(Glyphs.MoveUp, Str.WidgetsB_Folder_UpTip.Text(), GoUp);
+        _homeButton = HeaderButton(Glyphs.Home, Str.WidgetsB_Folder_HomeTip.Text(), GoHome);
+        _searchButton = HeaderButton(Glyphs.Search, Str.WidgetsB_Folder_SearchTip.Text(), ToggleSearch);
+        _sortButton = HeaderButton(Glyphs.Sort, Str.WidgetsB_Folder_ReverseTip.Text(), () => Edit(c => c.Descending = !c.Descending));
 
         // Read once by the card when it builds the header, so it exists from construction.
         _trailing = new StackPanel
@@ -137,7 +138,7 @@ internal sealed partial class FolderView
 
         _searchBox = new TextBox
         {
-            PlaceholderText = "Search",
+            PlaceholderText = Str.WidgetsB_Folder_SearchPlaceholder.Text(),
             Margin = new Thickness(Fluent.Space3, 0, Fluent.Space3, Fluent.Space1),
             VerticalAlignment = VerticalAlignment.Center,
             Visibility = Visibility.Collapsed,
@@ -318,7 +319,7 @@ internal sealed partial class FolderView
         _homeButton.Visibility = Show(header.Home && !_history.AtHome);
         _searchButton.Visibility = Show(header.Search || _searchOpen);
         _sortButton.Visibility = Show(header.Sort);
-        ToolTipService.SetToolTip(_sortButton, _config.Descending ? "Order: Z to A (click to reverse)" : "Order: A to Z (click to reverse)");
+        ToolTipService.SetToolTip(_sortButton, _config.Descending ? Str.WidgetsB_Folder_OrderDescTip.Text() : Str.WidgetsB_Folder_OrderAscTip.Text());
 
         if (header.Git && _git is { } git)
         {
@@ -334,8 +335,8 @@ internal sealed partial class FolderView
     }
 
     private static string GitTip(GitSummary s) => s.Clean
-        ? $"Branch {s.Branch}: no changes"
-        : $"Branch {s.Branch}: {s.Staged} staged, {s.Modified} modified, {s.Deleted} deleted, {s.Untracked} untracked, {s.Conflicted} conflicted";
+        ? Str.WidgetsB_Folder_GitClean.Format(("branch", s.Branch))
+        : Str.WidgetsB_Folder_GitCounts.Format(("branch", s.Branch), ("staged", s.Staged), ("modified", s.Modified), ("deleted", s.Deleted), ("untracked", s.Untracked), ("conflicted", s.Conflicted));
 
     // ---- drawing --------------------------------------------------------------------------------
 
@@ -370,8 +371,8 @@ internal sealed partial class FolderView
         if (status == FolderListingStatus.Ok && _shown.Count == 0)
         {
             ShowMessage(_search.Length > 0 || _config.Filter.Trim().Length > 0
-                ? "Nothing here matches."
-                : "This folder is empty.");
+                ? Str.WidgetsB_Folder_NoMatches.Text()
+                : Str.WidgetsB_Folder_Status_Empty.Text());
             UpdateFooter();
             return;
         }
@@ -613,7 +614,7 @@ internal sealed partial class FolderView
     private Border MoreRow(int more)
     {
         var text = Fluent.Text(FluentType.Caption, "TextFillColorSecondaryBrush");
-        text.Text = $"{more:N0} more in Explorer…";
+        text.Text = Str.WidgetsB_Folder_MoreInExplorer.Plural(more);
         var row = Fluent.Row(text, compact: true);
         row.Tapped += (_, args) =>
         {
@@ -798,7 +799,7 @@ internal sealed partial class FolderView
         _columnHeader.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(iconSize) });
         _columnHeader.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
 
-        AddHeaderCell("Name", 1, FolderSort.Name, TextAlignment.Left);
+        AddHeaderCell(Str.Folder_ColName.Text(), 1, FolderSort.Name, TextAlignment.Left);
 
         for (var c = 0; c < plan.Columns.Count; c++)
         {
