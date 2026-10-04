@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Application
+    x:Class="Themia.App.App"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+
+    <Application.Resources>
+        <ResourceDictionary>
+            <ResourceDictionary.MergedDictionaries>
+                <!-- The stock Fluent control set: the app looks like the rest of Windows by default. -->
+                <XamlControlsResources xmlns="using:Microsoft.UI.Xaml.Controls" />
+            </ResourceDictionary.MergedDictionaries>
+
+            <!-- Widget chrome. Sizes follow the Fluent type ramp rather than inventing a scale. -->
+            <x:Double x:Key="WidgetHeaderHeight">28</x:Double>
+            <Thickness x:Key="WidgetContentPadding">12</Thickness>
+            <x:Double x:Key="ResizeHandleSize">10</x:Double>
+        </ResourceDictionary>
+    </Application.Resources>
+
+</Application>
