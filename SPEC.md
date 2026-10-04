@@ -180,6 +180,9 @@ Owning files: `Themia.Core/Geometry/*`, `Themia.Core/Model/*`, `Themia.Core/Stor
   The same applies to the snap grid, which uses a text brush rather than a control stroke.
 - **[S-27b]** Fill and content are separate elements, so the surface-opacity setting fades the card
   without fading the text on it.
+- **[S-27c]** The opaque base is painted **under** the card stroke, not only inside it. The stroke
+  is a faint overlay; with the base stopping at its inner edge, every card had a nearly clear outer
+  ring, and two cards at a 0px gap showed wallpaper between them.
 
 ## Ticking
 

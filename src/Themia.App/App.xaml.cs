@@ -23,6 +23,15 @@ public partial class App : Application
     {
         InstallLogSink();
 
+#if DEBUG
+        // The widget gallery runs instead of the app, never alongside it: no state file, no
+        // single-instance hand-off, so it can render while the user's own copy keeps running.
+        if (Shell.Gallery.WidgetGallery.TryRunFromCommandLine(this, Environment.GetCommandLineArgs()))
+        {
+            return;
+        }
+#endif
+
         // Themia has no tray entry and no window in the taskbar, so launching it again is the
         // gesture a user reaches for when they want at it. That has to mean "show me the copy I
         // already have", not "start a second desktop layer on top of it" — there is nothing on

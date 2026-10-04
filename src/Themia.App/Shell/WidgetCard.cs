@@ -137,7 +137,14 @@ internal sealed partial class WidgetCard : Grid, IWidgetSurface
 
         // Fill and content are separate borders so the surface opacity setting fades the card
         // without fading the text on it.
-        _fill = new Border();
+        _fill = new Border
+        {
+            // [S-27c] The opaque base runs under the stroke, not just inside it. Fluent's card stroke
+            // is a ~10% overlay meant to sit on something; WinUI's default paints a border's
+            // background only inside the stroke, so the outer pixel of every card was a nearly clear
+            // ring over the wallpaper. Two neighbours at a 0px gap read as a visible gap between them.
+            BackgroundSizing = BackgroundSizing.OuterBorderEdge,
+        };
 
         // Windows 11 draws a card as a tint ON something, not as a flat colour. On an opaque
         // window that something is Mica; here the window is genuinely transparent, so the card

@@ -1024,6 +1024,13 @@ internal sealed class DesktopWindow : IWidgetCardHost
     {
         var flyout = new MenuFlyout();
 
+#if DEBUG
+        var gallery = new MenuFlyoutItem { Text = "Widget gallery", Icon = new FontIcon { Glyph = Glyphs.Apps } };
+        gallery.Click += (_, _) => Gallery.WidgetGallery.Open(WidgetKind.Clock);
+        flyout.Items.Add(gallery);
+        flyout.Items.Add(new MenuFlyoutSeparator());
+#endif
+
         var exit = new MenuFlyoutItem { Text = "Exit Themia", Icon = new FontIcon { Glyph = "\uE7E8" } };
         exit.Click += (_, _) => _host.RequestExit();
         flyout.Items.Add(exit);
