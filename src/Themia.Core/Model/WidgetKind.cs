@@ -23,7 +23,7 @@ public enum WidgetKind
     /// <summary>Charge level and whether it is on mains.</summary>
     Battery = 4,
 
-    /// <summary>Recent mail, read from the hearth hub.</summary>
+    /// <summary>Recent mail from the signed-in accounts.</summary>
     Email = 5,
 
     /// <summary>The busiest running processes, ranked.</summary>
@@ -35,13 +35,13 @@ public enum WidgetKind
     /// <summary>Round-trip time to a host.</summary>
     Ping = 8,
 
-    /// <summary>People, read from the hearth hub.</summary>
+    /// <summary>People from the signed-in address books.</summary>
     Contacts = 9,
 
-    /// <summary>Upcoming events, read from the hearth hub.</summary>
+    /// <summary>Upcoming events from the signed-in calendars.</summary>
     Calendar = 10,
 
-    /// <summary>Open tasks, read from the hearth hub.</summary>
+    /// <summary>Open tasks from the signed-in accounts, or a list on this PC.</summary>
     Tasks = 11,
 
     /// <summary>A free-text note kept on this machine.</summary>
@@ -253,6 +253,9 @@ public enum ClockFace
 {
     Digital = 0,
     Analog = 1,
+
+    /// <summary>[S-1483] Hours over minutes (over seconds), the original's third style.</summary>
+    Stacked = 2,
 }
 
 /// <summary>Light/dark selection. <c>System</c> follows the Windows app theme.</summary>

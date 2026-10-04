@@ -1,6 +1,24 @@
 using System.Text.Json.Serialization;
+using Themia.Core.Office;
 
 namespace Themia.Core.Model;
+
+/// <summary>
+/// [S-1464] When the now-playing tile paints nothing. Read leniently: an unknown name is
+/// <see cref="Never"/> (the zero value), the visible state — a widget you can see is one you can fix.
+/// </summary>
+[JsonConverter(typeof(LenientEnumConverter<MusicHideWhenIdle>))]
+public enum MusicHideWhenIdle
+{
+    /// <summary>Always drawn; idle shows the "nothing playing" sentence.</summary>
+    Never = 0,
+
+    /// <summary>Hidden only while Windows reports no media session at all.</summary>
+    NoSession = 1,
+
+    /// <summary>Hidden whenever nothing is playing, a paused session included.</summary>
+    NotPlaying = 2,
+}
 
 /// <summary>
 /// Whatever Windows is playing, from Windows' own media session.
@@ -24,10 +42,32 @@ public sealed class MusicConfig : WidgetConfig
     /// <summary>Show the progress bar and the elapsed/total labels.</summary>
     public bool ShowProgress { get; set; } = true;
 
+    /// <summary>[S-1464] Paint nothing while idle.</summary>
+    public MusicHideWhenIdle HideWhenIdle { get; set; } = MusicHideWhenIdle.Never;
+
+    /// <summary>
+    /// [S-1470] Draw the spectrum of what the PC is playing (system-wide loopback). Off by default,
+    /// as in the original: it is the one part of this widget that costs CPU while music plays.
+    /// </summary>
+    public bool ShowSpectrum { get; set; }
+
+    public override IReadOnlyList<string> Repair()
+    {
+        if (Enum.IsDefined(HideWhenIdle))
+        {
+            return [];
+        }
+
+        HideWhenIdle = MusicHideWhenIdle.Never;
+        return ["Music widget had an unknown hide-when-idle mode"];
+    }
+
     public override WidgetConfig Clone() => new MusicConfig
     {
         ShowAlbumArt = ShowAlbumArt,
         ShowTransport = ShowTransport,
         ShowProgress = ShowProgress,
+        HideWhenIdle = HideWhenIdle,
+        ShowSpectrum = ShowSpectrum,
     };
 }

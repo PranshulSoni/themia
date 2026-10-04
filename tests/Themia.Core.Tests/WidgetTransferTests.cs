@@ -10,8 +10,10 @@ public class WidgetTransferTests
 
     private static (AppState State, ViewState Left, ViewState Right, WidgetInstance Widget) TwoViews()
     {
+        // One clock, not the first-run desktop ([S-893]): the counts below are about that one widget.
         var state = AppState.CreateDefault();
         var left = state.ActiveView();
+        left.Widgets.RemoveRange(1, left.Widgets.Count - 1);
         var right = ViewState.Create("Second");
         state.Views.Add(right);
         return (state, left, right, left.Widgets[0]);
@@ -45,29 +47,36 @@ public class WidgetTransferTests
         Assert.True(WidgetTransfer.ShouldHandOff(droppedOnThisDisplay: false, "view-a", "view-b"));
     }
 
-    // ---- moving between views ---------------------------------------------------------------
+    // ---- moving between views: a Move placement ---------------------------------------------
+
+    private static PastePlan MovePlan(ViewState from, string id, double x = 0.5, double y = 0.5)
+        => PlacementPayload.FromView(from, [id], PlacementMode.Move)!.Plan(x, y, Screen, snapEnabled: false);
+
+    private static PastePlan CopyPlan(ViewState from, string id, double x = 0.5, double y = 0.5)
+        => PlacementPayload.FromView(from, [id], PlacementMode.Copy)!.Plan(x, y, Screen, snapEnabled: false);
 
     [Fact]
-    public void Moving_a_widget_transfers_it_without_duplicating_it()
+    public void S1590_moving_a_widget_transfers_it_without_duplicating_it()
     {
         var (state, left, right, widget) = TwoViews();
 
-        var moved = state.MoveWidget(widget.Id, left.Id, right.Id, new FracRect(0.1, 0.2, 0.3, 0.2));
+        state.ApplyPlacement(MovePlan(left, widget.Id), right.Id);
 
-        Assert.True(moved);
         Assert.Empty(left.Widgets);
         Assert.Single(right.Widgets);
-        Assert.Equal(widget.Id, right.Widgets[0].Id);
+        Assert.Same(widget, right.Widgets[0]);
     }
 
     [Fact]
-    public void A_moved_widget_keeps_its_identity_and_config()
+    public void S1590_a_moved_widget_lands_as_itself_with_the_config_it_has_now()
     {
         var (state, left, right, widget) = TwoViews();
+        var plan = MovePlan(left, widget.Id);
+
+        // Changed after the snapshot was taken: the live widget is what lands.
         ((ClockConfig)widget.Config).ShowSeconds = true;
         widget.Label = "Bedside";
-
-        state.MoveWidget(widget.Id, left.Id, right.Id, new FracRect(0.1, 0.2, 0.3, 0.2));
+        state.ApplyPlacement(plan, right.Id);
 
         var moved = right.Widgets[0];
         Assert.Equal(widget.Id, moved.Id);
@@ -76,35 +85,58 @@ public class WidgetTransferTests
     }
 
     [Fact]
-    public void A_moved_widget_lands_at_the_requested_rect()
+    public void S1590_a_moved_widget_lands_at_the_planned_rect()
     {
         var (state, left, right, widget) = TwoViews();
+        var plan = MovePlan(left, widget.Id, 0.3, 0.4);
 
-        state.MoveWidget(widget.Id, left.Id, right.Id, new FracRect(0.11, 0.22, 0.33, 0.25));
+        state.ApplyPlacement(plan, right.Id);
 
-        Assert.Equal(new FracRect(0.11, 0.22, 0.33, 0.25), right.Widgets[0].Rect);
+        Assert.Equal(plan.Added[0].Rect, right.Widgets[0].Rect);
     }
 
     [Fact]
-    public void Moving_within_one_view_is_refused_rather_than_removing_the_widget()
+    public void S75_moving_within_one_view_keeps_exactly_one_widget()
     {
+        // The remove and the add both target the same list; doing them in the wrong order would
+        // either lose the widget or leave two.
         var (state, left, _, widget) = TwoViews();
 
-        var moved = state.MoveWidget(widget.Id, left.Id, left.Id, new FracRect(0.1, 0.1, 0.2, 0.2));
+        state.ApplyPlacement(MovePlan(left, widget.Id, 0.7, 0.7), left.Id);
 
-        Assert.False(moved);
-        Assert.Single(left.Widgets);
+        Assert.Same(widget, Assert.Single(left.Widgets));
     }
 
     [Fact]
-    public void Moving_an_unknown_widget_or_view_changes_nothing()
+    public void S1590_a_move_whose_original_was_handed_elsewhere_meanwhile_still_moves_it_once()
     {
         var (state, left, right, widget) = TwoViews();
+        var plan = MovePlan(left, widget.Id);
 
-        Assert.False(state.MoveWidget("nope", left.Id, right.Id, new FracRect(0, 0, 0.2, 0.2)));
-        Assert.False(state.MoveWidget(widget.Id, left.Id, "nope", new FracRect(0, 0, 0.2, 0.2)));
-        Assert.Single(left.Widgets);
+        // The widget went to the other view by some other route before this move landed.
+        left.Widgets.Remove(widget);
+        right.Widgets.Add(widget);
+        state.ApplyPlacement(plan, left.Id);
+
         Assert.Empty(right.Widgets);
+        Assert.Same(widget, Assert.Single(left.Widgets));
+    }
+
+    [Fact]
+    public void S1590_a_member_added_to_a_moved_container_after_the_snapshot_is_not_lost()
+    {
+        var (state, left, right, _) = TwoViews();
+        var group = WidgetInstance.Create(WidgetKind.Group, new FracRect(0.1, 0.1, 0.4, 0.4));
+        left.Widgets.Add(group);
+        var plan = MovePlan(left, group.Id);
+
+        var late = WidgetInstance.Create(WidgetKind.Clock, new FracRect(0.2, 0.2, 0.1, 0.1));
+        late.ParentId = group.Id;
+        left.Widgets.Add(late);
+        state.ApplyPlacement(plan, right.Id);
+
+        Assert.Contains(late, right.Widgets);
+        Assert.Equal(group.Id, late.ParentId);
     }
 
     // ---- paste across views -----------------------------------------------------------------
@@ -113,11 +145,8 @@ public class WidgetTransferTests
     public void Pasting_a_copy_into_another_view_leaves_the_original_alone()
     {
         var (state, left, right, widget) = TwoViews();
-        var clipboard = new WidgetClipboard();
-        clipboard.Copy(widget, left.Id);
 
-        var plan = clipboard.PlanPaste(new FracRect(0.5, 0.5, 0, 0), Screen, snapEnabled: false)!.Value;
-        state.ApplyPaste(plan, right.Id);
+        state.ApplyPlacement(CopyPlan(left, widget.Id), right.Id);
 
         Assert.Single(left.Widgets);
         Assert.Single(right.Widgets);
@@ -125,71 +154,36 @@ public class WidgetTransferTests
     }
 
     [Fact]
-    public void Pasting_a_cut_into_another_view_moves_it()
-    {
-        var (state, left, right, widget) = TwoViews();
-        var clipboard = new WidgetClipboard();
-        clipboard.Cut(widget, left.Id);
-
-        var plan = clipboard.PlanPaste(new FracRect(0.5, 0.5, 0, 0), Screen, snapEnabled: false)!.Value;
-        state.ApplyPaste(plan, right.Id);
-
-        Assert.Empty(left.Widgets);
-        Assert.Single(right.Widgets);
-    }
-
-    [Fact]
-    public void Pasting_a_cut_back_into_its_own_view_keeps_exactly_one_widget()
-    {
-        // The remove and the add both target the same list; doing them in the wrong order would
-        // either lose the widget or leave two.
-        var (state, left, _, widget) = TwoViews();
-        var clipboard = new WidgetClipboard();
-        clipboard.Cut(widget, left.Id);
-
-        var plan = clipboard.PlanPaste(new FracRect(0.7, 0.7, 0, 0), Screen, snapEnabled: false)!.Value;
-        state.ApplyPaste(plan, left.Id);
-
-        Assert.Single(left.Widgets);
-        Assert.NotEqual(widget.Id, left.Widgets[0].Id);
-    }
-
-    [Fact]
     public void Pasting_into_a_view_that_was_deleted_falls_back_to_the_active_view()
     {
         var (state, left, right, widget) = TwoViews();
-        var clipboard = new WidgetClipboard();
-        clipboard.Copy(widget, left.Id);
+        var plan = CopyPlan(left, widget.Id);
         state.Views.Remove(right);
 
-        var plan = clipboard.PlanPaste(new FracRect(0.5, 0.5, 0, 0), Screen, snapEnabled: false)!.Value;
-        state.ApplyPaste(plan, right.Id);
+        state.ApplyPlacement(plan, right.Id);
 
         Assert.Equal(2, state.ActiveView().Widgets.Count);
     }
 
     [Fact]
-    public void A_cut_whose_source_view_vanished_still_pastes()
+    public void S72_a_cut_whose_source_view_vanished_still_pastes()
     {
         var (state, left, right, widget) = TwoViews();
-        var clipboard = new WidgetClipboard();
-        clipboard.Cut(widget, left.Id);
+        var plan = MovePlan(left, widget.Id);
 
         // The source view is gone by the time the paste happens.
         state.Views.Remove(left);
         state.ActiveViewId = right.Id;
+        state.ApplyPlacement(plan, right.Id);
 
-        var plan = clipboard.PlanPaste(new FracRect(0.5, 0.5, 0, 0), Screen, snapEnabled: false)!.Value;
-        state.ApplyPaste(plan, right.Id);
-
-        Assert.Single(right.Widgets);
+        Assert.Equal(widget.Id, Assert.Single(right.Widgets).Id);
     }
 
     [Fact]
     public void A_transferred_state_still_passes_validation()
     {
         var (state, left, right, widget) = TwoViews();
-        state.MoveWidget(widget.Id, left.Id, right.Id, new FracRect(0.1, 0.2, 0.3, 0.2));
+        state.ApplyPlacement(MovePlan(left, widget.Id), right.Id);
 
         var repairs = Themia.Core.Storage.AppStateStore.Validate(state);
 

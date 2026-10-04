@@ -18,6 +18,7 @@ using Themia.Core.Widgets;
 using Windows.Foundation;
 using Windows.Graphics;
 using Path = Microsoft.UI.Xaml.Shapes.Path;
+using PlacementMode = Themia.Core.Model.PlacementMode;
 
 namespace Themia.App.Shell;
 
@@ -135,6 +136,12 @@ internal sealed partial class DesktopWindow
     /// </summary>
     private void AddIntoContainer(string containerId, WidgetDefinition definition)
     {
+        // [S-1065] The free-tier widget limit.
+        if (!_host.AllowCreate(1))
+        {
+            return;
+        }
+
         var metrics = Metrics;
 
         // The default size is in pixels; a group member keeps its own rect on this display's grid,
@@ -153,7 +160,8 @@ internal sealed partial class DesktopWindow
 
         string? addedId = null;
         _host.Mutate(state =>
-            addedId = ViewForThisMonitor(state).AddInto(containerId, definition.Kind, size.W, size.H, headerRoom)?.Id);
+            addedId = ViewForThisMonitor(state).AddInto(containerId, definition.Kind, size.W, size.H, headerRoom)?.Id,
+            undo: UndoAction.Add);
 
         if (addedId is null)
         {
@@ -183,65 +191,137 @@ internal sealed partial class DesktopWindow
         Visibility = Visibility.Collapsed,
     };
 
-    private static Grid BuildGhost(Rectangle frame, FontIcon icon, TextBlock label)
+    /// <summary>One outline of the ghost: a dashed accent frame with the widget's icon and name.</summary>
+    private sealed class GhostCard
     {
-        // The fill is the stroke's colour at low alpha: the same accent, so it reads as one shape
-        // rather than a box inside a box.
-        var accent = (frame.Stroke as SolidColorBrush)?.Color ?? Colors.DodgerBlue;
-        frame.Fill = new SolidColorBrush(Windows.UI.Color.FromArgb(0x33, accent.R, accent.G, accent.B));
-
-        icon.HorizontalAlignment = HorizontalAlignment.Center;
-        label.HorizontalAlignment = HorizontalAlignment.Center;
-
-        var content = new StackPanel
+        public GhostCard(Brush accent)
         {
-            Spacing = Fluent.Space2,
-            HorizontalAlignment = HorizontalAlignment.Center,
-            VerticalAlignment = VerticalAlignment.Center,
-            Children = { icon, label },
-        };
+            // The fill is the stroke's colour at low alpha: the same accent, so it reads as one shape
+            // rather than a box inside a box.
+            var colour = (accent as SolidColorBrush)?.Color ?? Colors.DodgerBlue;
+            Frame = new Rectangle
+            {
+                Fill = new SolidColorBrush(Windows.UI.Color.FromArgb(0x33, colour.R, colour.G, colour.B)),
+                Stroke = accent,
+                StrokeThickness = 2,
+                StrokeDashArray = [4, 3],
+            };
 
-        return new Grid
-        {
-            Children = { frame, content },
-            Visibility = Visibility.Collapsed,
-        };
+            Icon = new FontIcon { FontSize = 28, HorizontalAlignment = HorizontalAlignment.Center };
+            Label = Fluent.Text(FluentType.BodyStrong);
+            Label.HorizontalAlignment = HorizontalAlignment.Center;
+            Content = new StackPanel
+            {
+                Spacing = Fluent.Space2,
+                HorizontalAlignment = HorizontalAlignment.Center,
+                VerticalAlignment = VerticalAlignment.Center,
+                Children = { Icon, Label },
+            };
+
+            Root = new Grid { Children = { Frame, Content }, Visibility = Visibility.Collapsed };
+        }
+
+        public Grid Root { get; }
+
+        public Rectangle Frame { get; }
+
+        public FontIcon Icon { get; }
+
+        public TextBlock Label { get; }
+
+        public StackPanel Content { get; }
     }
 
+    /// <summary>Below this the icon and name do not fit in an outline, which then shows the frame alone.</summary>
+    private const double GhostLabelMinWidth = 96;
+
+    private const double GhostLabelMinHeight = 72;
+
     /// <summary>
-    /// [S-423] Show a widget-shaped outline at a rect on this display: where a widget being placed,
-    /// or dragged in from another display, will land. It traces the painted card, inside the gap,
-    /// because that is what the user will see once it is there.
+    /// [S-423]/[S-1585] Show widget-shaped outlines on this display: where the widgets being placed,
+    /// or dragged in from another display, will land — one per widget, at its offset in the block.
+    /// Each traces the painted card, inside the gap, because that is what the user will see once it
+    /// is there. Outlines are pooled: a ghost redraws on every pointer move.
     /// </summary>
-    public void ShowGhost(FracRect rect, WidgetKind kind)
+    public void ShowGhosts(IReadOnlyList<GhostOutline> outlines)
     {
+        ArgumentNullException.ThrowIfNull(outlines);
+
         var metrics = Metrics;
         if (_closed || !metrics.IsUsable)
         {
             return;
         }
 
-        var box = GridGeometry.Inset(GridGeometry.ToPixels(rect, metrics), Design.WidgetGapPx);
-        var definition = WidgetCatalog.Definition(kind);
+        while (_ghosts.Count < outlines.Count)
+        {
+            var ghost = new GhostCard(Brush("AccentFillColorDefaultBrush", Colors.DodgerBlue));
+            _ghosts.Add(ghost);
+            _ghostLayer.Children.Add(ghost.Root);
+        }
 
-        _ghostIcon.Glyph = definition.Glyph;
-        _ghostLabel.Text = definition.Label;
-        _ghostFrame.RadiusX = Design.CornerRadiusPx;
-        _ghostFrame.RadiusY = Design.CornerRadiusPx;
+        for (var i = 0; i < _ghosts.Count; i++)
+        {
+            var ghost = _ghosts[i];
+            if (i >= outlines.Count)
+            {
+                ghost.Root.Visibility = Visibility.Collapsed;
+                continue;
+            }
 
-        Canvas.SetLeft(_ghost, box.X);
-        Canvas.SetTop(_ghost, box.Y);
-        _ghost.Width = Math.Max(0, box.Width);
-        _ghost.Height = Math.Max(0, box.Height);
-        _ghost.Visibility = Visibility.Visible;
+            var box = GridGeometry.Inset(GridGeometry.ToPixels(outlines[i].Rect, metrics), Design.WidgetGapPx);
+            var definition = WidgetCatalog.Definition(outlines[i].Kind);
+
+            ghost.Icon.Glyph = definition.Glyph;
+            ghost.Label.Text = definition.Label;
+            ghost.Content.Visibility = box.Width >= GhostLabelMinWidth && box.Height >= GhostLabelMinHeight
+                ? Visibility.Visible
+                : Visibility.Collapsed;
+            ghost.Frame.RadiusX = Design.CornerRadiusPx;
+            ghost.Frame.RadiusY = Design.CornerRadiusPx;
+
+            Canvas.SetLeft(ghost.Root, box.X);
+            Canvas.SetTop(ghost.Root, box.Y);
+            ghost.Root.Width = Math.Max(0, box.Width);
+            ghost.Root.Height = Math.Max(0, box.Height);
+            ghost.Root.Visibility = Visibility.Visible;
+        }
     }
 
-    public void HideGhost() => _ghost.Visibility = Visibility.Collapsed;
+    public void HideGhost()
+    {
+        foreach (var ghost in _ghosts)
+        {
+            ghost.Root.Visibility = Visibility.Collapsed;
+        }
+    }
+
+    /// <summary>[S-06] Snap now: the design's grid aid, unless Alt is held, as when dragging.</summary>
+    private bool SnapNow => Design.GridSnap && !AltHeld();
+
+    /// <summary>What a payload's ghost draws with the pointer at a physical screen point of this display.</summary>
+    public IReadOnlyList<GhostOutline> OutlinesAt(Win32.Point cursor, PlacementPayload payload)
+    {
+        ArgumentNullException.ThrowIfNull(payload);
+
+        var (x, y) = FractionOf(cursor);
+        return payload.Outlines(x, y, Metrics, SnapNow);
+    }
+
+    /// <summary>What landing a payload with the pointer at a physical screen point of this display does.</summary>
+    public PastePlan PlanAt(Win32.Point cursor, PlacementPayload payload)
+    {
+        ArgumentNullException.ThrowIfNull(payload);
+
+        var (x, y) = FractionOf(cursor);
+        return payload.Plan(x, y, Metrics, SnapNow);
+    }
 
     /// <summary>
-    /// [S-421] Enter or leave placing. The cards stop taking input while a widget is being placed,
-    /// so a click over an existing widget places the new one there instead of grabbing the old one,
-    /// and the toolbar steps aside for a line saying what the click will do.
+    /// [S-421]/[S-1587] Enter or leave placing. The cards stop taking input while something is being
+    /// placed, so a click over an existing widget drops the payload there instead of grabbing the old
+    /// one, and the toolbar steps aside for a line saying what the click will do. The originals of a
+    /// move are faded while they are aimed, so it is clear which widgets are about to go.
     /// </summary>
     private void OnPlacementChanged()
     {
@@ -250,22 +330,26 @@ internal sealed partial class DesktopWindow
             return;
         }
 
-        var placing = _host.PlacingKind;
+        var placing = _host.Placing;
         _widgetLayer.IsHitTestVisible = placing is null;
 
-        if (placing is { } kind)
+        foreach (var card in _cards)
         {
-            _placementHintText.Text =
-                $"Click to place {WidgetCatalog.Definition(kind).Label}  ·  Right-click or Esc to cancel";
+            card.SetLeaving(placing is { Mode: PlacementMode.Move } && placing.Holds(card.Model.Id));
+        }
+
+        if (placing is not null)
+        {
+            EndLasso();
+            _placementHintText.Text = $"{PlacementVerb(placing)}  ·  Right-click or Esc to cancel";
             _placementHint.Visibility = Visibility.Visible;
             _toolbar.Visibility = Visibility.Collapsed;
 
-            // The picker was opened on one display, so the pointer is already somewhere: show the
-            // ghost there at once rather than waiting for the first move.
+            // The command was given with the pointer already somewhere: show the ghost there at once
+            // rather than waiting for the first move.
             if (IsUnderCursor && Win32.GetCursorPos(out var cursor))
             {
-                var (x, y) = FractionOf(cursor);
-                ShowGhost(PlacementRect(kind, x, y), kind);
+                ShowGhosts(OutlinesAt(cursor, placing));
             }
             else
             {
@@ -280,12 +364,16 @@ internal sealed partial class DesktopWindow
         HideGhost();
     }
 
-    /// <summary>[S-11] Centred on the pointer, then snapped and clamped. Alt bypasses the snap, as when dragging.</summary>
-    private FracRect PlacementRect(WidgetKind kind, double xFrac, double yFrac)
+    /// <summary>What the click will do, in words: "Click to place Clock", "Click to move 3 widgets".</summary>
+    private static string PlacementVerb(PlacementPayload payload)
     {
-        var definition = WidgetCatalog.Definition(kind);
-        var snap = Design.GridSnap && !AltHeld();
-        return GridGeometry.PlaceAt(xFrac, yFrac, definition.DefaultWidthPx, definition.DefaultHeightPx, Metrics, snap);
+        var what = payload.SingleKind is { } kind ? WidgetCatalog.Definition(kind).Label : $"{payload.Count} widgets";
+        return payload.Mode switch
+        {
+            PlacementMode.Move => $"Click to move {what}",
+            PlacementMode.Copy => $"Click to place a copy of {what}",
+            _ => $"Click to place {what}",
+        };
     }
 
     /// <summary>Where a point in this surface's own coordinates falls, as a fraction of it.</summary>
@@ -303,19 +391,22 @@ internal sealed partial class DesktopWindow
 
     private void OnRootPointerMoved(object sender, PointerRoutedEventArgs e)
     {
-        if (_host.PlacingKind is not { } kind)
+        var position = e.GetCurrentPoint(_root).Position;
+
+        if (_host.Placing is { } payload)
         {
+            var (x, y) = FractionOfDip(position);
+            ShowGhosts(payload.Outlines(x, y, Metrics, SnapNow));
             return;
         }
 
-        var (x, y) = FractionOfDip(e.GetCurrentPoint(_root).Position);
-        ShowGhost(PlacementRect(kind, x, y), kind);
+        UpdateLasso(position);
     }
 
     /// <summary>The pointer went to another display: the ghost goes with it, so it leaves here.</summary>
     private void OnRootPointerExited(object sender, PointerRoutedEventArgs e)
     {
-        if (_host.PlacingKind is not null)
+        if (_host.Placing is not null)
         {
             HideGhost();
         }
@@ -330,14 +421,14 @@ internal sealed partial class DesktopWindow
 
         var point = e.GetCurrentPoint(_root);
 
-        if (_host.PlacingKind is { } kind)
+        if (_host.Placing is not null)
         {
             if (point.Properties.IsLeftButtonPressed)
             {
-                // Placed where the click is, not where the last move put the ghost: the two differ
+                // Dropped where the click is, not where the last move put the ghost: the two differ
                 // whenever the pointer moved and clicked inside one frame.
                 var (x, y) = FractionOfDip(point.Position);
-                _host.CompletePlacement(this, PlacementRect(kind, x, y));
+                _host.CompletePlacement(this, x, y, SnapNow);
             }
             else
             {
@@ -351,8 +442,18 @@ internal sealed partial class DesktopWindow
 
         // Clicking empty surface also gives the surface focus, or the shortcuts stop working as soon
         // as the user clicks away from a widget.
-        _host.Select(null);
         _root.Focus(FocusState.Pointer);
+
+        // [S-1581] A press on empty surface starts a rubber band; without Ctrl or Shift it starts
+        // from nothing selected, which is also what a plain click on the desktop means.
+        if (point.Properties.IsLeftButtonPressed)
+        {
+            BeginLasso(e, point.Position);
+        }
+        else
+        {
+            _host.Select(null);
+        }
     }
 
     // [S-822] Through the appearance engine, so the ghost and the grid follow the theme and accent.

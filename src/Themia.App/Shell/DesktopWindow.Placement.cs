@@ -216,6 +216,9 @@ internal sealed partial class DesktopWindow
         _host.KeyboardEndOn(this);
         _window.Activated -= OnWindowActivated;
 
+        // [S-1021] Before the cards go: a drag in flight may be talking to one of their views.
+        DetachDropTarget();
+
         DesktopZOrder.Forget(_hwnd);
         _host.StateChanged -= OnStateChanged;
         _host.EditModeChanged -= OnEditModeChanged;

@@ -404,6 +404,13 @@ internal sealed class WidgetGallery : IDisposable
             {
                 model.Config = populated;
             }
+
+            // [S-877] A container's fixture may turn its header (THEMIA_GALLERY_HEADER).
+            if (fixture)
+            {
+                model.Header = ContainerFixture.Header(kind, model.Header);
+            }
+
             var card = new WidgetCard(_host, model)
             {
                 Width = width,
@@ -418,6 +425,12 @@ internal sealed class WidgetGallery : IDisposable
             Canvas.SetTop(card, rowTop[row] + LabelHeight);
             _page.Children.Add(card);
             _cards.Add(card);
+
+            // [S-877] Containers with members: built after the container, so a group's sit above it.
+            if (fixture && ContainerFixture.Has(kind))
+            {
+                ContainerFixture.Attach(card, _host, _page, _cards, x[row], rowTop[row] + LabelHeight, width, height);
+            }
 
             x[row] += width + Gap;
         }
@@ -598,29 +611,11 @@ internal sealed class WidgetGallery : IDisposable
             // ignore: gallery cards are previews and take no keys ([S-800], WidgetCard.TakesKeys)
         }
 
-        /// <summary>A pretend display with a few views, so the view switcher shows a real row.</summary>
-        public IWidgetDisplay? Display { get; } = new GalleryDisplay();
+        /// <summary>[S-1658] A pretend display with views and layouts, so the view switcher shows real buttons.</summary>
+        public IWidgetDisplay? Display { get; } = new GalleryViewsDisplay();
 
         /// <summary>[S-1251] Gallery cards are previews: the power tile's buttons do nothing here.</summary>
         public bool IsPreview => true;
-    }
-
-    /// <summary>
-    /// A display with three views and nothing behind them. Switching only moves the highlight: the
-    /// gallery has no surface for a view to appear on.
-    /// </summary>
-    private sealed class GalleryDisplay : IWidgetDisplay
-    {
-        public IReadOnlyList<ViewSummary> Views { get; } =
-        [
-            new("gallery-work", "Work"),
-            new("gallery-home", "Home office"),
-            new("gallery-play", "Gaming"),
-        ];
-
-        public string ShownViewId { get; private set; } = "gallery-work";
-
-        public void ShowView(string viewId) => ShownViewId = viewId;
     }
 }
 #endif

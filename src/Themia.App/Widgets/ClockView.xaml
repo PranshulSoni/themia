@@ -10,66 +10,92 @@
     <Grid x:Name="Root">
 
         <!--
-            Digital face. The clock is the hero of its tile, so the readout still grows with the box
-            the user drew — but it grows by picking a step of the Windows 11 type ramp (and, past the
-            ramp's top, a multiple of it that keeps Fluent's own line-height ratio) rather than by
-            taking a fraction of the width. See ApplyTypeScale.
+            One column for every face: the label over the face, the date and the details under it.
+            On a wide strip an analog face turns the column on its side (the dial left, the text
+            right); the label then moves to the top of the text (see Arrange).
 
-            Deliberately not a Viewbox: that stretches an already-rendered glyph, and text laid out
-            at 48px and blown up four times is soft where text laid out at 192px is sharp.
+            The digital readout grows with the box by picking a step of the Windows 11 type ramp (and,
+            past the ramp's top, a multiple of it that keeps Fluent's own line-height ratio) rather
+            than by taking a fraction of the width. Deliberately not a Viewbox: that stretches an
+            already-rendered glyph, and text laid out at 48px and blown up four times is soft where
+            text laid out at 192px is sharp.
         -->
-        <StackPanel x:Name="DigitalRoot" HorizontalAlignment="Center" VerticalAlignment="Center">
-            <StackPanel
-                x:Name="TimeRow"
-                Orientation="Horizontal"
-                HorizontalAlignment="Center">
-                <TextBlock
-                    x:Name="TimeText"
-                    Foreground="{ThemeResource TextFillColorPrimaryBrush}"
-                    VerticalAlignment="Bottom"
-                    Text="00:00" />
-                <TextBlock
-                    x:Name="MeridiemText"
-                    Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                    VerticalAlignment="Bottom"
-                    Visibility="Collapsed"
-                    Text="AM" />
-            </StackPanel>
+        <StackPanel x:Name="Stack" HorizontalAlignment="Center" VerticalAlignment="Center">
             <TextBlock
-                x:Name="DateText"
-                HorizontalAlignment="Center"
+                x:Name="LabelText"
                 TextTrimming="CharacterEllipsis"
                 Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                Text="" />
-            <!-- [S-665] Rungs a larger clock adds under the date: the week, then the time zone. -->
-            <TextBlock
-                x:Name="WeekText"
-                HorizontalAlignment="Center"
-                TextTrimming="CharacterEllipsis"
-                Foreground="{ThemeResource TextFillColorTertiaryBrush}"
                 Visibility="Collapsed"
                 Text="" />
-            <TextBlock
-                x:Name="ZoneText"
-                HorizontalAlignment="Center"
-                TextTrimming="CharacterEllipsis"
-                Foreground="{ThemeResource TextFillColorTertiaryBrush}"
-                Visibility="Collapsed"
-                Text="" />
-        </StackPanel>
 
-        <!--
-            Analog face. Built in code at the tile's own pixel scale (see BuildAnalogFace) rather
-            than drawn small and scaled up by a Viewbox: a Windows clock face is hairline ticks and
-            thin hands, and a hairline that has been through a 4x Viewbox is a 4px rule. Everything
-            on it is a named theme brush.
-        -->
-        <Grid x:Name="AnalogRoot" Visibility="Collapsed">
-            <Canvas
-                x:Name="AnalogFace"
-                HorizontalAlignment="Center"
-                VerticalAlignment="Center" />
-        </Grid>
+            <Grid x:Name="FaceHost">
+                <StackPanel
+                    x:Name="TimeRow"
+                    Orientation="Horizontal"
+                    HorizontalAlignment="Center">
+                    <TextBlock
+                        x:Name="TimeText"
+                        Foreground="{ThemeResource TextFillColorPrimaryBrush}"
+                        VerticalAlignment="Bottom"
+                        Text="00:00" />
+                    <!--
+                        [S-1483] Beside the last line: the seconds of a stacked readout (a step down,
+                        as the original set them) over the meridiem.
+                    -->
+                    <StackPanel x:Name="Tail" VerticalAlignment="Bottom">
+                        <TextBlock
+                            x:Name="SecondsText"
+                            Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                            Visibility="Collapsed"
+                            Text="00" />
+                        <TextBlock
+                            x:Name="MeridiemText"
+                            Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                            Visibility="Collapsed"
+                            Text="AM" />
+                    </StackPanel>
+                </StackPanel>
+
+                <!--
+                    Analog face. Built in code at the tile's own pixel scale (see BuildAnalogFace)
+                    rather than drawn small and scaled up by a Viewbox: a Windows clock face is
+                    hairline ticks and thin hands, and a hairline that has been through a 4x Viewbox
+                    is a 4px rule. Everything on it is a named theme brush.
+                -->
+                <Canvas
+                    x:Name="AnalogFace"
+                    HorizontalAlignment="Center"
+                    VerticalAlignment="Center"
+                    Visibility="Collapsed" />
+            </Grid>
+
+            <StackPanel x:Name="Info" VerticalAlignment="Center">
+                <TextBlock
+                    x:Name="DateText"
+                    TextTrimming="CharacterEllipsis"
+                    Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                    Text="" />
+                <!-- [S-1485] The offset; [S-665] then the week and the time zone. -->
+                <TextBlock
+                    x:Name="OffsetText"
+                    TextTrimming="CharacterEllipsis"
+                    Foreground="{ThemeResource TextFillColorTertiaryBrush}"
+                    Visibility="Collapsed"
+                    Text="" />
+                <TextBlock
+                    x:Name="WeekText"
+                    TextTrimming="CharacterEllipsis"
+                    Foreground="{ThemeResource TextFillColorTertiaryBrush}"
+                    Visibility="Collapsed"
+                    Text="" />
+                <TextBlock
+                    x:Name="ZoneText"
+                    TextTrimming="CharacterEllipsis"
+                    Foreground="{ThemeResource TextFillColorTertiaryBrush}"
+                    Visibility="Collapsed"
+                    Text="" />
+            </StackPanel>
+        </StackPanel>
 
     </Grid>
 </UserControl>

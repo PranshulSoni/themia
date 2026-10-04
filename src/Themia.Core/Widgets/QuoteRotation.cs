@@ -36,25 +36,29 @@ public static class QuoteRotation
     /// <summary>
     /// The set a new widget starts with. Short, attributable lines that are worth rereading, which
     /// is the whole brief for this widget.
+    /// <para>
+    /// [S-1495] The original's sixteen, word for word and in its order, so a daily, unshuffled
+    /// rotation shows the quote the original showed that day (<c>QUOTES[localDay % 16]</c>).
+    /// </para>
     /// </summary>
     public static IReadOnlyList<QuoteLine> Bundled { get; } =
     [
         new("The secret of getting ahead is getting started.", "Mark Twain"),
         new("Simplicity is the ultimate sophistication.", "Leonardo da Vinci"),
         new("Well done is better than well said.", "Benjamin Franklin"),
-        new("What we know is a drop, what we don't know is an ocean.", "Isaac Newton"),
-        new("It always seems impossible until it's done.", "Nelson Mandela"),
-        new("Whether you think you can or you can't, you're right.", "Henry Ford"),
+        new("What we know is a drop, what we don’t know is an ocean.", "Isaac Newton"),
+        new("It always seems impossible until it’s done.", "Nelson Mandela"),
+        new("The only way to do great work is to love what you do.", "Steve Jobs"),
+        new("Whether you think you can or you can’t, you’re right.", "Henry Ford"),
         new("Quality is not an act, it is a habit.", "Aristotle"),
         new("The journey of a thousand miles begins with one step.", "Lao Tzu"),
         new("Make it work, make it right, make it fast.", "Kent Beck"),
-        new("First, solve the problem. Then, write the code.", "John Johnson"),
         new("Perfection is achieved when there is nothing left to take away.", "Antoine de Saint-Exupéry"),
-        new("The best time to plant a tree was twenty years ago. The second best is now.", "Chinese proverb"),
-        new("Act as if what you do makes a difference. It does.", "William James"),
+        new("First, solve the problem. Then, write the code.", "John Johnson"),
         new("Knowing yourself is the beginning of all wisdom.", "Aristotle"),
+        new("The best time to plant a tree was 20 years ago. The second best is now.", "Chinese Proverb"),
+        new("Act as if what you do makes a difference. It does.", "William James"),
         new("Done is better than perfect.", "Sheryl Sandberg"),
-        new("It is not that I'm so smart, it is that I stay with problems longer.", "Albert Einstein"),
     ];
 
     /// <summary>A list this long is a book, not a widget setting. It bounds the state file.</summary>
@@ -105,6 +109,38 @@ public static class QuoteRotation
     /// <param name="seed">The user's shuffle seed. Changing it reshuffles the whole rotation.</param>
     /// <param name="shuffle">Whether to walk the list in order or to hash the period.</param>
     public static int Select(int count, long period, int seed, bool shuffle)
+        => SelectCore(count, period, seed, shuffle);
+
+    /// <summary>
+    /// [S-1495] The original's shuffle button: a random quote, never the one already showing. Returns
+    /// how far to move the period (the view adds it to its ephemeral step) so <see cref="Select"/>
+    /// lands on another quote; <paramref name="roll"/> is the caller's random number, which keeps
+    /// this pure. Zero when there is nothing else to show.
+    /// </summary>
+    public static long RandomStep(int count, long period, int seed, bool shuffle, int roll)
+    {
+        if (count < 2)
+        {
+            return 0;
+        }
+
+        var current = SelectCore(count, period, seed, shuffle);
+        var first = 1 + (long)((uint)roll % (uint)(count - 1));
+
+        // In order, any step short of a full lap is another quote. Shuffled, a step can hash back to
+        // the same one, so walk on until it does not: a few tries at most, bounded all the same.
+        for (var step = first; step < first + (count * 4L); step++)
+        {
+            if (SelectCore(count, period + step, seed, shuffle) != current)
+            {
+                return step;
+            }
+        }
+
+        return first;
+    }
+
+    private static int SelectCore(int count, long period, int seed, bool shuffle)
     {
         if (count <= 0)
         {

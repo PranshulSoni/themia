@@ -27,6 +27,10 @@ internal sealed partial class DesktopWindow
             : cell;
     }
 
+    /// <summary>The card showing widget <paramref name="widgetId"/> on this surface, if any.</summary>
+    internal WidgetCard? CardFor(string widgetId)
+        => _closed ? null : _cards.Find(c => string.Equals(c.Model.Id, widgetId, StringComparison.Ordinal));
+
     /// <inheritdoc />
     public void OnCardFrameChanged(WidgetCard card)
     {
@@ -42,15 +46,7 @@ internal sealed partial class DesktopWindow
     }
 
     /// <inheritdoc />
-    public void RequestZOrder(WidgetCard card, bool front)
-    {
-        var id = card.Model.Id;
-        _host.Mutate(state =>
-        {
-            var view = ViewForThisMonitor(state);
-            _ = front ? view.BringToFront(id) : view.SendToBack(id);
-        });
-    }
+    public void RequestZOrder(WidgetCard card, bool front) => _host.ZOrderSelected(front);
 
     /// <inheritdoc />
     public void RequestChildAction(WidgetCard container, string childId, ContainerChildAction action)
@@ -63,7 +59,7 @@ internal sealed partial class DesktopWindow
 
             case ContainerChildAction.MoveUp or ContainerChildAction.MoveDown:
                 var delta = action == ContainerChildAction.MoveUp ? -1 : 1;
-                _host.Mutate(state => ViewForThisMonitor(state).MoveChild(childId, delta));
+                _host.Mutate(state => ViewForThisMonitor(state).MoveChild(childId, delta), undo: UndoAction.Container);
                 return;
 
             case ContainerChildAction.TakeOut:
@@ -73,14 +69,14 @@ internal sealed partial class DesktopWindow
                     {
                         Log.Warn(Scope, $"refused to take widget '{childId}' out of '{container.Model.Id}'");
                     }
-                });
+                }, undo: UndoAction.Container);
                 return;
         }
     }
 
     /// <inheritdoc />
     public void RequestMoveChildTo(WidgetCard container, string childId, int index)
-        => _host.Mutate(state => ViewForThisMonitor(state).MoveChildTo(childId, index));
+        => _host.Mutate(state => ViewForThisMonitor(state).MoveChildTo(childId, index), undo: UndoAction.Container);
 
     /// <summary>
     /// [S-870] The widget picker, anchored on the container, with the container chosen in its "Add
@@ -140,7 +136,7 @@ internal sealed partial class DesktopWindow
             {
                 Log.Warn(Scope, $"refused to drop widget '{id}' into '{into ?? "the desktop"}'");
             }
-        });
+        }, undo: UndoAction.Container);
 
         Log.Info(Scope, into is null ? $"widget '{id}' dropped out of its group" : $"widget '{id}' dropped into '{into}'");
         return true;

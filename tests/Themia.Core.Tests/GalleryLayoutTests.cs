@@ -363,4 +363,19 @@ public class GalleryLayoutTests
     [InlineData(GalleryStatus.Loading, GallerySource.Bing, "today's photo")]
     public void S761_each_source_names_its_own_empty_state(GalleryStatus status, GallerySource source, string expected)
         => Assert.Contains(expected, GalleryFormatting.StatusMessage(status, FolderPathProblem.None, source), StringComparison.Ordinal);
+
+    [Theory]
+    [InlineData(0, 1)]
+    [InlineData(-5, 1)]
+    [InlineData(1, 1)]
+    [InlineData(2, 2)]
+    [InlineData(10, 10)]
+    [InlineData(99999, GalleryConfig.MaxSlideSeconds)]
+    public void S1620_a_slide_can_be_held_for_as_little_as_one_second(int stored, int effective)
+    {
+        var config = new GalleryConfig { SlideshowSeconds = stored };
+
+        Assert.Equal(effective, config.EffectiveSlideshowSeconds);
+        Assert.Equal(TimeSpan.FromSeconds(effective), config.SlideInterval);
+    }
 }

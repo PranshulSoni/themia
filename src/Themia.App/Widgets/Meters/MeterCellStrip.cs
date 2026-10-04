@@ -18,11 +18,8 @@ namespace Themia.App.Widgets.Meters;
 /// </summary>
 internal sealed class MeterCellStrip
 {
-    /// <summary>The narrowest a bar may get and still read as a bar.</summary>
-    public const double MinCellWidth = 4;
-
     /// <summary>The gap between bars, across and down.</summary>
-    public const double Gap = 2;
+    private const double Gap = MeterCellForms.Gap;
 
     /// <summary>"100": the figure under a bar, without its percent sign.</summary>
     public const int LabelCharacters = 3;
@@ -32,14 +29,12 @@ internal sealed class MeterCellStrip
     private readonly TextBlock _title = Fluent.Text(FluentType.Caption, "TextFillColorTertiaryBrush");
     private readonly Grid _grid = new() { ColumnSpacing = Gap, RowSpacing = Gap };
     private readonly List<Cell> _cells = [];
-    private CellGrid _shape;
-    private double _barHeight;
-    private bool _labels;
+    private CellStripForm _form;
 
     public MeterCellStrip()
     {
         _title.MaxLines = 1;
-        _title.Margin = new Thickness(0, 0, 0, Fluent.Space1);
+        _title.Margin = new Thickness(0, 0, 0, MeterCellForms.TitleGap);
 
         Host = new StackPanel
         {
@@ -50,25 +45,20 @@ internal sealed class MeterCellStrip
 
     public StackPanel Host { get; }
 
-    /// <summary>The height the strip takes for <paramref name="shape"/> with bars <paramref name="barHeight"/> tall.</summary>
-    public static double HeightOf(CellGrid shape, double barHeight, bool labels)
-        => shape.IsEmpty
-            ? 0
-            : FluentType.Caption.LineHeight + Fluent.Space1
-              + (shape.Rows * (barHeight + (labels ? FluentType.Caption.LineHeight : 0)))
-              + ((shape.Rows - 1) * Gap);
-
-    /// <summary>Lay the bars out as <paramref name="shape"/>; only rebuilds the grid when the shape changed.</summary>
-    public void Arrange(CellGrid shape, int count, double barHeight, bool labels)
+    /// <summary>Lay the bars out in <paramref name="form"/>; only rebuilds the grid when the form changed.</summary>
+    public void Arrange(CellStripForm form, int count)
     {
-        if (shape == _shape && count == _cells.Count && barHeight == _barHeight && labels == _labels)
+        _title.Visibility = form.Title ? Visibility.Visible : Visibility.Collapsed;
+
+        if (form == _form && count == _cells.Count)
         {
             return;
         }
 
-        _shape = shape;
-        _barHeight = barHeight;
-        _labels = labels;
+        _form = form;
+        var shape = form.Shape;
+        var barHeight = form.BarHeight;
+        var labels = form.Labels;
 
         while (_cells.Count < count)
         {

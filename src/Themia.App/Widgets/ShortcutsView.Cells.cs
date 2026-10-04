@@ -128,7 +128,7 @@ internal sealed partial class ShortcutsView
     private Cell BuildTile(ShortcutItem item, ShortcutTilePlan plan)
     {
         var target = LaunchTargets.Classify(item.Target);
-        var (iconHost, image, fallback, badge, badgeText) = BuildIcon(target, plan.Icon);
+        var (iconHost, image, fallback, badge, badgeText) = BuildIcon(item, target, plan.Icon);
         iconHost.HorizontalAlignment = HorizontalAlignment.Center;
 
         var name = Fluent.Text(FluentType.Caption);
@@ -147,7 +147,7 @@ internal sealed partial class ShortcutsView
         if (plan.Labels && plan.Detail)
         {
             var detail = Fluent.Text(FluentType.Caption, "TextFillColorTertiaryBrush");
-            detail.Text = DetailOf(target);
+            detail.Text = DetailOf(item, target);
             detail.TextAlignment = TextAlignment.Center;
             detail.TextTrimming = TextTrimming.CharacterEllipsis;
             detail.TextWrapping = TextWrapping.NoWrap;
@@ -205,7 +205,7 @@ internal sealed partial class ShortcutsView
     private Cell BuildRow(ShortcutItem item, ShortcutRowPlan plan, bool details)
     {
         var target = LaunchTargets.Classify(item.Target);
-        var (iconHost, image, fallback, badge, badgeText) = BuildIcon(target, plan.Icon);
+        var (iconHost, image, fallback, badge, badgeText) = BuildIcon(item, target, plan.Icon);
         iconHost.Margin = new Thickness(0, 0, Fluent.Space3, 0);
         iconHost.VerticalAlignment = VerticalAlignment.Center;
 
@@ -225,7 +225,7 @@ internal sealed partial class ShortcutsView
         if (plan.SecondLine)
         {
             var line = Fluent.Text(FluentType.Caption, "TextFillColorSecondaryBrush");
-            line.Text = DetailOf(target);
+            line.Text = DetailOf(item, target);
             line.TextTrimming = TextTrimming.CharacterEllipsis;
             line.TextWrapping = TextWrapping.NoWrap;
             nameBlock = new StackPanel { VerticalAlignment = VerticalAlignment.Center, Children = { name, line } };
@@ -239,7 +239,7 @@ internal sealed partial class ShortcutsView
         if (details && plan.TargetColumn)
         {
             var path = Fluent.Text(FluentType.Caption, "TextFillColorSecondaryBrush");
-            path.Text = item.Target;
+            path.Text = item.IsLayout ? LayoutPlan.Summary(item.Layout) : item.Target;
             path.TextTrimming = TextTrimming.CharacterEllipsis;
             path.TextWrapping = TextWrapping.NoWrap;
             path.Margin = new Thickness(Fluent.Space3, 0, 0, 0);
@@ -318,9 +318,11 @@ internal sealed partial class ShortcutsView
     /// An item's icon slot: the glyph for its kind straight away, replaced by the real icon when it
     /// arrives; the Recycle Bin's count badge pinned to the slot's top-right corner.
     /// </summary>
-    private (Grid Host, Image Image, FontIcon Fallback, Border Badge, TextBlock BadgeText) BuildIcon(LaunchTarget target, double size)
+    private (Grid Host, Image Image, FontIcon Fallback, Border Badge, TextBlock BadgeText) BuildIcon(ShortcutItem item, LaunchTarget target, double size)
     {
-        var fallback = Fluent.Icon(GlyphFor(target.Kind), ColorKeyFor(target.Kind), Math.Round(size * 0.75));
+        var fallback = item.IsLayout
+            ? Fluent.Icon(Glyphs.AppLayout, "TextFillColorSecondaryBrush", Math.Round(size * 0.75))
+            : Fluent.Icon(GlyphFor(target.Kind), ColorKeyFor(target.Kind), Math.Round(size * 0.75));
         fallback.HorizontalAlignment = HorizontalAlignment.Center;
 
         var image = new Image
@@ -396,7 +398,7 @@ internal sealed partial class ShortcutsView
         root.Tag = cell;
         root.Background = Fluent.RowRest();
 
-        if (!target.IsValid)
+        if (!target.IsValid && !item.IsLayout)
         {
             // A refused target says what is wrong rather than disappearing: a shortcut that changed
             // under the user is the one worth seeing.
@@ -509,15 +511,19 @@ internal sealed partial class ShortcutsView
         }
 
         var missing = cell.Health == TargetHealth.Missing;
-        cell.Content.Opacity = missing || !cell.Target.IsValid ? 0.5 : 1;
+        cell.Content.Opacity = missing || (!cell.Target.IsValid && !cell.Item.IsLayout) ? 0.5 : 1;
         cell.Name.TextDecorations = missing ? Windows.UI.Text.TextDecorations.Strikethrough : Windows.UI.Text.TextDecorations.None;
 
         if (cell.Kind is { } kind)
         {
-            kind.Text = ShortcutRules.KindLabel(cell.Target, cell.Health);
+            kind.Text = cell.Item.IsLayout ? ShortcutRules.LayoutKindLabel : ShortcutRules.KindLabel(cell.Target, cell.Health);
         }
 
-        if (cell.Target.IsValid && !cell.IsBin)
+        if (cell.Item.IsLayout)
+        {
+            ToolTipService.SetToolTip(cell.Root, $"{NameOf(cell.Item)}\n{LayoutPlan.Summary(cell.Item.Layout)}");
+        }
+        else if (cell.Target.IsValid && !cell.IsBin)
         {
             var name = NameOf(cell.Item);
             ToolTipService.SetToolTip(cell.Root, missing
@@ -552,9 +558,21 @@ internal sealed partial class ShortcutsView
     /// </summary>
     private async Task LoadIconAsync(Cell cell, string? variant)
     {
+        if (cell.Item.IsLayout)
+        {
+            await LoadLayoutIconAsync(cell).ConfigureAwait(true);
+            return;
+        }
+
         try
         {
-            ImageSource? source = cell.Target.Kind switch
+            ImageSource? source = cell.Item.IconPath is { } iconPath
+                && LaunchTargets.Classify(iconPath) is { Kind: LaunchKind.LocalPath } iconTarget
+                && LaunchTargets.MayProbe(iconTarget)
+                ? await AppIcons.GetAsync(iconTarget.Value, (int)Math.Ceiling(cell.IconSize * 2)).ConfigureAwait(true)
+                : null;
+
+            source ??= cell.Target.Kind switch
             {
                 LaunchKind.Web => await FaviconAsync(cell.Target.Value).ConfigureAwait(true),
                 LaunchKind.LocalPath or LaunchKind.ShellNamespace when LaunchTargets.MayProbe(cell.Target)
@@ -622,6 +640,76 @@ internal sealed partial class ShortcutsView
             return null;
         }
     }
+
+    /// <summary>
+    /// [S-1405] An app layout's icon previews what it opens (original S-72): up to four of its
+    /// panes' icons, overlapping from the top left to the bottom right, in tree order. Web panes show
+    /// their site's icon, the rest the shell's. With nothing assigned, or nothing loaded, the layout
+    /// glyph stays.
+    /// </summary>
+    private async Task LoadLayoutIconAsync(Cell cell)
+    {
+        if (cell.Image.Parent is not Grid host)
+        {
+            return;
+        }
+
+        var sources = new List<ImageSource>();
+
+        foreach (var assignment in LayoutPlan.Preview(cell.Item.Layout))
+        {
+            try
+            {
+                var target = LaunchTargets.Classify(assignment.Target);
+                ImageSource? source = target.Kind switch
+                {
+                    LaunchKind.Web => await FaviconAsync(target.Value).ConfigureAwait(true),
+                    LaunchKind.LocalPath when LaunchTargets.MayProbe(target)
+                        => await AppIcons.GetAsync(target.Value, (int)Math.Ceiling(cell.IconSize * 2)).ConfigureAwait(true),
+                    _ => null,
+                };
+
+                if (source is not null)
+                {
+                    sources.Add(source);
+                }
+            }
+            catch (Exception ex)
+            {
+                Log.Warn(Scope, "could not load an app layout's pane icon", ex);
+            }
+        }
+
+        if (_detached || sources.Count == 0 || !_cells.Contains(cell))
+        {
+            return;
+        }
+
+        var size = cell.IconSize;
+        var each = sources.Count == 1 ? size : Math.Round(size * 0.66);
+        var step = sources.Count == 1 ? 0 : (size - each) / (sources.Count - 1);
+
+        for (var i = 0; i < sources.Count; i++)
+        {
+            // Inserted under the badge, which is the host's last child.
+            host.Children.Insert(host.Children.Count - 1, new Image
+            {
+                Source = sources[i],
+                Width = each,
+                Height = each,
+                Stretch = Stretch.Uniform,
+                HorizontalAlignment = HorizontalAlignment.Left,
+                VerticalAlignment = VerticalAlignment.Top,
+                Margin = new Thickness(step * i, step * i, 0, 0),
+            });
+        }
+
+        cell.Fallback.Visibility = Visibility.Collapsed;
+    }
+
+    /// <summary>A tile's detail line or a row's second line, for an app layout too: how many apps it opens.</summary>
+    private static string DetailOf(ShortcutItem item, LaunchTarget target)
+        => item.IsLayout ? LayoutPlan.Summary(item.Layout) : DetailOf(target);
 
     /// <summary>A tile's detail line / a list row's second line: the host, the folder it is in, or the location.</summary>
     private static string DetailOf(LaunchTarget target) => target.Kind switch

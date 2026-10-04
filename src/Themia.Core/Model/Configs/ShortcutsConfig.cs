@@ -35,8 +35,9 @@ public enum ShortcutItemSize
 /// A config that was edited after it was saved gets the same suspicion as one that was typed.
 /// </para>
 /// <para>
-/// Package PD adds an icon path (for a dropped <c>.url</c>) and an app layout here; nothing in this
-/// shape assumes there are only three fields.
+/// [S-1405] An item with a <see cref="Layout"/> is an <b>app layout</b>: activating it opens every
+/// app of its pane tree and puts each window in its pane. Its <see cref="Target"/> is empty and
+/// never launched.
 /// </para>
 /// </summary>
 public sealed class ShortcutItem
@@ -49,6 +50,27 @@ public sealed class ShortcutItem
 
     /// <summary>Where it points. Never launched without being classified first.</summary>
     public string Target { get; set; } = string.Empty;
+
+    /// <summary>
+    /// [S-1401] The icon a dropped <c>.url</c> named (<c>IconFile=</c>, a Steam game's icon), drawn
+    /// instead of the target's own. A local path, gated like every probe; null for none.
+    /// </summary>
+    public string? IconPath { get; set; }
+
+    /// <summary>[S-1405] The app layout's pane tree, or null for an ordinary shortcut.</summary>
+    public LayoutNode? Layout { get; set; }
+
+    /// <summary>Whether this item is an app layout rather than a target.</summary>
+    [JsonIgnore]
+    public bool IsLayout => Layout is not null;
+
+    /// <summary>[S-1405] A new app layout: one empty pane, named by the user later (original S-55).</summary>
+    public static ShortcutItem CreateLayout(string label = "") => new()
+    {
+        Id = Guid.NewGuid().ToString("n"),
+        Label = label,
+        Layout = LayoutNode.NewPane(),
+    };
 
     public static ShortcutItem Create(string target, string label = "") => new()
     {
@@ -63,6 +85,8 @@ public sealed class ShortcutItem
         Id = Guid.NewGuid().ToString("n"),
         Label = Label,
         Target = Target,
+        IconPath = IconPath,
+        Layout = Layout?.Clone(),
     };
 }
 
@@ -147,6 +171,27 @@ public sealed class ShortcutsConfig : WidgetConfig
         {
             repairs.Add("Shortcuts widget had an unknown click mode");
             ClickMode = ItemClickMode.Double;
+        }
+
+        foreach (var item in Items)
+        {
+            // [S-1406] A layout's tree is made honest; its target is never launched, so it is blank.
+            if (item.Layout is not null)
+            {
+                item.Layout = LayoutTree.Repair(item.Layout, repairs);
+
+                if (item.Target.Length > 0)
+                {
+                    item.Target = string.Empty;
+                    repairs.Add("Shortcuts widget had an app layout with a target");
+                }
+            }
+
+            if (item.IconPath is { } icon && LaunchTargets.Classify(icon).Kind != LaunchKind.LocalPath)
+            {
+                item.IconPath = null;
+                repairs.Add("Shortcuts widget had an icon that is not a local file");
+            }
         }
 
         // Ids are what selection, rename and remove key on; a hand-edited file with a blank or

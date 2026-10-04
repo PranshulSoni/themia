@@ -68,6 +68,68 @@ public static class ClockFormatter
         return new ClockDetails(shortDate, week, zoneLine);
     }
 
+    /// <summary>
+    /// [S-1482] The label over the time: the custom label when there is one, else the city of a chosen
+    /// zone ("Tokyo"), else nothing: a clock on the machine's own zone stays label-free, the classic
+    /// look. (The original also dropped the label when the chosen zone <i>was</i> the local one; a
+    /// Windows zone covers many cities, so here choosing any city labels the clock with it.)
+    /// </summary>
+    public static string? Label(ClockConfig config)
+    {
+        ArgumentNullException.ThrowIfNull(config);
+
+        var custom = config.CustomLabel?.Trim();
+
+        if (!string.IsNullOrEmpty(custom))
+        {
+            return custom;
+        }
+
+        return config.IsWorldClock && ZoneCatalog.Find(config.TimeZoneId) is { } entry ? entry.City : null;
+    }
+
+    /// <summary>[S-1485] The offset line for this instant, or null when the mode is None.</summary>
+    public static string? OffsetLine(DateTimeOffset utcNow, ClockConfig config)
+    {
+        ArgumentNullException.ThrowIfNull(config);
+
+        return config.OffsetMode == ClockOffsetMode.None
+            ? null
+            : OffsetText(config.ResolveTimeZone().GetUtcOffset(utcNow), TimeZoneInfo.Local.GetUtcOffset(utcNow), config.OffsetMode);
+    }
+
+    /// <summary>
+    /// [S-1485] "UTC+2", "UTC+5:30", "UTC−3" from UTC; "+8h local", "−5:30h local", "same as local"
+    /// from the machine's zone. Minus is U+2212, the typographic sign, as the original wrote it.
+    /// </summary>
+    public static string? OffsetText(TimeSpan zoneOffset, TimeSpan localOffset, ClockOffsetMode mode)
+    {
+        switch (mode)
+        {
+            case ClockOffsetMode.Utc:
+                return zoneOffset == TimeSpan.Zero ? "UTC" : $"UTC{Signed(zoneOffset)}";
+
+            case ClockOffsetMode.Local:
+                var difference = zoneOffset - localOffset;
+                return difference == TimeSpan.Zero ? "same as local" : $"{Signed(difference)}h local";
+
+            default:
+                return null;
+        }
+    }
+
+    /// <summary>"+2", "−3", "+5:30": whole hours bare, minutes only when there are some.</summary>
+    private static string Signed(TimeSpan offset)
+    {
+        var sign = offset < TimeSpan.Zero ? "−" : "+";
+        var magnitude = offset.Duration();
+        var hours = (int)magnitude.TotalHours;
+
+        return magnitude.Minutes == 0
+            ? $"{sign}{hours}"
+            : $"{sign}{hours}:{magnitude.Minutes:D2}";
+    }
+
     /// <summary>"UTC", "UTC+02:00", "UTC-03:30".</summary>
     public static string Offset(TimeSpan offset)
     {

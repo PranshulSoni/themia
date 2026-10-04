@@ -2,6 +2,7 @@ using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Themia.App.Interop;
 using Themia.App.Services;
+using Themia.App.Services.Files;
 using Themia.App.Widgets;
 using Themia.Core.Diagnostics;
 using Themia.Core.Model;
@@ -89,6 +90,48 @@ internal static partial class WidgetSettings
             },
             verdict));
 
+        rows.Add(FluentLayout.Header("View"));
+
+        rows.Add(FluentLayout.Row(Glyphs.View, "Layout", "Rows, a table with columns, labelled tiles, or icons alone",
+            FluentLayout.Choice(
+                [(FolderViewMode.List, "List"), (FolderViewMode.Details, "Details"), (FolderViewMode.Grid, "Grid"), (FolderViewMode.Icons, "Icons")],
+                config.View,
+                value => { config.View = value; save(); }),
+            "view mode", "grid", "details", "icons"));
+
+        rows.Add(FluentLayout.Row(Glyphs.TextSize, "Row size", "How tall list and details rows are",
+            FluentLayout.Choice(
+                [(FolderItemSize.ExtraSmall, "Extra small"), (FolderItemSize.Small, "Small"), (FolderItemSize.Medium, "Medium"), (FolderItemSize.Large, "Large")],
+                config.ItemSize,
+                value => { config.ItemSize = value; save(); }),
+            "density", "item size"));
+
+        rows.Add(FluentLayout.Expander(Glyphs.GridLayout, "Tile size", "How big grid and icon tiles are",
+            FluentLayout.Choice(
+                [(FolderTileSize.Small, "Small"), (FolderTileSize.Medium, "Medium"), (FolderTileSize.Large, "Large")],
+                config.TileSize,
+                value => { config.TileSize = value; save(); }),
+            [
+                FluentLayout.Row(Glyphs.Fit, "Stretch tiles to fill",
+                    "When every tile fits, rows share the widget's height",
+                    FluentLayout.Toggle(config.StretchTiles, value => { config.StretchTiles = value; save(); })),
+            ]));
+
+        rows.Add(FluentLayout.Expander(Glyphs.ColumnsLayout, "Details columns",
+            "Shown after the name, in this order, as far as the widget is wide",
+            null,
+            [.. FolderColumns.All.Select(column => FluentLayout.Row(Glyphs.ColumnsLayout, FolderColumns.Title(column), ColumnHint(column),
+                FluentLayout.Toggle(config.Columns.Contains(column), value =>
+                {
+                    if (value != config.Columns.Contains(column))
+                    {
+                        config.Columns = FolderColumns.Toggle(config.Columns, column);
+                        save();
+                    }
+                })))]));
+
+        rows.Add(FluentLayout.Header("Contents"));
+
         rows.Add(FluentLayout.Row(Glyphs.Sort, "Sort by", "Which column the list is ordered on",
             FluentLayout.Choice(
                 [(FolderSort.Name, "Name"), (FolderSort.Modified, "Date modified"), (FolderSort.Size, "Size")],
@@ -96,23 +139,51 @@ internal static partial class WidgetSettings
                 value => { config.Sort = value; save(); })));
 
         rows.Add(FluentLayout.Row(Glyphs.MoveDown, "Reverse order",
-            "Newest or largest first, depending on the sort",
+            "Z to A, newest or largest first, depending on the sort",
             FluentLayout.Toggle(config.Descending, value => { config.Descending = value; save(); })));
 
         rows.Add(FluentLayout.Row(Glyphs.Folder, "Folders first", "Group folders above files, as Explorer does",
             FluentLayout.Toggle(config.FoldersFirst, value => { config.FoldersFirst = value; save(); })));
 
+        var filter = new TextBox { Text = config.Filter, Width = 260, PlaceholderText = "e.g. report, .pdf" };
+        filter.LostFocus += (_, _) =>
+        {
+            if (filter.Text != config.Filter)
+            {
+                config.Filter = filter.Text;
+                save();
+            }
+        };
+
+        rows.Add(FluentLayout.Row(Glyphs.Search, "Filter",
+            "Only names containing one of these words; separate them with commas",
+            filter, "keywords", "match"));
+
         rows.Add(FluentLayout.Row(Glyphs.Hidden, "Show hidden items",
             "Include what Windows marks hidden or system",
             FluentLayout.Toggle(config.ShowHidden, value => { config.ShowHidden = value; save(); })));
 
-        rows.Add(FluentLayout.Row(Glyphs.Preview, "Show size and date",
-            "Hidden automatically when the widget is too narrow for it",
-            FluentLayout.Toggle(config.ShowDetail, value => { config.ShowDetail = value; save(); })));
+        rows.Add(FluentLayout.Row(Glyphs.File, "Show file extensions",
+            "\"report.docx\" rather than \"report\"",
+            FluentLayout.Toggle(config.ShowExtensions, value => { config.ShowExtensions = value; save(); })));
 
-        rows.Add(FluentLayout.Row(Glyphs.Count, "Items", "How many the list holds; a short widget shows fewer",
-            FluentLayout.Slider(config.EffectiveMaxCount, 1, 100, 1, string.Empty,
-                value => { config.MaxCount = (int)Math.Round(value); save(); })));
+        rows.Add(FluentLayout.Header("Opening"));
+
+        rows.Add(FluentLayout.Row(Glyphs.Open, "Open items with",
+            "A double click, as on the desktop, or a single click, as on a web page",
+            FluentLayout.Choice(
+                [(ItemClickMode.Double, "Double click"), (ItemClickMode.Single, "Single click")],
+                config.ClickMode,
+                value => { config.ClickMode = value; save(); }),
+            "click mode"));
+
+        rows.Add(FluentLayout.Row(Glyphs.Back, "Open folders",
+            "In Explorer, or inside the widget with Back, Forward and Up",
+            FluentLayout.Choice(
+                [(FolderNavigation.Explorer, "In Explorer"), (FolderNavigation.Navigate, "Inside the widget")],
+                config.Navigation,
+                value => { config.Navigation = value; save(); }),
+            "navigation", "browse"));
 
         var open = new Button { Content = "Open in Explorer" };
         open.Click += (_, _) =>
@@ -121,20 +192,25 @@ internal static partial class WidgetSettings
 
             if (result.IsValid)
             {
-                FolderListing.Open(result.Path);
+                ShellFileOps.Open(result.Path);
             }
         };
 
-        // The widget itself will not delete, rename or move anything, so this is the way out to the
-        // place that will.
-        rows.Add(FluentLayout.Row(Glyphs.Open, "Files", "This widget only lists and opens; edit them in Explorer", open));
+        rows.Add(FluentLayout.Row(Glyphs.OpenExternal, "Explorer",
+            "Delete always goes to the Recycle Bin, and asks first", open));
     }
 
-    /// <summary>
-    /// Say what is wrong, or confirm what will actually be listed. Both are worth showing: a box
-    /// that looks accepted but silently lists somewhere else is the failure this whole check exists
-    /// to prevent.
-    /// </summary>
+    private static string ColumnHint(FolderColumn column) => column switch
+    {
+        FolderColumn.Size => "A file's size",
+        FolderColumn.Modified => "When it last changed",
+        FolderColumn.Type => "\"Text Document\", \"File folder\"",
+        FolderColumn.Cloud => "OneDrive and other sync status",
+        FolderColumn.Git => "The item's git status, inside a repository",
+        FolderColumn.ItemCount => "How many items a folder holds",
+        _ => string.Empty,
+    };
+
     private static void ShowFolderVerdict(TextBlock verdict, FolderConfig config, string typed, FolderPathResult result)
     {
         if (typed.Trim().Length == 0)

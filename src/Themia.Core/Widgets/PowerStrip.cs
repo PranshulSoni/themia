@@ -13,6 +13,14 @@ public enum PowerFactKind
 
     /// <summary>[S-1246] The last action failed; the tile leads with why.</summary>
     Error = 5,
+
+    /// <summary>[S-1623] The largest tile's panel: time since Windows started.</summary>
+    Uptime = 6,
+
+    /// <summary>[S-1623] The largest tile's "Screen and sleep" rows.</summary>
+    ScreenOff = 7,
+    Sleep = 8,
+    Hibernate = 9,
 }
 
 /// <summary>One status line: a label for the panel's rows, a value, and the one-line form for the strip.</summary>

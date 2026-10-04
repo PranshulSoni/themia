@@ -527,6 +527,7 @@ internal sealed partial class HabitTrackerView : Grid, IWidgetView, IWidgetSurfa
 
         // What was being typed is kept: the pool outlives this view.
         CommitEdit(keepAdding: false);
+        CancelDrag();
         ReleaseRowFocus();
         _detached = true;
 

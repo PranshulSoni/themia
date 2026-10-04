@@ -8,14 +8,15 @@ it names.
 - Source: https://github.com/microsoft/fluentui-system-icons ("Color" variants, unmodified)
 - Used for: the icons of the settings window's navigation pane
 - Files: `src/Themia.App/Assets/NavIcons/`
-  - `ic_fluent_apps_16_color.svg`
-  - `ic_fluent_content_view_16_color.svg`
-  - `ic_fluent_document_text_16_color.svg`
-  - `ic_fluent_laptop_16_color.svg`
-  - `ic_fluent_paint_brush_16_color.svg`
-  - `ic_fluent_person_16_color.svg`
-  - `ic_fluent_question_circle_16_color.svg`
-  - `ic_fluent_settings_16_color.svg`
+  - `ic_fluent_apps_20_color.svg`
+  - `ic_fluent_content_view_20_color.svg`
+  - `ic_fluent_document_text_20_color.svg`
+  - `ic_fluent_laptop_20_color.svg`
+  - `ic_fluent_paint_brush_20_color.svg`
+  - `ic_fluent_person_20_color.svg`
+  - `ic_fluent_premium_20_color.svg`
+  - `ic_fluent_question_circle_20_color.svg`
+  - `ic_fluent_settings_20_color.svg`
 
 ```
 MIT License

@@ -27,13 +27,14 @@ namespace Themia.App.Widgets;
 /// selection, the rubber band, keys, the item menu, rename and search.
 /// </para>
 /// <para>
-/// Seams for package PD (drop and app layouts): items only ever enter through
-/// <see cref="AddItems"/>, and every target-specific choice (icon, menu, open) switches on
-/// <see cref="LaunchKind"/>, so a layout item is one more case in each switch.
+/// Items only ever enter through <see cref="AddItems"/> — a drop too ([S-1400], <c>.Drop.cs</c>,
+/// which also owns dragging items to reorder them and out to other apps). An app layout
+/// ([S-1405]) is an item with a pane tree instead of a target: its icon, menu, detail and open each
+/// branch on <see cref="ShortcutItem.IsLayout"/> before the target is classified.
 /// </para>
 /// </summary>
 internal sealed partial class ShortcutsView : Grid, IWidgetView, IWidgetSurfaceAware, IWidgetHeaderContent,
-    IWidgetContextActions, IWidgetSizeAware, IWidgetKeys
+    IWidgetContextActions, IWidgetSizeAware, IWidgetKeys, IWidgetDropTarget
 {
     private const string Scope = "shortcuts";
 
@@ -192,8 +193,8 @@ internal sealed partial class ShortcutsView : Grid, IWidgetView, IWidgetSurfaceA
     }
 
     /// <summary>
-    /// [S-1392] Add items (the settings page and, later, a drop). The one way an item enters the
-    /// widget from its own surface, so PD's drop handler has a single seam to call.
+    /// [S-1392] Add items (the settings page and a drop, [S-1400]). The one way an item enters the
+    /// widget from its own surface.
     /// </summary>
     public void AddItems(IEnumerable<ShortcutItem> items)
     {
@@ -480,7 +481,9 @@ internal sealed partial class ShortcutsView : Grid, IWidgetView, IWidgetSurfaceA
             .ToList();
     }
 
-    private string NameOf(ShortcutItem item) => LaunchTargets.DisplayName(item.Label, item.Target, _config.ShowFileExtension);
+    private string NameOf(ShortcutItem item) => item.IsLayout
+        ? (item.Label.Length > 0 ? item.Label : ShortcutRules.LayoutKindLabel)
+        : LaunchTargets.DisplayName(item.Label, item.Target, _config.ShowFileExtension);
 
     /// <summary>The visible ids, in order: what selection ranges, select-all and arrows walk.</summary>
     private List<string> Order() => _cells.Select(cell => cell.Item.Id).ToList();
@@ -649,6 +652,8 @@ internal sealed partial class ShortcutsView : Grid, IWidgetView, IWidgetSurfaceA
         PointerCanceled -= OnRootPointerLost;
 
         EndRename(commit: false);
+        EndReorder(commit: false);
+        LeaveDrop();
         _fade.Dispose();
         ClearCells();
     }

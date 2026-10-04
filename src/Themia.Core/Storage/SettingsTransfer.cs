@@ -160,18 +160,26 @@ public static class SettingsTransfer
         _ => "The file couldn't be read as Themia settings.",
     };
 
+    /// <summary>The occasion an import's backup is named for: <c>state.before-import-….json</c>.</summary>
+    public const string ImportOccasion = "import";
+
+    /// <summary>[S-892] The occasion a reset's backup is named for: <c>state.before-reset-….json</c>.</summary>
+    public const string ResetOccasion = "reset";
+
     /// <summary>
-    /// [S-497] Where the settings the user has now are kept when an import replaces them: beside the
-    /// state file, named for the moment, never overwriting an earlier one.
+    /// [S-497] Where the settings the user has now are kept when an import (or [S-892] a reset)
+    /// replaces them: beside the state file, named for the occasion and the moment, never
+    /// overwriting an earlier one.
     /// </summary>
-    public static string BackupPath(string statePath, DateTime now)
+    public static string BackupPath(string statePath, DateTime now, string occasion = ImportOccasion)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(statePath);
+        ArgumentException.ThrowIfNullOrWhiteSpace(occasion);
 
         var dir = Path.GetDirectoryName(statePath) ?? string.Empty;
         var name = Path.GetFileNameWithoutExtension(statePath);
         var stamp = now.ToString("yyyyMMdd-HHmmss", CultureInfo.InvariantCulture);
-        return Path.Combine(dir, $"{name}.before-import-{stamp}.json");
+        return Path.Combine(dir, $"{name}.before-{occasion}-{stamp}.json");
     }
 
     /// <summary>
@@ -200,6 +208,7 @@ public static class SettingsTransfer
         target.DefaultViewForNewDisplays = incoming.DefaultViewForNewDisplays;
         target.DisabledMonitors = incoming.DisabledMonitors;
         target.MonitorScales = incoming.MonitorScales;
+        target.ViewBars = incoming.ViewBars;
     }
 
     /// <summary>

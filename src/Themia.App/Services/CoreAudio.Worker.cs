@@ -38,7 +38,7 @@ internal static unsafe partial class CoreAudio
         public List<AudioSessionInfo> Sessions = [];
     }
 
-    private sealed class Worker
+    private sealed partial class Worker
     {
         private readonly AutoResetEvent _wake = new(false);
         private readonly LatestWrites<double> _levels = new();
@@ -167,6 +167,9 @@ internal static unsafe partial class CoreAudio
             }
             finally
             {
+                // [S-1615] A pick still waiting is answered, never left hanging.
+                FailDefaultRequests();
+
                 foreach (var output in _outputs.Values)
                 {
                     Unbind(output);
@@ -188,6 +191,10 @@ internal static unsafe partial class CoreAudio
 
         private void Cycle(Change changes, Subscriber[] subscribers)
         {
+            // [S-1615] First, and before the enumerator: switching the default needs neither, and
+            // the change notification it causes is what rebinds the widgets below.
+            ApplyDefaultRequests();
+
             if (_enumerator == 0 && !OpenEnumerator())
             {
                 if (changes != Change.None)

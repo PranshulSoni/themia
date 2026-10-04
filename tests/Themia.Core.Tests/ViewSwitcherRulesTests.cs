@@ -90,66 +90,18 @@ public sealed class ViewSwitcherRulesTests
     }
 
     [Fact]
-    public void S491_a_wide_strip_is_one_row_with_names()
+    public void S1657_choices_carry_each_views_widget_count()
     {
-        var plan = ViewSwitcherRules.Plan(480, 160, 3, iconOnly: false);
+        var choices = ViewSwitcherRules.Choices([new("a", "Work", null, 4), new("b", "Home", null, -2)], [], "a");
 
-        Assert.False(plan.Vertical);
-        Assert.True(plan.ShowNames);
-    }
-
-    [Fact]
-    public void S491_a_narrow_strip_too_short_to_stack_drops_to_initials()
-    {
-        var plan = ViewSwitcherRules.Plan(240, 60, 3, iconOnly: false);
-
-        Assert.False(plan.Vertical);
-        Assert.False(plan.ShowNames);
+        Assert.Equal([4, 0], choices.Select(c => c.WidgetCount));
     }
 
     [Theory]
-    [InlineData(320, 240)]
-    [InlineData(560, 420)]
-    [InlineData(200, 150)]
-    [InlineData(120, 120)]
-    public void S491_a_tile_that_is_not_a_strip_stacks_with_names(double width, double height)
-    {
-        var plan = ViewSwitcherRules.Plan(width, height, 3, iconOnly: false);
-
-        Assert.True(plan.Vertical);
-        Assert.True(plan.ShowNames);
-    }
-
-    [Fact]
-    public void S491_the_default_strip_is_one_row_with_names()
-    {
-        var plan = ViewSwitcherRules.Plan(320, 56, 3, iconOnly: false);
-
-        Assert.False(plan.Vertical);
-        Assert.True(plan.ShowNames);
-    }
-
-    [Fact]
-    public void S491_a_tall_column_stacks_the_buttons_and_keeps_names()
-    {
-        var plan = ViewSwitcherRules.Plan(200, 400, 3, iconOnly: false);
-
-        Assert.True(plan.Vertical);
-        Assert.True(plan.ShowNames);
-    }
-
-    [Fact]
-    public void S491_a_column_too_short_for_every_button_stays_a_row()
-    {
-        var plan = ViewSwitcherRules.Plan(60, 100, 5, iconOnly: false);
-
-        Assert.False(plan.Vertical);
-    }
-
-    [Fact]
-    public void S491_icon_only_never_shows_names()
-    {
-        Assert.False(ViewSwitcherRules.Plan(560, 420, 2, iconOnly: true).ShowNames);
-        Assert.False(ViewSwitcherRules.Plan(200, 400, 2, iconOnly: true).ShowNames);
-    }
+    [InlineData(0, "No widgets")]
+    [InlineData(-1, "No widgets")]
+    [InlineData(1, "1 widget")]
+    [InlineData(7, "7 widgets")]
+    public void S1657_the_count_line_reads_naturally(int count, string expected)
+        => Assert.Equal(expected, ViewSwitcherRules.CountText(count));
 }

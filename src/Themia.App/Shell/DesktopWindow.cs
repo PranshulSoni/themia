@@ -42,10 +42,10 @@ internal sealed partial class DesktopWindow : IWidgetCardHost
     private readonly Border _placementHint;
     private readonly TextBlock _placementHintText;
     private readonly Canvas _ghostLayer;
-    private readonly Grid _ghost;
-    private readonly Rectangle _ghostFrame;
-    private readonly FontIcon _ghostIcon;
-    private readonly TextBlock _ghostLabel;
+
+    /// <summary>[S-1585] The ghost's outlines, one per widget being placed; pooled, grown on demand.</summary>
+    private readonly List<GhostCard> _ghosts = [];
+
     private readonly Grid _root;
     private readonly List<WidgetCard> _cards = [];
 
@@ -77,30 +77,24 @@ internal sealed partial class DesktopWindow : IWidgetCardHost
 
         _toolbar = BuildToolbar();
 
+        // [S-906] The view bar sits on its own layer, over the widgets and under the toolbar.
+        _viewBar = new ViewBar(this) { Visibility = Visibility.Collapsed };
+        _viewBar.SizeChanged += OnViewBarSizeChanged;
+        _barLayer.Children.Add(_viewBar);
+
         _placementHintText = new TextBlock { VerticalAlignment = VerticalAlignment.Center };
         _placementHint = BuildPlacementHint(_placementHintText);
 
-        _ghostIcon = new FontIcon { FontSize = 28 };
-        _ghostLabel = Fluent.Text(FluentType.BodyStrong);
-        _ghostFrame = new Rectangle
-        {
-            Fill = Brush("AccentFillColorDefaultBrush", Colors.DodgerBlue),
-            Stroke = Brush("AccentFillColorDefaultBrush", Colors.DodgerBlue),
-            StrokeThickness = 2,
-            StrokeDashArray = [4, 3],
-        };
-        _ghost = BuildGhost(_ghostFrame, _ghostIcon, _ghostLabel);
-
         // Never hit-testable: the ghost shows where a click will land, so it must not be the
-        // thing that catches the click.
-        _ghostLayer = new Canvas { IsHitTestVisible = false, Children = { _ghost } };
+        // thing that catches the click. The rubber band ([S-1581]) is drawn here too, for the same reason.
+        _ghostLayer = new Canvas { IsHitTestVisible = false };
 
         _root = new Grid
         {
             // Transparent, not null: the root still has to receive the pointer input that edit mode
             // needs, while the window itself shows the wallpaper straight through.
             Background = new SolidColorBrush(Colors.Transparent),
-            Children = { _gridOverlay, _widgetLayer, _ghostLayer, _toolbar, _placementHint },
+            Children = { _gridOverlay, _widgetLayer, _barLayer, _ghostLayer, _toolbar, _placementHint },
 
             // Focusable so edit-mode keyboard commands (copy / cut / paste / delete) and the keys of
             // a widget holding the keyboard lease ([S-800]) land here.
@@ -116,6 +110,8 @@ internal sealed partial class DesktopWindow : IWidgetCardHost
         AttachShellCleanup();
         _root.PointerMoved += OnRootPointerMoved;
         _root.PointerExited += OnRootPointerExited;
+        _root.PointerReleased += OnRootPointerReleased;
+        _root.PointerCaptureLost += OnRootPointerCaptureLost;
 
         _window = new Window
         {
@@ -130,6 +126,7 @@ internal sealed partial class DesktopWindow : IWidgetCardHost
 
         _root.SizeChanged += (_, _) => Relayout();
         _root.Loaded += OnRootLoaded;
+        _root.Loaded += OnRootLoadedForDrops;
         _host.StateChanged += OnStateChanged;
         _host.EditModeChanged += OnEditModeChanged;
         _host.SelectionChanged += OnSelectionChanged;
@@ -227,86 +224,14 @@ internal sealed partial class DesktopWindow : IWidgetCardHost
         }
     }
 
-    public void OnGeometryPreview(WidgetCard card)
-    {
-        PositionCard(card, card.LiveRect);
+    /// <summary>A resize in progress: follow it. Moves go through <see cref="PreviewMove"/>.</summary>
+    public void OnGeometryPreview(WidgetCard card) => PositionCard(card, card.LiveRect);
 
-        // [S-78] A resize never leaves its screen, so only a move asks where it would land.
-        var leaving = card.IsMoving && _host.PreviewHandOff(this, card.Model, card.LiveRect);
-        card.SetLeaving(leaving);
-    }
-
+    /// <summary>A resize ended: persist it, as one undo step ([S-884]). A resize never leaves its screen ([S-78]).</summary>
     public void OnGeometryCommitted(WidgetCard card)
     {
-        _host.EndHandOffPreview();
-        card.SetLeaving(false);
-
-        if (card.IsMoving && TryHandOffToOtherDisplay(card))
-        {
-            return;
-        }
-
-        // [S-875] Dropped onto a container: in it (the mutation saves the new rect as well).
-        if (card.IsMoving && TryDropIntoContainer(card))
-        {
-            return;
-        }
-
         PositionCard(card, card.LiveRect);
-        _host.SaveGeometryOnly();
-    }
-
-    /// <summary>
-    /// A drag that ends with the pointer over a different display hands the widget to that display's
-    /// surface.
-    /// <para>
-    /// Only meaningful when the two displays show <i>different</i> views: when they show the same
-    /// view the widget is already on both, so there is nothing to move and the drag is an ordinary
-    /// reposition. The drop point, not the dragged rect, decides the destination — the rect is
-    /// clamped to its own screen ([S-09]) and so can never reach across the boundary.
-    /// </para>
-    /// </summary>
-    private bool TryHandOffToOtherDisplay(WidgetCard card)
-    {
-        if (!Win32.GetCursorPos(out var cursor))
-        {
-            return false;
-        }
-
-        if (_monitor.Contains(cursor.X, cursor.Y))
-        {
-            return false;
-        }
-
-        var target = _host.SurfaceAt(cursor.X, cursor.Y);
-        if (target is null || ReferenceEquals(target, this))
-        {
-            return false;
-        }
-
-        var sourceViewId = CurrentViewId;
-        var targetViewId = target.CurrentViewId;
-        if (sourceViewId == targetViewId)
-        {
-            return false;
-        }
-
-        var rect = target.RectForDrop(cursor, card.Model.Rect);
-        _host.MoveWidgetToView(card.Model.Id, sourceViewId, targetViewId, rect);
-        _host.Select(card.Model.Id);
-        Log.Info(Scope, $"widget handed to {target.Monitor.GdiName} (view '{targetViewId}')");
-        return true;
-    }
-
-    /// <summary>
-    /// Centre a widget of the given size on a physical screen point of THIS display, then snap and
-    /// clamp it into the work area ([S-841]): a drop on the taskbar lands just above it.
-    /// </summary>
-    public FracRect RectForDrop(Win32.Point cursor, FracRect size)
-    {
-        var (xFrac, yFrac) = FractionOf(cursor);
-        var raw = new FracRect(xFrac - (size.W / 2), yFrac - (size.H / 2), size.W, size.H);
-        return GridGeometry.Settle(raw, Metrics, Design.GridSnap);
+        _host.CommitGeometry(UndoAction.Resize);
     }
 
     /// <summary>Where a physical screen point falls on this display, as a fraction of the whole monitor.</summary>
@@ -323,61 +248,17 @@ internal sealed partial class DesktopWindow : IWidgetCardHost
             Math.Clamp((point.Y - area.Top) / (double)area.Height, 0, 1));
     }
 
-    /// <summary>Paste the clipboard onto this display at the cursor.</summary>
-    public void PasteAtCursor()
-    {
-        if (!_host.Clipboard.HasContent)
-        {
-            return;
-        }
-
-        Win32.GetCursorPos(out var cursor);
-        var at = FractionOf(cursor);
-
-        var plan = _host.Clipboard.PlanPaste(new FracRect(at.X, at.Y, 0, 0), Metrics, Design.GridSnap);
-        if (plan is null)
-        {
-            return;
-        }
-
-        _host.ApplyPaste(plan.Value, CurrentViewId);
-    }
-
     public void RequestConfigure(WidgetCard card)
         => _host.ShowConfig(new ConfigTarget.Widget(card.Model.Id));
 
-    public void RequestDuplicate(WidgetCard card)
-    {
-        _host.Mutate(state =>
-        {
-            var view = ViewForThisMonitor(state);
-            var copy = card.Model.Clone();
+    /// <summary>[S-1589] Copies of the selection follow the pointer until a click drops them.</summary>
+    public void RequestDuplicate(WidgetCard card) => _host.DuplicateSelected();
 
-            // Offset the copy so it does not land exactly on top of the original and look like
-            // nothing happened.
-            var nudged = GridGeometry.Settle(
-                copy.Rect with { X = copy.Rect.X + 0.02, Y = copy.Rect.Y + 0.02 },
-                Metrics,
-                Design.GridSnap);
+    /// <summary>[S-1592] Delete the selection (the right-clicked card is in it).</summary>
+    public void RequestDelete(WidgetCard card) => _host.DeleteSelected();
 
-            copy.Rect = nudged;
-            view.Widgets.Add(copy);
-        });
-    }
-
-    public void RequestDelete(WidgetCard card)
-    {
-        _host.Mutate(state =>
-        {
-            var view = ViewForThisMonitor(state);
-
-            // Removing a container hands its children to whatever held it rather than taking
-            // them with it. Deleting the box is not deleting the things in it, and the
-            // alternative is a dozen widgets gone on one click with no undo.
-            view.Dissolve(card.Model.Id);
-            view.Widgets.RemoveAll(w => w.Id == card.Model.Id);
-        });
-    }
+    /// <summary>[S-1590] The selection follows the pointer, to this display or another, until a click drops it.</summary>
+    public void RequestMove(WidgetCard card) => _host.MoveSelected();
 
     public void RequestEditMode(bool enabled) => _host.SetEditMode(enabled);
 
@@ -401,29 +282,25 @@ internal sealed partial class DesktopWindow : IWidgetCardHost
             {
                 Log.Warn(Scope, $"refused to move widget '{id}' into '{containerId ?? "the desktop"}'");
             }
-        });
+        }, undo: UndoAction.Container);
     }
 
     /// <summary>A widget edited its own config. Persist it, but do not re-lay-out: see [S-128].</summary>
     public void RequestSaveConfig() => _host.SaveGeometryOnly();
 
-    public bool IsSelected(WidgetCard card) => _host.SelectedWidgetId == card.Model.Id;
+    public bool IsSelected(WidgetCard card) => _host.Selection.Contains(card.Model.Id);
+
+    public int SelectionCount => _host.Selection.Count;
 
     public void RequestSelect(WidgetCard card) => _host.Select(card.Model.Id);
 
-    public void RequestCopy(WidgetCard card)
-    {
-        _host.Select(card.Model.Id);
-        _host.CopySelected();
-    }
+    public void RequestToggleSelect(WidgetCard card) => _host.ToggleSelect(card.Model.Id);
 
-    public void RequestCut(WidgetCard card)
-    {
-        _host.Select(card.Model.Id);
-        _host.CutSelected();
-    }
+    public void RequestCopy(WidgetCard card) => _host.CopySelected();
 
-    public void RequestPaste() => PasteAtCursor();
+    public void RequestCut(WidgetCard card) => _host.CutSelected();
+
+    public void RequestPaste() => _host.Paste();
 
     public bool CanPaste => _host.Clipboard.HasContent;
 }

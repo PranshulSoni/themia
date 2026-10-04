@@ -1,0 +1,26 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    [S-1101] The build step that turns Themia.Core's Localization/Locales/*.json into static C#
+    tables (the Str enum and one string array per language). A Roslyn source generator rather than
+    a runtime loader or ResourceManager: the app is Native AOT, so the tables must be plain arrays
+    the compiler sees, and a locale file that does not parse must fail the build, not the user.
+
+    Build-time only: Themia.Core references it as an analyzer, nothing of it ships.
+  -->
+  <PropertyGroup>
+    <TargetFramework>netstandard2.0</TargetFramework>
+    <IsRoslynComponent>true</IsRoslynComponent>
+    <EnforceExtendedAnalyzerRules>true</EnforceExtendedAnalyzerRules>
+    <IncludeBuildOutput>false</IncludeBuildOutput>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <IsPackable>false</IsPackable>
+    <!-- Release tracking (RS2008) is for analyzers shipped to others; these rules only guard our own locale files. -->
+    <NoWarn>$(NoWarn);RS2008</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.CodeAnalysis.CSharp" Version="4.14.0" PrivateAssets="all" />
+  </ItemGroup>
+
+</Project>

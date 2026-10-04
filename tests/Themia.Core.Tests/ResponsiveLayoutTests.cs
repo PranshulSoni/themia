@@ -246,7 +246,7 @@ public class ResponsiveLayoutTests
     [Fact]
     public void S665_a_larger_clock_adds_the_week_and_the_zone()
     {
-        var config = new ClockConfig { TimeZoneId = "UTC" };
+        var config = new ClockConfig { TimeZoneId = "Etc/UTC" };
         var details = ClockFormatter.Details(new DateTimeOffset(2026, 10, 4, 13, 52, 0, TimeSpan.Zero), config);
 
         Assert.Equal("Sun 4 Oct", details.ShortDate);
@@ -265,7 +265,7 @@ public class ResponsiveLayoutTests
     [Fact]
     public void S665_the_week_is_the_iso_week_across_a_year_boundary()
     {
-        var config = new ClockConfig { TimeZoneId = "UTC" };
+        var config = new ClockConfig { TimeZoneId = "Etc/UTC" };
 
         // 1 January 2027 is a Friday, so it still belongs to ISO week 53 of 2026.
         var details = ClockFormatter.Details(new DateTimeOffset(2027, 1, 1, 12, 0, 0, TimeSpan.Zero), config);

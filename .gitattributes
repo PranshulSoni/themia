@@ -1,0 +1,35 @@
+# Line endings. Everything the index holds is LF already, so this file changes no committed blob:
+# it only stops Git from guessing per machine (core.autocrlf) and from warning on every commit.
+# The working tree is LF too. .NET, MSBuild, Visual Studio and every tool the agents use handle it.
+* text=auto eol=lf
+
+# Windows scripts that cmd.exe / Windows PowerShell read line by line want CRLF.
+*.ps1  text eol=crlf
+*.bat  text eol=crlf
+*.cmd  text eol=crlf
+*.sln  text eol=crlf
+
+# Never touched: binary assets (so a stray 0x0D0A pair cannot be rewritten).
+*.png  binary
+*.ico  binary
+*.jpg  binary
+*.jpeg binary
+*.gif  binary
+*.pri  binary
+*.snk  binary
+*.pfx  binary
+
+# Source files are marked explicitly so a missing attribute is never the reason for a mixed file.
+*.cs       text eol=lf diff=csharp
+*.csproj   text eol=lf
+*.props    text eol=lf
+*.targets  text eol=lf
+*.slnx     text eol=lf
+*.xaml     text eol=lf
+*.appxmanifest text eol=lf
+*.manifest text eol=lf
+*.json     text eol=lf
+*.md       text eol=lf
+*.svg      text eol=lf
+*.py       text eol=lf
+*.yml      text eol=lf

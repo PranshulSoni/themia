@@ -1,4 +1,5 @@
 using Microsoft.UI;
+using Microsoft.UI.Dispatching;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
@@ -18,65 +19,24 @@ namespace Themia.App.Widgets;
 /// No account, no token and no per-player integration:
 /// <c>GlobalSystemMediaTransportControlsSessionManager</c> is the same session the media keys and
 /// the volume flyout's transport drive, so anything on the machine that plays sound has already
-/// told the OS what it is playing. That is the whole design, and it is why the widget works for a
-/// browser tab and a desktop player alike.
+/// told the OS what it is playing.
 /// </para>
 /// <para>
 /// <b>Event-driven.</b> The session raises when its metadata, its playback state or its timeline
 /// changes, and the tile redraws on that. The one thing on a clock is the elapsed-time readout,
-/// which is arithmetic against the anchor the session gave — not a question asked of it.
+/// which is arithmetic against the anchor the session gave — not a question asked of it. The
+/// spectrum ([S-1470]) is the one live feed, and it runs only while it can be seen.
 /// </para>
 /// <para>
-/// The title, the artist and the album come from whichever app is playing. They are somebody
-/// else's strings: normalised to one line by the display rule, drawn, and nothing else.
+/// Parts: this file holds the session, the transport, seeking, keys and hiding; the ladder that
+/// places the parts is in <c>MusicView.Layout.cs</c>.
 /// </para>
 /// </summary>
-internal sealed partial class MusicView : Grid, IWidgetView
+internal sealed partial class MusicView : Grid, IWidgetView, IWidgetSizeAware, IWidgetSurfaceAware, IWidgetKeys
 {
     private const string Scope = "music";
 
-    /// <summary>Below this there is no room for art beside the title, so the art goes.</summary>
-    private const double ArtMinimumWidth = 240;
-
-    /// <summary>Below this the elapsed/total labels go and the bar carries the position alone.</summary>
-    private const double TimeLabelsMinimumWidth = 220;
-
-    /// <summary>Below this there is no room for a transport row under the title.</summary>
-    private const double TransportMinimumHeight = 140;
-
-    /// <summary>The art's smallest useful size, and what it grows from.</summary>
-    private const double ArtMinimum = 48;
-
-    /// <summary>And its largest: past this it stops being a thumbnail and starts being the widget.</summary>
-    private const double ArtMaximum = 160;
-
-    /// <summary>The share of the tile's height the art takes between those two bounds.</summary>
-    private const double ArtShare = 0.5;
-
-    /// <summary>From this height a tile too narrow for art beside the title stacks instead. [S-650]</summary>
-    private const double PortraitMinimumHeight = 300;
-
-    /// <summary>The share of a portrait tile's height the art on top may take.</summary>
-    private const double PortraitArtShare = 0.4;
-
-    /// <summary>Narrower than this, the title and artist cannot be read beside the transport.</summary>
-    private const double LinesMinimumWidth = 120;
-
-    /// <summary>A transport row under the lines: a button's height and the gap above it.</summary>
-    private const double TransportRowHeight = Fluent.RowHeightCompact + Fluent.Space2;
-
-    /// <summary>What the art leaves of the tile's height when the transport sits under it.</summary>
-    private const double TransportBelowReserve = 120;
-
-    /// <summary>
-    /// Three icon buttons and the gaps between them, until the transport has been measured once.
-    /// Its real width is used from then on.
-    /// </summary>
-    private const double TransportEstimate = 112;
-
-    // Segoe Fluent Icons code points this view needs beyond the shared table.
-    private static readonly string PreviousGlyph = From(0xE892);
-    private static readonly string NextGlyph = From(0xE893);
+    private readonly Canvas _canvas = new();
 
     private readonly Border _artHost;
     private readonly Image _art = new();
@@ -84,23 +44,21 @@ internal sealed partial class MusicView : Grid, IWidgetView
 
     private readonly TextBlock _track = Fluent.Text(FluentType.BodyStrong);
     private readonly TextBlock _subtitle = Fluent.Text(FluentType.Body, "TextFillColorSecondaryBrush");
+    private readonly TextBlock _album = Fluent.Text(FluentType.Body, "TextFillColorSecondaryBrush");
+    private readonly TextBlock _source = Fluent.Text(FluentType.Caption, "TextFillColorTertiaryBrush");
     private readonly TextBlock _elapsed = Fluent.Text(FluentType.Caption, "TextFillColorSecondaryBrush");
     private readonly TextBlock _total = Fluent.Text(FluentType.Caption, "TextFillColorSecondaryBrush");
-    private readonly ProgressBar _progress = new();
-    private readonly Grid _times = new();
+    private readonly MusicSeekBar _seek = new();
+    private readonly SpectrumBars _spectrum = new();
 
     private readonly Button _previous = new();
     private readonly Button _playPause = new();
     private readonly Button _next = new();
     private readonly FontIcon _playPauseIcon;
+    private readonly FontIcon[] _transportIcons;
     private readonly StackPanel _transport;
 
-    private readonly Grid _body = new();
-    private readonly StackPanel _lines = new();
     private readonly StackPanel _empty;
-
-    /// <summary>The arrangement the last layout pass chose, so a pass that changes nothing moves nothing.</summary>
-    private MusicArrangement _arrangement = MusicArrangement.Row;
     private readonly TextBlock _emptyMessage = new();
 
     private Ticker? _ticker;
@@ -108,6 +66,8 @@ internal sealed partial class MusicView : Grid, IWidgetView
     private MediaSession? _session;
     private IDisposable? _subscription;
     private TimeSpan _subscribedInterval = TimeSpan.Zero;
+    private IWidgetSurface? _surface;
+    private DispatcherQueue? _queue;
 
     private NowPlaying _now = NowPlaying.Of(MusicState.Loading);
     private CancellationTokenSource? _reader;
@@ -120,174 +80,116 @@ internal sealed partial class MusicView : Grid, IWidgetView
     /// </summary>
     private int _generation;
 
-    private TypeStep _trackStep = FluentType.BodyStrong;
-    private TypeStep _subtitleStep = FluentType.Body;
     private bool _detached;
+    private bool _preview;
+    private bool _hidden;
+
+    // ---- spectrum feed ([S-1470]) -----------------------------------------------------------------
+    private IDisposable? _loopback;
+    private float[]? _pendingBands;
+    private int _drawQueued;
 
     public MusicView()
     {
-        RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
-        RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-
         var definition = WidgetCatalog.Definition(WidgetKind.Music);
 
-        _artPlaceholder = BuildArtPlaceholder(definition.Glyph);
-        _artHost = BuildArt(_artPlaceholder, _art);
-        BuildTransport(out _transport, out _playPauseIcon);
+        _artPlaceholder = Fluent.Icon(definition.Glyph, "TextFillColorTertiaryBrush", Fluent.Space6);
+        _artPlaceholder.HorizontalAlignment = HorizontalAlignment.Center;
+        _artPlaceholder.VerticalAlignment = VerticalAlignment.Center;
 
-        _track.TextTrimming = TextTrimming.CharacterEllipsis;
-        _subtitle.TextTrimming = TextTrimming.CharacterEllipsis;
+        _art.Stretch = Stretch.UniformToFill;
+        _art.Visibility = Visibility.Collapsed;
 
-        var lines = _lines;
-        lines.Spacing = Fluent.Space1;
-        lines.VerticalAlignment = VerticalAlignment.Center;
-        lines.Children.Add(_track);
-        lines.Children.Add(_subtitle);
-
-        // Rows for the two arrangements that stack ([S-650]); in the side-by-side one everything
-        // sits in the first and the others are empty, so they take no height.
-        _body.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-        _body.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-        _body.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-
-        // Art on the left, the two lines taking the slack, the transport on the right at its
-        // natural width. A Grid rather than a horizontal StackPanel: a StackPanel measures with
-        // unbounded width, so a long title never learns its room and runs off the card instead of
-        // ellipsising.
-        _body.ColumnSpacing = Fluent.Space3;
-        _body.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-        _body.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-        _body.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-        _body.Margin = WidgetLayout.SideInset;
-        _body.VerticalAlignment = VerticalAlignment.Center;
-
-        SetColumn(_artHost, 0);
-        SetColumn(lines, 1);
-        SetColumn(_transport, 2);
-        _body.Children.Add(_artHost);
-        _body.Children.Add(lines);
-        _body.Children.Add(_transport);
-
-        BuildFooter();
-
-        _emptyMessage.Text = MusicRules.StatusMessage(MusicState.Loading);
-        _empty = Fluent.EmptyState(definition.Glyph, _emptyMessage, out _);
-        _empty.Visibility = Visibility.Collapsed;
-
-        Children.Add(_body);
-        Children.Add(_empty);
-
-        SizeChanged += OnSizeChanged;
-    }
-
-    /// <summary>
-    /// The album art: a square with Fluent's control radius, a themed fill behind it, and the
-    /// widget's own glyph in the middle while there is no picture — so the tile has the same shape
-    /// whether or not the player offered one.
-    /// </summary>
-    private static FontIcon BuildArtPlaceholder(string glyph)
-    {
-        var placeholder = Fluent.Icon(glyph, "TextFillColorTertiaryBrush", Fluent.Space6);
-        placeholder.HorizontalAlignment = HorizontalAlignment.Center;
-        placeholder.VerticalAlignment = VerticalAlignment.Center;
-        return placeholder;
-    }
-
-    private static Border BuildArt(FontIcon placeholder, Image art)
-    {
-        art.Stretch = Stretch.UniformToFill;
-        art.Visibility = Visibility.Collapsed;
-
-        // The picture over the placeholder rather than instead of it: swapping the Border's child
-        // per track would rebuild the visual on every skip, and the two never show at once anyway.
-        var stack = new Grid { Children = { placeholder, art } };
-
-        return new Border
+        // The picture over the placeholder rather than instead of it: swapping the Border's child per
+        // track would rebuild the visual on every skip. A Border clips to its radius, so a cover that
+        // is not square cannot paint over the rounded corners.
+        _artHost = new Border
         {
-            Child = stack,
+            Child = new Grid { Children = { _artPlaceholder, _art } },
             Background = FluentLayout.Themed("ControlFillColorSecondaryBrush", Colors.DimGray),
-
-            // A Border clips its child to its corner radius, which is what keeps a cover that is
-            // not square from painting over the rounded corners while it fills the tile.
             CornerRadius = new CornerRadius(Fluent.ControlRadius),
-            VerticalAlignment = VerticalAlignment.Center,
-            Width = ArtMinimum,
-            Height = ArtMinimum,
         };
-    }
 
-    /// <summary>
-    /// Previous, play/pause and next as stock WinUI buttons with Segoe glyphs — the same controls
-    /// the media flyout uses, with the same focus, hover and pressed states the rest of Windows
-    /// has, rather than three hand-drawn shapes that only look like buttons.
-    /// </summary>
-    private void BuildTransport(out StackPanel panel, out FontIcon playPauseIcon)
-    {
-        playPauseIcon = Fluent.Icon(Glyphs.Play, "TextFillColorPrimaryBrush");
+        _playPauseIcon = Fluent.Icon(Glyphs.Play, "TextFillColorPrimaryBrush");
+        var previousIcon = Fluent.Icon(Glyphs.Previous, "TextFillColorPrimaryBrush");
+        var nextIcon = Fluent.Icon(Glyphs.Next, "TextFillColorPrimaryBrush");
+        _transportIcons = [previousIcon, _playPauseIcon, nextIcon];
 
-        Style(_previous, Fluent.Icon(PreviousGlyph, "TextFillColorPrimaryBrush"), "Previous");
-        Style(_playPause, playPauseIcon, "Play or pause");
-        Style(_next, Fluent.Icon(NextGlyph, "TextFillColorPrimaryBrush"), "Next");
+        StyleButton(_previous, previousIcon, "Previous");
+        StyleButton(_playPause, _playPauseIcon, "Play or pause");
+        StyleButton(_next, nextIcon, "Next");
 
         _previous.Click += OnPrevious;
         _playPause.Click += OnPlayPause;
         _next.Click += OnNext;
 
-        panel = new StackPanel
+        _transport = new StackPanel
         {
             Orientation = Orientation.Horizontal,
             Spacing = Fluent.Space1,
-            VerticalAlignment = VerticalAlignment.Center,
             Children = { _previous, _playPause, _next },
         };
 
-        static void Style(Button button, FontIcon icon, string tooltip)
-        {
-            button.Content = icon;
-            button.Padding = new Thickness(Fluent.Space2, Fluent.Space1, Fluent.Space2, Fluent.Space1);
-            button.CornerRadius = new CornerRadius(Fluent.ControlRadius);
-            button.VerticalAlignment = VerticalAlignment.Center;
-            ToolTipService.SetToolTip(button, tooltip);
-        }
-    }
-
-    /// <summary>
-    /// The progress bar and its labels.
-    /// <para>
-    /// The bar is full-bleed: no side inset, flush to the bottom of the card, which is where every
-    /// chart in this app sits. A progress bar floating inside a margin reads as a picture of one.
-    /// </para>
-    /// </summary>
-    private void BuildFooter()
-    {
-        _progress.Minimum = 0;
-        _progress.Maximum = 1;
-        _progress.HorizontalAlignment = HorizontalAlignment.Stretch;
-        _progress.VerticalAlignment = VerticalAlignment.Bottom;
-        _progress.IsHitTestVisible = false;
-
+        _source.TextTrimming = TextTrimming.CharacterEllipsis;
         _total.TextAlignment = TextAlignment.Right;
         Microsoft.UI.Xaml.Documents.Typography.SetNumeralAlignment(_elapsed, FontNumeralAlignment.Tabular);
         Microsoft.UI.Xaml.Documents.Typography.SetNumeralAlignment(_total, FontNumeralAlignment.Tabular);
 
-        _times.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-        _times.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-        _times.Margin = new Thickness(Fluent.Space4, 0, Fluent.Space4, Fluent.Space2);
+        _seek.Scrubbing += OnScrubbing;
+        _seek.Committed += OnSeekCommitted;
 
-        SetColumn(_elapsed, 0);
-        SetColumn(_total, 1);
-        _times.Children.Add(_elapsed);
-        _times.Children.Add(_total);
+        _emptyMessage.Text = MusicRules.StatusMessage(MusicState.Loading);
+        _empty = Fluent.EmptyState(definition.Glyph, _emptyMessage, out _);
+        _empty.Visibility = Visibility.Collapsed;
 
-        var footer = new StackPanel { Spacing = 0, Children = { _times, _progress } };
-        SetRow(footer, 1);
-        Children.Add(footer);
+        foreach (var part in new FrameworkElement[] { _artHost, _track, _subtitle, _album, _source, _transport, _spectrum, _seek, _elapsed, _total })
+        {
+            part.Visibility = Visibility.Collapsed;
+            _canvas.Children.Add(part);
+        }
+
+        Children.Add(_canvas);
+        Children.Add(_empty);
+
+        Loaded += OnLoaded;
+        Unloaded += OnUnloaded;
+
+        static void StyleButton(Button button, FontIcon icon, string tooltip)
+        {
+            button.Content = icon;
+            button.Padding = new Thickness(0);
+            button.CornerRadius = new CornerRadius(Fluent.ControlRadius);
+            ToolTipService.SetToolTip(button, tooltip);
+        }
+    }
+
+    public void Bind(IWidgetSurface surface)
+    {
+        ArgumentNullException.ThrowIfNull(surface);
+        _surface = surface;
+        _preview = surface.IsPreview;
     }
 
     public void Attach(Ticker ticker, WidgetConfig config)
     {
         _ticker = ticker;
         _detached = false;
+        _queue = DispatcherQueue;
+
+#if DEBUG
+        // [S-1474] The gallery's populated page: a made-up track, art and bars; no session at all.
+        if (_preview && Shell.Gallery.MediaFixture.Music is { } sample)
+        {
+            _now = sample.Now;
+            _art.Source = sample.Art;
+            _art.Visibility = Visibility.Visible;
+            _artPlaceholder.Visibility = Visibility.Collapsed;
+            _spectrum.SetLevels(sample.Bands);
+            _config = config as MusicConfig ?? new MusicConfig();
+            Present();
+            return;
+        }
+#endif
 
         _session ??= new MediaSession(OnSessionChanged);
 
@@ -309,8 +211,6 @@ internal sealed partial class MusicView : Grid, IWidgetView
 
         try
         {
-            // No token: the session's own Dispose is what stops it, and it is called from Detach.
-            // A token here would be a second way to say the same thing.
             await session.StartAsync(CancellationToken.None).ConfigureAwait(true);
         }
         catch (Exception ex)
@@ -323,9 +223,7 @@ internal sealed partial class MusicView : Grid, IWidgetView
     {
         _config = config as MusicConfig ?? new MusicConfig();
 
-        // The art can be switched on after a track is already loaded, and the key is what decides
-        // whether the picture in hand is still the right one. Clearing it forces a fetch.
-        if (!_config.ShowAlbumArt)
+        if (!_config.ShowAlbumArt && !IsFixture())
         {
             ClearArtwork();
         }
@@ -336,54 +234,48 @@ internal sealed partial class MusicView : Grid, IWidgetView
         Present();
     }
 
-    /// <summary>
-    /// The position ticker: one second while a track is playing, nothing otherwise.
-    /// <para>
-    /// Rebuilt only when the cadence actually changed. Dropping and remaking the subscription on
-    /// every redraw would tear down the shared timer for every widget on the desktop once a second,
-    /// which is exactly the stutter the guard exists to stop.
-    /// </para>
-    /// </summary>
-    private bool Resubscribe()
+    public void ApplySize(WidgetArea area)
     {
-        // Nothing to advance unless a track is running and somebody can see the number.
-        var wanted = _now.State == MusicState.Playing && _config.ShowProgress
+        _area = area;
+        Lay();
+        SyncSpectrum();
+    }
+
+    /// <summary>
+    /// The position ticker: one second while a track is playing and its time is shown, nothing
+    /// otherwise. Rebuilt only when the cadence changed, so a redraw never tears down the shared timer.
+    /// </summary>
+    private void Resubscribe()
+    {
+        var wanted = _now.State == MusicState.Playing && _config.ShowProgress && !_hidden
             ? TimeSpan.FromSeconds(1)
             : TimeSpan.Zero;
 
         if (wanted == _subscribedInterval && (_subscription is not null || wanted == TimeSpan.Zero))
         {
-            return false;
+            return;
         }
 
         _subscription?.Dispose();
         _subscription = null;
         _subscribedInterval = wanted;
 
-        if (wanted == TimeSpan.Zero)
+        if (wanted != TimeSpan.Zero)
         {
-            return false;
+            _subscription = _ticker?.Subscribe(wanted, Advance);
         }
-
-        _subscription = _ticker?.Subscribe(wanted, Advance);
-        return _subscription is not null;
     }
 
     /// <summary>Move the elapsed readout on, without asking the session anything.</summary>
     private void Advance()
     {
-        if (_detached || !_now.HasTrack)
+        if (!_detached && _now.HasTrack)
         {
-            return;
+            UpdatePosition();
         }
-
-        UpdatePosition();
     }
 
-    /// <summary>
-    /// The session said something changed. Raised on a WinRT thread, so it hops to the dispatcher
-    /// before touching a single control.
-    /// </summary>
+    /// <summary>The session said something changed. Raised on a WinRT thread, so it hops to the dispatcher first.</summary>
     private void OnSessionChanged()
     {
         if (_detached)
@@ -391,7 +283,7 @@ internal sealed partial class MusicView : Grid, IWidgetView
             return;
         }
 
-        var queue = DispatcherQueue;
+        var queue = _queue;
 
         if (queue is null || !queue.TryEnqueue(Reload))
         {
@@ -428,8 +320,6 @@ internal sealed partial class MusicView : Grid, IWidgetView
 
             var now = await session.ReadAsync(cts.Token).ConfigureAwait(true);
 
-            // A late snapshot of a session the widget has moved on from would put the previous
-            // track back on screen.
             if (_detached || generation != _generation)
             {
                 return;
@@ -467,13 +357,9 @@ internal sealed partial class MusicView : Grid, IWidgetView
     }
 
     /// <summary>
-    /// Fetch the album art and put it on screen.
-    /// <para>
-    /// The bytes come off the session's stream on a background continuation, and the decode is a
-    /// <c>BitmapImage</c> over an in-memory stream — which decodes on XAML's own worker rather than
-    /// on the dispatcher. Both streams are disposed on every path: this runs once per track, for as
-    /// long as the desktop is up.
-    /// </para>
+    /// Fetch the album art and put it on screen. The bytes come off the session's stream on a
+    /// background continuation and decode on XAML's own worker; both streams are disposed on every
+    /// path, since this runs once per track for as long as the desktop is up.
     /// </summary>
     private async Task LoadArtworkAsync(string key, int generation, CancellationToken token)
     {
@@ -519,8 +405,8 @@ internal sealed partial class MusicView : Grid, IWidgetView
                 await writer.StoreAsync().AsTask(cts.Token).ConfigureAwait(true);
                 await writer.FlushAsync().AsTask(cts.Token).ConfigureAwait(true);
 
-                // Detached before disposal: a DataWriter closes the stream it was built on, and
-                // the decoder is about to read from exactly that stream.
+                // Detached before disposal: a DataWriter closes the stream it was built on, and the
+                // decoder is about to read from exactly that stream.
                 writer.DetachStream();
             }
             finally
@@ -549,7 +435,6 @@ internal sealed partial class MusicView : Grid, IWidgetView
         }
         catch (Exception ex)
         {
-            // Art that will not decode is a tile with a placeholder, not a broken widget.
             Log.Debug(Scope, $"could not decode the album art: {ex.GetType().Name}");
             ClearArtwork();
         }
@@ -573,235 +458,73 @@ internal sealed partial class MusicView : Grid, IWidgetView
         _artKey = string.Empty;
     }
 
-    /// <summary>Put the snapshot in hand on screen, and settle the layout around it.</summary>
+    /// <summary>Put the snapshot in hand on screen, hide or show the card, and settle the layout around it.</summary>
     private void Present()
     {
+        // [S-1464] Paint nothing while idle, if asked to. Never in the gallery: a preview always draws.
+        var hide = !_preview && MusicRules.Hides(_config.HideWhenIdle, _now.State);
+        if (hide != _hidden)
+        {
+            _hidden = hide;
+            _surface?.SetHidden(hide);
+        }
+
         var track = _now.HasTrack;
 
-        _body.Visibility = track ? Visibility.Visible : Visibility.Collapsed;
+        _canvas.Visibility = track ? Visibility.Visible : Visibility.Collapsed;
         _empty.Visibility = track ? Visibility.Collapsed : Visibility.Visible;
 
         if (!track)
         {
             _emptyMessage.Text = MusicRules.StatusMessage(_now.State);
-            ApplyLayout();
-            Resubscribe();
-            return;
+        }
+        else
+        {
+            _track.Text = _now.Title;
+            _subtitle.Text = _now.Subtitle;
+            _album.Text = _now.Album;
+
+            var playing = _now.State == MusicState.Playing;
+            var state = playing ? "Playing" : "Paused";
+            _source.Text = _now.Source.Length > 0 ? $"{state} · {_now.Source}" : state;
+
+            _playPauseIcon.Glyph = playing ? Glyphs.Pause : Glyphs.Play;
+            ToolTipService.SetToolTip(_playPause, playing ? "Pause" : "Play");
+
+            // Disabled rather than hidden: a transport whose buttons come and go moves the two that
+            // remain, and the one under the pointer is then a different button than it was.
+            _previous.IsEnabled = _now.CanPrevious;
+            _playPause.IsEnabled = _now.CanPlayPause;
+            _next.IsEnabled = _now.CanNext;
+            _seek.CanSeek = _now.CanSeek && !_preview;
+
+            UpdatePosition();
         }
 
-        _track.Text = _now.Title;
-        _subtitle.Text = _now.Subtitle;
-        _subtitle.Visibility = _now.Subtitle.Length == 0 ? Visibility.Collapsed : Visibility.Visible;
-
-        _playPauseIcon.Glyph = _now.State == MusicState.Playing ? Glyphs.Pause : Glyphs.Play;
-        ToolTipService.SetToolTip(_playPause, _now.State == MusicState.Playing ? "Pause" : "Play");
-
-        // Disabled rather than hidden: a transport whose buttons come and go moves the two that
-        // remain, and the one under the pointer is then a different button than it was.
-        _previous.IsEnabled = _now.CanPrevious;
-        _playPause.IsEnabled = _now.CanPlayPause;
-        _next.IsEnabled = _now.CanNext;
-
-        UpdatePosition();
-        ApplyLayout();
+        Lay();
         Resubscribe();
+        SyncSpectrum();
     }
 
-    /// <summary>
-    /// Advance the bar and the labels from the anchor. Display only: the next snapshot from the
-    /// session overwrites it, so the two can never drift apart permanently.
-    /// </summary>
+    /// <summary>Advance the bar and the labels from the anchor. Display only: the next snapshot overwrites it.</summary>
     private void UpdatePosition()
     {
-        var position = MusicRules.Interpolate(
-            _now.Timeline,
-            _now.AnchoredAt,
-            DateTimeOffset.UtcNow,
-            _now.State == MusicState.Playing);
+        var position = Position();
 
-        _progress.Value = MusicRules.Progress(position, _now.Timeline.Duration);
-        _elapsed.Text = MusicRules.Clock(position);
+        if (!_seek.IsScrubbing)
+        {
+            _seek.Value = MusicRules.Progress(position, _now.Timeline.Duration);
+            _elapsed.Text = MusicRules.Clock(position);
+        }
 
         // A stream with no end has no total to show, and "0:00" in that slot reads as a track that
         // will not start.
         _total.Text = _now.Timeline.Duration > TimeSpan.Zero ? MusicRules.Clock(_now.Timeline.Duration) : string.Empty;
     }
 
-    private void OnSizeChanged(object sender, SizeChangedEventArgs args) => ApplyLayout();
+    private TimeSpan Position() => MusicRules.Interpolate(_now.Timeline, _now.AnchoredAt, DateTimeOffset.UtcNow, _now.State == MusicState.Playing);
 
-    /// <summary>
-    /// What fits, and at what step.
-    /// <para>
-    /// The parts drop in the order they stop being worth their space: first the art, then the time
-    /// labels, then the transport. The title never drops — it is what the tile is for — and it
-    /// steps the ramp rather than being scaled to the tile.
-    /// </para>
-    /// </summary>
-    private void ApplyLayout()
-    {
-        var width = ActualWidth;
-        var height = ActualHeight;
-
-        var showTransport = _config.ShowTransport
-            && _now.HasTrack
-            && (height <= 0 || height >= TransportMinimumHeight);
-
-        // [S-650] A tall, narrow tile stacks: the art on top, the lines under it, the transport
-        // under those — the shape every media flyout has. Side by side, a 200px column gave the
-        // title the 26px left between the transport and the edge ("LA…").
-        var portrait = _config.ShowAlbumArt && height >= PortraitMinimumHeight && width > 0 && width < ArtMinimumWidth;
-
-        var showArt = _config.ShowAlbumArt && (portrait || width <= 0 || width >= ArtMinimumWidth);
-        _artHost.Visibility = showArt ? Visibility.Visible : Visibility.Collapsed;
-
-        var side = ArtMinimum;
-        if (showArt && height > 0)
-        {
-            // A square between a readable floor and a ceiling, rather than whatever is left over.
-            // Left over is how a thumbnail ends up taller than the title it belongs to.
-            side = portrait
-                ? Math.Clamp(Math.Min(width - (Fluent.Space4 * 2), height * PortraitArtShare), ArtMinimum, ArtMaximum)
-                : Math.Clamp(height * ArtShare, ArtMinimum, ArtMaximum);
-        }
-
-        // [S-650] And when the transport beside the lines would leave them too little to read, it
-        // moves under them; the art stays beside, where it is the same height as the two lines.
-        var arrangement = MusicArrangement.Row;
-        if (portrait)
-        {
-            arrangement = MusicArrangement.Portrait;
-        }
-        else if (showTransport && width > 0)
-        {
-            var lines = width - (Fluent.Space4 * 2)
-                - (showArt ? side + Fluent.Space3 : 0)
-                - TransportWidth() - Fluent.Space3;
-
-            if (lines < LinesMinimumWidth)
-            {
-                arrangement = MusicArrangement.TransportBelow;
-
-                // The transport row now shares the height with the art, so the art gives some back.
-                side = Math.Clamp(Math.Min(side, height - TransportBelowReserve), ArtMinimum, ArtMaximum);
-            }
-        }
-
-        if (showArt)
-        {
-            _artHost.Width = side;
-            _artHost.Height = side;
-        }
-
-        PlaceParts(arrangement);
-
-        _transport.Visibility = showTransport ? Visibility.Visible : Visibility.Collapsed;
-
-        var showProgress = _config.ShowProgress && _now.HasTrack;
-        _progress.Visibility = showProgress ? Visibility.Visible : Visibility.Collapsed;
-
-        _times.Visibility = showProgress && (width <= 0 || width >= TimeLabelsMinimumWidth)
-            ? Visibility.Visible
-            : Visibility.Collapsed;
-
-        ApplyTypeScale();
-    }
-
-    /// <summary>
-    /// Step the title and the line under it. Two steps apart at most: a subtitle the same size as
-    /// the title reads as two headlines, and one three steps down reads as a footnote.
-    /// </summary>
-    private void ApplyTypeScale()
-    {
-        var width = ActualWidth - (Fluent.Space4 * 2);
-        var art = _artHost.Visibility == Visibility.Visible;
-        var transport = _transport.Visibility == Visibility.Visible;
-
-        // Only what shares the lines' row takes width from them.
-        if (art && _arrangement != MusicArrangement.Portrait)
-        {
-            width -= _artHost.Width + Fluent.Space3;
-        }
-
-        if (transport && _arrangement == MusicArrangement.Row)
-        {
-            width -= TransportWidth() + Fluent.Space3;
-        }
-
-        // A title is long and is allowed to ellipsise, so the step is chosen against the height it
-        // has rather than against the string in it: fitting to the live title would change the
-        // type size on every track.
-        var room = ActualHeight
-            - Fluent.Space4
-            - (_progress.Visibility == Visibility.Visible ? Fluent.Space4 : 0)
-            - (_times.Visibility == Visibility.Visible ? FluentType.Caption.LineHeight + Fluent.Space2 : 0);
-
-        // Stacked parts take their height out of the lines' share.
-        if (_arrangement == MusicArrangement.Portrait)
-        {
-            room -= (art ? _artHost.Height + Fluent.Space3 : 0) + (transport ? TransportRowHeight : 0);
-        }
-        else if (_arrangement == MusicArrangement.TransportBelow && transport)
-        {
-            room -= TransportRowHeight;
-        }
-
-        var step = FluentType.Fit(
-            Math.Max(1, width),
-            Math.Max(1, room / 2),
-            characters: 16,
-            FluentType.Body,
-            FluentType.Title);
-
-        var track = FluentType.Strong(step);
-
-        // One ramp step below the title, and never above Body: the subtitle is metadata.
-        var subtitleStep = step.FontSize >= FluentType.Subtitle.FontSize
-            ? FluentType.BodyLarge
-            : FluentType.Body;
-
-        if (track != _trackStep)
-        {
-            _trackStep = track;
-            _track.Apply(track);
-        }
-
-        if (subtitleStep != _subtitleStep)
-        {
-            _subtitleStep = subtitleStep;
-            _subtitle.Apply(subtitleStep);
-        }
-    }
-
-    private double TransportWidth() => _transport.ActualWidth > 0 ? _transport.ActualWidth : TransportEstimate;
-
-    /// <summary>Put the art, the lines and the transport where an arrangement wants them. [S-650]</summary>
-    private void PlaceParts(MusicArrangement arrangement)
-    {
-        _arrangement = arrangement;
-
-        var portrait = arrangement == MusicArrangement.Portrait;
-        var below = arrangement != MusicArrangement.Row;
-
-        SetRow(_artHost, 0);
-        SetColumn(_artHost, 0);
-        SetColumnSpan(_artHost, portrait ? 3 : 1);
-
-        SetRow(_lines, portrait ? 1 : 0);
-        SetColumn(_lines, portrait ? 0 : 1);
-        SetColumnSpan(_lines, portrait ? 3 : 1);
-        _lines.Margin = portrait ? new Thickness(0, Fluent.Space3, 0, 0) : new Thickness(0);
-
-        SetRow(_transport, portrait ? 2 : below ? 1 : 0);
-        SetColumn(_transport, below ? 0 : 2);
-        SetColumnSpan(_transport, below ? 3 : 1);
-        _transport.HorizontalAlignment = below ? HorizontalAlignment.Center : HorizontalAlignment.Stretch;
-        _transport.Margin = below ? new Thickness(0, Fluent.Space2, 0, 0) : new Thickness(0);
-
-        // Stacked lines are centred under the art, the way a media flyout sets them.
-        var alignment = portrait ? TextAlignment.Center : TextAlignment.Left;
-        _track.TextAlignment = alignment;
-        _subtitle.TextAlignment = alignment;
-    }
+    // ---- transport, seeking and keys --------------------------------------------------------------
 
     private void OnPlayPause(object sender, RoutedEventArgs args) => Press(MediaTransport.PlayPause);
 
@@ -811,15 +534,12 @@ internal sealed partial class MusicView : Grid, IWidgetView
 
     /// <summary>
     /// Ask the session to do something, and let its own change notification draw the result.
-    /// <para>
-    /// Deliberately not optimistic: the tile does not flip the glyph and hope. If the player
-    /// refuses — a stream that cannot be paused, an app that has just exited — the button goes back
-    /// to saying what the machine is actually doing, because the session never reports a change.
-    /// </para>
+    /// Deliberately not optimistic: if the player refuses, the button keeps saying what the machine
+    /// is actually doing. Inert in the gallery: a preview never touches real playback.
     /// </summary>
     private void Press(MediaTransport command)
     {
-        if (_detached || _session is null)
+        if (_detached || _preview || _session is null)
         {
             return;
         }
@@ -846,46 +566,170 @@ internal sealed partial class MusicView : Grid, IWidgetView
         }
     }
 
+    /// <summary>[S-1465] The elapsed label follows the pointer while scrubbing; -1 means the scrub was abandoned.</summary>
+    private void OnScrubbing(double fraction)
+    {
+        _elapsed.Text = fraction < 0
+            ? MusicRules.Clock(Position())
+            : MusicRules.Clock(MusicRules.SeekTarget(fraction, _now.Timeline.Duration));
+    }
+
+    private void OnSeekCommitted(double fraction) => Seek(MusicRules.SeekTarget(fraction, _now.Timeline.Duration));
+
+    /// <summary>[S-1465] Seek, and anchor the readout there at once; the session's timeline push confirms or corrects it.</summary>
+    private void Seek(TimeSpan target)
+    {
+        if (_detached || _preview || _session is null || !_now.CanSeek)
+        {
+            return;
+        }
+
+        _now = _now with { Timeline = _now.Timeline with { Position = target }, AnchoredAt = DateTimeOffset.UtcNow };
+        UpdatePosition();
+        _ = SeekAsync(target);
+    }
+
+    private async Task SeekAsync(TimeSpan target)
+    {
+        var session = _session;
+
+        if (session is null)
+        {
+            return;
+        }
+
+        try
+        {
+            if (!await session.SeekAsync(target, _now.Origin, CancellationToken.None).ConfigureAwait(true))
+            {
+                // Refused: read the session again so the bar goes back to where the track really is.
+                Reload();
+            }
+        }
+        catch (Exception ex)
+        {
+            Log.Warn(Scope, "seeking failed", ex);
+        }
+    }
+
+    /// <summary>[S-1468] Only a tile with a track takes the keyboard on a click.</summary>
+    public bool WantsKeys => _now.HasTrack && !_hidden;
+
+    /// <summary>
+    /// [S-1468] The original's keys: Space or Enter play/pause, Left/Right previous/next track,
+    /// Shift+Left/Right five seconds back/forward.
+    /// </summary>
+    public bool HandleKey(WidgetKey key)
+    {
+        if (_detached || !_now.HasTrack)
+        {
+            return false;
+        }
+
+        switch (key)
+        {
+            case WidgetKey.Space or WidgetKey.Enter when _now.CanPlayPause:
+                Press(MediaTransport.PlayPause);
+                return true;
+            case WidgetKey.Left when _now.CanPrevious:
+                Press(MediaTransport.Previous);
+                return true;
+            case WidgetKey.Right when _now.CanNext:
+                Press(MediaTransport.Next);
+                return true;
+            case WidgetKey.ShiftLeft or WidgetKey.ShiftRight when _now.CanSeek:
+                var delta = key == WidgetKey.ShiftLeft ? -MusicRules.NudgeStep : MusicRules.NudgeStep;
+                Seek(MusicRules.Nudge(Position(), delta, _now.Timeline.Duration));
+                return true;
+            default:
+                return false;
+        }
+    }
+
+    // ---- spectrum ([S-1470]) ---------------------------------------------------------------------
+
+    private void OnLoaded(object sender, RoutedEventArgs e) => SyncSpectrum();
+
+    private void OnUnloaded(object sender, RoutedEventArgs e) => SyncSpectrum();
+
+    /// <summary>
+    /// Hold the loopback capture exactly while the bars can be seen moving: shown by the ladder,
+    /// playing, the card not hidden, the view in the tree, not a preview. Anything else lets it go,
+    /// and the last tile to let go stops the capture thread.
+    /// </summary>
+    private void SyncSpectrum()
+    {
+        var wanted = !_detached && !_preview && !_hidden && IsLoaded
+            && _spectrum.Visibility == Visibility.Visible
+            && _now.State == MusicState.Playing;
+
+        if (wanted && _loopback is null)
+        {
+            _loopback = AudioLoopback.Subscribe(OnBands);
+        }
+        else if (!wanted && _loopback is not null)
+        {
+            _loopback.Dispose();
+            _loopback = null;
+
+            if (!IsFixture())
+            {
+                _spectrum.Clear();
+            }
+        }
+    }
+
+    /// <summary>On the capture thread: keep the newest frame, and queue one draw if none is waiting.</summary>
+    private void OnBands(float[] bands)
+    {
+        Volatile.Write(ref _pendingBands, bands);
+
+        if (Interlocked.Exchange(ref _drawQueued, 1) == 0 && _queue?.TryEnqueue(DrawBands) != true)
+        {
+            Interlocked.Exchange(ref _drawQueued, 0);
+        }
+    }
+
+    private void DrawBands()
+    {
+        Interlocked.Exchange(ref _drawQueued, 0);
+
+        if (_loopback is not null && Volatile.Read(ref _pendingBands) is { } bands)
+        {
+            _spectrum.SetLevels(bands);
+        }
+    }
+
+    private bool IsFixture()
+    {
+#if DEBUG
+        return _preview && Shell.Gallery.MediaFixture.Music is not null;
+#else
+        return false;
+#endif
+    }
+
     public void Detach()
     {
         _detached = true;
 
-        SizeChanged -= OnSizeChanged;
-        _previous.Click -= OnPrevious;
-        _playPause.Click -= OnPlayPause;
-        _next.Click -= OnNext;
+        _loopback?.Dispose();
+        _loopback = null;
 
         _subscription?.Dispose();
         _subscription = null;
         _subscribedInterval = TimeSpan.Zero;
 
-        // Cancel but do not dispose: each in-flight task owns its source and frees it on the way
-        // out, so there is exactly one owner however many times this is called.
+        // Cancel but do not dispose: each in-flight task owns its source and frees it on the way out.
         _reader?.Cancel();
         _reader = null;
         _artwork?.Cancel();
         _artwork = null;
 
-        // Unhooks the manager and the current session. Safe to call twice.
         _session?.Dispose();
         _session = null;
 
         _art.Source = null;
         _ticker = null;
     }
-
-    private static string From(int codePoint) => char.ConvertFromUtf32(codePoint);
-}
-
-/// <summary>How the now-playing tile sets out its parts at a given size. [S-650]</summary>
-internal enum MusicArrangement
-{
-    /// <summary>Art, lines and transport side by side.</summary>
-    Row,
-
-    /// <summary>Art and lines side by side, the transport centred under them.</summary>
-    TransportBelow,
-
-    /// <summary>Art on top, the lines under it, the transport under those.</summary>
-    Portrait,
 }

@@ -41,6 +41,21 @@ internal static class AppServices
     public static Action? ShowAccounts { get; internal set; }
 
     /// <summary>
+    /// [S-1531]/[S-1533] Open Settings, and turn edit mode on: the two buttons the Help and Themia
+    /// widgets offer on a large tile. Null where there is nothing to open (the gallery).
+    /// </summary>
+    public static Action? ShowSettings { get; internal set; }
+
+    /// <inheritdoc cref="ShowSettings"/>
+    public static Action? EditLayout { get; internal set; }
+
+    /// <summary>
+    /// [S-1411] Open the app-layout editor on the Shortcuts item with this id (item ids are unique
+    /// across widgets). Null where there is no host (the gallery, a settings render).
+    /// </summary>
+    public static Action<string>? EditAppLayout { get; internal set; }
+
+    /// <summary>
     /// [S-591] Where Tasks widgets read and write: account task lists and the lists kept on this PC.
     /// The host's one <see cref="Tasks.TaskService"/>, or the debug gallery's fixture.
     /// </summary>

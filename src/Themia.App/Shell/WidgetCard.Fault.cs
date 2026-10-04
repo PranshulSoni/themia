@@ -1,0 +1,362 @@
+using Microsoft.UI;
+using Microsoft.UI.Xaml;
+using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Controls.Primitives;
+using Themia.App.Widgets;
+using Themia.Core.Diagnostics;
+using Themia.Core.Model;
+using Themia.Core.Widgets;
+
+namespace Themia.App.Shell;
+
+/// <summary>
+/// [S-891]/[S-892] The card's error boundary. A view that throws while it is built, attached,
+/// handed new settings or ticked is taken out and an error card put in its place — the widget's
+/// header stays, the body says it stopped, and Retry builds the view again. One broken widget can
+/// no longer leave a hole in the surface, a half-drawn card, or a silent failure every second.
+/// <para>
+/// [S-890] The same card, worded as "paused", is what safe mode shows instead of starting a view at
+/// all: after starts that kept dying, nothing a widget does runs until the user asks.
+/// </para>
+/// </summary>
+internal sealed partial class WidgetCard
+{
+    /// <summary>[S-890] Safe mode: new cards show the paused card instead of starting their view.</summary>
+    internal static bool StartPaused { get; set; }
+
+    /// <summary>Why the view is not running: the failure, or null while it runs (or is only paused).</summary>
+    private Exception? _fault;
+
+    /// <summary>The view is not running and its card is showing (failed or paused).</summary>
+    public bool IsFaulted => _view is FaultCard;
+
+    /// <summary>Paused by safe mode rather than failed.</summary>
+    public bool IsPaused => _view is FaultCard { Paused: true };
+
+    /// <summary>Set while the view attaches, so a failure on its very first tick counts as an attach failure.</summary>
+    private Exception? _attachFault;
+    private bool _attaching;
+
+    private FrameworkElement CreateView(WidgetKind kind)
+    {
+        if (StartPaused)
+        {
+            return new FaultCard(this, paused: true);
+        }
+
+        try
+        {
+            return WidgetCatalog.CreateView(kind);
+        }
+        catch (Exception ex)
+        {
+            return Failed(ex, "being created");
+        }
+    }
+
+    /// <summary>Bind the view and attach it to the ticker and its config, catching what either throws.</summary>
+    private void AttachView()
+    {
+        if (_view is FaultCard)
+        {
+            return;
+        }
+
+        _attaching = true;
+        _attachFault = null;
+
+        try
+        {
+            using var faults = _host.Ticker.CatchFaults(OnTickFault);
+
+            if (_view is IWidgetSurfaceAware aware)
+            {
+                aware.Bind(this);
+            }
+
+            if (_view is IWidgetView widgetView)
+            {
+                widgetView.Attach(_host.Ticker, Model.Config);
+            }
+        }
+        catch (Exception ex)
+        {
+            _attachFault ??= ex;
+        }
+        finally
+        {
+            _attaching = false;
+        }
+
+        if (_attachFault is { } fault)
+        {
+            DetachQuietly(_view);
+            _view = Failed(fault, "starting");
+        }
+    }
+
+    private void ApplyViewConfig()
+    {
+        if (_view is not IWidgetView widgetView)
+        {
+            return;
+        }
+
+        try
+        {
+            using var faults = _host.Ticker.CatchFaults(OnTickFault);
+            widgetView.ApplyConfig(Model.Config);
+        }
+        catch (Exception ex)
+        {
+            Replace(Failed(ex, "applying its settings"));
+        }
+    }
+
+    /// <summary>
+    /// A tick of this card's view threw. During Attach it is an attach failure; afterwards the card
+    /// is swapped on the next pass of the UI queue — not inside the ticker's loop, whose
+    /// subscription list the view's Detach is about to change.
+    /// </summary>
+    private void OnTickFault(Exception error)
+    {
+        if (_attaching)
+        {
+            _attachFault ??= error;
+            return;
+        }
+
+        // A card already taken off the surface: a shared service that subscribed during this
+        // card's Attach outlives it, and its failures are not this card's any more.
+        if (Parent is null)
+        {
+            return;
+        }
+
+        if (_view is FaultCard || !DispatcherQueue.TryEnqueue(() =>
+        {
+            if (_view is not FaultCard)
+            {
+                Replace(Failed(error, "updating"));
+            }
+        }))
+        {
+            Log.Warn(Scope, "could not schedule the error card for a failing widget");
+        }
+    }
+
+    /// <summary>[S-663] The view hears its slot; the error card has none to hear.</summary>
+    private void HookViewSize()
+    {
+        if (_view is IWidgetSizeAware sizeAware)
+        {
+            _view.SizeChanged += (_, e) =>
+            {
+                if (e.NewSize.Width > 0 && e.NewSize.Height > 0)
+                {
+                    sizeAware.ApplySize(new WidgetArea(e.NewSize.Width, e.NewSize.Height));
+                }
+            };
+        }
+    }
+
+    /// <summary>[S-891] Retry: build the view again, as if the card were new. Also how safe mode's paused cards start.</summary>
+    public void Retry()
+    {
+        if (_view is not FaultCard)
+        {
+            return;
+        }
+
+        _fault = null;
+        var fresh = CreateViewNow(Model.Kind);
+        var old = _view;
+        _view = fresh;
+        AttachView();
+        Swap(old, _view);
+
+        if (_view is not FaultCard)
+        {
+            Log.Info(Scope, $"widget '{Model.Id}' ({Model.Kind}) started again");
+        }
+    }
+
+    /// <summary>Retry ignores the safe-mode switch: it is the user asking.</summary>
+    private FrameworkElement CreateViewNow(WidgetKind kind)
+    {
+        try
+        {
+            return WidgetCatalog.CreateView(kind);
+        }
+        catch (Exception ex)
+        {
+            return Failed(ex, "being created");
+        }
+    }
+
+    private FaultCard Failed(Exception error, string phase)
+    {
+        _fault = error;
+        Log.Error(Scope, $"widget '{Model.Id}' ({Model.Kind}) failed while {phase}; showing its error card", error);
+        return new FaultCard(this, paused: false);
+    }
+
+    /// <summary>Take the running view out (detaching it) and put <paramref name="next"/> in its place.</summary>
+    private void Replace(FrameworkElement next)
+    {
+        var old = _view;
+        DetachQuietly(old);
+        _view = next;
+        Swap(old, next);
+    }
+
+    /// <summary>Put <paramref name="next"/> where <paramref name="old"/> sat, with the header's trailing part to match.</summary>
+    private void Swap(FrameworkElement old, FrameworkElement next)
+    {
+        var at = _content.Children.IndexOf(old);
+        if (at >= 0)
+        {
+            _content.Children.RemoveAt(at);
+        }
+
+        Grid.SetRow(next, Grid.GetRow(old));
+        Grid.SetColumn(next, Grid.GetColumn(old));
+        _content.Children.Insert(at >= 0 ? at : _content.Children.Count, next);
+
+        // The trailing slot of the header belongs to the view: a failed view's control goes with it.
+        foreach (var trailing in _header.Children.OfType<FrameworkElement>().Where(c => Grid.GetColumn(c) == 2).ToList())
+        {
+            _header.Children.Remove(trailing);
+        }
+
+        if ((next as IWidgetHeaderContent)?.HeaderTrailing is { } added)
+        {
+            added.VerticalAlignment = VerticalAlignment.Center;
+            Grid.SetColumn(added, 2);
+            _header.Children.Add(added);
+        }
+
+        HookViewSize();
+        ApplyHeader();
+        ApplyDesign();
+        ApplyEditMode(_host.EditMode);
+        _host.OnCardFrameChanged(this);
+    }
+
+    private void DetachQuietly(FrameworkElement view)
+    {
+        if (view is not IWidgetView widgetView)
+        {
+            return;
+        }
+
+        try
+        {
+            widgetView.Detach();
+        }
+        catch (Exception ex)
+        {
+            // It already failed once; its card is what matters now, and the failure is on record.
+            Log.Warn(Scope, $"widget '{Model.Id}' threw while being taken out after a failure", ex);
+        }
+    }
+
+#if DEBUG
+    /// <summary>Debug only: the notice render shows a failed card without a widget that really fails.</summary>
+    internal void FailForPreview(Exception error)
+    {
+        if (_view is not FaultCard)
+        {
+            Replace(Failed(error, "drawing a preview"));
+        }
+    }
+#endif
+
+    /// <summary>A short, user-facing line for the details flyout: what was thrown and its message.</summary>
+    private static string Describe(Exception error)
+        => $"{error.GetType().Name}: {error.Message}";
+
+    /// <summary>
+    /// [S-891] The body of a card whose view is not running: a mark, one line, Retry, and Details
+    /// (the error itself) when it failed. Sheds like an empty state on a small tile — the glyph
+    /// first, then the details link — so the Retry button is still there at XS.
+    /// </summary>
+    private sealed partial class FaultCard : Grid
+    {
+        public FaultCard(WidgetCard owner, bool paused)
+        {
+            Paused = paused;
+
+            var full = paused ? "Paused: Themia started in safe mode." : "This widget stopped working.";
+            var brief = paused ? "Paused (safe mode)." : "Stopped working.";
+            var message = new TextBlock { Text = full };
+            var state = Fluent.EmptyState(paused ? Glyphs.Pause : Glyphs.Broken, message, out var icon);
+
+            var retry = new Button
+            {
+                Content = paused ? "Start" : "Retry",
+                HorizontalAlignment = HorizontalAlignment.Center,
+                AllowFocusOnInteraction = false,
+            };
+            retry.Click += (_, _) => owner.Retry();
+
+            var actions = new StackPanel
+            {
+                Orientation = Orientation.Horizontal,
+                HorizontalAlignment = HorizontalAlignment.Center,
+                Spacing = Fluent.Space2,
+                Margin = new Thickness(0, Fluent.Space2, 0, 0),
+                Children = { retry },
+            };
+
+            if (!paused && owner._fault is { } error)
+            {
+                var details = new HyperlinkButton
+                {
+                    Content = "Details",
+                    AllowFocusOnInteraction = false,
+                    VerticalAlignment = VerticalAlignment.Center,
+                };
+                details.Click += (_, _) => ShowDetails(details, Describe(error));
+                actions.Children.Add(details);
+            }
+
+            var column = new StackPanel
+            {
+                VerticalAlignment = VerticalAlignment.Center,
+                Children = { state, actions },
+            };
+
+            Children.Add(column);
+
+            // The ladder down: the details link, then the glyph, then the long sentence go; the
+            // short sentence and the button stay at XS. Decided here because the column measures its
+            // children with unlimited height, so the empty state's own shedding never triggers.
+            SizeChanged += (_, e) =>
+            {
+                var narrow = e.NewSize.Width < 150 || e.NewSize.Height < 110;
+                var low = e.NewSize.Height < 160;
+                if (actions.Children.Count > 1)
+                {
+                    actions.Children[1].Visibility = narrow ? Visibility.Collapsed : Visibility.Visible;
+                }
+
+                icon.Visibility = low || narrow ? Visibility.Collapsed : Visibility.Visible;
+                message.Text = narrow ? brief : full;
+            };
+        }
+
+        public bool Paused { get; }
+
+        private static void ShowDetails(FrameworkElement anchor, string text)
+        {
+            var body = Fluent.Text(FluentType.Body, "TextFillColorPrimaryBrush");
+            body.Text = text;
+            body.TextWrapping = TextWrapping.Wrap;
+            body.IsTextSelectionEnabled = true;
+            body.MaxWidth = 320;
+
+            new Flyout { Content = body, Placement = FlyoutPlacementMode.Bottom }.ShowAt(anchor);
+        }
+    }
+}

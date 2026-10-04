@@ -21,6 +21,9 @@ internal static class PowerFixture
     /// <summary>The plan list preview cards read instead of the machine's.</summary>
     public static IReadOnlyList<PowerPlanEntry>? Plans { get; private set; }
 
+    /// <summary>[S-1623] The screen and sleep timeouts preview cards read instead of the machine's.</summary>
+    public static PowerTimeouts? Timeouts { get; private set; }
+
     public static void Install(bool populated)
     {
         Snapshot = populated
@@ -30,6 +33,9 @@ internal static class PowerFixture
         Plans = populated
             ? [new PowerPlanEntry("Balanced", true), new PowerPlanEntry("Best performance", false), new PowerPlanEntry("Power saver", false)]
             : null;
+
+        // Windows' battery defaults: screen off after 5 min, sleep after 15, hibernate never.
+        Timeouts = populated ? new PowerTimeouts(300, 900, 0) : null;
     }
 
     public static PowerConfig Config() => new() { Actions = [.. PowerActionRules.All] };

@@ -189,6 +189,130 @@ public static class MusicRules
     };
 
     /// <summary>
+    /// [S-1464] Whether the tile paints nothing. <see cref="MusicHideWhenIdle.NoSession"/> hides only
+    /// when Windows reports no session at all; <see cref="MusicHideWhenIdle.NotPlaying"/> also hides
+    /// a paused or empty one. Before the first snapshot (loading) a hiding tile stays hidden, so it
+    /// does not flash up at every start. Edit mode is the card's rule, not this one: it always shows.
+    /// </summary>
+    public static bool Hides(Model.MusicHideWhenIdle mode, MusicState state) => mode switch
+    {
+        Model.MusicHideWhenIdle.NoSession => state is MusicState.NoSession or MusicState.Loading,
+        Model.MusicHideWhenIdle.NotPlaying => state != MusicState.Playing,
+        _ => false,
+    };
+
+    /// <summary>
+    /// [S-1465] The fraction of the bar under a pointer at <paramref name="x"/> on a bar
+    /// <paramref name="width"/> wide, 0..1. Off either end is the end, and a bar not laid out yet is 0.
+    /// </summary>
+    public static double ScrubFraction(double x, double width)
+        => width > 0 && double.IsFinite(x) ? Math.Clamp(x / width, 0, 1) : 0;
+
+    /// <summary>[S-1465] The position a fraction of the bar stands for. Nothing to seek in a track with no length.</summary>
+    public static TimeSpan SeekTarget(double fraction, TimeSpan duration)
+        => duration > TimeSpan.Zero && double.IsFinite(fraction)
+            ? TimeSpan.FromTicks((long)(duration.Ticks * Math.Clamp(fraction, 0, 1)))
+            : TimeSpan.Zero;
+
+    /// <summary>[S-1468] Shift+arrows: five seconds either way, kept inside the track.</summary>
+    public static readonly TimeSpan NudgeStep = TimeSpan.FromSeconds(5);
+
+    /// <summary>[S-1468] <paramref name="position"/> moved by <paramref name="delta"/>, clamped into the track.</summary>
+    public static TimeSpan Nudge(TimeSpan position, TimeSpan delta, TimeSpan duration)
+    {
+        var target = position + delta;
+
+        if (target < TimeSpan.Zero)
+        {
+            return TimeSpan.Zero;
+        }
+
+        return duration > TimeSpan.Zero && target > duration ? duration : target;
+    }
+
+    /// <summary>
+    /// [S-1469] A person's name for the app that owns the session, from its app user model id:
+    /// <c>Spotify.exe</c> → "Spotify", <c>SpotifyAB.SpotifyMusic_zpdnekdrzrea0!Spotify</c> →
+    /// "Spotify Music", <c>Microsoft.ZuneMusic_8wekyb3d8bbwe!Microsoft.ZuneMusic</c> → "Zune Music".
+    /// Empty when there is nothing usable, so the line can drop.
+    /// </summary>
+    public static string SourceName(string? appId)
+    {
+        if (string.IsNullOrWhiteSpace(appId))
+        {
+            return string.Empty;
+        }
+
+        var id = appId.Trim();
+
+        // A packaged app: "Publisher.Name_hash!Entry" — the package name is the readable part.
+        var bang = id.IndexOf('!', StringComparison.Ordinal);
+        if (bang >= 0)
+        {
+            id = id[..bang];
+        }
+
+        var underscore = id.IndexOf('_', StringComparison.Ordinal);
+        if (underscore > 0)
+        {
+            id = id[..underscore];
+        }
+
+        // A path or an exe: the file name without its extension.
+        id = id.Replace('/', '\\');
+        var slash = id.LastIndexOf('\\');
+        if (slash >= 0)
+        {
+            id = id[(slash + 1)..];
+        }
+
+        if (id.EndsWith(".exe", StringComparison.OrdinalIgnoreCase))
+        {
+            id = id[..^4];
+        }
+        else
+        {
+            // "Publisher.Name" (or "Microsoft.ZuneMusic"): the last dotted part.
+            var dot = id.LastIndexOf('.');
+            if (dot >= 0 && dot < id.Length - 1)
+            {
+                id = id[(dot + 1)..];
+            }
+        }
+
+        return Line(SplitWords(id)) ?? string.Empty;
+    }
+
+    /// <summary>"SpotifyMusic" → "Spotify Music": a space before each capital that follows a lower-case letter.</summary>
+    private static string SplitWords(string name)
+    {
+        var builder = new System.Text.StringBuilder(name.Length + 4);
+
+        for (var i = 0; i < name.Length; i++)
+        {
+            if (i > 0 && char.IsUpper(name[i]) && char.IsLower(name[i - 1]))
+            {
+                builder.Append(' ');
+            }
+
+            // "chrome.exe" is "Chrome": an exe name's case is the file system's, not the app's.
+            builder.Append(i == 0 ? char.ToUpperInvariant(name[i]) : name[i]);
+        }
+
+        return builder.ToString();
+    }
+
+    /// <summary>The artist alone, collapsed like every other line; empty when absent.</summary>
+    public static string Artist(string? raw) => Line(raw) ?? string.Empty;
+
+    /// <summary>The album alone; empty when absent or the same as the artist (a self-titled release says it once).</summary>
+    public static string Album(string? artist, string? album)
+    {
+        var what = Line(album);
+        return what is null || string.Equals(what, Line(artist), StringComparison.OrdinalIgnoreCase) ? string.Empty : what;
+    }
+
+    /// <summary>
     /// Collapse somebody else's string to one displayable line, or null when there is nothing in it.
     /// </summary>
     private static string? Line(string? raw)

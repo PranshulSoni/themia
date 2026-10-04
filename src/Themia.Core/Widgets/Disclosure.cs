@@ -103,6 +103,43 @@ public sealed class Disclosure
     }
 
     /// <summary>
+    /// [S-1622] Whether a part of <paramref name="height"/> would fit now, without taking it or
+    /// closing the ladder: for a rung that has somewhere else to go (beside another part) when it
+    /// does not fit under the rest.
+    /// </summary>
+    public bool Fits(double height) => !_closed && Cost(height) <= Remaining + Tolerance;
+
+    /// <summary>
+    /// [S-1622] A rung offered in several sizes, richest first: take the first that fits whole and
+    /// return its index. Only when none fits is it a miss, which closes the ladder like
+    /// <see cref="Take"/>'s; −1 then (and when the ladder was already closed or nothing was offered).
+    /// </summary>
+    public int TakeFirst(IReadOnlyList<double> heights)
+    {
+        ArgumentNullException.ThrowIfNull(heights);
+
+        if (_closed || heights.Count == 0)
+        {
+            return -1;
+        }
+
+        for (var i = 0; i < heights.Count; i++)
+        {
+            var cost = Cost(heights[i]);
+
+            if (cost <= Remaining + Tolerance)
+            {
+                Remaining = Math.Max(0, Remaining - cost);
+                _taken++;
+                return i;
+            }
+        }
+
+        _closed = true;
+        return -1;
+    }
+
+    /// <summary>
     /// [S-662] A list's share: as many whole rows of <paramref name="rowHeight"/> as fit in what is
     /// left (at most <paramref name="wanted"/>), spent from the budget. A list is normally the last
     /// thing on a ladder and takes the rest, so the count grows with the tile and the last row is

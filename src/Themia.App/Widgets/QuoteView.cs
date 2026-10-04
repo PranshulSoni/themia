@@ -23,13 +23,16 @@ namespace Themia.App.Widgets;
 /// per click for something that is supposed to come back to today's quote in the morning.
 /// </para>
 /// </summary>
-internal sealed partial class QuoteView : Grid, IWidgetView, IWidgetHeaderContent
+internal sealed partial class QuoteView : Grid, IWidgetView, IWidgetHeaderContent, IWidgetSizeAware
 {
     private readonly Button _next;
 
     private readonly TextBlock _text = Fluent.Text(FluentType.Body);
     private readonly TextBlock _author = Fluent.Text(FluentType.Caption, "TextFillColorSecondaryBrush");
+    private readonly TextBlock _caption = Fluent.Text(FluentType.Caption, "TextFillColorTertiaryBrush");
     private readonly Grid _body;
+
+    private WidgetArea _area;
 
     private readonly StackPanel _empty;
 
@@ -72,7 +75,6 @@ internal sealed partial class QuoteView : Grid, IWidgetView, IWidgetHeaderConten
         // card captures the pointer on press to drag the widget, so the gesture never completes here
         // and no quote changes while a widget is being moved. See ScratchpadView for the whole story.
         Tapped += OnTapped;
-        SizeChanged += OnSizeChanged;
     }
 
     private Grid BuildBody()
@@ -81,7 +83,14 @@ internal sealed partial class QuoteView : Grid, IWidgetView, IWidgetHeaderConten
         _text.TextTrimming = TextTrimming.CharacterEllipsis;
 
         _author.TextWrapping = TextWrapping.NoWrap;
+        _author.TextTrimming = TextTrimming.CharacterEllipsis;
         _author.Margin = new Thickness(0, Fluent.Space2, 0, 0);
+
+        // [S-1496] On a tall or large tile, a caption naming the rotation and where in the list this
+        // quote is. Never drawn at the cost of the quote's own lines.
+        _caption.TextTrimming = TextTrimming.CharacterEllipsis;
+        _caption.Margin = new Thickness(0, Fluent.Space2, 0, 0);
+        _caption.Visibility = Visibility.Collapsed;
 
         var grid = new Grid
         {
@@ -91,13 +100,16 @@ internal sealed partial class QuoteView : Grid, IWidgetView, IWidgetHeaderConten
             {
                 new RowDefinition { Height = GridLength.Auto },
                 new RowDefinition { Height = GridLength.Auto },
+                new RowDefinition { Height = GridLength.Auto },
             },
         };
 
         SetRow(_text, 0);
         SetRow(_author, 1);
+        SetRow(_caption, 2);
         grid.Children.Add(_text);
         grid.Children.Add(_author);
+        grid.Children.Add(_caption);
 
         return grid;
     }
@@ -185,7 +197,17 @@ internal sealed partial class QuoteView : Grid, IWidgetView, IWidgetHeaderConten
         }
     }
 
-    private void OnNextClicked(object sender, RoutedEventArgs args) => ShowNext();
+    /// <summary>
+    /// [S-1495] The header button shows a <i>random</i> other quote, as the original's shuffle did;
+    /// a tap on the quote itself steps to the next one. Both are ephemeral (S-02).
+    /// </summary>
+    private void OnNextClicked(object sender, RoutedEventArgs args)
+    {
+        var count = _config.EffectiveQuotes.Count;
+        var period = QuoteRotation.Period(DateTimeOffset.Now, _config.Cadence) + _step;
+        _step += QuoteRotation.RandomStep(count, period, _config.Seed, _config.Shuffle, Random.Shared.Next());
+        Render();
+    }
 
     /// <summary>
     /// Deliberately not marked handled: the card's own double-click still has to reach it, which is
@@ -239,55 +261,94 @@ internal sealed partial class QuoteView : Grid, IWidgetView, IWidgetHeaderConten
             ? Visibility.Visible
             : Visibility.Collapsed;
 
-        Resize();
+        _caption.Text = Caption(index, quotes.Count);
+        Lay();
     }
 
-    private void OnSizeChanged(object sender, SizeChangedEventArgs args) => Resize();
+    /// <summary>[S-663] The card's word on how much room the quote has.</summary>
+    public void ApplySize(WidgetArea area)
+    {
+        _area = area;
+        Lay();
+    }
 
     /// <summary>
-    /// Step the type to the tile. [S-210] The quote picks the largest ramp step a paragraph of it
-    /// still fits at, so a small tile shows a readable Body and a large one shows a Title — and
-    /// every size on screen is one Windows itself uses.
+    /// [S-210]/[S-653]/[S-1496] The ladder. The quote is the widget, so everything else is planned
+    /// around it and given up for it, in this order: the caption ("Quote of the day · 3 of 16" under
+    /// the attribution, from a tile Expanded in height), then
+    /// the attribution. What is left sets the quote at the largest ramp step a paragraph of it fits
+    /// at — up to TitleLarge, and Display on a tile Huge both ways — and a quote too long even at the
+    /// floor ends in an ellipsis on the last line that fits.
     /// </summary>
-    private void Resize()
+    private void Lay()
     {
-        var width = ActualWidth - (WidgetLayout.ContentInset * 2);
+        var box = _area.Deflate(WidgetLayout.ContentInset, WidgetLayout.ContentInset / 2);
+        var characters = _text.Text.Length;
 
-        var wantAuthor = _config.ShowAuthor && _author.Text.Length > 0;
-        var authorHeight = wantAuthor ? FluentType.Body.LineHeight + Fluent.Space2 : 0;
-        var height = ActualHeight - authorHeight - WidgetLayout.ContentInset;
-
-        if (!double.IsFinite(width) || !double.IsFinite(height))
+        if (!_area.IsMeasured || characters == 0)
         {
             return;
         }
 
-        // [S-653] Up to TitleLarge: a large tile set the quote at Title in two lines across the
-        // middle of an otherwise empty card.
-        var characters = _text.Text.Length;
-        var step = QuoteLayout.Fit(width, height, characters, FluentType.Caption, FluentType.TitleLarge);
+        var wantAuthor = _config.ShowAuthor && _author.Text.Length > 0;
+        var wantDecor = _area.HeightClass >= SizeClass.Expanded;
+        var ceiling = _area.AtLeast(SizeClass.Huge, SizeClass.Huge) ? FluentType.Display : FluentType.TitleLarge;
 
-        // [S-653] On a tile where the quote does not fit even at the floor, the attribution gives
-        // its line back to the quote: the words are the widget, the name is a footnote to them.
-        var showAuthor = wantAuthor;
-        if (wantAuthor && QuoteLayout.Capacity(step, width, height) < characters)
+        var plan = Plan(box, characters, wantAuthor, wantDecor, ceiling);
+
+        if (!plan.Fits && wantDecor)
         {
-            showAuthor = false;
-            height += authorHeight;
-            step = QuoteLayout.Fit(width, height, characters, FluentType.Caption, FluentType.TitleLarge);
+            plan = Plan(box, characters, wantAuthor, decor: false, ceiling);
         }
 
-        _author.Visibility = showAuthor ? Visibility.Visible : Visibility.Collapsed;
-        _text.Apply(step);
+        if (!plan.Fits && wantAuthor)
+        {
+            plan = Plan(box, characters, author: false, decor: false, ceiling);
+        }
 
-        // [S-653] A quote too long for the box even at the floor step ends in an ellipsis on the
-        // last line that fits, instead of being centred and running off the top and the bottom
-        // of the card at once.
-        var lines = (int)Math.Floor(height / step.LineHeight);
-        _text.MaxLines = Math.Max(1, lines);
+        _author.Visibility = Show(plan.Author);
+        _caption.Visibility = Show(plan.Caption);
+
+        _text.Apply(plan.Step);
+        _text.MaxLines = Math.Max(1, (int)Math.Floor((plan.TextHeight + Disclosure.Tolerance) / plan.Step.LineHeight));
 
         // The attribution sits one step down, never above Body: it is a name, not the quote.
-        _author.Apply(step.FontSize > FluentType.Body.FontSize ? FluentType.Body : FluentType.Caption);
+        _author.Apply(AuthorStep(plan.Step));
+    }
+
+    private readonly record struct QuotePlan(TypeStep Step, double TextHeight, bool Author, bool Caption, bool Fits);
+
+    private static QuotePlan Plan(WidgetArea box, int characters, bool author, bool decor, TypeStep ceiling)
+    {
+        var room = new Disclosure(box, Fluent.Space2);
+        room.Reserve(FluentType.Caption.LineHeight);
+
+        var showAuthor = author && room.Take(FluentType.Body.LineHeight);
+        var showCaption = decor && room.Take(FluentType.Caption.LineHeight);
+
+        var height = room.Remaining + FluentType.Caption.LineHeight;
+        var step = QuoteLayout.Fit(box.Width, height, characters, FluentType.Caption, ceiling);
+        var fits = QuoteLayout.Capacity(step, box.Width, height) >= characters;
+
+        return new QuotePlan(step, height, showAuthor, showCaption, fits);
+    }
+
+    private static TypeStep AuthorStep(TypeStep quote)
+        => quote.FontSize > FluentType.Body.FontSize ? FluentType.Body : FluentType.Caption;
+
+    private static Visibility Show(bool visible) => visible ? Visibility.Visible : Visibility.Collapsed;
+
+    /// <summary>"Quote of the day · 3 of 16": which rotation this is, and where in the list.</summary>
+    private string Caption(int index, int count)
+    {
+        var name = _config.Cadence switch
+        {
+            QuoteCadence.Daily => "Quote of the day",
+            QuoteCadence.Hourly => "Quote of the hour",
+            _ => "Quote",
+        };
+
+        return count > 1 ? $"{name} · {index + 1} of {count}" : name;
     }
 
     public void Detach()
@@ -304,6 +365,5 @@ internal sealed partial class QuoteView : Grid, IWidgetView, IWidgetHeaderConten
 
         _next.Click -= OnNextClicked;
         Tapped -= OnTapped;
-        SizeChanged -= OnSizeChanged;
     }
 }

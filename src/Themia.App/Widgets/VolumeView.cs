@@ -622,18 +622,40 @@ internal sealed partial class VolumeView : Grid, IWidgetView, IWidgetSizeAware, 
         }
     }
 
-    private void PickDevice(AudioDevice? device)
+    /// <summary>
+    /// [S-1614] A pick makes the device Windows' default and the tile keeps following the default;
+    /// when Windows refuses, the tile binds to the device and says why ([S-1616]).
+    /// </summary>
+    private async void PickDevice(AudioDevice? device)
     {
         if (_surface is not { IsPreview: false } surface)
         {
             return;
         }
 
-        _config.DeviceId = device?.Id;
-        _config.DeviceName = device?.Name;
-        _overrides.Clear();
-        surface.RequestSave();
-        Lay();
+        try
+        {
+            if (await _feed.PickAsync(device, _config.DeviceId, _config.DeviceName, _snapshot?.DefaultId) is not { } after || _detached)
+            {
+                return;
+            }
+
+            _config.DeviceId = after.DeviceId;
+            _config.DeviceName = after.DeviceName;
+            _overrides.Clear();
+            surface.RequestSave();
+            Lay();
+
+            if (after.Notice is { } notice)
+            {
+                // [S-1616]/[S-880] Said once, as a notice: the widget is bound now, nothing to answer.
+                Themia.App.Services.Notices.Warning("Default output not changed", notice);
+            }
+        }
+        catch (Exception ex)
+        {
+            Themia.Core.Diagnostics.Log.Error("audio", "the volume tile could not change its device", ex);
+        }
     }
 
     public void Detach()

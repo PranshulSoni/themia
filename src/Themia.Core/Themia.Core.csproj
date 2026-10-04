@@ -4,4 +4,21 @@
     <IsAotCompatible>true</IsAotCompatible>
     <IsTrimmable>true</IsTrimmable>
   </PropertyGroup>
+
+  <ItemGroup>
+    <!-- The fallback tests build tables with gaps on purpose ([S-1104]). -->
+    <InternalsVisibleTo Include="Themia.Core.Tests" />
+  </ItemGroup>
+
+  <!--
+    [S-1101] The UI strings: one JSON file per language, compiled into static tables by the
+    generator at build time (no ResourceManager, no files read at run time — Native AOT clean).
+  -->
+  <ItemGroup>
+    <AdditionalFiles Include="Localization\Locales\*.json" />
+    <ProjectReference Include="..\Themia.Localization.Generator\Themia.Localization.Generator.csproj"
+                      OutputItemType="Analyzer"
+                      ReferenceOutputAssembly="false"
+                      GlobalPropertiesToRemove="RuntimeIdentifier;SelfContained" />
+  </ItemGroup>
 </Project>

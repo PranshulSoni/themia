@@ -82,7 +82,7 @@ public class ClockFormatterTests
 
     private static ClockConfig Utc(Action<ClockConfig>? tweak = null)
     {
-        var config = new ClockConfig { TimeZoneId = "UTC", ShowDate = false };
+        var config = new ClockConfig { TimeZoneId = "Etc/UTC", ShowDate = false };
         tweak?.Invoke(config);
         return config;
     }

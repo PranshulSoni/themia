@@ -1,6 +1,8 @@
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Input;
 using Themia.App.Services;
+using Themia.App.Services.Files;
 using Themia.App.Shell;
 using Themia.Core.Model;
 using Themia.Core.Widgets;
@@ -8,128 +10,85 @@ using Themia.Core.Widgets;
 namespace Themia.App.Widgets;
 
 /// <summary>
-/// What is in a folder on this PC, as a Windows 11 file list.
+/// [S-1320] A folder on this PC as a small Windows 11 file browser: list, details, grid or icons;
+/// navigation inside the widget or out to Explorer; Explorer's selection, keys, menus and file
+/// operations; the real Windows file clipboard; drag out to any app and drop in from Explorer.
 /// <para>
-/// Built to sit next to Explorer rather than next to a web dashboard: Fluent's 32px compact list
-/// row, the Body step for the name, the 16px Segoe folder and file glyphs, and no rule between
-/// rows. The row spans the full width of the card and carries the 16px inset as its own padding, so
-/// the highlight under the pointer reaches both edges the way a row's does and not the way a box's
-/// does.
+/// Split by concern: this file is the lifecycle, loading and navigation; <c>.Render</c> draws the
+/// ladder ([S-1323]); <c>.Input</c> is pointer, keys, selection and drag and drop; <c>.Commands</c> is
+/// the menus and file operations. Every rule with an edge case lives in Core (<see cref="FolderLayout"/>,
+/// <see cref="FolderSelection"/>, <see cref="FolderGesture"/>, <see cref="FolderHistory"/>,
+/// <see cref="FolderFilter"/>, <see cref="Themia.Core.Files.FileDrops"/>, …) and is tested there.
 /// </para>
 /// <para>
-/// <b>Read-only.</b> Double-clicking a row hands it to the shell and that is the whole of what this
-/// widget can do to a file. A rename or a delete one mis-click away, on a surface that sits under
-/// every other window and has no undo, is not a feature — those belong in Explorer, which has both
-/// a confirmation and a recycle bin.
+/// Nothing is ever deleted permanently: Delete asks first and sends to the Recycle Bin through the
+/// shell ([S-1330]).
 /// </para>
 /// </summary>
-internal sealed partial class FolderView : Grid, IWidgetView, IWidgetHeaderContent, IWidgetSurfaceAware
+internal sealed partial class FolderView : Grid, IWidgetView, IWidgetHeaderContent, IWidgetSurfaceAware,
+    IWidgetSizeAware, IWidgetKeys, IWidgetContextActions
 {
-    /// <summary>
-    /// Below this the tile is too narrow for a name and two detail columns, so the detail is
-    /// dropped rather than squeezed: a name trimmed to three characters to make room for a date is
-    /// a list that has stopped being readable. The name is what a folder listing is for.
-    /// </summary>
-    private const double DetailMinimumWidth = 300;
+    private const string Scope = "folder";
 
     /// <summary>
-    /// What an empty <see cref="FolderConfig.Path"/> means, resolved once. Read here rather than in
-    /// <see cref="FolderPath"/> so the rule itself stays a pure function.
+    /// The most items one view draws. A folder of fifty thousand files would be fifty thousand rows
+    /// of XAML; past this the footer row says how many more there are and opens Explorer.
     /// </summary>
+    public const int RenderCap = 1000;
+
     private static readonly string ProfileFolder =
         Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
 
-    private readonly ProgressRing _busy = new();
-    private readonly StackPanel _list = new() { Spacing = 0 };
-    private readonly ScrollViewer _scroll;
-    private readonly TextBlock _message;
-    private readonly Border _messageHost;
-
-    // One per row, so the hover handlers come off with the rows they light. A leaked one keeps the
-    // row alive and re-lights it after the listing has been redrawn or the widget torn down.
-    private readonly List<IDisposable> _hovers = [];
+    private readonly FolderSelection _selection = new();
+    private readonly FolderGesture _gesture = new();
+    private readonly FolderHistory _history = new(string.Empty);
 
     private Ticker? _ticker;
+    private IDisposable? _subscription;
+    private TimeSpan _subscribedInterval;
     private FolderConfig _config = new();
 
     /// <summary>
-    /// [S-13a] A copy of the settings this view last acted on, which is what a change is measured
-    /// against. Not <c>_config</c>: the settings page edits the live config object in place, so by
-    /// the time a change arrives the "previous" config already holds the new values, and comparing
-    /// the two found no difference — a new address or place stayed unfetched until the next tick.
+    /// A copy of the settings last acted on: the settings page edits the live object in place, so the
+    /// previous values are only knowable from a copy.
     /// </summary>
     private FolderConfig _applied = new();
 
-    /// <summary>The card this view draws on, which owns the header it names.</summary>
     private IWidgetSurface? _surface;
     private FolderPathResult _resolved;
     private FolderSnapshot _snapshot = FolderSnapshot.Of(FolderListingStatus.Loading);
-    private IDisposable? _subscription;
-    private TimeSpan _subscribedInterval = TimeSpan.Zero;
+    private string _snapshotPath = string.Empty;
+    private string _watchedPath = string.Empty;
+    private FolderWatch? _watch;
     private CancellationTokenSource? _inFlight;
-
-    /// <summary>
-    /// Which listing is current. A reply carrying an older number is a folder the widget has
-    /// stopped pointing at — a network share that took thirty seconds to answer must not overwrite
-    /// the folder the user has since chosen.
-    /// </summary>
     private int _generation;
-
-    private bool _detailVisible = true;
+    private bool _loading;
+    private bool _dirty;
     private bool _everLoaded;
     private bool _detached;
 
+    /// <summary>The scroll offset to restore once the place Back / Forward returned to has drawn ([S-1326]).</summary>
+    private double? _restoreScroll;
+
+    private GitRepoStatus? _git;
+
     public FolderView()
     {
-        RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
+        BuildChrome();
 
-        // The ring rides on the card's header, which reads it once when it builds it — so it is
-        // built here rather than on first use.
-        _busy.Width = 14;
-        _busy.Height = 14;
-        _busy.IsActive = false;
-        _busy.Visibility = Visibility.Collapsed;
-
-        _scroll = new ScrollViewer
-        {
-            Content = _list,
-            Padding = WidgetLayout.ListInset,
-            HorizontalScrollMode = ScrollMode.Disabled,
-            HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
-            VerticalScrollBarVisibility = ScrollBarVisibility.Hidden,
-        };
-
-        SetRow(_scroll, 0);
-
-        _message = Fluent.Text(FluentType.Body, "TextFillColorTertiaryBrush");
-        _message.TextWrapping = TextWrapping.Wrap;
-        _message.TextTrimming = TextTrimming.None;
-        _message.TextAlignment = TextAlignment.Center;
-
-        _messageHost = new Border
-        {
-            Child = _message,
-            Padding = WidgetLayout.SideInset,
-            VerticalAlignment = VerticalAlignment.Center,
-            Visibility = Visibility.Collapsed,
-        };
-
-        SetRow(_messageHost, 0);
-
-        Children.Add(_scroll);
-        Children.Add(_messageHost);
-
-        // Event-driven, not measured on a timer: the detail columns come and go with the tile's
-        // actual width, and only a change of answer costs a redraw.
-        SizeChanged += OnSizeChanged;
+        // Event-driven: the clipboard changing (a copy here or in another folder widget) redraws the
+        // cut dims and what Paste offers.
+        FileClipboard.Changed += OnClipboardChanged;
     }
 
-    /// <inheritdoc />
-    public FrameworkElement? HeaderTrailing => _busy;
+    // ---- lifecycle ------------------------------------------------------------------------------
 
     public void Attach(Ticker ticker, WidgetConfig config)
     {
         _ticker = ticker;
+
+        // Warm the New menu's template list on the pool, so the first right-click has it.
+        _ = ShellNewTemplates.GetAsync();
         ApplyConfig(config);
     }
 
@@ -147,51 +106,44 @@ internal sealed partial class FolderView : Grid, IWidgetView, IWidgetHeaderConte
 
         _config = next;
         _applied = (FolderConfig)next.Clone();
-        PublishTitle();
 
         var resolved = FolderPath.Resolve(next.Path, ProfileFolder);
         var pathChanged = resolved.Path != _resolved.Path || resolved.Problem != _resolved.Problem;
         _resolved = resolved;
 
-        // Only the fields that change what comes back off the disk are worth a re-read. Everything
-        // else re-draws what is already in hand — dragging the row-count slider must not fire a
-        // directory enumeration per frame.
-        var needsRead = !_everLoaded
-            || pathChanged
-            || previous.Sort != next.Sort
-            || previous.Descending != next.Descending
-            || previous.FoldersFirst != next.FoldersFirst
-            || previous.ShowHidden != next.ShowHidden
-            || previous.EffectiveMaxCount != next.EffectiveMaxCount;
+        if (pathChanged || !_everLoaded || previous.Navigation != next.Navigation)
+        {
+            // A new folder, or a change of mode: start over there, history gone.
+            _history.Reset(resolved.IsValid ? resolved.Path : string.Empty);
+            _selection.Clear();
+            CloseSearch();
+        }
 
-        // Subscribing fires a tick of its own, and that tick reloads with the config already in
-        // place above. Reloading again here would be a second enumeration of the same folder.
+        PublishTitle();
+        Lay();
+
         if (Resubscribe())
         {
             return;
         }
 
-        if (needsRead)
+        if (!_everLoaded || pathChanged || previous.Navigation != next.Navigation)
         {
-            Reload();
+            Reload(force: true);
         }
         else
         {
+            // Order, filters, view, sizes, columns: all drawn from what is in hand.
             Render();
         }
     }
 
-    /// <summary>
-    /// Rebuild the ticker subscription only when the cadence actually changed, and say whether it
-    /// did — a new subscription ticks immediately, so the caller has nothing left to do.
-    /// <para>
-    /// Tearing it down and remaking it on every config touch made dragging a settings slider
-    /// stutter, because each frame rebuilt the shared timer for every widget on the desktop.
-    /// </para>
-    /// </summary>
+    /// <summary>Rebuild the backstop timer only when its cadence changed; says whether it did (a new subscription ticks at once).</summary>
     private bool Resubscribe()
     {
-        var interval = _config.TickInterval;
+        // [S-1333] The watcher is the refresh. Without one (a share that sends no notifications) the
+        // original's 5 s fallback poll; with one, the slow backstop.
+        var interval = _watch is { Watching: false } ? TimeSpan.FromSeconds(5) : _config.TickInterval;
 
         if (_subscription is not null && interval == _subscribedInterval)
         {
@@ -200,16 +152,110 @@ internal sealed partial class FolderView : Grid, IWidgetView, IWidgetHeaderConte
 
         _subscription?.Dispose();
         _subscribedInterval = interval;
-        _subscription = _ticker?.Subscribe(interval, Reload);
+        _subscription = _ticker?.Subscribe(interval, () => Reload(force: false));
         return _subscription is not null;
     }
 
+    public void Detach()
+    {
+        if (_detached)
+        {
+            return;
+        }
+
+        _detached = true;
+        FileClipboard.Changed -= OnClipboardChanged;
+
+        _subscription?.Dispose();
+        _subscription = null;
+        _watch?.Dispose();
+        _watch = null;
+        _watchedPath = string.Empty;
+
+        // Cancel, not dispose: the in-flight load owns its source and frees it on the way out.
+        _inFlight?.Cancel();
+        _inFlight = null;
+
+        DetachInput();
+        ClearItems();
+        _fade?.Dispose();
+        _fade = null;
+        _ticker = null;
+    }
+
+    // ---- where the widget is ---------------------------------------------------------------------
+
+    /// <summary>The folder on screen: the history's place in navigate mode, the setting otherwise.</summary>
+    private string CurrentPath => _config.Navigation == FolderNavigation.Navigate && _history.Current.Length > 0
+        ? _history.Current
+        : _resolved.Path;
+
+    private bool Navigates => _config.Navigation == FolderNavigation.Navigate;
+
+    /// <summary>[S-1326] Go to <paramref name="path"/> inside the widget (navigate mode).</summary>
+    private void NavigateTo(string path)
+    {
+        if (!_history.Go(path, _scroll.VerticalOffset))
+        {
+            return;
+        }
+
+        Arrived(null);
+    }
+
+    private void GoBack()
+    {
+        if (Navigates && _history.Back(_scroll.VerticalOffset) is { } place)
+        {
+            Arrived(place.Scroll);
+        }
+    }
+
+    private void GoForward()
+    {
+        if (Navigates && _history.Forward(_scroll.VerticalOffset) is { } place)
+        {
+            Arrived(place.Scroll);
+        }
+    }
+
+    private void GoUp()
+    {
+        if (Navigates && _history.UpTarget() is { } parent)
+        {
+            NavigateTo(parent);
+        }
+    }
+
+    private void GoHome()
+    {
+        if (Navigates && !_history.AtHome)
+        {
+            NavigateTo(_history.Home);
+        }
+    }
+
+    /// <summary>A new place: drop the old listing, selection and search, and read the new one.</summary>
+    private void Arrived(double? scroll)
+    {
+        _restoreScroll = scroll;
+        _selection.Clear();
+        CloseSearch();
+        _snapshot = FolderSnapshot.Of(FolderListingStatus.Loading);
+        _git = null;
+        PublishTitle();
+        Lay();
+        Reload(force: true);
+    }
+
+    // ---- loading ---------------------------------------------------------------------------------
+
     /// <summary>
-    /// Start a listing. The read itself happens on the thread pool: a mapped drive whose server has
-    /// gone away can leave a single directory call sitting for most of a minute, and on the UI
-    /// thread that is every widget on the desktop frozen with it.
+    /// Read the folder on the thread pool. A read already running for the same folder is not
+    /// restarted: a burst of change notices marks it dirty and one more read follows it ([S-1333]).
+    /// <paramref name="force"/> (a new folder) abandons the running read instead.
     /// </summary>
-    private void Reload()
+    private void Reload(bool force)
     {
         if (_detached)
         {
@@ -217,82 +263,150 @@ internal sealed partial class FolderView : Grid, IWidgetView, IWidgetHeaderConte
         }
 
         _everLoaded = true;
+        var path = CurrentPath;
 
-        if (!_resolved.IsValid)
+        if (!_resolved.IsValid || path.Length == 0)
         {
             _snapshot = FolderSnapshot.Of(FolderListingStatus.InvalidPath);
             Render();
             return;
         }
 
-        var request = new FolderRequest(
-            _resolved.Path,
-            _config.Sort,
-            _config.Descending,
-            _config.FoldersFirst,
-            _config.ShowHidden,
-            _config.EffectiveMaxCount);
+        if (_loading && !force && string.Equals(path, _snapshotPath, StringComparison.OrdinalIgnoreCase))
+        {
+            _dirty = true;
+            return;
+        }
 
-        // The previous listing is now for a folder or an order nobody is looking at.
+        if (!string.Equals(path, _watchedPath, StringComparison.OrdinalIgnoreCase))
+        {
+            Watch(path);
+        }
+
         _inFlight?.Cancel();
-
         var cts = new CancellationTokenSource();
         _inFlight = cts;
         var generation = ++_generation;
+        _loading = true;
+        _dirty = false;
 
-        // Say something immediately, but only when there is nothing on screen to keep. A tick that
-        // re-reads the same folder should not blank the list it is about to redraw.
-        if (_snapshot.Entries.Count == 0)
+        if (!string.Equals(path, _snapshotPath, StringComparison.OrdinalIgnoreCase))
         {
             _snapshot = FolderSnapshot.Of(FolderListingStatus.Loading);
+            _snapshotPath = path;
             Render();
         }
 
-        _ = LoadAsync(request, generation, cts);
+        _ = LoadAsync(path, generation, cts);
     }
 
-    private async Task LoadAsync(FolderRequest request, int generation, CancellationTokenSource cts)
+    private async Task LoadAsync(string path, int generation, CancellationTokenSource cts)
     {
         try
         {
             SetBusy(true);
+            var snapshot = await Task.Run(() => FolderListing.Read(path, cts.Token), cts.Token).ConfigureAwait(true);
 
-            var snapshot = await Task.Run(() => FolderListing.Read(request, cts.Token), cts.Token)
-                .ConfigureAwait(true);
-
-            // A late reply from a folder the widget has since left. Discarded rather than drawn.
             if (_detached || generation != _generation)
             {
                 return;
             }
 
-            // A re-read that found exactly what the last one found must not rebuild the list:
-            // replacing the rows would throw away the scroll position and the row under the
-            // pointer, which on a long listing is the widget scrolling itself back to the top
-            // every thirty seconds while somebody is reading it.
-            var unchanged = snapshot.Status == _snapshot.Status
-                && FolderRules.SameContent(snapshot.Entries, _snapshot.Entries);
-
+            var unchanged = snapshot.Status == _snapshot.Status && FolderRules.SameContent(snapshot.Entries, _snapshot.Entries);
             _snapshot = snapshot;
 
             if (!unchanged)
             {
                 Render();
             }
+
+            RefreshGit(path, generation);
         }
         catch (OperationCanceledException)
         {
-            // ignore: superseded by a newer listing, which will draw in this one's place.
+            // ignore: superseded by a newer read, which draws in this one's place.
         }
         finally
         {
             if (ReferenceEquals(_inFlight, cts))
             {
                 _inFlight = null;
+                _loading = false;
                 SetBusy(false);
+
+                if (_dirty && !_detached)
+                {
+                    Reload(force: false);
+                }
             }
 
             cts.Dispose();
+        }
+    }
+
+    /// <summary>[S-1325] The git badge and column, when the folder is in a repository and either is shown.</summary>
+    private async void RefreshGit(string path, int generation)
+    {
+        try
+        {
+            // Asked whether the badge would have room if there were a repository, not whether it is
+            // shown now: it is not shown until the status exists.
+            var wanted = (_area.IsMeasured && FolderLayout.Header(_area.Width, _config.View, Navigates, hasGit: true).Git)
+                || (_config.View == FolderViewMode.Details && _config.Columns.Contains(FolderColumn.Git));
+
+            var status = wanted ? await GitStatus.GetAsync(path).ConfigureAwait(true) : null;
+
+            if (_detached || generation != _generation)
+            {
+                return;
+            }
+
+            var changed = !Equals(status?.Summary.Branch, _git?.Summary.Branch) || status?.Summary.Counts() != _git?.Summary.Counts()
+                || (status is null) != (_git is null) || !ReferenceEquals(status?.Summary.Files, _git?.Summary.Files);
+            _git = status;
+
+            if (changed)
+            {
+                ApplyHeader();
+                RefreshGitCells();
+            }
+        }
+        catch (Exception ex)
+        {
+            // async void: nothing may escape to the dispatcher.
+            Themia.Core.Diagnostics.Log.Error(Scope, "the git badge could not be refreshed", ex);
+        }
+    }
+
+    /// <summary>[S-1333] Watch the folder on screen; the old watcher goes exactly once.</summary>
+    private void Watch(string path)
+    {
+        // Recorded first: a tick that fires while this runs must not start a second watcher.
+        _watchedPath = path;
+        var wasWatching = _watch?.Watching ?? true;
+        _watch?.Dispose();
+        _watch = null;
+
+        try
+        {
+            _watch = FolderWatch.Start(path, () => Reload(force: false));
+        }
+        catch (InvalidOperationException ex)
+        {
+            Themia.Core.Diagnostics.Log.Warn(Scope, "no dispatcher to watch the folder on; the timer refreshes it", ex);
+        }
+
+        // The timer's cadence follows whether notifications arrive. Posted, not called: a new
+        // subscription ticks at once, and that tick must not run inside the load that is starting.
+        if ((_watch?.Watching ?? false) != wasWatching)
+        {
+            DispatcherQueue?.TryEnqueue(() =>
+            {
+                if (!_detached)
+                {
+                    Resubscribe();
+                }
+            });
         }
     }
 
@@ -307,161 +421,76 @@ internal sealed partial class FolderView : Grid, IWidgetView, IWidgetHeaderConte
         _busy.Visibility = busy ? Visibility.Visible : Visibility.Collapsed;
     }
 
-    private void OnSizeChanged(object sender, SizeChangedEventArgs e)
+    private void OnClipboardChanged()
     {
-        var wanted = e.NewSize.Width >= DetailMinimumWidth;
-
-        if (wanted == _detailVisible)
+        if (!_detached)
         {
-            return;
+            RefreshDims();
         }
-
-        _detailVisible = wanted;
-        Render();
     }
 
     /// <summary>
-    /// Draw the snapshot in hand. Every state that has no rows says which state it is: a folder
-    /// widget showing a blank tile is indistinguishable from a broken one, and each of these needs
-    /// a different thing from the reader.
-    /// </summary>
-    private void Render()
-    {
-        ClearRows();
-
-        if (_snapshot.Status != FolderListingStatus.Ok || _snapshot.Entries.Count == 0)
-        {
-            _message.Text = FolderFormatting.StatusMessage(_snapshot.Status, _resolved.Problem);
-            _messageHost.Visibility = Visibility.Visible;
-            _scroll.Visibility = Visibility.Collapsed;
-            return;
-        }
-
-        _messageHost.Visibility = Visibility.Collapsed;
-        _scroll.Visibility = Visibility.Visible;
-
-        // One clock reading for the whole list, so a listing drawn across midnight cannot show two
-        // different ideas of "today".
-        var now = DateTimeOffset.Now;
-        var detail = _config.ShowDetail && _detailVisible;
-
-        foreach (var entry in _snapshot.Entries)
-        {
-            _list.Children.Add(BuildRow(entry, now, detail));
-        }
-    }
-
-    private FrameworkElement BuildRow(FolderEntry entry, DateTimeOffset now, bool detail)
-    {
-        // The only hierarchy in the row: a folder leads somewhere, a file does not. Carried by the
-        // two stock text colours rather than by a colour this widget invented.
-        var icon = Fluent.Icon(
-            entry.IsDirectory ? Glyphs.Folder : Glyphs.File,
-            entry.IsDirectory ? "TextFillColorPrimaryBrush" : "TextFillColorSecondaryBrush");
-
-        icon.Margin = new Thickness(0, 0, Fluent.Space3, 0);
-
-        var name = Fluent.Text(FluentType.Body);
-        name.Text = entry.Name;
-        name.VerticalAlignment = VerticalAlignment.Center;
-
-        var grid = new Grid
-        {
-            ColumnDefinitions =
-            {
-                new ColumnDefinition { Width = GridLength.Auto },
-                new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) },
-                new ColumnDefinition { Width = GridLength.Auto },
-                new ColumnDefinition { Width = GridLength.Auto },
-            },
-        };
-
-        SetColumn(icon, 0);
-        SetColumn(name, 1);
-        grid.Children.Add(icon);
-        grid.Children.Add(name);
-
-        if (detail)
-        {
-            var size = Detail(FolderFormatting.Size(entry), 56);
-            var modified = Detail(FolderFormatting.Modified(entry.Modified, now), 60);
-
-            SetColumn(size, 2);
-            SetColumn(modified, 3);
-            grid.Children.Add(size);
-            grid.Children.Add(modified);
-        }
-
-        var row = Fluent.Row(grid, compact: true);
-        _hovers.Add(Fluent.Hover(row));
-
-        // Double-click, not single: a widget sits under the pointer's path across the desktop, and
-        // one stray click launching something is how a glanceable surface becomes a hazard.
-        row.DoubleTapped += (_, _) => FolderListing.Open(entry.FullPath);
-
-        ToolTipService.SetToolTip(row, entry.FullPath);
-        return row;
-    }
-
-    /// <summary>
-    /// A right-aligned detail column: the secondary text colour, the Caption step, and tabular
-    /// figures so the sizes and dates line up down the list instead of jittering per row.
-    /// </summary>
-    private static TextBlock Detail(string text, double width)
-    {
-        var block = Fluent.Text(FluentType.Caption, "TextFillColorSecondaryBrush");
-        block.Text = text;
-        block.TextAlignment = TextAlignment.Right;
-        block.MinWidth = width;
-        block.Margin = new Thickness(Fluent.Space2, 0, 0, 0);
-        block.VerticalAlignment = VerticalAlignment.Center;
-
-        Microsoft.UI.Xaml.Documents.Typography.SetNumeralAlignment(block, FontNumeralAlignment.Tabular);
-        return block;
-    }
-
-    /// <summary>
-    /// Drop the rows and, with them, their hover handlers: a handler left hooked keeps the row it
-    /// lights alive and re-lights it after the listing has moved on.
-    /// </summary>
-    private void ClearRows()
-    {
-        foreach (var hover in _hovers)
-        {
-            hover.Dispose();
-        }
-
-        _hovers.Clear();
-        _list.Children.Clear();
-    }
-
-    public void Detach()
-    {
-        _detached = true;
-
-        SizeChanged -= OnSizeChanged;
-        ClearRows();
-
-        _subscription?.Dispose();
-        _subscription = null;
-        _subscribedInterval = TimeSpan.Zero;
-
-        // Cancel but do not dispose: the in-flight load owns its source and frees it on the way out,
-        // so there is exactly one owner however many times this is called.
-        _inFlight?.Cancel();
-        _inFlight = null;
-
-        _ticker = null;
-    }
-    /// <summary>
-    /// Tell the card what this widget is about. The catalogue can only say "Weather" or
-    /// "Folder"; the widget knows which place, which folder, which ticker — and on a desktop
-    /// holding three of them, that is the only thing telling them apart.
+    /// The card's title names the folder on screen (in navigate mode, where the widget has gone);
+    /// the user's own label still wins (the card decides).
     /// </summary>
     private void PublishTitle()
     {
-        var title = FolderPath.DisplayName(_config.Path);
+        var title = Navigates && _history.Current.Length > 0
+            ? FolderPath.DisplayName(_history.Current)
+            : FolderPath.DisplayName(_config.Path);
+
         _surface?.SetHeaderTitle(string.IsNullOrWhiteSpace(title) ? null : title);
     }
 
+    /// <summary>Change the config from the widget itself (a menu, a header button) and save it.</summary>
+    private void Edit(Action<FolderConfig> change)
+    {
+        change(_config);
+        _applied = (FolderConfig)_config.Clone();
+        _surface?.RequestSave();
+        Lay();
+        Render();
+    }
+
+    /// <summary>The window this widget is drawn in, for shell UI that wants an owner.</summary>
+    private nint Window()
+    {
+        if (XamlRoot?.ContentIslandEnvironment is { } environment)
+        {
+            return Microsoft.UI.Win32Interop.GetWindowFromWindowId(environment.AppWindowId);
+        }
+
+        return 0;
+    }
+
+    /// <summary>Whether Shift is held now (for Shift+arrows, which the lease delivers as plain arrows).</summary>
+    private static bool ShiftDown()
+        => Microsoft.UI.Input.InputKeyboardSource.GetKeyStateForCurrentThread(Windows.System.VirtualKey.Shift)
+            .HasFlag(Windows.UI.Core.CoreVirtualKeyStates.Down);
+
+    private static bool CtrlDown()
+        => Microsoft.UI.Input.InputKeyboardSource.GetKeyStateForCurrentThread(Windows.System.VirtualKey.Control)
+            .HasFlag(Windows.UI.Core.CoreVirtualKeyStates.Down);
+
+    /// <inheritdoc />
+    public FrameworkElement? HeaderTrailing => _trailing;
+
+    /// <summary>A view of nothing but chrome taps (no keys of its own) still clears its own handlers on Detach.</summary>
+    private void DetachInput()
+    {
+        _scrollContent.PointerPressed -= OnPointerPressed;
+        _scrollContent.PointerMoved -= OnPointerMoved;
+        _scrollContent.PointerReleased -= OnPointerReleased;
+        _scrollContent.PointerCanceled -= OnPointerCanceled;
+        _scrollContent.PointerCaptureLost -= OnPointerCanceled;
+        _scrollContent.RightTapped -= OnBackgroundRightTapped;
+        _scrollContent.DoubleTapped -= OnDoubleTapped;
+        _scrollContent.PointerEntered -= OnPointerEntered;
+    }
+
+    private void OnPointerEntered(object sender, PointerRoutedEventArgs e)
+    {
+        // A cut made somewhere else may have ended since the dims were drawn (another app copied).
+        RefreshDims();
+    }
 }

@@ -6,6 +6,7 @@ using Microsoft.UI.Xaml.Media;
 using Themia.App.Services;
 using Themia.App.Widgets;
 using Themia.Core.Diagnostics;
+using Themia.Core.Localization;
 using Themia.Core.Model;
 using Themia.Core.Widgets;
 
@@ -17,6 +18,8 @@ internal static partial class ConfigPages
     private static FrameworkElement BuildGeneral(AppHost host)
     {
         var rows = new List<FrameworkElement> { FluentLayout.Header("System") };
+
+        rows.Add(LanguageRow(host));
 
         AddStartupRows(rows, host);
 
@@ -89,6 +92,32 @@ internal static partial class ConfigPages
             "developer", "dev mode", "logs", "debug"));
 
         return Page("General", rows);
+    }
+
+    /// <summary>
+    /// [S-1109] The app's language: Windows' own by default, or one of the nine, switching live.
+    /// Each language is listed by its own name ("Deutsch", "日本語"), the same in every language, so
+    /// someone who landed in a language they cannot read still finds theirs.
+    /// </summary>
+    private static Border LanguageRow(AppHost host)
+    {
+        var options = new List<(AppLanguage Value, string Label)>
+        {
+            (AppLanguage.System, Str.Settings_Language_System.Text()),
+            (AppLanguage.English, Str.Settings_Language_English.Text()),
+            (AppLanguage.German, Str.Settings_Language_German.Text()),
+            (AppLanguage.Spanish, Str.Settings_Language_Spanish.Text()),
+            (AppLanguage.French, Str.Settings_Language_French.Text()),
+            (AppLanguage.Portuguese, Str.Settings_Language_Portuguese.Text()),
+            (AppLanguage.Italian, Str.Settings_Language_Italian.Text()),
+            (AppLanguage.Polish, Str.Settings_Language_Polish.Text()),
+            (AppLanguage.Japanese, Str.Settings_Language_Japanese.Text()),
+            (AppLanguage.Chinese, Str.Settings_Language_Chinese.Text()),
+        };
+
+        return FluentLayout.Row(Glyphs.Language, Str.Settings_Language_Label.Text(), Str.Settings_Language_Desc.Text(),
+            FluentLayout.Choice(options, host.State.Preferences.Language, host.SetLanguage),
+            "language", "locale", "translation");
     }
 
     private static void OpenDataFolder()

@@ -41,11 +41,49 @@ public sealed class Ticker : IDisposable
         ArgumentNullException.ThrowIfNull(onTick);
         ObjectDisposedException.ThrowIf(_disposed, this);
 
-        var subscription = new Subscription(this, TickSchedule.Normalise(interval), onTick);
+        var subscription = new Subscription(this, TickSchedule.Normalise(interval), onTick, _faultSink);
         _subscriptions.Add(subscription);
         subscription.Fire();
         Reschedule();
         return subscription;
+    }
+
+    /// <summary>
+    /// [S-891] Route tick failures of the subscriptions made while the result is held to
+    /// <paramref name="onFault"/>, as well as to the log. A widget card holds one around its view's
+    /// Attach and ApplyConfig, which is where views subscribe, so a view that throws on a tick is
+    /// replaced by its error card instead of failing silently every second. UI thread only (the
+    /// ticker is); scopes nest.
+    /// </summary>
+    public IDisposable CatchFaults(Action<Exception> onFault)
+    {
+        ArgumentNullException.ThrowIfNull(onFault);
+        return new FaultScope(this, onFault);
+    }
+
+    private Action<Exception>? _faultSink;
+
+    private sealed class FaultScope : IDisposable
+    {
+        private readonly Ticker _owner;
+        private readonly Action<Exception>? _previous;
+        private bool _disposed;
+
+        public FaultScope(Ticker owner, Action<Exception> sink)
+        {
+            _owner = owner;
+            _previous = owner._faultSink;
+            owner._faultSink = sink;
+        }
+
+        public void Dispose()
+        {
+            if (!_disposed)
+            {
+                _disposed = true;
+                _owner._faultSink = _previous;
+            }
+        }
     }
 
     /// <summary>
@@ -141,7 +179,7 @@ public sealed class Ticker : IDisposable
         _subscriptions.Clear();
     }
 
-    private sealed class Subscription(Ticker owner, TimeSpan interval, Action onTick) : IDisposable
+    private sealed class Subscription(Ticker owner, TimeSpan interval, Action onTick, Action<Exception>? onFault) : IDisposable
     {
         private long _lastPeriod = -1;
         private bool _disposed;
@@ -175,6 +213,24 @@ public sealed class Ticker : IDisposable
             {
                 // One misbehaving widget must not stop the clock for every other widget.
                 Log.Error(Scope, "a tick subscriber threw", ex);
+                ReportFault(ex);
+            }
+        }
+
+        private void ReportFault(Exception error)
+        {
+            if (onFault is null)
+            {
+                return;
+            }
+
+            try
+            {
+                onFault(error);
+            }
+            catch (Exception ex)
+            {
+                Log.Error(Scope, "reporting a tick failure threw", ex);
             }
         }
 

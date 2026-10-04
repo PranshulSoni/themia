@@ -60,8 +60,16 @@ internal static class ShellLauncher
     /// Open a target, or say why not. Never throws: this is called from a click handler on a
     /// surface that must stay up.
     /// </summary>
-    public static LaunchOutcome Open(string? target)
+    public static LaunchOutcome Open(string? target) => Open(target, out _);
+
+    /// <summary>
+    /// [S-1407] <see cref="Open(string?)"/>, also saying which process the shell started — what an
+    /// app layout needs to tell the window it opened from the rest. 0 when the shell handed none back
+    /// (a URL opening in a running browser, a single-instance app passing the request on).
+    /// </summary>
+    public static LaunchOutcome Open(string? target, out int processId)
     {
+        processId = 0;
         var classified = LaunchTargets.Classify(target);
 
         if (!classified.IsValid)
@@ -78,7 +86,7 @@ internal static class ShellLauncher
             return LaunchOutcome.Missing;
         }
 
-        return Launch(classified.Value);
+        return Launch(classified.Value, out processId);
     }
 
     /// <summary>
@@ -188,10 +196,32 @@ internal static class ShellLauncher
     }
 
     /// <summary>
+    /// [S-1613] Open a page of Windows Settings (<c>ms-settings:</c>). Its own allow list, like mail
+    /// links: the pages are fixed URIs in code, and the scheme is checked on the literal string.
+    /// </summary>
+    public static LaunchOutcome OpenWindowsSettings(Uri page)
+    {
+        ArgumentNullException.ThrowIfNull(page);
+
+        if (!string.Equals(page.Scheme, "ms-settings", StringComparison.OrdinalIgnoreCase))
+        {
+            Log.Warn(Scope, $"refused to open '{Excerpt(page.OriginalString)}' as a Settings page");
+            return LaunchOutcome.Refused;
+        }
+
+        return Launch(page.OriginalString);
+    }
+
+    /// <summary>
     /// The shell call itself, and the only one in the app.
     /// </summary>
-    private static LaunchOutcome Launch(string value)
+    private static LaunchOutcome Launch(string value) => Launch(value, out _);
+
+    /// <inheritdoc cref="Launch(string)"/>
+    private static LaunchOutcome Launch(string value, out int processId)
     {
+        processId = 0;
+
         try
         {
             // using: ShellExecute hands back a process handle even when nothing waits on it, and a
@@ -206,6 +236,7 @@ internal static class ShellLauncher
                 UseShellExecute = true,
             });
 
+            processId = ProcessIdOf(process);
             return LaunchOutcome.Opened;
         }
         catch (Exception ex) when (ex is System.ComponentModel.Win32Exception
@@ -217,6 +248,26 @@ internal static class ShellLauncher
             // up and the log says why nothing opened.
             Log.Warn(Scope, $"the shell would not open '{value}'", ex);
             return LaunchOutcome.Failed;
+        }
+    }
+
+    /// <summary>The started process's id, or 0 when there is none (or it already ended).</summary>
+    private static int ProcessIdOf(Process? process)
+    {
+        if (process is null)
+        {
+            return 0;
+        }
+
+        try
+        {
+            return process.Id;
+        }
+        catch (InvalidOperationException)
+        {
+            // ignore: the shell handed back a handle to a process that has already exited (a
+            // launcher stub); the layout then finds the window by its exe.
+            return 0;
         }
     }
 

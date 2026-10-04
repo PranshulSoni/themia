@@ -33,7 +33,11 @@ internal sealed partial class ConfigWindow
             {
                 // A view's widgets hang under it, so the tree says where each widget actually lives
                 // rather than listing them all flat.
-                var node = Item(view.Name, NavIcons.Create(NavIcon.ContentView), new ConfigTarget.View(view.Id));
+                // [S-903] A view with an icon of its own shows it, in the colour icons' 20-DIP box so its
+                // name lines up with its neighbours'; one without keeps the shared colour icon.
+                var node = string.IsNullOrEmpty(view.Icon)
+                    ? Item(view.Name, NavIcons.Create(NavIcon.ContentView), new ConfigTarget.View(view.Id))
+                    : Item(view.Name, new FontIcon { Glyph = view.Icon, FontSize = NavIcons.Size - 2 }, new ConfigTarget.View(view.Id), wideBox: true);
 
                 foreach (var widget in view.Widgets)
                 {
@@ -98,12 +102,12 @@ internal sealed partial class ConfigWindow
     /// of Windows Settings do; a widget nested under its view keeps its monochrome kind glyph, the
     /// same one its card header and the picker show, so it reads as part of the view above it.
     /// </summary>
-    private static NavigationViewItem Item(string text, IconElement icon, ConfigTarget target) => new()
+    private static NavigationViewItem Item(string text, IconElement icon, ConfigTarget target, bool wideBox = false)
     {
-        Content = text,
-        Icon = icon,
-        Tag = target,
-    };
+        var item = new NavigationViewItem { Content = text, Icon = icon, Tag = target };
+        NavIcons.SizeIconBox(item, coloured: wideBox || icon is not FontIcon);
+        return item;
+    }
 
     private void SelectForTarget()
     {

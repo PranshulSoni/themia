@@ -26,7 +26,8 @@ internal static class LayoutFixtures
         WidgetKind.HabitTracker or
         WidgetKind.MoodTracker or
         WidgetKind.Gallery or
-        WidgetKind.Notes;
+        WidgetKind.Notes ||
+        DeskFixtures.Has(kind);
 
     public static WidgetConfig? Create(WidgetKind kind)
     {
@@ -72,6 +73,7 @@ internal static class LayoutFixtures
                         ShortcutItem.Create("shell:RecycleBinFolder"),
                         ShortcutItem.Create("shell:MyComputerFolder"),
                         ShortcutItem.Create("shell:Downloads"),
+                        DemoAppLayout(),
                         ShortcutItem.Create(@"C:\Windows\notepad.exe", "Notepad"),
                         ShortcutItem.Create(@"C:\Windows", "Windows folder"),
                         ShortcutItem.Create("https://github.com", "GitHub"),
@@ -138,8 +140,27 @@ internal static class LayoutFixtures
                 return NotesFixture.Config();
 
             default:
-                return null;
+                // [S-1489] Clock, Sun & moon, Quote and Scratchpad, in their own file.
+                return DeskFixtures.Create(kind);
         }
+    }
+
+    /// <summary>
+    /// [S-1405] An app layout for the Shortcuts fixture: three panes (an app, a site, a folder), so
+    /// its tile shows the stacked pane icons. Never launched: the gallery's cards are previews.
+    /// </summary>
+    internal static ShortcutItem DemoAppLayout()
+    {
+        var item = ShortcutItem.CreateLayout("Morning");
+        var root = item.Layout!;
+        (root, _) = LayoutTree.Split(root, root.Id, SplitDirection.Vertical);
+        LayoutTree.SetRatio(root, root.Id, 0.6);
+        (root, _) = LayoutTree.Split(root, root.B!.Id, SplitDirection.Horizontal);
+        LayoutTree.Assign(root, root.A!.Id, new LayoutAssignment { Source = LayoutSource.App, Target = @"C:\Windows\notepad.exe", Label = "Notepad" });
+        LayoutTree.Assign(root, root.B!.A!.Id, new LayoutAssignment { Source = LayoutSource.Url, Target = "https://github.com" });
+        LayoutTree.Assign(root, root.B!.B!.Id, new LayoutAssignment { Source = LayoutSource.Folder, Target = @"C:\Windows" });
+        item.Layout = root;
+        return item;
     }
 }
 #endif

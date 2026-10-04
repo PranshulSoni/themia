@@ -18,6 +18,7 @@ internal sealed class NetworkMeter : MeterPart
     private readonly RateWindow _window = new(60);
     private NetworkConfig _config = new();
     private int _adapters;
+    private bool _preview;
 
     public override WidgetKind Kind => WidgetKind.Network;
 
@@ -34,6 +35,9 @@ internal sealed class NetworkMeter : MeterPart
 
     /// <summary>[S-1190] One row per adapter that is up, to the most the tile fits.</summary>
     public override int ListWanted => _config.ShowInterfaces ? Math.Min(NetworkConfig.MaxInterfaces, _adapters) : 0;
+
+    /// <summary>[S-1619] A preview may show the gallery's Wi-Fi fixture; a desktop tile never does.</summary>
+    public override void Bind(bool preview) => _preview = preview;
 
     public override bool ApplyConfig(WidgetConfig config, IMeterHost host)
     {
@@ -81,15 +85,37 @@ internal sealed class NetworkMeter : MeterPart
     /// </summary>
     private List<MeterFact> Details(ThroughputSample sample)
     {
-        var lines = new List<MeterFact>(5);
+        var lines = new List<MeterFact>(6);
         var primary = Primary(sample);
 
         if (_config.ShowConnection && primary is { } connection)
         {
             var (rate, details) = connection;
+            var name = details.Name;
             var wifi = details.Wireless ? WlanInfo.Current(rate.Id) : null;
+
+            // [S-1611] Only a Wi-Fi line being drawn offers location consent, and only on a click.
+            var hint = details.Wireless ? LocationConsent.Decide(wifi?.Ssid is not null, wifi?.Refused == true) : WifiNameDecision.None;
+
+#if DEBUG
+            if (_preview && Shell.Gallery.NetworkFixture.Wifi is { } fixture)
+            {
+                // [S-1619] The packaged, location-refused line, whatever this machine is joined by.
+                name = "Wi-Fi";
+                wifi = fixture;
+                hint = WifiNameRules.Decide(true, LocationPermission.Denied, lineShown: true, asked: true, hasName: false, nameRefused: true);
+            }
+#endif
+
             var text = NetworkRules.ConnectionText(wifi?.Ssid, wifi?.Signal, NetworkRules.LinkSpeed(details.LinkSpeed));
-            lines.Add(new MeterFact(details.Name, text ?? details.Type));
+            lines.Add(new MeterFact(name, text ?? details.Type));
+
+            if (hint.Hint)
+            {
+                // [S-1613] Right under the line it explains; a preview's link does nothing.
+                var action = hint.Action;
+                lines.Add(new MeterFact(string.Empty, WifiNameRules.Hint, _preview ? static () => { } : () => LocationConsent.Follow(action)));
+            }
         }
 
         if (_config.ShowAddress && primary?.Details.Address is { } address)

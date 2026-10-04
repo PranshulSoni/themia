@@ -133,7 +133,7 @@ internal static partial class WidgetSettings
 
             if (result.IsValid)
             {
-                Services.FolderListing.Open(result.Path);
+                Services.Files.ShellFileOps.Open(result.Path);
             }
         };
 

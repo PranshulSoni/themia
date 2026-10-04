@@ -75,7 +75,7 @@ public sealed partial class NavIconAssetTests
             var unknown = svg.Descendants().Select(e => e.Name.LocalName).Where(n => !allowed.Contains(n)).Distinct().ToArray();
 
             Assert.True(unknown.Length == 0, $"{file} uses {string.Join(", ", unknown)}");
-            Assert.Equal("0 0 16 16", svg.Root?.Attribute("viewBox")?.Value);
+            Assert.Equal("0 0 20 20", svg.Root?.Attribute("viewBox")?.Value);
         }
     }
 }

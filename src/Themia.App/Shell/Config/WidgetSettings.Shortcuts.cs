@@ -117,6 +117,24 @@ internal static partial class WidgetSettings
                 Children = { file, folder },
             }));
 
+        // [S-1411] An app layout: added, then straight into its editor (original S-55).
+        var layout = new Button { Content = "New layout" };
+        layout.IsEnabled = AppServices.EditAppLayout is not null;
+        layout.Click += (_, _) =>
+        {
+            var item = ShortcutItem.CreateLayout();
+
+            if (list is not null)
+            {
+                list.Add(item);
+                AppServices.EditAppLayout?.Invoke(item.Id);
+            }
+        };
+
+        rows.Add(FluentLayout.Row(Glyphs.AppLayout, "App layout",
+            "Open several apps at once, each in its own part of the screen",
+            layout));
+
         // [S-1388] One switch per Windows location, with the icon Explorer shows for it: on adds it,
         // off removes every shortcut that points there, so the switch always says what the widget
         // holds (original S-16). The shell: URI is the tooltip, never the text.
@@ -184,6 +202,11 @@ internal static partial class WidgetSettings
     /// </summary>
     private static FrameworkElement ShortcutBody(ShortcutItem item, Action save)
     {
+        if (item.IsLayout)
+        {
+            return LayoutBody(item, save);
+        }
+
         var label = new TextBox
         {
             Text = item.Label,
@@ -292,6 +315,57 @@ internal static partial class WidgetSettings
         ShowVerdict();
 
         return new StackPanel { Children = { label, target, verdict } };
+    }
+
+    /// <summary>
+    /// [S-1411] An app layout's row (original S-57): its name, how many apps it opens instead of a
+    /// target, and the button that opens its editor.
+    /// </summary>
+    private static FrameworkElement LayoutBody(ShortcutItem item, Action save)
+    {
+        var label = new TextBox
+        {
+            Text = item.Label,
+            PlaceholderText = ShortcutRules.LayoutKindLabel,
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+        };
+
+        void CommitLabel()
+        {
+            var typed = label.Text.Trim();
+
+            if (typed != item.Label)
+            {
+                item.Label = typed;
+                save();
+            }
+        }
+
+        label.LostFocus += (_, _) => CommitLabel();
+        label.KeyDown += (_, args) =>
+        {
+            if (args.Key == VirtualKey.Enter)
+            {
+                args.Handled = true;
+                CommitLabel();
+            }
+        };
+
+        var summary = Fluent.Text(FluentType.Caption, "TextFillColorSecondaryBrush");
+        summary.Text = $"{ShortcutRules.LayoutKindLabel} · {LayoutPlan.Summary(item.Layout)}";
+        summary.VerticalAlignment = VerticalAlignment.Center;
+
+        var edit = new Button { Content = "Edit layout…", IsEnabled = AppServices.EditAppLayout is not null };
+        edit.Click += (_, _) => AppServices.EditAppLayout?.Invoke(item.Id);
+
+        var line = new Grid { Margin = new Thickness(0, Fluent.Space2, 0, 0) };
+        line.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        line.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        Grid.SetColumn(edit, 1);
+        line.Children.Add(summary);
+        line.Children.Add(edit);
+
+        return new StackPanel { Children = { label, line } };
     }
 
     /// <summary>What the name box suggests when it is empty: whatever the target is called.</summary>

@@ -178,6 +178,61 @@ internal static unsafe partial class PowerStatus
         return plans;
     }
 
+    /// <summary>GUID_VIDEO_SUBGROUP / GUID_VIDEO_POWERDOWN_TIMEOUT (winnt.h): "Turn my screen off after".</summary>
+    private static readonly Guid VideoSubgroup = new("7516b95f-f776-4464-8c53-06167f40cc99");
+    private static readonly Guid VideoTimeout = new("3c0bc021-c8a8-4e07-a973-6b14cbcb2b7e");
+
+    /// <summary>GUID_SLEEP_SUBGROUP / GUID_STANDBY_TIMEOUT / GUID_HIBERNATE_TIMEOUT: "Make my device sleep / hibernate after".</summary>
+    private static readonly Guid SleepSubgroup = new("238c9fa8-0aad-41ed-83f4-97be242c8f20");
+    private static readonly Guid SleepTimeout = new("29f6c1db-86da-48c5-9fdb-f2b67b1f44da");
+    private static readonly Guid HibernateTimeout = new("9d7815a6-7ee4-497e-8888-515a05f02364");
+
+    /// <summary>
+    /// [S-1623] The active plan's screen, sleep and hibernate timeouts for <paramref name="source"/>
+    /// (the battery values on battery, the plugged-in ones otherwise — as Settings shows the pair
+    /// for the source in use). A value that cannot be read stays null; the scheme GUID the API
+    /// allocates is freed on every path.
+    /// </summary>
+    public static PowerTimeouts Timeouts(PowerSource source)
+    {
+        nint scheme = 0;
+
+        try
+        {
+            var active = PowerGetActiveScheme(0, &scheme);
+
+            if (active != Success || scheme == 0)
+            {
+                NotePlanFailure(active, "could not read the active power scheme");
+                return PowerTimeouts.Unknown;
+            }
+
+            var battery = source == PowerSource.Battery;
+            return new PowerTimeouts(
+                ReadIndex(scheme, VideoSubgroup, VideoTimeout, battery),
+                ReadIndex(scheme, SleepSubgroup, SleepTimeout, battery),
+                ReadIndex(scheme, SleepSubgroup, HibernateTimeout, battery));
+        }
+        finally
+        {
+            if (scheme != 0)
+            {
+                LocalFree(scheme);
+            }
+        }
+    }
+
+    /// <summary>One setting's value index (seconds for a timeout), or null when the plan does not answer.</summary>
+    private static uint? ReadIndex(nint scheme, Guid subgroup, Guid setting, bool battery)
+    {
+        uint value;
+        var read = battery
+            ? PowerReadDCValueIndex(0, (Guid*)scheme, &subgroup, &setting, &value)
+            : PowerReadACValueIndex(0, (Guid*)scheme, &subgroup, &setting, &value);
+
+        return read == Success ? value : null;
+    }
+
     /// <summary>One scheme's friendly name, sized then read, or null.</summary>
     private static string? FriendlyName(Guid* scheme)
     {
@@ -246,6 +301,12 @@ internal static unsafe partial class PowerStatus
         uint index,
         byte* buffer,
         uint* bufferSize);
+
+    [LibraryImport("powrprof.dll")]
+    private static partial uint PowerReadACValueIndex(nint rootPowerKey, Guid* schemeGuid, Guid* subGroupOfPowerSettingsGuid, Guid* powerSettingGuid, uint* acValueIndex);
+
+    [LibraryImport("powrprof.dll")]
+    private static partial uint PowerReadDCValueIndex(nint rootPowerKey, Guid* schemeGuid, Guid* subGroupOfPowerSettingsGuid, Guid* powerSettingGuid, uint* dcValueIndex);
 
     [LibraryImport("kernel32.dll")]
     private static partial nint LocalFree(nint mem);

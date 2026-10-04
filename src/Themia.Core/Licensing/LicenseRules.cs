@@ -82,6 +82,19 @@ public readonly record struct LicenseUsage(int Widgets, int Views)
 
         return new LicenseUsage(widgets, state.Views.Count);
     }
+
+    /// <summary>
+    /// [S-1065] How many widgets a placement (paste, duplicate, move, new widget) adds on balance:
+    /// what it adds, less what it only moves (<see cref="PastePlan.NetAdded"/>). A cut-paste or a move
+    /// therefore adds nothing and is allowed even at the limit; a copy-paste of a group counts whole.
+    /// </summary>
+    public static int AddedByPaste(AppState state, PastePlan plan)
+    {
+        ArgumentNullException.ThrowIfNull(state);
+        ArgumentNullException.ThrowIfNull(plan);
+
+        return plan.NetAdded(state);
+    }
 }
 
 /// <summary>

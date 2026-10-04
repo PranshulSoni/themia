@@ -17,13 +17,18 @@ namespace Themia.Core.Widgets;
 /// local wall-clock times for both, so the formatting stays a pure function of its arguments.
 /// </param>
 /// <param name="Hidden">Whether Windows marks the entry hidden or system.</param>
+/// <param name="Attributes">
+/// The raw Win32 attribute bits from the same find data, kept for the cloud badge ([S-1324]): the
+/// placeholder and pin flags a sync engine sets cost nothing to read here and a disk round trip later.
+/// </param>
 public readonly record struct FolderEntry(
     string Name,
     string FullPath,
     bool IsDirectory,
     long Size,
     DateTimeOffset Modified,
-    bool Hidden);
+    bool Hidden,
+    int Attributes = 0);
 
 /// <summary>
 /// What came back from trying to list a folder.

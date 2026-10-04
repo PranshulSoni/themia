@@ -116,6 +116,8 @@ internal static class SettingsRender
             return true;
         }
 
+        _licenseFixture = Option(args, "--license");
+
         var request = new Request(page, Resolve(name), widgetKind, outPath, wait, Option(args, "--search"), Option(args, "--land"),
             RequestedTheme(args) switch
             {
@@ -160,6 +162,34 @@ internal static class SettingsRender
     /// A page name to its target. The app pages are the <see cref="AppPage"/> members by name, so a
     /// page added there — Accounts included — renders without a change here.
     /// </summary>
+    /// <summary>[S-1068] <c>--license free|refused|pro|grace|offline</c>: the License page as a packaged copy would show it.</summary>
+    private static string? _licenseFixture;
+
+    private static void ApplyLicenseFixture(AppHost host)
+    {
+        var now = DateTimeOffset.UtcNow;
+        Themia.Core.Licensing.LicenseStatus? status = _licenseFixture?.ToLowerInvariant() switch
+        {
+            "free" or "refused" => new(Themia.Core.Licensing.LicenseTier.Free, Themia.Core.Licensing.LicenseBasis.StoreFree),
+            "pro" => new(Themia.Core.Licensing.LicenseTier.Pro, Themia.Core.Licensing.LicenseBasis.StorePro),
+            "grace" => new(Themia.Core.Licensing.LicenseTier.Pro, Themia.Core.Licensing.LicenseBasis.OfflineGrace, now.AddDays(5)),
+            "offline" => new(Themia.Core.Licensing.LicenseTier.Free, Themia.Core.Licensing.LicenseBasis.StoreUnavailable),
+            _ => null,
+        };
+
+        if (status is null)
+        {
+            return;
+        }
+
+        host.License.OverrideForRender(status);
+        if (_licenseFixture!.Equals("refused", StringComparison.OrdinalIgnoreCase))
+        {
+            host.LastRefusal = Themia.Core.Licensing.LicenseText.Refusal(
+                Themia.Core.Licensing.LicenseUsage.Of(host.State), 0, 1);
+        }
+    }
+
     private static ConfigTarget? Resolve(string name)
         => Enum.TryParse<AppPage>(name, ignoreCase: true, out var page) && Enum.IsDefined(page)
             ? new ConfigTarget.App(page)
@@ -187,7 +217,10 @@ internal static class SettingsRender
             var statePath = Path.Combine(Path.GetTempPath(), "themia-settings-render", "state.json");
             var state = DemoState();
             state.Design.Theme = request.Theme;
+            // [S-991] --dev renders with developer mode on: the banner, and the Logs page in the navigation.
+            state.Preferences.DevMode = Environment.GetCommandLineArgs().Contains("--dev");
             host = new AppHost(dispatcher, AppStateStore.Detached(statePath), state);
+            ApplyLicenseFixture(host);
 
             ConfigTarget target = request.Page switch
             {
@@ -297,7 +330,9 @@ internal static class SettingsRender
         desktop.Widgets.Add(WidgetInstance.Create(WidgetKind.Clock, new FracRect(0.40, 0.08, 0.20, 0.12)));
         desktop.Widgets.Add(WidgetInstance.Create(WidgetKind.WeatherNow, new FracRect(0.05, 0.08, 0.15, 0.18)));
 
+        // [S-903] One view with an icon of its own, so the pane shows a view glyph beside the shared colour icon.
         var work = ViewState.Create("Work");
+        work.Icon = "";
         work.Widgets.Add(WidgetInstance.Create(WidgetKind.Calendar, new FracRect(0.05, 0.08, 0.20, 0.30)));
         work.Widgets.Add(WidgetInstance.Create(WidgetKind.Email, new FracRect(0.30, 0.08, 0.25, 0.30)));
 

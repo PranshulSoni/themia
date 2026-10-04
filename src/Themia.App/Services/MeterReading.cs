@@ -1,7 +1,11 @@
 namespace Themia.App.Services;
 
 /// <summary>One labelled figure: "Free" / "844 GB", "Available" / "5.9 GB".</summary>
-public readonly record struct MeterFact(string Label, string Value);
+/// <param name="Open">
+/// [S-1613] Makes a detail line a link (the Wi-Fi line's "Allow location" hint): the value is drawn as
+/// a hyperlink that runs this. Null for a plain line. An empty label draws the value alone.
+/// </param>
+public readonly record struct MeterFact(string Label, string Value, Action? Open = null);
 
 /// <summary>
 /// One row of a meter's breakdown list: a top process, a core, a drive, an interface.

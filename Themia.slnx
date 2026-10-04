@@ -2,6 +2,7 @@
   <Folder Name="/src/">
     <Project Path="src/Themia.App/Themia.App.csproj" />
     <Project Path="src/Themia.Core/Themia.Core.csproj" />
+    <Project Path="src/Themia.Localization.Generator/Themia.Localization.Generator.csproj" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/Themia.Core.Tests/Themia.Core.Tests.csproj" />

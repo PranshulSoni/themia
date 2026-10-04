@@ -50,4 +50,25 @@ public enum WidgetKey
     /// other letter stays type-ahead, and a view that has no mute simply does not use it.
     /// </summary>
     Mute,
+
+    /// <summary>[S-1468] Shift+Left: a step back within the item (now playing seeks back five seconds).</summary>
+    ShiftLeft,
+
+    /// <summary>[S-1468] Shift+Right: a step forward within the item.</summary>
+    ShiftRight,
+
+    /// <summary>[S-1327] Ctrl+C: copy the selected items (the folder widget's files).</summary>
+    Copy,
+
+    /// <summary>[S-1327] Ctrl+X: cut the selected items.</summary>
+    Cut,
+
+    /// <summary>[S-1327] Ctrl+V: paste into the widget.</summary>
+    Paste,
+
+    /// <summary>[S-1327] Ctrl+A: select every item.</summary>
+    SelectAll,
+
+    /// <summary>[S-1327] Backspace: back through the widget's own history.</summary>
+    Back,
 }

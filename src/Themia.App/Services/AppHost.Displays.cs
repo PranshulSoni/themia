@@ -139,11 +139,14 @@ internal sealed partial class AppHost
         // Views before surfaces, so a new surface finds its own view on its first layout. Without a
         // view per display every display falls back to the active view, the same widgets are drawn
         // on all of them, and dragging one to another screen is a no-op by definition.
-        var created = State.EnsureViewPerDisplay(DisplayPlan.ViewKeys(plan.Enabled, State.MonitorViews));
+        var created = State.EnsureViewPerDisplay(DisplayPlan.ViewKeys(plan.Enabled, State.MonitorViews), ViewCap);
         if (created > 0)
         {
             Log.Info(Scope, $"created {created} view(s) so every display has one of its own");
             _store.SaveSoon(State);
+
+            // [S-887] The system's doing, not the user's: not something Ctrl+Z should take away.
+            AdoptLayout();
         }
 
         foreach (var id in plan.Close)
@@ -266,37 +269,28 @@ internal sealed partial class AppHost
             State.MonitorViews);
 
     /// <summary>
-    /// [S-78] While a widget is dragged, show where it would land if released now.
+    /// [S-78]/[S-1591] While widgets are dragged, show where they would land if released now.
     /// <para>
-    /// The dragged card cannot follow the pointer onto another display — its rect is clamped to its
-    /// own screen ([S-09]) — so without this the widget sticks to the edge of the first screen while
-    /// the pointer is already on the second, and the drop is a surprise. The ghost appears on the
-    /// display that would receive it, and only when it really would ([S-76]).
+    /// The dragged cards cannot follow the pointer onto another display — their rects are clamped to
+    /// their own screen ([S-09]) — so without this the selection sticks to the edge of the first
+    /// screen while the pointer is already on the second, and the drop is a surprise. The ghost
+    /// appears on the display that would receive them, and only when it really would ([S-76]).
     /// </para>
     /// </summary>
-    /// <returns>True when the drop would hand the widget to another display.</returns>
-    public bool PreviewHandOff(DesktopWindow source, WidgetInstance widget, Themia.Core.Geometry.FracRect size)
+    /// <param name="payload">A move of the dragged widgets, anchored on the one the pointer holds.</param>
+    /// <returns>True when the drop would hand the widgets to another display.</returns>
+    public bool PreviewHandOff(DesktopWindow source, PlacementPayload payload)
     {
         ArgumentNullException.ThrowIfNull(source);
-        ArgumentNullException.ThrowIfNull(widget);
+        ArgumentNullException.ThrowIfNull(payload);
 
-        DesktopWindow? target = null;
-        var rect = default(Themia.Core.Geometry.FracRect);
-
-        if (Win32.GetCursorPos(out var cursor)
-            && SurfaceAt(cursor.X, cursor.Y) is { } under
-            && !ReferenceEquals(under, source)
-            && under.CurrentViewId != source.CurrentViewId)
-        {
-            target = under;
-            rect = under.RectForDrop(cursor, size);
-        }
+        var target = HandOffTarget(source, out var cursor);
 
         foreach (var window in _windows)
         {
             if (ReferenceEquals(window, target))
             {
-                window.ShowGhost(rect, widget.Kind);
+                window.ShowGhosts(window.OutlinesAt(cursor, payload));
             }
             else
             {
@@ -305,6 +299,24 @@ internal sealed partial class AppHost
         }
 
         return target is not null;
+    }
+
+    /// <summary>
+    /// [S-76]/[S-77] The display a drag released now would hand its widgets to: the one under the
+    /// pointer, when it is not the source and shows a different view. Null otherwise.
+    /// </summary>
+    public DesktopWindow? HandOffTarget(DesktopWindow source, out Win32.Point cursor)
+    {
+        ArgumentNullException.ThrowIfNull(source);
+
+        if (Win32.GetCursorPos(out cursor)
+            && SurfaceAt(cursor.X, cursor.Y) is { } under
+            && WidgetTransfer.ShouldHandOff(ReferenceEquals(under, source), source.CurrentViewId, under.CurrentViewId))
+        {
+            return under;
+        }
+
+        return null;
     }
 
     /// <summary>Take down every drag ghost. Called when a drag ends, however it ends.</summary>

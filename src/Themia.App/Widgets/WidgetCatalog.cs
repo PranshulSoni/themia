@@ -94,6 +94,27 @@ public interface IWidgetDisplay
 
     /// <summary>[S-19] Put a view on this display, and only this one.</summary>
     void ShowView(string viewId);
+
+    /// <summary>
+    /// [S-1656] The rects of a view's widgets on the desktop, for a sketch of its layout: top-level
+    /// widgets only (a container's members sit inside it). Empty for a view that does not exist.
+    /// </summary>
+    IReadOnlyList<Themia.Core.Geometry.FracRect> Tiles(string viewId);
+
+    /// <summary>[S-1656] This display's width over its height, the shape of a sketch; 0 when not known.</summary>
+    double Aspect { get; }
+
+    /// <summary>[S-1650] Duplicate a view and show the copy on this display ([S-900]).</summary>
+    void DuplicateView(string viewId);
+
+    /// <summary>[S-1650] Move a view one place earlier (-1) or later (+1) in the order ([S-901]).</summary>
+    void MoveView(string viewId, int delta);
+
+    /// <summary>[S-1650] Delete a view (never the last), with the undo notice ([S-881], [S-902]).</summary>
+    void DeleteView(string viewId);
+
+    /// <summary>[S-1650] Open the view's settings page: its name and icon ([S-903]).</summary>
+    void OpenViewSettings(string viewId);
 }
 
 /// <summary>Implemented by the few views that edit their own config or take typing.</summary>
@@ -229,10 +250,10 @@ internal static class WidgetCatalog
         new(WidgetKind.Apps, "Apps", "Launch an installed application", Glyphs.Apps, 320, 240, WidgetCategory.Launch),
         new(WidgetKind.Shortcuts, "Shortcuts", "Links, files and folders you keep to hand", Glyphs.Shortcut, 320, 220, WidgetCategory.Launch),
         new(WidgetKind.OneDrive, "OneDrive", "Recent files, or a folder, on your OneDrive", Glyphs.OneDrive, 330, 320, WidgetCategory.Launch),
-        new(WidgetKind.WebSearch, "Search", "Type a query, open it in your browser", Glyphs.Search, 300, 120, WidgetCategory.Launch),
+        new(WidgetKind.WebSearch, "Search", "Type a query, open it in your browser", Glyphs.Search, 320, 56, WidgetCategory.Launch),
         new(WidgetKind.Clipboard, "Clipboard", "What you have copied recently", Glyphs.Clipboard, 320, 260, WidgetCategory.Desk),
         new(WidgetKind.Scratchpad, "Scratchpad", "A place to draw", Glyphs.Scratchpad, 300, 260, WidgetCategory.Desk),
-        new(WidgetKind.ColorSwatch, "Colours", "A palette you can copy from", Glyphs.Color, 280, 180, WidgetCategory.Desk),
+        new(WidgetKind.ColorSwatch, "Colour", "A block of colour or a gradient, or a palette to copy from", Glyphs.Color, 120, 120, WidgetCategory.Desk),
         new(WidgetKind.Quote, "Quote", "A line worth rereading", Glyphs.Quote, 320, 180, WidgetCategory.Desk),
         new(WidgetKind.Gallery, "Gallery", "Pictures from a folder, a file or Bing", Glyphs.Gallery, 320, 240, WidgetCategory.Media),
         new(WidgetKind.VideoStream, "Video stream", "A live camera: MJPEG, a snapshot, MP4 or HLS", Glyphs.Video, 320, 240, WidgetCategory.Media),

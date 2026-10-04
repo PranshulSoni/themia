@@ -23,6 +23,11 @@ public enum MediaTransport
 /// <param name="CanPlayPause">Whether the session will accept a play/pause.</param>
 /// <param name="CanNext">Whether there is a next track to go to.</param>
 /// <param name="CanPrevious">Whether there is a previous track to go back to.</param>
+/// <param name="CanSeek">[S-1465] Whether the session takes a new position (a live stream does not).</param>
+/// <param name="Artist">[S-1469] The artist alone, for the large tile's own line.</param>
+/// <param name="Album">[S-1469] The album alone; empty when it repeats the artist.</param>
+/// <param name="Source">[S-1469] The playing app's name, e.g. "Spotify".</param>
+/// <param name="Origin">The session's own start time, which a seek is expressed against.</param>
 public readonly record struct NowPlaying(
     MusicState State,
     string Title,
@@ -32,7 +37,12 @@ public readonly record struct NowPlaying(
     DateTimeOffset AnchoredAt,
     bool CanPlayPause,
     bool CanNext,
-    bool CanPrevious)
+    bool CanPrevious,
+    bool CanSeek = false,
+    string Artist = "",
+    string Album = "",
+    string Source = "",
+    TimeSpan Origin = default)
 {
     /// <summary>A state with nothing in it. Used for loading and for every flavour of idle.</summary>
     public static NowPlaying Of(MusicState state) => new(
@@ -271,7 +281,12 @@ internal sealed class MediaSession : IDisposable
                 anchoredAt,
                 CanPlayPause: (controls?.IsPlayEnabled ?? false) || (controls?.IsPauseEnabled ?? false),
                 CanNext: controls?.IsNextEnabled ?? false,
-                CanPrevious: controls?.IsPreviousEnabled ?? false);
+                CanPrevious: controls?.IsPreviousEnabled ?? false,
+                CanSeek: (controls?.IsPlaybackPositionEnabled ?? false) && timeline.Duration > TimeSpan.Zero,
+                Artist: MusicRules.Artist(properties?.Artist),
+                Album: MusicRules.Album(properties?.Artist, properties?.AlbumTitle),
+                Source: MusicRules.SourceName(SourceId(session)),
+                Origin: raw?.StartTime ?? TimeSpan.Zero);
         }
         catch (OperationCanceledException)
         {
@@ -387,6 +402,52 @@ internal sealed class MediaSession : IDisposable
         {
             Log.Warn(Scope, $"the media session refused {command}", ex);
             return false;
+        }
+    }
+
+    /// <summary>
+    /// [S-1465] Move the track to <paramref name="position"/> (zero-based, as the tile shows it).
+    /// Returns false when the session refused or cannot seek; the next timeline push says where it
+    /// really is either way.
+    /// </summary>
+    public async Task<bool> SeekAsync(TimeSpan position, TimeSpan origin, CancellationToken token)
+    {
+        var session = _session;
+
+        if (session is null)
+        {
+            return false;
+        }
+
+        try
+        {
+            // The session's frame starts at its own StartTime ([S-250]), so the zero-based position
+            // the tile scrubbed to is shifted back into it.
+            var ticks = (origin + position).Ticks;
+            return await session.TryChangePlaybackPositionAsync(Math.Max(0, ticks)).AsTask(token).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            Log.Warn(Scope, "the media session refused a seek", ex);
+            return false;
+        }
+    }
+
+    /// <summary>The session's app id, or null when the session has gone.</summary>
+    private static string? SourceId(GlobalSystemMediaTransportControlsSession session)
+    {
+        try
+        {
+            return session.SourceAppUserModelId;
+        }
+        catch (Exception ex)
+        {
+            Log.Debug(Scope, $"no app id from the media session: {ex.GetType().Name}");
+            return null;
         }
     }
 

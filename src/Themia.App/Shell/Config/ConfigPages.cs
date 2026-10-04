@@ -36,6 +36,7 @@ internal static partial class ConfigPages
         new(AppPage.Appearance, "Appearance", Glyphs.Palette, NavIcon.PaintBrush, AppPageSlot.Main, BuildAppearance),
         new(AppPage.Layout, "Layout", Glyphs.Grid, NavIcon.Apps, AppPageSlot.Main, BuildLayout),
         new(AppPage.Accounts, "Accounts", Glyphs.Contact, NavIcon.Person, AppPageSlot.Main, _ => AccountsPage.Build()),
+        new(AppPage.License, "License", Glyphs.Certificate, NavIcon.Premium, AppPageSlot.Footer, BuildLicense),
         new(AppPage.Logs, "Logs", Glyphs.Document, NavIcon.DocumentText, AppPageSlot.Footer, BuildLogs, s => s.Preferences.DevMode),
         new(AppPage.About, "About", Glyphs.Info, NavIcon.QuestionCircle, AppPageSlot.Footer, BuildAbout),
     ];

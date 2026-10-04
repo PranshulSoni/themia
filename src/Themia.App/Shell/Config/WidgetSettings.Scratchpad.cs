@@ -24,14 +24,7 @@ internal static partial class WidgetSettings
     /// ([S-1549]) puts them on top and keeps any other colour one "Custom colour" away.
     /// </summary>
     private static readonly ColorPreset[] PenColors =
-    [
-        new("#0078D4", "Blue"),
-        new("#F43F5E", "Rose"),
-        new("#F59E0B", "Amber"),
-        new("#10B981", "Emerald"),
-        new("#7C3AED", "Violet"),
-        new("#E7E5E4", "Chalk"),
-    ];
+        [.. InkPalette.Inks.Select(ink => new ColorPreset(ink.Hex, ink.Name))];
 
     public static void Scratchpad(List<FrameworkElement> rows, ScratchpadConfig config, Action save)
     {

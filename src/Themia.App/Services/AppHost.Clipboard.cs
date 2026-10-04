@@ -1,82 +1,110 @@
-﻿using Microsoft.UI.Dispatching;
-using Themia.App.Interop;
-using Themia.App.Shell;
-using Themia.App.Shell.Config;
-using Themia.Core.Diagnostics;
 using Themia.Core.Model;
-using Themia.Core.Storage;
 
 namespace Themia.App.Services;
 
-/// <summary>Clipboard commands: copy, cut, paste and delete of the selected widget.</summary>
+/// <summary>
+/// [S-1592] The selection commands: copy, cut, paste, duplicate, move, delete and layering. Each acts
+/// on the whole selection; the ones that produce or move widgets start a placement ([S-1587]).
+/// </summary>
 internal sealed partial class AppHost
 {
-    public void CopySelected() => CaptureSelected(cut: false);
+    /// <summary>The selection's view, when something is selected and the view still exists.</summary>
+    private ViewState? SelectionView => Selection.IsEmpty ? null : State.FindView(Selection.ViewId);
 
-    public void CutSelected() => CaptureSelected(cut: true);
-
-    private void CaptureSelected(bool cut)
+    /// <summary>[S-72] Snapshot the selection onto the clipboard.</summary>
+    public void CopySelected()
     {
-        if (Find(SelectedWidgetId) is not var (view, widget))
+        if (SelectionView is { } view)
         {
-            return;
-        }
-
-        // [S-876] A container is copied with everything inside it.
-        var members = view.Widgets.Where(w => !ReferenceEquals(w, widget) && view.IsSelfOrDescendant(widget.Id, w.Id)).ToList();
-
-        if (cut)
-        {
-            Clipboard.Cut(widget, view.Id, members);
-        }
-        else
-        {
-            Clipboard.Copy(widget, view.Id, members);
+            Clipboard.Copy(view, Selection.Ids);
         }
     }
 
+    /// <summary>[S-73] Mark the selection to be moved by the next paste. Nothing moves yet.</summary>
+    public void CutSelected()
+    {
+        if (SelectionView is { } view)
+        {
+            Clipboard.Cut(view, Selection.Ids);
+        }
+    }
+
+    /// <summary>[S-74] Paste: the clipboard's widgets follow the pointer until a click drops them.</summary>
+    public void Paste()
+    {
+        if (Clipboard.Payload is { } payload)
+        {
+            BeginPlacement(payload);
+        }
+    }
+
+    /// <summary>[S-1589] Duplicate: copies of the selection follow the pointer until a click drops them.</summary>
+    public void DuplicateSelected() => PlaceSelection(PlacementMode.Copy);
+
+    /// <summary>[S-1590] Move: the selection itself follows the pointer, to this display or any other.</summary>
+    public void MoveSelected() => PlaceSelection(PlacementMode.Move);
+
+    private void PlaceSelection(PlacementMode mode)
+    {
+        if (SelectionView is { } view && PlacementPayload.FromView(view, Selection.Ids, mode) is { } payload)
+        {
+            BeginPlacement(payload);
+        }
+    }
+
+    /// <summary>
+    /// Delete every selected widget in one write. A container gives up its children rather than
+    /// taking them with it ([S-417], <see cref="WidgetTree.Dissolve"/>) — unless they are selected too.
+    /// </summary>
     public void DeleteSelected()
     {
-        if (Find(SelectedWidgetId) is not var (view, widget))
+        if (SelectionView is not { } view)
         {
             return;
         }
 
-        var id = widget.Id;
-
+        var ids = Selection.Ids.ToList();
         Mutate(_ =>
         {
-            // A container gives up its children rather than taking them with it. See
-            // WidgetTree.Dissolve.
-            view.Dissolve(id);
-            view.Widgets.RemoveAll(w => w.Id == id);
-        });
+            foreach (var id in ids)
+            {
+                view.Dissolve(id);
+                view.Widgets.RemoveAll(w => w.Id == id);
+            }
+        }, undo: UndoAction.Delete);
         Select(null);
-    }
 
-    /// <summary>Paste into the surface under the cursor, at the cursor.</summary>
-    public void PasteAtCursor()
-    {
-        var target = SurfaceUnderCursor() ?? _windows.FirstOrDefault();
-        target?.PasteAtCursor();
+        // [S-881] Delete asks nothing first ([B9]): the notice is the way back.
+        OfferUndo(ids.Count == 1 ? "Deleted a widget" : $"Deleted {ids.Count} widgets");
     }
 
     /// <summary>
-    /// Apply a paste plan: add the new widget to <paramref name="targetViewId"/> and, for a cut,
-    /// remove the original from wherever it came from. Both halves happen in one mutation so a cut
-    /// across views can never duplicate or lose the widget.
+    /// [S-874]/[S-1592] Bring the selection to the front, or send it to the back, keeping the order
+    /// the selected widgets had among themselves.
     /// </summary>
-    public void ApplyPaste(PastePlan plan, string targetViewId)
+    public void ZOrderSelected(bool front)
     {
-        Mutate(state => state.ApplyPaste(plan, targetViewId));
-        Clipboard.OnPasted();
-        Select(plan.Widget.Id);
+        if (SelectionView is not { } view)
+        {
+            return;
+        }
+
+        var ids = SelectionRules.TopLevel(view, Selection.Ids);
+        if (!front)
+        {
+            ids.Reverse();
+        }
+
+        Mutate(state =>
+        {
+            foreach (var id in ids)
+            {
+                // ignore: false only means that widget was already at the front (back)
+                _ = front ? view.BringToFront(id) : view.SendToBack(id);
+            }
+        }, undo: UndoAction.Arrange);
     }
 
-    /// <summary>
-    /// Move a widget from one view to another, keeping its identity. Used when a drag ends over a
-    /// display showing a different view.
-    /// </summary>
-    public void MoveWidgetToView(string widgetId, string fromViewId, string toViewId, Themia.Core.Geometry.FracRect rect)
-        => Mutate(state => state.MoveWidget(widgetId, fromViewId, toViewId, rect));
+    /// <summary>[S-1582] Ctrl+A: everything on the display under the pointer.</summary>
+    public void SelectAllUnderCursor() => (SurfaceUnderCursor() ?? _windows.FirstOrDefault())?.SelectAll();
 }

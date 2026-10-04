@@ -428,19 +428,21 @@ public sealed class ContainersShellTests
         var member = At(WidgetKind.Clock, "m", 0.2, 0.2, 0.1, 0.1, "g");
         var view = View(group, member);
         var clipboard = new WidgetClipboard();
-        clipboard.Copy(group, view.Id, [member]);
+        clipboard.Copy(view, [group.Id]);
 
-        var plan = clipboard.PlanPaste(new FracRect(0.5, 0.5, 0, 0), Screen, snapEnabled: false)!.Value;
-        var copy = Assert.Single(plan.Members!);
+        var plan = clipboard.Payload!.Plan(0.5, 0.5, Screen, snapEnabled: false);
+        var pastedGroup = plan.Added.Single(w => w.Kind == WidgetKind.Group);
+        var copy = plan.Added.Single(w => w.Kind == WidgetKind.Clock);
 
         Assert.NotEqual("m", copy.Id);
-        Assert.Equal(plan.Widget.Id, copy.ParentId);
-        Assert.Equal(member.X + (plan.Widget.X - group.X), copy.X, 6);
-        Assert.Equal(member.Y + (plan.Widget.Y - group.Y), copy.Y, 6);
+        Assert.Equal(pastedGroup.Id, copy.ParentId);
+        Assert.Equal([pastedGroup.Id], plan.Roots);
+        Assert.Equal(member.X + (pastedGroup.X - group.X), copy.X, 6);
+        Assert.Equal(member.Y + (pastedGroup.Y - group.Y), copy.Y, 6);
 
         // A second paste of the same copy gets ids of its own.
-        var again = clipboard.PlanPaste(new FracRect(0.5, 0.5, 0, 0), Screen, snapEnabled: false)!.Value;
-        Assert.NotEqual(copy.Id, again.Members![0].Id);
+        var again = clipboard.Payload!.Plan(0.5, 0.5, Screen, snapEnabled: false);
+        Assert.DoesNotContain(again.Added, w => w.Id == copy.Id);
     }
 
     [Fact]
@@ -453,13 +455,13 @@ public sealed class ContainersShellTests
         view.Widgets.AddRange([stack, child, At(WidgetKind.Cpu, "x", 0.6, 0.6, 0.1, 0.1)]);
 
         var clipboard = new WidgetClipboard();
-        clipboard.Cut(stack, view.Id, [child]);
-        state.ApplyPaste(clipboard.PlanPaste(new FracRect(0.5, 0.5, 0, 0), Screen, snapEnabled: false)!.Value, view.Id);
+        clipboard.Cut(view, [stack.Id]);
+        state.ApplyPlacement(clipboard.Payload!.Plan(0.5, 0.5, Screen, snapEnabled: false), view.Id);
 
-        Assert.Null(view.Find("s"));
-        Assert.Null(view.Find("a"));
-        var pasted = view.Widgets.Single(w => w.Kind == WidgetKind.Stack);
-        Assert.Single(view.ChildrenOf(pasted.Id));
+        // Moved, not duplicated: one stack, the same one, still holding its child.
+        Assert.Same(stack, view.Widgets.Single(w => w.Kind == WidgetKind.Stack));
+        Assert.Equal("s", view.Find("a")!.ParentId);
+        Assert.Equal(3, view.Widgets.Count(w => w.Id is "s" or "a" or "x"));
     }
 
     [Fact]
@@ -473,10 +475,20 @@ public sealed class ContainersShellTests
         var member = At(WidgetKind.Clock, "m", 0.2, 0.2, 0.1, 0.1, "g");
         left.Widgets.AddRange([group, member]);
 
-        Assert.True(state.MoveWidget("g", left.Id, right.Id, new FracRect(0.3, 0.3, 0.4, 0.4)));
+        var payload = PlacementPayload.FromView(left, ["g"], PlacementMode.Move)!;
+        state.ApplyPlacement(payload.Plan(0.5, 0.5, Screen, snapEnabled: false), right.Id);
 
         Assert.DoesNotContain(left.Widgets, w => w.Id is "g" or "m");
         Assert.Equal("g", right.Find("m")!.ParentId);
         Assert.Equal(0.4, right.Find("m")!.X, 6);
     }
+
+    [Theory]
+    [InlineData(0, 5.0, 0)]
+    [InlineData(0, 95.0, 2)]
+    [InlineData(2, 5.0, 0)]
+    [InlineData(1, 45.0, 1)]
+    [InlineData(1, 95.0, 2)]
+    public void S866_a_dragged_row_lands_after_the_rows_whose_centres_it_passed(int from, double at, int slot)
+        => Assert.Equal(slot, ContainerLayout.DropSlot([20.0, 60.0, 90.0], from, at));
 }

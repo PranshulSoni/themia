@@ -245,14 +245,17 @@ internal static partial class ConfigPages
 
             case GroupConfig group:
                 WidgetSettings.Group(rows, group, Save);
+                ContainerChildrenRows.Add(rows, host, view, widget);
                 break;
 
             case StackConfig stack:
                 WidgetSettings.Stack(rows, stack, Save);
+                ContainerChildrenRows.Add(rows, host, view, widget);
                 break;
 
             case TabsConfig tabs:
                 WidgetSettings.Tabs(rows, tabs, Save);
+                ContainerChildrenRows.Add(rows, host, view, widget);
                 break;
 
             case ViewSwitcherConfig viewSwitcher:
@@ -280,12 +283,16 @@ internal static partial class ConfigPages
         rows.Add(FluentLayout.Header("Appearance"));
 
         rows.Add(FluentLayout.Row(Glyphs.View, "Header", "Where the widget's name and icon sit",
+            // [S-862] Left and right (a turned header) are a group's alone.
             FluentLayout.Choice(
-                [
-                    (HeaderPlacement.Top, "Top"),
-                    (HeaderPlacement.Bottom, "Bottom"),
-                    (HeaderPlacement.Hidden, "Hidden"),
-                ],
+                [.. HeaderRules.Choices(widget.Kind).Select(p => (p, p switch
+                {
+                    HeaderPlacement.Top => "Top",
+                    HeaderPlacement.Bottom => "Bottom",
+                    HeaderPlacement.Left => "Left edge",
+                    HeaderPlacement.Right => "Right edge",
+                    _ => "Hidden",
+                }))],
                 widget.Header,
                 value => host.Mutate(_ => widget.Header = value))));
 

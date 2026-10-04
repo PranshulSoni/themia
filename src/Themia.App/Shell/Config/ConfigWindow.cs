@@ -62,6 +62,7 @@ internal sealed partial class ConfigWindow
         RenderBody();
 
         _host.StateChanged += OnStateChanged;
+        Themia.Core.Localization.Strings.Changed += OnLanguageChanged;
     }
 
     /// <summary>Raised once the window has closed, so the host can drop its reference.</summary>
@@ -79,6 +80,7 @@ internal sealed partial class ConfigWindow
         }
 
         ApplyTheme();
+        ApplyDevBanner();
 
         // Only when the tree would actually look different. Rebuilding on every state change meant
         // that dragging a slider tore down and rebuilt the page under the pointer many times a
@@ -114,7 +116,7 @@ internal sealed partial class ConfigWindow
         var views = string.Join(
             "|",
             _host.State.Views.Select(v =>
-                $"{v.Id}~{v.Name}~{string.Join(",", v.Widgets.Select(w => $"{w.Id}={w.Kind}={w.Label}"))}"));
+                $"{v.Id}~{v.Name}~{v.Icon}~{string.Join(",", v.Widgets.Select(w => $"{w.Id}={w.Kind}={w.Label}"))}"));
 
         var displays = string.Join(",", _host.Displays.Select(d => $"{d.Describe()}~{_host.State.DisabledMonitors.Contains(d.Id)}"));
         // [S-990] Developer mode adds and removes the Logs page.

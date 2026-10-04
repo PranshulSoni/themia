@@ -12,8 +12,8 @@
     Package/Identity/Publisher            -> Publisher (a CN=GUID)  (placeholder: CN=00000000-0000-0000-0000-000000000000)
     Package/Properties/PublisherDisplayName (already "Lometics GmbH"; must match the account's publisher display name)
   The Store re-signs the upload with its own certificate for that publisher; no certificate is ever
-  made, imported or referenced for this package. package.ps1 refuses a Store upload while a
-  placeholder is still here and builds a local test package instead.
+  made, imported or referenced for this package. While a placeholder is still here package.ps1
+  still builds (so the pipeline can be checked), and warns that Partner Center will refuse it.
 
   Version: the single source of the release version. The Store wants the fourth part 0; package.ps1
   stamps the same version into the executable.
@@ -79,13 +79,16 @@
     - runFullTrust: Themia is a Win32 desktop app (desktop windows, hooks, WASAPI, the Wi-Fi API).
     - radios + bluetooth: the Bluetooth widget reads the radio state, paired devices and their
       battery over GATT; with package identity those WinRT calls are refused without them.
-    Deliberately NOT declared: location (only the Wi-Fi network name needs it, and the network tile
-    already shows the link without a name when it is refused), internetClient (full-trust apps are
-    not subject to it), broadFileSystemAccess, and every other broad capability.
+    - location [S-1610]: Windows treats the Wi-Fi network name as location data. Only the network
+      tile's Wi-Fi line uses it, and it asks for consent only while that line is on screen
+      ([S-1611]); refused, the tile shows the link without a name and a link to the privacy page.
+    Deliberately NOT declared: internetClient (full-trust apps are not subject to it),
+    broadFileSystemAccess, and every other broad capability.
   -->
   <Capabilities>
     <rescap:Capability Name="runFullTrust" />
     <DeviceCapability Name="radios" />
     <DeviceCapability Name="bluetooth" />
+    <DeviceCapability Name="location" />
   </Capabilities>
 </Package>

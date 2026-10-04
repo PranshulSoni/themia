@@ -245,7 +245,7 @@ public sealed class AppStateStore : IAsyncDisposable
         design.FontScale = Math.Clamp(Sanitise(design.FontScale, 1), 0.5, 2.0);
         design.BorderWidthPx = Math.Clamp(Sanitise(design.BorderWidthPx, 1), 0, 8);
         design.BorderOpacity = Math.Clamp(Sanitise(design.BorderOpacity, 1), 0, 1);
-        design.IntroAnimationMs = Math.Clamp(Sanitise(design.IntroAnimationMs, 500), 0, 3000);
+        design.IntroAnimationMs = Motion.IntroMotion.ClampMs(Sanitise(design.IntroAnimationMs, Motion.IntroMotion.DefaultMs));
 
         // A malformed colour becomes empty, which means "use the theme's own" - the one value that
         // is always renderable. Keeping the bad string would leave the widget with no fill at all.
@@ -276,8 +276,8 @@ public sealed class AppStateStore : IAsyncDisposable
         // [S-704] Header fill and the transition/unlock animations, on the same terms as the rest.
         design.HeaderBackgroundColor = Widgets.HexColor.Normalise(design.HeaderBackgroundColor);
         design.HeaderOpacity = Math.Clamp(Sanitise(design.HeaderOpacity, 1), 0, 1);
-        design.TransitionAnimationMs = Math.Clamp(Sanitise(design.TransitionAnimationMs, 500), 0, 3000);
-        design.UnlockAnimationMs = Math.Clamp(Sanitise(design.UnlockAnimationMs, 500), 0, 3000);
+        design.TransitionAnimationMs = Motion.IntroMotion.ClampMs(Sanitise(design.TransitionAnimationMs, Motion.IntroMotion.DefaultMs));
+        design.UnlockAnimationMs = Motion.IntroMotion.ClampMs(Sanitise(design.UnlockAnimationMs, Motion.IntroMotion.DefaultMs));
 
         if (!Enum.IsDefined(design.TransitionAnimation))
         {
@@ -410,6 +410,54 @@ public sealed class AppStateStore : IAsyncDisposable
                 state.MonitorScales[monitorId] = clamped;
                 repairs.Add($"display scale for '{monitorId}' was outside {MinMonitorScale:0.#}–{MaxMonitorScale:0.#}");
             }
+        }
+
+        repairs.AddRange(ValidateViewBars(state));
+        return repairs;
+    }
+
+    /// <summary>
+    /// [S-906] The per-display view bars: unreadable entries are dropped (the display falls back to
+    /// the defaults), unknown anchors and sizes reset, and each whitelist keeps only views that
+    /// exist, once each. A whitelist that ends up empty means "all views", never an empty bar.
+    /// </summary>
+    private static List<string> ValidateViewBars(AppState state)
+    {
+        var repairs = new List<string>();
+        state.ViewBars ??= [];
+
+        foreach (var monitorId in state.ViewBars.Keys.ToList())
+        {
+            var bar = state.ViewBars[monitorId];
+            if (string.IsNullOrWhiteSpace(monitorId) || bar is null)
+            {
+                state.ViewBars.Remove(monitorId);
+                repairs.Add("dropped an unreadable view bar entry");
+                continue;
+            }
+
+            if (!Enum.IsDefined(bar.Anchor))
+            {
+                bar.Anchor = ViewBarAnchor.BottomLeft;
+                repairs.Add($"view bar on '{monitorId}' had an unknown position");
+            }
+
+            if (!Enum.IsDefined(bar.Size))
+            {
+                bar.Size = ViewBarSize.Medium;
+                repairs.Add($"view bar on '{monitorId}' had an unknown size");
+            }
+
+            var visible = (bar.VisibleViews ?? [])
+                .Where(id => state.FindView(id) is not null)
+                .Distinct(StringComparer.Ordinal)
+                .ToList();
+            if (bar.VisibleViews is null || visible.Count != bar.VisibleViews.Count)
+            {
+                repairs.Add($"view bar on '{monitorId}' listed missing or repeated views");
+            }
+
+            bar.VisibleViews = visible;
         }
 
         return repairs;

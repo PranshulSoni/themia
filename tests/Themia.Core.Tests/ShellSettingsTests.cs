@@ -205,8 +205,9 @@ public sealed class ShellSettingsTests : IDisposable
 
         Assert.Equal(string.Empty, design.HeaderBackgroundColor);
         Assert.Equal(1, design.HeaderOpacity);
-        Assert.Equal(0, design.TransitionAnimationMs);
-        Assert.Equal(3000, design.UnlockAnimationMs);
+        // [S-1000] The offered range is 100..5000 ms, the original's stepper.
+        Assert.Equal(100, design.TransitionAnimationMs);
+        Assert.Equal(5000, design.UnlockAnimationMs);
         Assert.Equal(IntroAnimation.Scale, design.TransitionAnimation);
     }
 

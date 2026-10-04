@@ -24,6 +24,9 @@ namespace Themia.App.Shell;
 /// <summary>The edit toolbar shown along the top of the surface in edit mode, and its menus.</summary>
 internal sealed partial class DesktopWindow
 {
+    /// <summary>[S-905] The toolbar's grid-snap switch.</summary>
+    private ToggleButton? _snapToggle;
+
     private Border BuildToolbar()
     {
         var views = new DropDownButton
@@ -69,6 +72,7 @@ internal sealed partial class DesktopWindow
             {
                 add,
                 views,
+                BuildSnapToggle(),
                 ToolbarButton("", "Settings", _host.ShowSettings),
                 more,
                 new AppBarSeparator(),
@@ -89,6 +93,44 @@ internal sealed partial class DesktopWindow
             BorderThickness = new Thickness(1),
             Visibility = Visibility.Collapsed,
         };
+    }
+
+    /// <summary>
+    /// [S-905] Grid snap, on the toolbar as in the original: the one setting the user reaches for in
+    /// the middle of arranging widgets. Kept in step with Settings by <see cref="SyncToolbar"/>.
+    /// </summary>
+    private ToggleButton BuildSnapToggle()
+    {
+        var toggle = new ToggleButton
+        {
+            IsChecked = _host.State.Design.GridSnap,
+            Content = new StackPanel
+            {
+                Orientation = Orientation.Horizontal,
+                Spacing = 8,
+                Children = { new FontIcon { Glyph = Glyphs.Grid, FontSize = 14 }, new TextBlock { Text = "Snap" } },
+            },
+        };
+
+        ToolTipService.SetToolTip(toggle, "Snap widgets to the grid while moving and resizing");
+        Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(toggle, "Snap to grid");
+        toggle.Click += (_, _) =>
+        {
+            var on = toggle.IsChecked == true;
+            _host.Mutate(state => state.Design.GridSnap = on);
+        };
+
+        _snapToggle = toggle;
+        return toggle;
+    }
+
+    /// <summary>[S-905] The toolbar's switches follow a change made elsewhere (Settings, an import).</summary>
+    private void SyncToolbar()
+    {
+        if (_snapToggle is not null && _snapToggle.IsChecked != Design.GridSnap)
+        {
+            _snapToggle.IsChecked = Design.GridSnap;
+        }
     }
 
     /// <summary>
@@ -128,6 +170,9 @@ internal sealed partial class DesktopWindow
             {
                 Text = view.Name,
                 IsChecked = view.Id == shownId,
+
+                // [S-903] The view's own icon where it has one.
+                Icon = string.IsNullOrEmpty(view.Icon) ? null : new FontIcon { Glyph = view.Icon },
             };
 
             var id = view.Id;
@@ -138,14 +183,28 @@ internal sealed partial class DesktopWindow
         flyout.Items.Add(new MenuFlyoutSeparator());
 
         var add = new MenuFlyoutItem { Text = "New view", Icon = new FontIcon { Glyph = "" } };
-        add.Click += (_, _) => _host.Mutate(state =>
+        add.Click += (_, _) =>
         {
-            var created = ViewState.Create($"View {state.Views.Count + 1}");
-            state.Views.Add(created);
-            state.ShowViewOn(_monitor.Id, created.Id);
-        });
+            // [S-1065] The free-tier view limit; a refusal says why in a notice ([S-881]).
+            if (!_host.AllowCreate(0, 1))
+            {
+                return;
+            }
+
+            _host.Mutate(state =>
+            {
+                var created = ViewState.Create($"View {state.Views.Count + 1}");
+                state.Views.Add(created);
+                state.ShowViewOn(_monitor.Id, created.Id);
+            }, undo: UndoAction.AddView);
+        };
 
         flyout.Items.Add(add);
+
+        // [S-900] A copy of the view this display shows, shown here in its place.
+        var duplicate = new MenuFlyoutItem { Text = "Duplicate this view", Icon = new FontIcon { Glyph = Glyphs.Copy } };
+        duplicate.Click += (_, _) => _host.DuplicateView(shownId, _monitor.Id);
+        flyout.Items.Add(duplicate);
     }
 
     private static Button ToolbarButton(string glyph, string text, Action action)

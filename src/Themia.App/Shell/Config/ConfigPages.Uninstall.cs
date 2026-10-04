@@ -62,7 +62,8 @@ internal static partial class ConfigPages
             return;
         }
 
-        var plan = preview with { FoldersToDelete = deleteData ? preview.FoldersToDelete : [] };
+        // [S-1070] Packaged, the data goes with the package whatever the box says (there is none).
+        var plan = deleteData || preview.DataGoesWithPackage ? preview : preview with { FoldersToDelete = [] };
         Log.Info(Scope, $"uninstalling ({plan.Route}, delete data: {deleteData})");
 
         // The survey first, while there is still a process to open it.
@@ -86,9 +87,11 @@ internal static partial class ConfigPages
         {
             TextWrapping = TextWrapping.Wrap,
             Text = plan.Route == UninstallRoute.RemovePackage
-                ? "Themia closes and is removed from this PC."
+                ? "Themia closes and is removed from this PC, together with your widgets, settings and accounts."
                 : "Themia closes, and Windows' Installed apps opens so you can remove it there.",
         };
+
+        var body = new StackPanel { Spacing = Fluent.Space3, MaxWidth = 440, Children = { what } };
 
         var deleteData = new CheckBox { Content = "Also delete my widgets, settings and accounts" };
 
@@ -101,17 +104,20 @@ internal static partial class ConfigPages
         deleteData.Checked += (_, _) => where.Visibility = Visibility.Visible;
         deleteData.Unchecked += (_, _) => where.Visibility = Visibility.Collapsed;
 
+        // [S-1070] Packaged, Windows removes the package's data with it, so keeping it is not a
+        // choice the dialog can honestly offer.
+        if (!plan.DataGoesWithPackage)
+        {
+            body.Children.Add(deleteData);
+            body.Children.Add(where);
+        }
+
         var dialog = new ContentDialog
         {
             XamlRoot = root,
             RequestedTheme = source.ActualTheme,
             Title = "Uninstall Themia?",
-            Content = new StackPanel
-            {
-                Spacing = Fluent.Space3,
-                MaxWidth = 440,
-                Children = { what, deleteData, where },
-            },
+            Content = body,
             PrimaryButtonText = "Uninstall",
             CloseButtonText = "Cancel",
             DefaultButton = ContentDialogButton.Close,
@@ -129,45 +135,85 @@ internal static partial class ConfigPages
         }
     }
 
-    /// <summary>After the app has closed and saved: the data (if asked), then the app itself.</summary>
+    /// <summary>
+    /// [S-1071] After the app has closed and saved: <see cref="UninstallPlan.Steps"/>, in order —
+    /// autostart off, then the data, then the app itself. A failing step is logged and the next one
+    /// still runs, except that a failed package removal falls back to the app's page in Settings.
+    /// </summary>
     private static async Task FinishUninstallAsync(UninstallPlan plan, string? packageName)
     {
-        if (plan.Route == UninstallRoute.RemovePackage && packageName is not null)
+        foreach (var step in plan.Steps)
         {
-            // Packaged: the package's removal ends this process, so the data goes first, from here.
-            foreach (var folder in plan.FoldersToDelete)
+            switch (step)
             {
-                DataPurge.Delete(folder);
-            }
+                case UninstallStep.RemoveAutostart:
+                    // Never throws; a refusal comes back as a status with a problem.
+                    var autostart = await Autostart.SetAsync(false).ConfigureAwait(true);
+                    if (autostart.Problem != Themia.Core.Shell.AutostartProblem.None)
+                    {
+                        Log.Warn(Scope, $"could not switch autostart off while uninstalling ({autostart.Problem})");
+                    }
 
-            try
-            {
-                // No capability needed: a full-trust app runs at medium integrity, and the package's
-                // publisher is the caller's own.
-                var result = await new Windows.Management.Deployment.PackageManager().RemovePackageAsync(packageName);
-                if (result.ExtendedErrorCode is { } error)
-                {
-                    throw error;
-                }
-            }
-            catch (Exception ex)
-            {
-                // Removal refused (policy, a pending update): Settings' page for the app has the
-                // same Uninstall button.
-                Log.Error(Scope, "could not remove the package; opening its page in Settings", ex);
-                Launch(plan.Fallback);
-            }
+                    break;
 
+                case UninstallStep.DeleteDataNow:
+                    // Packaged: removing the package ends this process, so the data goes first, from here.
+                    foreach (var folder in plan.FoldersToDelete)
+                    {
+                        DataPurge.Delete(folder);
+                    }
+
+                    break;
+
+                case UninstallStep.RemovePackage:
+                    await RemoveOwnPackageAsync(plan, packageName).ConfigureAwait(true);
+                    break;
+
+                case UninstallStep.StartDataPurge:
+                    // Loose build: the folders go once this process (and its browser) has exited.
+                    if (!DataPurge.Start())
+                    {
+                        Log.Warn(Scope, "could not start the data cleanup; the data folders were left in place");
+                    }
+
+                    break;
+
+                case UninstallStep.OpenInstalledApps:
+                    Launch(plan.Fallback);
+                    break;
+            }
+        }
+    }
+
+    /// <summary>
+    /// [S-1552] <c>PackageManager.RemovePackageAsync</c> on this process's own package (per user, the
+    /// way the Store installed it). No capability: a full-trust app runs at medium integrity and
+    /// may manage its own user's packages. Windows ends this process while it removes the package.
+    /// </summary>
+    private static async Task RemoveOwnPackageAsync(UninstallPlan plan, string? packageName)
+    {
+        if (packageName is null)
+        {
+            Log.Error(Scope, "packaged uninstall without a package name; opening the app's page in Settings");
+            Launch(plan.Fallback);
             return;
         }
 
-        // Loose build: the folders go once this process (and its browser) has exited.
-        if (plan.FoldersToDelete.Count > 0 && !DataPurge.Start())
+        try
         {
-            Log.Warn(Scope, "could not start the data cleanup; the data folders were left in place");
+            var result = await new Windows.Management.Deployment.PackageManager().RemovePackageAsync(packageName);
+            if (result.ExtendedErrorCode is { } error)
+            {
+                throw error;
+            }
         }
-
-        Launch(plan.Fallback);
+        catch (Exception ex)
+        {
+            // Removal refused (policy, a pending update): Settings' page for the app has the
+            // same Uninstall button.
+            Log.Error(Scope, "could not remove the package; opening its page in Settings", ex);
+            Launch(plan.Fallback);
+        }
     }
 
     private static void Launch(Uri uri)

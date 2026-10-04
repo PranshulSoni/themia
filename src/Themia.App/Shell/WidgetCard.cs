@@ -113,6 +113,36 @@ internal interface IWidgetCardHost
     {
         // ignore: the gallery has no picker
     }
+
+    /// <summary>[S-1580] Ctrl+click: add the card to the selection, or take it out.</summary>
+    void RequestToggleSelect(WidgetCard card) => RequestSelect(card);
+
+    /// <summary>How many widgets are selected, so the card menu can say what its commands act on.</summary>
+    int SelectionCount => 1;
+
+    /// <summary>[S-1584] A move of this card starts: it and every other selected card move together.</summary>
+    void BeginMove(WidgetCard card)
+    {
+        // ignore: the gallery's cards do not move
+    }
+
+    /// <summary>[S-1584] The pointer moved by a fraction of the screen since the move began.</summary>
+    void PreviewMove(WidgetCard card, double dxFrac, double dyFrac, bool snap)
+    {
+        // ignore: as above
+    }
+
+    /// <summary>[S-1584]/[S-1591] The move ended: persist it, or hand the widgets to another display.</summary>
+    void CommitMove(WidgetCard card)
+    {
+        // ignore: as above
+    }
+
+    /// <summary>[S-1590] Move the selection: it follows the pointer, to any display, until a click drops it.</summary>
+    void RequestMove(WidgetCard card)
+    {
+        // ignore: as above
+    }
 }
 
 /// <summary>
@@ -168,7 +198,8 @@ internal sealed partial class WidgetCard : Grid, IWidgetSurface, IContainerSurfa
     private bool _headerSuppressed;
     private readonly Border _editOutline;
     private readonly Grid _handles;
-    private readonly FrameworkElement _view;
+    /// <summary>The widget's view, or its error card ([S-891]) when the view failed. Swapped by a retry.</summary>
+    private FrameworkElement _view;
 
     /// <summary>The header and the view together: what [S-850]'s content scale magnifies.</summary>
     private readonly Grid _content;
@@ -178,6 +209,15 @@ internal sealed partial class WidgetCard : Grid, IWidgetSurface, IContainerSurfa
     private FracRect _dragStartRect;
     private Point _dragStartPoint;
     private ResizeHandle? _activeHandle;
+
+    /// <summary>[S-1593] The press landed on a card of a multi-selection: a click without a drag narrows the selection to it.</summary>
+    private bool _narrowOnRelease;
+
+    /// <summary>Whether the pointer has travelled far enough since the press to count as a drag.</summary>
+    private bool _moved;
+
+    /// <summary>DIPs the pointer must travel before a press on a selected card is a drag rather than a click.</summary>
+    private const double DragThreshold = 3;
     private bool _dragging;
 
     public WidgetCard(IWidgetCardHost host, WidgetInstance model)
@@ -185,7 +225,8 @@ internal sealed partial class WidgetCard : Grid, IWidgetSurface, IContainerSurfa
         _host = host;
         Model = model;
 
-        _view = WidgetCatalog.CreateView(model.Kind);
+        // [S-891] Guarded: a view that throws while being built becomes an error card, not a hole.
+        _view = CreateView(model.Kind);
 
         // The header belongs to the card, not to the view. One builder means one look, and it is
         // the only way a "put it at the bottom" setting can exist without asking every widget to
@@ -215,15 +256,9 @@ internal sealed partial class WidgetCard : Grid, IWidgetSurface, IContainerSurfa
         // during Attach - a weather tile knows its place, a folder listing knows its folder -
         // calls straight back into SetHeaderTitle, and doing that before these fields were built
         // threw a NullReferenceException on the UI thread that took the whole surface down.
-        if (_view is IWidgetSurfaceAware aware)
-        {
-            aware.Bind(this);
-        }
-
-        if (_view is IWidgetView widgetView)
-        {
-            widgetView.Attach(host.Ticker, model.Config);
-        }
+        // [S-891] A view that throws here, or on the first tick it asks for, is swapped for its
+        // error card before the card is assembled, so the card is built around whichever it is.
+        AttachView();
 
         // Fill and content are separate borders so the surface opacity setting fades the card
         // without fading the text on it.
@@ -332,16 +367,7 @@ internal sealed partial class WidgetCard : Grid, IWidgetSurface, IContainerSurfa
         // raised after arrange, only when the slot really changed (a resize, the header shedding or
         // moving), and the slot is a star row of a fixed-size card, so nothing the view shows in
         // response can feed back into it.
-        if (_view is IWidgetSizeAware sizeAware)
-        {
-            _view.SizeChanged += (_, e) =>
-            {
-                if (e.NewSize.Width > 0 && e.NewSize.Height > 0)
-                {
-                    sizeAware.ApplySize(new WidgetArea(e.NewSize.Width, e.NewSize.Height));
-                }
-            };
-        }
+        HookViewSize();
 
         PointerPressed += OnPointerPressed;
         PointerMoved += OnPointerMoved;
@@ -670,10 +696,8 @@ internal sealed partial class WidgetCard : Grid, IWidgetSurface, IContainerSurfa
         // Before the view re-lays itself out from the ramp, or its fresh sizes would be scaled twice.
         ApplyTextScale();
 
-        if (_view is IWidgetView widgetView)
-        {
-            widgetView.ApplyConfig(Model.Config);
-        }
+        // [S-891] Guarded like Attach: a view that throws on its new settings becomes its error card.
+        ApplyViewConfig();
 
         // The title and the placement live on the instance, not the config, so a rename or a
         // move to the bottom arrives here too.
@@ -758,6 +782,37 @@ internal sealed partial class WidgetCard : Grid, IWidgetSurface, IContainerSurfa
         // whole cell, gap included, so the Fluent lift spilled half a gap past every card.
         _tint.Margin = inset;
         _stroke.Margin = inset;
+
+        if (_motionCover is not null)
+        {
+            _motionCover.Margin = inset;
+        }
+    }
+
+    /// <summary>[S-1007] The intro's cover over the painted surface, while one plays; otherwise null.</summary>
+    private FrameworkElement? _motionCover;
+
+    /// <summary>
+    /// [S-1007] Lay an intro's cover (the hacker tile) over the painted surface, under the edit
+    /// outline and the handles, or take it away with null. Never hit-testable: the widget under it is
+    /// live and takes clicks from the first frame ([S-1013]).
+    /// </summary>
+    public void SetMotionCover(FrameworkElement? cover)
+    {
+        if (_motionCover is not null)
+        {
+            Children.Remove(_motionCover);
+        }
+
+        _motionCover = cover;
+        if (cover is null)
+        {
+            return;
+        }
+
+        cover.Margin = _surface.Margin;
+        cover.IsHitTestVisible = false;
+        Children.Insert(Children.IndexOf(_editOutline), cover);
     }
 
     // -----------------------------------------------------------------------------------------
@@ -847,12 +902,35 @@ internal sealed partial class WidgetCard : Grid, IWidgetSurface, IContainerSurfa
             return;
         }
 
-        _host.RequestSelect(this);
-        Focus(FocusState.Pointer);
+        // [S-1580] Ctrl+click picks the widget in or out of the selection and does nothing else.
+        if (IsKeyDown(Windows.System.VirtualKey.Control))
+        {
+            _host.RequestToggleSelect(this);
+            Focus(FocusState.Pointer);
+            e.Handled = true;
+            return;
+        }
+
         _activeHandle = HitHandle(e.OriginalSource);
+
+        // [S-1593] A press on a widget already in a multi-selection keeps the selection, so the drag
+        // that may follow carries all of it. A resize is about this one widget only.
+        _narrowOnRelease = _activeHandle is null && _host.IsSelected(this) && _host.SelectionCount > 1;
+        if (!_narrowOnRelease)
+        {
+            _host.RequestSelect(this);
+        }
+
+        Focus(FocusState.Pointer);
         _dragStartRect = LiveRect;
         _dragStartPoint = e.GetCurrentPoint(ParentSurface()).Position;
+        _moved = false;
         _dragging = CapturePointer(e.Pointer);
+
+        if (_dragging && _activeHandle is null)
+        {
+            _host.BeginMove(this);
+        }
 
         e.Handled = _dragging;
     }
@@ -871,24 +949,30 @@ internal sealed partial class WidgetCard : Grid, IWidgetSurface, IContainerSurfa
         }
 
         var now = e.GetCurrentPoint(ParentSurface()).Position;
+        _moved |= Math.Abs(now.X - _dragStartPoint.X) >= DragThreshold || Math.Abs(now.Y - _dragStartPoint.Y) >= DragThreshold;
+
         var dxFrac = (now.X - _dragStartPoint.X) / metrics.Width;
         var dyFrac = (now.Y - _dragStartPoint.Y) / metrics.Height;
 
         // [S-06] Alt temporarily suspends the snap aid for fine positioning.
-        var altHeld = InputKeyboardSource
-            .GetKeyStateForCurrentThread(Windows.System.VirtualKey.Menu)
-            .HasFlag(Windows.UI.Core.CoreVirtualKeyStates.Down);
+        var snap = _host.Design.GridSnap && !IsKeyDown(Windows.System.VirtualKey.Menu);
 
-        var snap = _host.Design.GridSnap && !altHeld;
+        if (_activeHandle is { } handle)
+        {
+            LiveRect = GridGeometry.Settle(GridGeometry.Resize(_dragStartRect, handle, dxFrac, dyFrac, metrics), metrics, snap, handle);
+            _host.OnGeometryPreview(this);
+        }
+        else if (_moved)
+        {
+            // [S-1584] The host moves the whole selection as one block, this card included.
+            _host.PreviewMove(this, dxFrac, dyFrac, snap);
+        }
 
-        var proposed = _activeHandle is { } handle
-            ? GridGeometry.Resize(_dragStartRect, handle, dxFrac, dyFrac, metrics)
-            : GridGeometry.Move(_dragStartRect, dxFrac, dyFrac);
-
-        LiveRect = GridGeometry.Settle(proposed, metrics, snap, _activeHandle);
-        _host.OnGeometryPreview(this);
         e.Handled = true;
     }
+
+    private static bool IsKeyDown(Windows.System.VirtualKey key)
+        => InputKeyboardSource.GetKeyStateForCurrentThread(key).HasFlag(Windows.UI.Core.CoreVirtualKeyStates.Down);
 
     private void OnPointerReleased(object sender, PointerRoutedEventArgs e)
     {
@@ -914,20 +998,29 @@ internal sealed partial class WidgetCard : Grid, IWidgetSurface, IContainerSurfa
 
     private void EndDrag()
     {
-        // The gesture is still "in progress" while the host commits it, so the host can tell a move
-        // from a resize: only a move may hand the widget to another display.
-        Model.Rect = LiveRect;
-        _host.OnGeometryCommitted(this);
-
+        var resizing = _activeHandle is not null;
+        var narrow = _narrowOnRelease && !_moved;
         _dragging = false;
         _activeHandle = null;
-    }
+        _narrowOnRelease = false;
 
-    /// <summary>
-    /// True while the card is being moved, as opposed to resized. A resize that happens to end with
-    /// the pointer over another screen is still a resize, and must not carry the widget there.
-    /// </summary>
-    public bool IsMoving => _dragging && _activeHandle is null;
+        // Only a move may hand widgets to another display: a resize that happens to end with the
+        // pointer over another screen is still a resize.
+        if (resizing)
+        {
+            Model.Rect = LiveRect;
+            _host.OnGeometryCommitted(this);
+            return;
+        }
+
+        _host.CommitMove(this);
+
+        // [S-1593] A click, not a drag, on a card of a multi-selection selects just that card.
+        if (narrow)
+        {
+            _host.RequestSelect(this);
+        }
+    }
 
     /// <summary>
     /// [S-78] Fade the card while its drop would land on another display, so the screen it is
@@ -1003,7 +1096,15 @@ internal sealed partial class WidgetCard : Grid, IWidgetSurface, IContainerSurfa
     {
         try
         {
-            _host.RequestSelect(this);
+            // [S-1592] Right-click on a selected card keeps the selection: the commands below act on
+            // all of it. On any other card it selects just that one first.
+            if (!_host.IsSelected(this))
+            {
+                _host.RequestSelect(this);
+            }
+
+            var count = _host.SelectionCount;
+            var several = count > 1 ? $" {count} widgets" : string.Empty;
 
             var menu = new MenuFlyout { Placement = FlyoutPlacementMode.BottomEdgeAlignedLeft };
             var cards = _host.ViewForCards;
@@ -1037,11 +1138,11 @@ internal sealed partial class WidgetCard : Grid, IWidgetSurface, IContainerSurfa
             if (cards is not null && !DrawnByContainer(cards))
             {
                 var front = Item(Glyphs.MoveUp, "Bring to front", () => _host.RequestZOrder(this, front: true));
-                front.IsEnabled = cards.CanBringToFront(Model.Id);
+                front.IsEnabled = count > 1 || cards.CanBringToFront(Model.Id);
                 menu.Items.Add(front);
 
                 var back = Item(Glyphs.MoveDown, "Send to back", () => _host.RequestZOrder(this, front: false));
-                back.IsEnabled = cards.CanSendToBack(Model.Id);
+                back.IsEnabled = count > 1 || cards.CanSendToBack(Model.Id);
                 menu.Items.Add(back);
             }
 
@@ -1050,14 +1151,16 @@ internal sealed partial class WidgetCard : Grid, IWidgetSurface, IContainerSurfa
                 menu.Items.Add(new MenuFlyoutSeparator());
             }
 
-            menu.Items.Add(Item("", "Copy", () => _host.RequestCopy(this), "Ctrl+C"));
-            menu.Items.Add(Item("", "Cut", () => _host.RequestCut(this), "Ctrl+X"));
+            menu.Items.Add(Item("", "Copy" + several, () => _host.RequestCopy(this), "Ctrl+C"));
+            menu.Items.Add(Item("", "Cut" + several, () => _host.RequestCut(this), "Ctrl+X"));
 
             var paste = Item("", "Paste", _host.RequestPaste, "Ctrl+V");
             paste.IsEnabled = _host.CanPaste;
             menu.Items.Add(paste);
 
-            menu.Items.Add(Item("", "Duplicate", () => _host.RequestDuplicate(this)));
+            menu.Items.Add(Item("", "Duplicate" + several, () => _host.RequestDuplicate(this), "Ctrl+D"));
+
+            menu.Items.Add(Item("", "Move" + several, () => _host.RequestMove(this)));
             menu.Items.Add(new MenuFlyoutSeparator());
 
             menu.Items.Add(Item(
@@ -1066,7 +1169,7 @@ internal sealed partial class WidgetCard : Grid, IWidgetSurface, IContainerSurfa
                 () => _host.RequestEditMode(!_host.EditMode)));
 
             menu.Items.Add(new MenuFlyoutSeparator());
-            menu.Items.Add(Item("", "Delete", () => _host.RequestDelete(this), "Del"));
+            menu.Items.Add(Item("", "Delete" + several, () => _host.RequestDelete(this), "Del"));
 
             menu.ShowAt(this, e.GetPosition(this));
             e.Handled = true;

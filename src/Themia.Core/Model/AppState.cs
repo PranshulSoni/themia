@@ -113,7 +113,7 @@ public sealed class ViewState
 
     /// <summary>
     /// [S-703] A Segoe Fluent glyph shown for the view in switchers and the view bar, or null for
-    /// the name's initials.
+    /// the name's initials. [S-903] Chosen on the view's settings page; the settings pane shows it too.
     /// </summary>
     public string? Icon { get; set; }
 
@@ -267,11 +267,41 @@ public sealed class AppState
     /// </summary>
     public Dictionary<string, double> MonitorScales { get; set; } = [];
 
-    /// <summary>A fresh profile: one view holding one clock, roughly centred.</summary>
+    /// <summary>
+    /// [S-906] Per-display view bar settings, keyed like <see cref="MonitorViews"/>. Missing means the
+    /// defaults (<see cref="ViewBarRules.For"/>), so only displays the user changed are stored.
+    /// </summary>
+    public Dictionary<string, ViewBarSettings> ViewBars { get; set; } = [];
+
+    /// <summary>
+    /// [S-893] A fresh profile, laid out as the original's first run: a clock top right, Help top
+    /// left (it teaches the shortcuts), the Desktop folder under it, and the everyday Windows places
+    /// bottom right. The clock stays first, so it is the one a reset or a recovery shows on top.
+    /// Shortcut labels are left empty so the names come from the target, translated with the app.
+    /// </summary>
     public static AppState CreateDefault()
     {
         var view = ViewState.Create("Desktop");
-        view.Widgets.Add(WidgetInstance.Create(WidgetKind.Clock, new FracRect(0.40, 0.08, 0.20, 0.12)));
+        view.Widgets.Add(WidgetInstance.Create(WidgetKind.Clock, new FracRect(0.78, 0.04, 0.20, 0.16)));
+        view.Widgets.Add(WidgetInstance.Create(WidgetKind.Help, new FracRect(0.02, 0.04, 0.24, 0.34)));
+
+        var folder = WidgetInstance.Create(WidgetKind.Folder, new FracRect(0.02, 0.42, 0.24, 0.50));
+        if (folder.Config is FolderConfig listing)
+        {
+            // Empty means the profile folder; the original's first-run folder is the Desktop.
+            listing.Path = Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory);
+        }
+
+        view.Widgets.Add(folder);
+
+        var places = WidgetInstance.Create(WidgetKind.Shortcuts, new FracRect(0.80, 0.80, 0.18, 0.16));
+        if (places.Config is ShortcutsConfig shortcuts)
+        {
+            // The kind's own default holds two places; the first run holds the original's six.
+            shortcuts.Items = [.. FirstRunPlaces.Select(name => ShortcutItem.Create(Themia.Core.Widgets.LaunchTargets.ShellTarget(name)))];
+        }
+
+        view.Widgets.Add(places);
 
         return new AppState
         {
@@ -279,6 +309,10 @@ public sealed class AppState
             ActiveViewId = view.Id,
         };
     }
+
+    /// <summary>[S-893] The Windows places the first-run Shortcuts widget holds, in the original's order.</summary>
+    public static IReadOnlyList<string> FirstRunPlaces { get; } =
+        ["RecycleBinFolder", "MyComputerFolder", "Downloads", "Personal", "My Pictures", "UsersFilesFolder"];
 
     public ViewState? FindView(string? id)
         => id is null ? null : Views.FirstOrDefault(v => v.Id == id);

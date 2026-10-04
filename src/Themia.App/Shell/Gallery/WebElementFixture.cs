@@ -25,18 +25,20 @@ internal static class WebElementFixture
     /// <summary>The pinned element: a status card of a few lines, wider than tall, like most things worth pinning.</summary>
     private const string Selector = "#status";
 
+    // No line of this page may start with '#': in a Release build the file is a skipped #if DEBUG
+    // region, where such a line is read as a preprocessor directive (CS1024). Hence div#status.
     private const string Page = """
         <!doctype html>
         <html><head><meta charset="utf-8"><title>Themia fixture</title>
         <style>
           body { margin: 0; padding: 40px; font-family: 'Segoe UI', sans-serif; background: #f3f3f3; color: #1b1b1b; }
           nav { height: 48px; background: #20232a; margin: -40px -40px 32px; }
-          #status { width: 340px; padding: 16px 20px; background: #fff; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,.18); }
-          #status h2 { margin: 0 0 6px; font-size: 14px; font-weight: 600; color: #5f5f5f; }
-          #status .value { font-size: 34px; font-weight: 600; color: #0f7b0f; }
-          #status table { width: 100%; margin-top: 10px; border-collapse: collapse; font-size: 13px; }
-          #status td { padding: 3px 0; border-top: 1px solid #e5e5e5; }
-          #status td:last-child { text-align: right; font-variant-numeric: tabular-nums; }
+          div#status { width: 340px; padding: 16px 20px; background: #fff; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,.18); }
+          div#status h2 { margin: 0 0 6px; font-size: 14px; font-weight: 600; color: #5f5f5f; }
+          div#status .value { font-size: 34px; font-weight: 600; color: #0f7b0f; }
+          div#status table { width: 100%; margin-top: 10px; border-collapse: collapse; font-size: 13px; }
+          div#status td { padding: 3px 0; border-top: 1px solid #e5e5e5; }
+          div#status td:last-child { text-align: right; font-variant-numeric: tabular-nums; }
           p { max-width: 640px; line-height: 1.5; }
         </style></head>
         <body>

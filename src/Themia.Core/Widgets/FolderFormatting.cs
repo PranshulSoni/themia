@@ -91,4 +91,81 @@ public static class FolderFormatting
         FolderPathProblem.TooLong => "That path is longer than Windows allows.",
         _ => "That path cannot be read.",
     };
+
+    /// <summary>
+    /// [S-1323] The status footer, as Explorer's: "24 items", then "· 2 selected", then the selected
+    /// files' total size when any file is among them ("· 3.1 MB"). Folders add nothing to the size: the
+    /// recursive walk is not done.
+    /// </summary>
+    public static string Status(int count, int selected, long selectedBytes, bool selectionHasFiles)
+    {
+        var text = count == 1 ? "1 item" : $"{count.ToString("N0", CultureInfo.InvariantCulture)} items";
+
+        if (selected > 0)
+        {
+            text += $" · {selected.ToString("N0", CultureInfo.InvariantCulture)} selected";
+
+            if (selectionHasFiles)
+            {
+                text += $" · {Formatting.Bytes(selectedBytes)}";
+            }
+        }
+
+        return text;
+    }
+
+    /// <summary>[S-1322] The Items column: a folder's entry count, capped where counting stops ("999+").</summary>
+    public static string ItemCount(int? count, int cap) => count switch
+    {
+        null => string.Empty,
+        var n when n >= cap => $"{(cap - 1).ToString(CultureInfo.InvariantCulture)}+",
+        var n => n.Value.ToString(CultureInfo.InvariantCulture),
+    };
+
+    /// <summary>
+    /// [S-1322] The Type column when the shell has no friendly name: "File folder", "TXT File", or
+    /// "File" for a name without an extension — Explorer's own fallbacks.
+    /// </summary>
+    public static string TypeFallback(string name, bool isDirectory)
+    {
+        if (isDirectory)
+        {
+            return "File folder";
+        }
+
+        var dot = name.LastIndexOf('.');
+        return dot > 0 && dot < name.Length - 1
+            ? $"{name[(dot + 1)..].ToUpperInvariant()} File"
+            : "File";
+    }
+
+    /// <summary>Extensions whose every file carries its own icon (a program's, a shortcut's target's).</summary>
+    private static readonly HashSet<string> OwnIcon = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ".exe", ".lnk", ".url", ".ico", ".cur", ".ani", ".msc", ".scr", ".appref-ms", ".cpl", ".website",
+    };
+
+    /// <summary>
+    /// [S-1324] The icon cache key for an entry: most files look like every other file of their type,
+    /// so ".txt" is extracted once, not once per file; programs, shortcuts and icon files, and folders
+    /// Windows marks as customised (read-only or system: Documents, Downloads, a desktop.ini icon), are
+    /// keyed by their own path.
+    /// </summary>
+    public static string IconKey(FolderEntry entry)
+    {
+        const int readOnly = 0x1;
+        const int system = 0x4;
+
+        if (entry.IsDirectory)
+        {
+            return (entry.Attributes & (readOnly | system)) != 0 ? entry.FullPath : "<folder>";
+        }
+
+        var dot = entry.Name.LastIndexOf('.');
+        var extension = dot > 0 ? entry.Name[dot..] : string.Empty;
+
+        return extension.Length == 0 ? "<file>"
+            : OwnIcon.Contains(extension) ? entry.FullPath
+            : extension.ToLowerInvariant();
+    }
 }

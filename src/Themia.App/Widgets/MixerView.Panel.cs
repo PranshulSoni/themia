@@ -134,7 +134,7 @@ internal sealed partial class MixerView
                 label.Foreground = FluentLayout.Themed(bound ? "TextFillColorPrimaryBrush" : "TextFillColorSecondaryBrush", Colors.White);
                 ToolTipService.SetToolTip(button, string.Equals(device.Id, snapshot.DefaultId, StringComparison.OrdinalIgnoreCase)
                     ? $"{label.Text} (Windows default)"
-                    : label.Text);
+                    : $"Make {label.Text} the default output");
                 button.Visibility = Visibility.Visible;
             }
         }
@@ -146,10 +146,8 @@ internal sealed partial class MixerView
                 return;
             }
 
-            var device = snapshot.Devices[index];
-
-            // The Windows default picked here means "follow the default", which keeps following it.
-            _owner.PickDevice(string.Equals(device.Id, snapshot.DefaultId, StringComparison.OrdinalIgnoreCase) ? null : device);
+            // [S-1614] Another device becomes Windows' default; the default itself means following it.
+            _owner.PickDevice(snapshot.Devices[index]);
         }
 
         public void ShowPeaks(AudioPeaks peaks)

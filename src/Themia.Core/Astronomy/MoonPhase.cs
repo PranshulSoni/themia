@@ -25,6 +25,9 @@ public enum MoonPhaseName
 /// <param name="Name">Which of the eight buckets the phase falls in.</param>
 public readonly record struct MoonInfo(double Phase, double Illumination, MoonPhaseName Name);
 
+/// <summary>[S-1491] A full or new moon, and when.</summary>
+public readonly record struct MoonEvent(MoonPhaseName Name, DateTimeOffset At);
+
 /// <summary>
 /// Moon phase, illumination and where the moon is, computed offline.
 /// <para>
@@ -88,6 +91,23 @@ public static class MoonPhase
             (Math.Cos(eclipticLatitude) * Math.Sin(obliquity) * Math.Sin(eclipticLongitude))) / AstroMath.Deg;
 
         return AstroMath.GroundPointOf(rightAscension, declination, days);
+    }
+
+    /// <summary>
+    /// [S-1491] The next full or new moon after <paramref name="moment"/>, whichever comes first, from
+    /// the same linear lunation as <see cref="At"/>, so the date agrees with the phase drawn beside it.
+    /// </summary>
+    public static MoonEvent NextMajor(DateTimeOffset moment)
+    {
+        var phase = At(moment).Phase;
+
+        // Strictly after: a phase of exactly 0.5 is full now, and the next full moon is a month away.
+        var toFull = phase < 0.5 ? 0.5 - phase : 1.5 - phase;
+        var toNew = 1 - phase;
+
+        return toFull < toNew
+            ? new MoonEvent(MoonPhaseName.FullMoon, moment.AddDays(toFull * SynodicMonth))
+            : new MoonEvent(MoonPhaseName.NewMoon, moment.AddDays(toNew * SynodicMonth));
     }
 
     /// <summary>The display label for a phase bucket. Written out rather than derived from the enum name.</summary>

@@ -3,19 +3,18 @@ using System.Globalization;
 namespace Themia.Core.Widgets;
 
 /// <summary>A view as the switcher sees it: enough to draw a button, nothing to edit.</summary>
-public readonly record struct ViewSummary(string Id, string Name);
+/// <param name="Icon">[S-903] The view's glyph, or null for its initials.</param>
+/// <param name="WidgetCount">[S-1657] How many widgets the view holds, for a button's "3 widgets" line.</param>
+public readonly record struct ViewSummary(string Id, string Name, string? Icon = null, int WidgetCount = 0);
 
 /// <summary>One button on the switcher.</summary>
 /// <param name="Id">The view it shows.</param>
 /// <param name="Name">The view's name, for the label and the tooltip.</param>
 /// <param name="Initials">What the button says when there is no room for the name.</param>
 /// <param name="Shown">Whether the widget's own display is showing this view right now.</param>
-public readonly record struct ViewChoice(string Id, string Name, string Initials, bool Shown);
-
-/// <summary>How the switcher lays its buttons out at a given size.</summary>
-/// <param name="Vertical">One button per row rather than one row of buttons.</param>
-/// <param name="ShowNames">Names on the buttons; initials alone when false.</param>
-public readonly record struct SwitcherLayout(bool Vertical, bool ShowNames);
+/// <param name="Icon">[S-903] The view's glyph, drawn in place of the initials; null for none.</param>
+/// <param name="WidgetCount">[S-1657] How many widgets the view holds.</param>
+public readonly record struct ViewChoice(string Id, string Name, string Initials, bool Shown, string? Icon = null, int WidgetCount = 0);
 
 /// <summary>
 /// The rules behind the view switcher widget: which views it offers, in what order, what a button
@@ -23,12 +22,6 @@ public readonly record struct SwitcherLayout(bool Vertical, bool ShowNames);
 /// </summary>
 public static class ViewSwitcherRules
 {
-    /// <summary>The narrowest a button can be and still carry a readable name beside its initials.</summary>
-    public const double NamedButtonMinWidth = 88;
-
-    /// <summary>The height of one button in a vertical list: Fluent's compact row.</summary>
-    public const double VerticalButtonHeight = 32;
-
     /// <summary>
     /// [S-489] The letters a button falls back to: the first letter of each of the first two words,
     /// or the first two letters of a single word, upper-cased. "?" for a blank name, so a button is
@@ -98,7 +91,9 @@ public static class ViewSwitcherRules
                 view.Id,
                 view.Name,
                 Initials(view.Name),
-                string.Equals(view.Id, shownViewId, StringComparison.Ordinal)));
+                string.Equals(view.Id, shownViewId, StringComparison.Ordinal),
+                string.IsNullOrEmpty(view.Icon) ? null : view.Icon,
+                Math.Max(0, view.WidgetCount)));
         }
 
         return choices;
@@ -152,42 +147,14 @@ public static class ViewSwitcherRules
         return ordered.Count == views.Count ? [] : ordered;
     }
 
-    /// <summary>The shape a button reads best at, width over height: a button, not a tile or a sliver.</summary>
-    public const double ButtonAspect = 3;
-
     /// <summary>
-    /// [S-491] Arrange the buttons for the space there is: one row, or one button per row, whichever
-    /// gives buttons closer to the shape of a button.
-    /// <para>
-    /// The original only ever drew a row, and on anything but a strip that made each button a tall
-    /// narrow column with a clipped name in the middle of it. Stacked, the same buttons read as a
-    /// menu. A stack is only chosen when every button gets a compact row's height. Names are
-    /// dropped for initials when a button would be too narrow to carry one — the tooltip still has
-    /// it.
-    /// </para>
+    /// [S-1657] The line under a view's name: "No widgets", "1 widget", "N widgets". A negative count
+    /// (never stored, but the summary is plain data) reads as none.
     /// </summary>
-    public static SwitcherLayout Plan(double width, double height, int count, bool iconOnly)
+    public static string CountText(int count) => count switch
     {
-        if (count <= 0 || width <= 0 || height <= 0)
-        {
-            return new SwitcherLayout(Vertical: false, ShowNames: !iconOnly);
-        }
-
-        var rowAspect = width / count / height;
-        var stackAspect = width / (height / count);
-
-        // Distance from the ideal shape on a log scale, so "twice too wide" and "twice too tall"
-        // count the same.
-        static double Off(double aspect) => Math.Abs(Math.Log(aspect / ButtonAspect));
-
-        var vertical = count * VerticalButtonHeight <= height && Off(stackAspect) < Off(rowAspect);
-
-        if (iconOnly)
-        {
-            return new SwitcherLayout(vertical, ShowNames: false);
-        }
-
-        var buttonWidth = vertical ? width : width / count;
-        return new SwitcherLayout(vertical, ShowNames: buttonWidth >= NamedButtonMinWidth);
-    }
+        <= 0 => "No widgets",
+        1 => "1 widget",
+        _ => count.ToString(CultureInfo.CurrentCulture) + " widgets",
+    };
 }

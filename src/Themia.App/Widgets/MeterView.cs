@@ -596,17 +596,39 @@ internal sealed partial class MeterView : Grid, IWidgetView, IWidgetSizeAware, I
             && (_area.HeightClass >= SizeClass.Regular || arrangement == Arrangement.Side)
             && room.Take(FluentType.Caption.LineHeight, FluentType.EstimateWidth(FluentType.Caption, MeterHistory.SummaryCharacters(_unit, compact: true)));
 
-        // Rung 4b [S-1150]: the kind's per-part strip (a bar per core), in balanced rows across the
-        // column; taller bars, and each one's figure under it, on a tile Expanded in height.
+        // Rung 4b [S-1150][S-1622]: the kind's per-part strip (a bar per core), in balanced rows
+        // across the column; taller bars, and each one's figure under it, on a tile Expanded in
+        // height. When that full strip does not fit, it is not dropped for the list: beside the stat
+        // tiles a short strip costs no height at all, and failing that the shortest form that fits
+        // goes under the stats (short bars, then short bars without their caption).
         var cellsWanted = _part.CellsWanted;
-        var cellShape = cellsWanted > 0 && (_area.HeightClass >= SizeClass.Regular || arrangement == Arrangement.Side)
-            ? MeterCellGrid.Fit(cellsWanted, width, MeterCellStrip.MinCellWidth, MeterCellStrip.Gap,
-                FluentType.EstimateWidth(FluentType.Caption, MeterCellStrip.LabelCharacters))
-            : default;
+        var cellsAllowed = cellsWanted > 0 && (_area.HeightClass >= SizeClass.Regular || arrangement == Arrangement.Side);
         var tallCells = _area.HeightClass >= SizeClass.Expanded;
-        var cellBar = cellShape.Rows > 1 ? Fluent.Space4 : tallCells ? Fluent.Space6 + Fluent.Space2 : Fluent.Space6;
-        var cellLabels = cellShape.Labels && tallCells;
-        var cells = !cellShape.IsEmpty && room.Take(MeterCellStrip.HeightOf(cellShape, cellBar, cellLabels));
+        var cellLabelWidth = FluentType.EstimateWidth(FluentType.Caption, MeterCellStrip.LabelCharacters);
+        var cellForms = cellsAllowed ? MeterCellForms.Ladder(cellsWanted, width, tallCells, cellLabelWidth) : [];
+        var besideWidth = width - tilesWidth - Fluent.Space6;
+        var besideForm = cellForms.Count > 0 && tilesBelow && besideWidth > 0
+            ? MeterCellForms.Ladder(cellsWanted, besideWidth, tallCells, cellLabelWidth)
+                .FirstOrDefault(f => f.Height <= tileHeight + Disclosure.Tolerance)
+            : default;
+        var cellForm = default(CellStripForm);
+        var cellsBeside = false;
+
+        if (cellForms.Count > 0)
+        {
+            if (besideForm.IsEmpty || room.Fits(cellForms[0].Height))
+            {
+                var pick = room.TakeFirst([.. cellForms.Select(f => f.Height)]);
+                cellForm = pick >= 0 ? cellForms[pick] : default;
+            }
+            else
+            {
+                cellForm = besideForm;
+                cellsBeside = true;
+            }
+        }
+
+        var cells = !cellForm.IsEmpty;
 
         // Rung 5: the usage bar beside a chart (without one the bar is rung 2 already), which on a
         // tile Expanded in height becomes the composition bar with its legend.
@@ -649,9 +671,15 @@ internal sealed partial class MeterView : Grid, IWidgetView, IWidgetSizeAware, I
 
         if (cells)
         {
-            _cells.Arrange(cellShape, cellsWanted, cellBar, cellLabels);
+            _cells.Arrange(cellForm, cellsWanted);
             _cells.Show(reading.Cells, Pressure);
         }
+
+        // Beside the tiles the strip shares their row, starting where they end.
+        Grid.SetRow(_cells.Host, cellsBeside ? 3 : 4);
+        _cells.Host.Margin = cellsBeside
+            ? new Thickness(Fluent.Space4 + tilesWidth + Fluent.Space6, Fluent.Space2, Fluent.Space4, 0)
+            : new Thickness(Fluent.Space4, Fluent.Space2, Fluent.Space4, 0);
 
         _tiles.Visibility = tilesBeside || tilesBelow || tilesStacked ? Visibility.Visible : Visibility.Collapsed;
         ArrangeTiles(tilesStacked);
@@ -761,8 +789,31 @@ internal sealed partial class MeterView : Grid, IWidgetView, IWidgetSizeAware, I
             // The label quieter than its figure, the way a Settings row's description sits under
             // its title: one line, two weights of grey.
             line.Inlines.Clear();
-            line.Inlines.Add(new Microsoft.UI.Xaml.Documents.Run { Text = lines[i].Label + "  ", Foreground = _labelBrush });
-            line.Inlines.Add(new Microsoft.UI.Xaml.Documents.Run { Text = lines[i].Value });
+            var fact = lines[i];
+
+            if (fact.Label.Length > 0)
+            {
+                line.Inlines.Add(new Microsoft.UI.Xaml.Documents.Run { Text = fact.Label + "  ", Foreground = _labelBrush });
+            }
+
+            if (fact.Open is { } open)
+            {
+                // [S-1613] A line that is a link (the Wi-Fi name's "Allow location" hint).
+                var link = new Microsoft.UI.Xaml.Documents.Hyperlink();
+                link.Inlines.Add(new Microsoft.UI.Xaml.Documents.Run { Text = fact.Value });
+                link.Click += (_, _) => open();
+                line.Inlines.Add(link);
+                ToolTipService.SetToolTip(line, fact.Value);
+            }
+            else
+            {
+                line.Inlines.Add(new Microsoft.UI.Xaml.Documents.Run { Text = fact.Value });
+
+                if (ToolTipService.GetToolTip(line) is not null)
+                {
+                    ToolTipService.SetToolTip(line, null);
+                }
+            }
         }
     }
 

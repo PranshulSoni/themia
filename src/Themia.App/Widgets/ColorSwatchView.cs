@@ -13,60 +13,52 @@ using Windows.ApplicationModel.DataTransfer;
 namespace Themia.App.Widgets;
 
 /// <summary>
-/// A palette you can copy colours out of.
+/// A colour swatch: by default the original's block of colour — the whole tile in one colour or a
+/// gradient, at an opacity, used as a backdrop or a coloured panel — or a palette you can copy
+/// colours out of. [S-1500]
 /// <para>
-/// A list of Windows rows rather than a mosaic of tiles: each colour is a chip, a name and the exact
-/// text a click will put on the clipboard, in the notation the widget is set to. Showing the value
-/// is the point — a palette you cannot read the numbers off is a picture of a palette.
-/// </para>
-/// <para>
-/// The <b>colours it shows are content</b> and are therefore literal: they are the user's palette,
-/// and a theme brush would be the wrong answer by definition. Everything the widget is made of —
-/// the text, the chip's hairline, the fill under the pointer — comes from named brushes, so the
-/// chrome follows light, dark and high contrast while the colours stay exactly what the user typed.
+/// The <b>colours it shows are content</b> and are therefore literal: they are the user's, and a
+/// theme brush would be the wrong answer by definition (except the default, which is the accent,
+/// as the original's was). Everything the widget is made of — text, a chip's hairline, the fill
+/// under the pointer — comes from named brushes, so the chrome follows light, dark and high contrast.
 /// </para>
 /// </summary>
-internal sealed partial class ColorSwatchView : Grid, IWidgetView
+internal sealed partial class ColorSwatchView : Grid, IWidgetView, IWidgetSizeAware, IWidgetKeys
 {
     private const string Scope = "color-swatch";
 
-    /// <summary>
-    /// A column narrower than this cannot hold a chip, a name and a value, so the widget uses fewer
-    /// of them. Wider tiles get columns rather than taller rows: [S-213] a row is a fixed height.
-    /// </summary>
-    private const double MinColumnWidth = 210;
+    /// <summary>Round chips and tiles and the gap round the chip grid.</summary>
+    private const double GridInset = Fluent.Space2;
 
-    /// <summary>Four columns of colours is already a lot to scan. Past that it is a swatch book.</summary>
-    private const int MaxColumns = 4;
-
-    /// <summary>Under this width there is no room for the value beside the name; the chip and the name stay.</summary>
-    private const double ValueHidesBelow = 150;
+    /// <summary>[S-1504] The block: the whole slot, edge to edge, no inset — the card clips its corners.</summary>
+    private readonly Border _fill = new();
 
     private readonly Grid _columns = new();
     private readonly ScrollViewer _scroller;
     private readonly StackPanel _empty;
 
-    private readonly List<SwatchRow> _rows = [];
+    private readonly List<SwatchItemView> _items = [];
 
     private ColorSwatchConfig _config = new();
+    private WidgetArea _area;
+    private LinearGradientBrush? _gradient;
 
-    /// <summary>What the rows were last built for, so a resize that changes neither rebuilds nothing.</summary>
-    private int _builtColumns = -1;
-    private bool _builtCompact;
-    private bool _builtShowValue;
+    /// <summary>What the palette was last built as, so a resize that changes nothing rebuilds nothing.</summary>
+    private (SwatchPlan Plan, int Count)? _built;
+
+    /// <summary>[S-1507] The palette entry the keys are on, or null.</summary>
+    private int? _cursor;
 
     private bool _detached;
 
     public ColorSwatchView()
     {
-        RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
-
         _scroller = new ScrollViewer
         {
             Content = _columns,
-            VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+            VerticalScrollBarVisibility = ScrollBarVisibility.Hidden,
             HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
-            Padding = WidgetLayout.ListInset,
+            HorizontalScrollMode = ScrollMode.Disabled,
         };
 
         _empty = Fluent.EmptyState(
@@ -76,15 +68,14 @@ internal sealed partial class ColorSwatchView : Grid, IWidgetView
 
         _empty.Visibility = Visibility.Collapsed;
 
+        Children.Add(_fill);
         Children.Add(_scroller);
         Children.Add(_empty);
-
-        SizeChanged += OnSizeChanged;
     }
 
     public void Attach(Ticker ticker, WidgetConfig config)
     {
-        // Nothing to tick: a palette changes when it is edited, not when time passes.
+        // Nothing to tick: a swatch changes when it is edited, not when time passes.
         ApplyConfig(config);
     }
 
@@ -92,59 +83,174 @@ internal sealed partial class ColorSwatchView : Grid, IWidgetView
     {
         _config = config as ColorSwatchConfig ?? new ColorSwatchConfig();
 
-        // The palette itself changed, so the rows have to be rebuilt whatever the size is doing.
-        _builtColumns = -1;
-        Rebuild();
+        // The colours or the palette changed, so the palette is rebuilt whatever the size is doing.
+        _built = null;
+        Lay();
     }
 
-    private void OnSizeChanged(object sender, SizeChangedEventArgs args) => Rebuild();
+    /// <inheritdoc />
+    public void ApplySize(WidgetArea area)
+    {
+        _area = area;
+        Lay();
+    }
 
-    /// <summary>
-    /// Lay the palette out for the size the widget currently is, and only when that has actually
-    /// changed something — a resize drag raises this on every frame, and tearing down and rebuilding
-    /// forty rows per frame is how a widget layer starts costing a core.
-    /// </summary>
-    private void Rebuild()
+    private void Lay()
     {
         if (_detached)
         {
             return;
         }
 
+        var palette = _config.Mode == SwatchMode.Palette;
+        _fill.Visibility = palette ? Visibility.Collapsed : Visibility.Visible;
+
+        if (!palette)
+        {
+            _scroller.Visibility = Visibility.Collapsed;
+            _empty.Visibility = Visibility.Collapsed;
+            ClearItems();
+            _built = null;
+            _cursor = null;
+            PaintBlock();
+            return;
+        }
+
+        _fill.Background = null;
+        _gradient = null;
+        LayPalette();
+    }
+
+    // -----------------------------------------------------------------------------------------
+    // Solid and gradient
+    // -----------------------------------------------------------------------------------------
+
+    /// <summary>
+    /// [S-1501]..[S-1504] Paint the block. A solid colour is a brush at the widget's opacity (the
+    /// default is the theme's own accent brush, so it follows an accent change in place); a gradient
+    /// is two stops on an axis computed for the slot's actual size, as CSS draws it.
+    /// </summary>
+    private void PaintBlock()
+    {
+        var accentBrush = FluentLayout.Themed("AccentFillColorDefaultBrush", Colors.DodgerBlue);
+        var accent = accentBrush is SolidColorBrush { Color: var a } ? new RgbColor(a.R, a.G, a.B) : new RgbColor(0x60, 0xCD, 0xFF);
+
+        if (_config.Mode == SwatchMode.Solid)
+        {
+            _gradient = null;
+            var fill = SwatchFill.Resolve(_config.Color, _config.Alpha, accent);
+
+            _fill.Background = HexColor.IsOverridden(_config.Color)
+                ? new SolidColorBrush(Windows.UI.Color.FromArgb(255, fill.Color.R, fill.Color.G, fill.Color.B))
+                : accentBrush;
+
+            // The opacity on the element rather than on the brush: the default brush is the theme's
+            // shared one, and fading it would fade every accent in the app.
+            _fill.Opacity = SwatchFill.ClampAlpha(fill.Alpha);
+            return;
+        }
+
+        var start = SwatchFill.Resolve(_config.StartColor, _config.StartAlpha, accent);
+        var end = SwatchFill.Resolve(_config.EndColor, _config.EndAlpha, accent);
+
+        _gradient = new LinearGradientBrush { MappingMode = BrushMappingMode.Absolute };
+        _gradient.GradientStops.Add(new GradientStop { Color = ToColor(start), Offset = 0 });
+        _gradient.GradientStops.Add(new GradientStop { Color = ToColor(end), Offset = 1 });
+
+        var axis = GradientAxis.For(_config.Angle, _area.Width, _area.Height);
+        _gradient.StartPoint = new Windows.Foundation.Point(axis.StartX, axis.StartY);
+        _gradient.EndPoint = new Windows.Foundation.Point(axis.EndX, axis.EndY);
+
+        _fill.Opacity = 1;
+        _fill.Background = _gradient;
+    }
+
+    private static Windows.UI.Color ToColor(FillColor fill) => Windows.UI.Color.FromArgb(fill.A, fill.Color.R, fill.Color.G, fill.Color.B);
+
+    // -----------------------------------------------------------------------------------------
+    // Palette
+    // -----------------------------------------------------------------------------------------
+
+    /// <summary>
+    /// [S-1506] Lay the palette out by <see cref="SwatchLayout"/> for this size, and only rebuild
+    /// when that changed something — a resize drag raises this on every frame, and tearing down and
+    /// rebuilding forty rows per frame is how a widget layer starts costing a core.
+    /// </summary>
+    private void LayPalette()
+    {
         var swatches = _config.EffectiveSwatches;
 
         if (swatches.Count == 0)
         {
-            Clear();
+            ClearItems();
             _scroller.Visibility = Visibility.Collapsed;
             _empty.Visibility = Visibility.Visible;
-            _builtColumns = -1;
+            _built = null;
+            _cursor = null;
             return;
         }
 
         _scroller.Visibility = Visibility.Visible;
         _empty.Visibility = Visibility.Collapsed;
 
-        var columns = ColumnCount(ActualWidth);
-        var compact = ActualHeight < Fluent.CompactBelow;
+        var listTop = WidgetLayout.ListInset.Top + WidgetLayout.ListInset.Bottom;
+        var caption = (_config.ShowNames ? FluentType.Body.LineHeight : 0)
+            + (_config.ShowValues ? FluentType.Caption.LineHeight : 0)
+            + (_config.ShowNames || _config.ShowValues ? Fluent.Space1 : 0);
 
-        // [S-654] Whether the value fits is part of the shape too. Left out of the check below, the
-        // first build — before layout, at a width of 0 — hid the values, and a tile whose first real
-        // size kept the same column count and density never rebuilt: a 320px tile showed names
-        // only while a 200px one, which happened to change density, showed both.
-        var showValue = _config.ShowValues && (ActualWidth / columns) >= ValueHidesBelow;
+        var plan = SwatchLayout.Plan(_area.Width, _area.Height - listTop, swatches.Count, _config.ShowValues, caption);
 
-        if (columns == _builtColumns && compact == _builtCompact && showValue == _builtShowValue && _rows.Count == swatches.Count)
+        // Chips and tiles sit inside an inset of their own; re-fit them to it.
+        if (plan.Arrangement == SwatchArrangement.Chips)
         {
-            // Same shape, same palette: the rows already on screen are the right ones.
+            var (columns, side) = SwatchLayout.ChipGrid(_area.Width - (2 * GridInset), _area.Height - (2 * GridInset), swatches.Count);
+            plan = plan with { Columns = columns, Cell = side };
+        }
+        else if (plan.Arrangement == SwatchArrangement.Tiles)
+        {
+            plan = SwatchLayout.TileGrid(_area.Width - (2 * WidgetLayout.ContentInset), _area.Height - (2 * WidgetLayout.ContentInset), swatches.Count, caption) is { } tiles
+                ? plan with { Columns = tiles.Columns, Cell = tiles.Height }
+                : SwatchLayout.Plan(_area.Width, _area.Height - listTop, swatches.Count, _config.ShowValues, double.PositiveInfinity);
+        }
+
+        if (_built is { } built && built.Plan == plan && built.Count == swatches.Count)
+        {
             return;
         }
 
-        _builtColumns = columns;
-        _builtCompact = compact;
-        _builtShowValue = showValue;
+        _built = (plan, swatches.Count);
+        ClearItems();
 
-        Clear();
+        switch (plan.Arrangement)
+        {
+            case SwatchArrangement.Chips:
+                BuildGrid(swatches, plan, GridInset, (swatch, _) => SwatchItemView.Chip(swatch, _config.CopyAs, plan.Cell));
+                break;
+
+            case SwatchArrangement.Tiles:
+                BuildGrid(swatches, plan, WidgetLayout.ContentInset, (swatch, _) => SwatchItemView.Tile(swatch, _config.CopyAs, plan.Cell, _config.ShowNames, _config.ShowValues));
+                break;
+
+            default:
+                BuildRows(swatches, plan);
+                break;
+        }
+
+        if (_cursor is { } cursor)
+        {
+            _cursor = cursor < _items.Count ? cursor : null;
+            ShowCursor();
+        }
+    }
+
+    /// <summary>Rows, in columns that fill top to bottom, edge to edge of the card. [S-213]</summary>
+    private void BuildRows(IReadOnlyList<Swatch> swatches, SwatchPlan plan)
+    {
+        _columns.Margin = WidgetLayout.ListInset;
+        _columns.ColumnSpacing = 0;
+        _columns.RowSpacing = 0;
+
+        var columns = Math.Max(1, plan.Columns);
 
         for (var column = 0; column < columns; column++)
         {
@@ -163,28 +269,107 @@ internal sealed partial class ColorSwatchView : Grid, IWidgetView
 
         for (var i = 0; i < swatches.Count; i++)
         {
-            var row = new SwatchRow(swatches[i], _config.CopyAs, compact, _config.ShowNames, showValue);
-            _rows.Add(row);
-            stacks[Math.Min(i / perColumn, columns - 1)].Children.Add(row.Root);
+            var item = SwatchItemView.Row(swatches[i], _config.CopyAs, plan.Cell, _config.ShowNames, plan.ShowValue);
+            _items.Add(item);
+            stacks[Math.Min(i / perColumn, columns - 1)].Children.Add(item.Root);
         }
     }
 
-    /// <summary>Columns, not taller rows: a row is a fixed Fluent height whatever the tile does. [S-213]</summary>
-    private static int ColumnCount(double width)
-        => !double.IsFinite(width) || width <= 0
-            ? 1
-            : Math.Clamp((int)(width / MinColumnWidth), 1, MaxColumns);
-
-    private void Clear()
+    /// <summary>Chips or tiles: a grid, row by row, inside an inset.</summary>
+    private void BuildGrid(IReadOnlyList<Swatch> swatches, SwatchPlan plan, double inset, Func<Swatch, int, SwatchItemView> build)
     {
-        foreach (var row in _rows)
+        _columns.Margin = new Thickness(inset);
+        _columns.ColumnSpacing = SwatchLayout.Gap;
+        _columns.RowSpacing = SwatchLayout.Gap;
+
+        var columns = Math.Max(1, plan.Columns);
+        var rows = (int)Math.Ceiling(swatches.Count / (double)columns);
+
+        for (var column = 0; column < columns; column++)
         {
-            row.Dispose();
+            // Chips are square at their planned side; tiles share the width.
+            _columns.ColumnDefinitions.Add(new ColumnDefinition
+            {
+                Width = plan.Arrangement == SwatchArrangement.Chips ? new GridLength(plan.Cell) : new GridLength(1, GridUnitType.Star),
+            });
         }
 
-        _rows.Clear();
+        for (var row = 0; row < rows; row++)
+        {
+            _columns.RowDefinitions.Add(new RowDefinition { Height = new GridLength(plan.Cell) });
+        }
+
+        // A chip grid narrower than the slot is centred, so its spare width is even on both sides.
+        _columns.HorizontalAlignment = plan.Arrangement == SwatchArrangement.Chips ? HorizontalAlignment.Center : HorizontalAlignment.Stretch;
+
+        for (var i = 0; i < swatches.Count; i++)
+        {
+            var item = build(swatches[i], i);
+            SetRow(item.Root, i / columns);
+            SetColumn(item.Root, i % columns);
+            _columns.Children.Add(item.Root);
+            _items.Add(item);
+        }
+    }
+
+    private void ClearItems()
+    {
+        foreach (var item in _items)
+        {
+            item.Dispose();
+        }
+
+        _items.Clear();
         _columns.Children.Clear();
         _columns.ColumnDefinitions.Clear();
+        _columns.RowDefinitions.Clear();
+        _columns.HorizontalAlignment = HorizontalAlignment.Stretch;
+    }
+
+    // -----------------------------------------------------------------------------------------
+    // Keys
+    // -----------------------------------------------------------------------------------------
+
+    /// <summary>[S-1507] Only a palette with colours in it has anything to navigate.</summary>
+    public bool WantsKeys => _config.Mode == SwatchMode.Palette && _items.Count > 0;
+
+    /// <summary>[S-1507] Arrows walk the palette, Enter copies the colour the cursor is on, Escape lets go.</summary>
+    public bool HandleKey(WidgetKey key)
+    {
+        if (_detached)
+        {
+            return false;
+        }
+
+        var decision = ListKeys.Decide(key, _cursor ?? -1, _items.Count);
+
+        switch (decision.Command)
+        {
+            case ListCommand.Focus:
+                _cursor = decision.Index;
+                ShowCursor();
+                return true;
+
+            case ListCommand.Open:
+                _items[decision.Index].Copy();
+                return true;
+
+            case ListCommand.Release:
+                _cursor = null;
+                ShowCursor();
+                return false;
+
+            default:
+                return false;
+        }
+    }
+
+    private void ShowCursor()
+    {
+        for (var i = 0; i < _items.Count; i++)
+        {
+            RowFocus.Mark(_items[i].Root, i == _cursor);
+        }
     }
 
     public void Detach()
@@ -195,32 +380,52 @@ internal sealed partial class ColorSwatchView : Grid, IWidgetView
         }
 
         _detached = true;
-        SizeChanged -= OnSizeChanged;
-        Clear();
+        ClearItems();
     }
 
     // -----------------------------------------------------------------------------------------
 
     /// <summary>
-    /// One colour: the chip, its name, and the text a click copies.
+    /// One colour in the palette — a row (chip, name, value), a chip, or a tile (block over name
+    /// and value) — and what a click on it does: copy, and say so.
     /// <para>
-    /// A class rather than a method because a row owns three handlers and a hover subscription, and
-    /// every one of them has to come off again — a view that rebuilds its rows on resize would
-    /// otherwise leak a set per drag.
+    /// A class rather than a method because an item owns three handlers and a hover subscription,
+    /// and every one of them has to come off again — a view that rebuilds on resize would otherwise
+    /// leak a set per drag.
     /// </para>
     /// </summary>
-    private sealed class SwatchRow : IDisposable
+    private sealed class SwatchItemView : IDisposable
     {
-        private readonly Border _root;
         private readonly TextBlock? _value;
-        private readonly IDisposable _hover;
+        private readonly IDisposable? _hover;
         private readonly string _copied;
 
         private bool _disposed;
 
-        public SwatchRow(Swatch swatch, ColorNotation notation, bool compact, bool showName, bool showValue)
+        private SwatchItemView(Border root, TextBlock? value, string copied, bool hover)
         {
-            _copied = ColorFormats.Format(swatch.Color, notation);
+            Root = root;
+            _value = value;
+            _copied = copied;
+            RowFocus.Prepare(root);
+            _hover = hover ? Fluent.Hover(root) : null;
+
+            ToolTipService.SetToolTip(root, $"Copy {copied}");
+
+            // Tapped, not PointerPressed: in edit mode the card captures the pointer on press to
+            // drag the widget, the gesture never completes here, and nothing is copied while a
+            // widget is being moved.
+            root.Tapped += OnTapped;
+            root.PointerExited += OnLeft;
+            root.PointerCaptureLost += OnLeft;
+        }
+
+        public Border Root { get; }
+
+        /// <summary>A list row: the chip is sized from the row, and the row from the plan.</summary>
+        public static SwatchItemView Row(Swatch swatch, ColorNotation notation, double height, bool showName, bool showValue)
+        {
+            var copied = ColorFormats.Format(swatch.Color, notation);
 
             var content = new Grid
             {
@@ -232,80 +437,137 @@ internal sealed partial class ColorSwatchView : Grid, IWidgetView
                 },
             };
 
-            // The chip is sized from the ROW, not from the tile: a widget dragged twice as wide
-            // shows more colours, not bigger ones. [S-213]
-            var size = (compact ? Fluent.RowHeightCompact : Fluent.RowHeight) - (Fluent.Space2 * 2);
-
-            var chip = new Border
-            {
-                Width = size,
-                Height = size,
-                CornerRadius = new CornerRadius(Fluent.ControlRadius),
-                VerticalAlignment = VerticalAlignment.Center,
-                Margin = new Thickness(0, 0, Fluent.Space3, 0),
-
-                // The one literal colour in the widget, and the only one that should be: this IS
-                // the content.
-                Background = new SolidColorBrush(Windows.UI.Color.FromArgb(
-                    255,
-                    swatch.Color.R,
-                    swatch.Color.G,
-                    swatch.Color.B)),
-
-                // A swatch the same colour as the card would otherwise have no edge at all.
-                BorderBrush = FluentLayout.Themed("ControlStrokeColorDefaultBrush", Colors.Gray),
-                BorderThickness = new Thickness(Fluent.Hairline),
-            };
-
-            Grid.SetColumn(chip, 0);
+            var chip = Block(swatch, height - (Fluent.Space2 * 2), Fluent.ControlRadius);
+            chip.Margin = new Thickness(0, 0, Fluent.Space3, 0);
+            chip.VerticalAlignment = VerticalAlignment.Center;
             content.Children.Add(chip);
 
             if (showName)
             {
                 var name = Fluent.Text(FluentType.Body);
                 name.Text = swatch.Name;
+                name.TextTrimming = TextTrimming.CharacterEllipsis;
                 name.VerticalAlignment = VerticalAlignment.Center;
-                Grid.SetColumn(name, 1);
+                SetColumn(name, 1);
                 content.Children.Add(name);
             }
 
+            TextBlock? value = null;
+
             if (showValue)
             {
-                _value = Fluent.Text(FluentType.Caption, "TextFillColorTertiaryBrush");
-                _value.Text = _copied;
-                _value.VerticalAlignment = VerticalAlignment.Center;
-                _value.Margin = new Thickness(Fluent.Space2, 0, 0, 0);
-                Grid.SetColumn(_value, 2);
-                content.Children.Add(_value);
+                value = Fluent.Text(FluentType.Caption, "TextFillColorTertiaryBrush");
+                value.Text = copied;
+                value.VerticalAlignment = VerticalAlignment.Center;
+                value.Margin = new Thickness(Fluent.Space2, 0, 0, 0);
+                SetColumn(value, 2);
+                content.Children.Add(value);
             }
 
-            _root = Fluent.Row(content, compact);
-            _hover = Fluent.Hover(_root);
-
-            ToolTipService.SetToolTip(_root, $"Copy {_copied}");
-
-            // Tapped, not PointerPressed: in edit mode the card captures the pointer on press to
-            // drag the widget, the gesture never completes here, and nothing is copied while a
-            // widget is being moved. See ScratchpadView for the whole story.
-            _root.Tapped += OnTapped;
-            _root.PointerExited += OnLeft;
-            _root.PointerCaptureLost += OnLeft;
+            var root = Fluent.Row(content);
+            root.Height = height;
+            return new SwatchItemView(root, value, copied, hover: true);
         }
 
-        public FrameworkElement Root => _root;
+        /// <summary>A chip in the grid a narrow tile shows: the colour only; the name is in the tooltip.</summary>
+        public static SwatchItemView Chip(Swatch swatch, ColorNotation notation, double side)
+        {
+            var copied = ColorFormats.Format(swatch.Color, notation);
+            // In a holder of its own, so the keyboard ring goes round the chip rather than replacing
+            // the hairline that gives a card-coloured chip its edge.
+            var holder = new Border
+            {
+                Child = Block(swatch, side - (2 * RowFocus.Ring), Fluent.ControlRadius),
+                CornerRadius = new CornerRadius(Fluent.ControlRadius + RowFocus.Ring),
+            };
+
+            var view = new SwatchItemView(holder, null, copied, hover: false);
+            ToolTipService.SetToolTip(holder, $"{swatch.Name} · copy {copied}");
+            return view;
+        }
+
+        /// <summary>A tile a big tile shows: a large block, with the name and value under it.</summary>
+        public static SwatchItemView Tile(Swatch swatch, ColorNotation notation, double height, bool showName, bool showValue)
+        {
+            var copied = ColorFormats.Format(swatch.Color, notation);
+
+            var block = Block(swatch, double.NaN, Fluent.OverlayRadius);
+            block.HorizontalAlignment = HorizontalAlignment.Stretch;
+            block.VerticalAlignment = VerticalAlignment.Stretch;
+
+            var layout = new Grid
+            {
+                RowSpacing = Fluent.Space1,
+                RowDefinitions =
+                {
+                    new RowDefinition { Height = new GridLength(1, GridUnitType.Star) },
+                    new RowDefinition { Height = GridLength.Auto },
+                    new RowDefinition { Height = GridLength.Auto },
+                },
+                Children = { block },
+            };
+
+            if (showName)
+            {
+                var name = Fluent.Text(FluentType.Body);
+                name.Text = swatch.Name;
+                name.TextTrimming = TextTrimming.CharacterEllipsis;
+                SetRow(name, 1);
+                layout.Children.Add(name);
+            }
+
+            TextBlock? value = null;
+
+            if (showValue)
+            {
+                value = Fluent.Text(FluentType.Caption, "TextFillColorTertiaryBrush");
+                value.Text = copied;
+                SetRow(value, 2);
+                layout.Children.Add(value);
+            }
+
+            var root = new Border
+            {
+                Child = layout,
+                Height = height,
+                CornerRadius = new CornerRadius(Fluent.OverlayRadius),
+                Background = FluentLayout.Themed("SubtleFillColorTransparentBrush", Colors.Transparent),
+            };
+
+            return new SwatchItemView(root, value, copied, hover: false);
+        }
+
+        /// <summary>
+        /// The colour itself: the one literal colour in the widget, and the only one that should be —
+        /// this IS the content. A hairline so a colour the same as the card still has an edge.
+        /// </summary>
+        private static Border Block(Swatch swatch, double side, double radius) => new()
+        {
+            Width = side,
+            Height = side,
+            CornerRadius = new CornerRadius(radius),
+            Background = new SolidColorBrush(Windows.UI.Color.FromArgb(255, swatch.Color.R, swatch.Color.G, swatch.Color.B)),
+            BorderBrush = FluentLayout.Themed("ControlStrokeColorDefaultBrush", Colors.Gray),
+            BorderThickness = new Thickness(Fluent.Hairline),
+        };
+
+        private void OnTapped(object sender, TappedRoutedEventArgs args)
+        {
+            // Not marked handled: the card's double-click, which is how the desktop enters edit
+            // mode, still has to reach it. Copying the same colour twice costs nothing.
+            Copy();
+        }
 
         /// <summary>
         /// Copy, and say so in place of the value until the pointer leaves.
         /// <para>
         /// Event-driven rather than a timer: "Copied" that clears itself after a second and a half
-        /// needs a wall clock, a dispatcher and something to dispose, and the pointer leaving the row
-        /// is both a better signal and free.
+        /// needs a wall clock, a dispatcher and something to dispose, and the pointer leaving the
+        /// item is both a better signal and free.
         /// </para>
         /// </summary>
-        private void OnTapped(object sender, TappedRoutedEventArgs args)
+        public void Copy()
         {
-            // Not marked handled: the card's double-click, which is how the desktop enters edit
-            // mode, still has to reach it. Copying the same colour twice costs nothing.
             try
             {
                 var package = new DataPackage { RequestedOperation = DataPackageOperation.Copy };
@@ -315,7 +577,7 @@ internal sealed partial class ColorSwatchView : Grid, IWidgetView
             catch (Exception ex)
             {
                 // Another process can hold the clipboard open; Windows fails the call rather than
-                // waiting. Say so instead of leaving the row claiming it copied something.
+                // waiting. Say so instead of leaving the item claiming it copied something.
                 Log.Error(Scope, $"could not copy {_copied} to the clipboard", ex);
                 return;
             }
@@ -353,10 +615,10 @@ internal sealed partial class ColorSwatchView : Grid, IWidgetView
             }
 
             _disposed = true;
-            _root.Tapped -= OnTapped;
-            _root.PointerExited -= OnLeft;
-            _root.PointerCaptureLost -= OnLeft;
-            _hover.Dispose();
+            Root.Tapped -= OnTapped;
+            Root.PointerExited -= OnLeft;
+            Root.PointerCaptureLost -= OnLeft;
+            _hover?.Dispose();
         }
     }
 }

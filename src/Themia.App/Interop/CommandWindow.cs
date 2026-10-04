@@ -51,6 +51,9 @@ internal sealed unsafe class CommandWindow : IDisposable
 
     private nint _hwnd;
     private bool _hotkeyRegistered;
+
+    /// <summary>[S-1011] Registered for session notifications, so <see cref="Dispose"/> unregisters.</summary>
+    private bool _sessionRegistered;
     private bool _disposed;
 
     /// <summary>Raised when the user asks for edit mode, by hotkey or by launching the app again.</summary>
@@ -67,6 +70,9 @@ internal sealed unsafe class CommandWindow : IDisposable
     /// </para>
     /// </summary>
     public event Action? DisplaysChanged;
+
+    /// <summary>[S-1011] The session was unlocked (only that change: not lock, logon or a remote connect). On the UI thread.</summary>
+    public event Action? SessionUnlocked;
 
     /// <summary>
     /// Hand the request to a copy that is already running and report that we should stand down.
@@ -167,6 +173,14 @@ internal sealed unsafe class CommandWindow : IDisposable
         }
 
         RegisterHotkey();
+
+        // [S-1011] The unlock replays the intro. Without it the desktop simply comes back still.
+        _sessionRegistered = SessionNotifications.Register(_hwnd, SessionNotifications.ForThisSession);
+        if (!_sessionRegistered)
+        {
+            Log.Warn(Scope, $"could not listen for the session unlock (win32 {Marshal.GetLastWin32Error()}); the unlock animation will not play");
+        }
+
         return true;
     }
 
@@ -218,6 +232,12 @@ internal sealed unsafe class CommandWindow : IDisposable
                     return 0;
                 }
 
+                if (SessionNotifications.IsUnlock(msg, wParam))
+                {
+                    self.SessionUnlocked?.Invoke();
+                    return 0;
+                }
+
                 if (msg == WmDisplayChange
                     || msg == WmDpiChanged
                     || (msg == WmSettingChange && wParam == SpiSetWorkArea)
@@ -255,6 +275,16 @@ internal sealed unsafe class CommandWindow : IDisposable
             }
 
             _hotkeyRegistered = false;
+        }
+
+        if (_sessionRegistered)
+        {
+            if (!SessionNotifications.Unregister(_hwnd))
+            {
+                Log.Warn(Scope, "WTSUnRegisterSessionNotification failed");
+            }
+
+            _sessionRegistered = false;
         }
 
         if (_hwnd != 0)

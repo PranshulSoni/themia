@@ -44,11 +44,14 @@ internal static class GalleryFixtures
         or WidgetKind.Tasks or WidgetKind.OneDrive
         or WidgetKind.Calendar or WidgetKind.Contacts
         or WidgetKind.Power or WidgetKind.Bluetooth or WidgetKind.Battery
-        or WidgetKind.Disk or WidgetKind.Ping
+        or WidgetKind.Disk or WidgetKind.Ping or WidgetKind.Network
         or WidgetKind.Mixer or WidgetKind.Volume
         or WidgetKind.Gpu
+        or WidgetKind.Music or WidgetKind.Pomodoro
+        or WidgetKind.Folder
+        or WidgetKind.ViewSwitcher
         or WidgetKind.GitHub or WidgetKind.GitHubIssues or WidgetKind.GitHubNotifications or WidgetKind.GitHubReviews or WidgetKind.ClaudeUsage
-        || LayoutFixtures.Has(kind);
+        || LayoutFixtures.Has(kind) || ContainerFixture.Has(kind) || DeskToolFixtures.Has(kind) || AppWidgetFixtures.Has(kind);
 
     /// <summary>
     /// Put back the data sources a fixture swapped in, before a page is drawn without one. Screen
@@ -83,6 +86,9 @@ internal static class GalleryFixtures
         DiskPingFixture.InstallDisk(populated: false);
         DiskPingFixture.InstallPing(populated: false);
 
+        // [S-1619] Network: the plain page reads this machine's Wi-Fi as it is.
+        NetworkFixture.Install(populated: false);
+
         // [S-1420] Habits read the device's list pool; the plain page starts with none.
         HabitsFixture.Install(populated: false);
 
@@ -94,6 +100,19 @@ internal static class GalleryFixtures
 
         // [S-1233] Mixer and volume: the plain pages read this machine (read-only, never written).
         AudioFixture.Install(populated: false);
+
+        // [S-1474] Music and the pomodoro: the plain pages read the session / start fresh.
+        MediaFixture.InstallMusic(populated: false);
+        MediaFixture.InstallPomodoro(populated: false);
+
+        // [S-1516] The calculator's plain page starts with no history.
+        DeskToolFixtures.Reset();
+
+        // [S-1534] Search's plain page has no recent searches.
+        AppWidgetFixtures.Reset();
+
+        // [S-1658] The view switcher's plain page has three views.
+        GalleryViewsDisplay.Crowded = false;
     }
 
     /// <summary>The populated config for a kind, or null when it has no fixture.</summary>
@@ -130,6 +149,10 @@ internal static class GalleryFixtures
             case WidgetKind.Tasks:
                 TasksFixture.Install(populated: true);
                 return TasksFixture.Config();
+
+            case WidgetKind.Folder:
+                // [S-1339] A made-up project folder in the gallery's temp directory, never the user's files.
+                return FolderFixture.Config();
 
             case WidgetKind.OneDrive:
                 TasksFixture.InstallDrive(populated: true);
@@ -175,6 +198,11 @@ internal static class GalleryFixtures
                 DiskPingFixture.InstallPing(populated: true);
                 return DiskPingFixture.PingConfig();
 
+            case WidgetKind.Network:
+                // [S-1619] The packaged Wi-Fi line with location refused: no name, the hint under it.
+                NetworkFixture.Install(populated: true);
+                return NetworkFixture.Config();
+
             case WidgetKind.Mixer:
                 // [S-1233] Three devices, a microphone and seven apps; previews never write.
                 AudioFixture.Install(populated: true);
@@ -184,9 +212,24 @@ internal static class GalleryFixtures
                 AudioFixture.Install(populated: true);
                 return AudioFixture.VolumeConfig();
 
+            case WidgetKind.Music:
+                // [S-1474] A made-up track with art and bars; never the machine's session.
+                MediaFixture.InstallMusic(populated: true);
+                return MediaFixture.MusicConfig();
+
+            case WidgetKind.Pomodoro:
+                // [S-1474] Part-way through a focus phase, three sessions done, paused.
+                MediaFixture.InstallPomodoro(populated: true);
+                return MediaFixture.PomodoroConfig();
+
+            case WidgetKind.ViewSwitcher:
+                // [S-1658] The views come from the pretend display, not the config: twelve of them.
+                GalleryViewsDisplay.Crowded = true;
+                return new ViewSwitcherConfig();
+
             default:
                 // The ported widgets' populated states, kept in their own file.
-                return LayoutFixtures.Create(kind);
+                return ContainerFixture.Create(kind) ?? LayoutFixtures.Create(kind) ?? DeskToolFixtures.Create(kind) ?? AppWidgetFixtures.Create(kind);
         }
     }
 

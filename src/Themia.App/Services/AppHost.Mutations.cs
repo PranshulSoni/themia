@@ -14,8 +14,14 @@ namespace Themia.App.Services;
 /// </summary>
 internal sealed partial class AppHost
 {
-    /// <summary>Apply a change and persist it. Every mutation goes through here.</summary>
-    public void Mutate(Action<AppState> change, bool relayout = true)
+    /// <summary>
+    /// Apply a change and persist it. Every mutation goes through here.
+    /// <para>
+    /// [S-884] And so does the undo history: the change is committed to it, which records a step
+    /// named <paramref name="undo"/> when the arrangement of the desktop changed and nothing otherwise.
+    /// </para>
+    /// </summary>
+    public void Mutate(Action<AppState> change, bool relayout = true, UndoAction undo = UndoAction.Change)
     {
         ArgumentNullException.ThrowIfNull(change);
 
@@ -28,7 +34,11 @@ internal sealed partial class AppHost
             Log.Error(Scope, "a state mutation threw; state may be partially applied", ex);
         }
 
+        _history?.Commit(State, undo);
         _store.SaveSoon(State);
+
+        // [S-1583] A deleted or moved widget leaves the selection with the change that removed it.
+        ChangeSelection(Selection.Prune(State));
 
         if (relayout)
         {
@@ -84,15 +94,22 @@ internal sealed partial class AppHost
     /// loss the backup exists to prevent.
     /// </para>
     /// </summary>
-    public string? ImportState(AppState incoming)
+    public string? ImportState(AppState incoming) => ReplaceState(incoming, SettingsTransfer.ImportOccasion);
+
+    /// <summary>
+    /// Replace the whole state, keeping the current one beside the state file under
+    /// <paramref name="occasion"/>'s name first: an import ([S-497]) or a reset ([S-892]). The undo
+    /// history starts again: there is no step from one whole profile to another.
+    /// </summary>
+    private string? ReplaceState(AppState incoming, string occasion)
     {
         ArgumentNullException.ThrowIfNull(incoming);
 
-        var backup = SettingsTransfer.BackupPath(_store.Path, DateTime.Now);
+        var backup = SettingsTransfer.BackupPath(_store.Path, DateTime.Now, occasion);
         if (SettingsTransfer.WriteFile(State, backup) is { } problem)
         {
-            Log.Error(Scope, $"import cancelled: could not keep the current settings at {backup}");
-            return $"The settings you have now couldn't be kept, so nothing was imported. {problem}";
+            Log.Error(Scope, $"{occasion} cancelled: could not keep the current settings at {backup}");
+            return $"The settings you have now couldn't be kept, so nothing was changed. {problem}";
         }
 
         Select(null);
@@ -104,13 +121,14 @@ internal sealed partial class AppHost
 
             // Displays named in the file that are not connected keep their assignment ([S-18]);
             // the ones that are connected and unnamed get a view of their own, as at startup.
-            state.EnsureViewPerDisplay(DisplayViewKeys());
+            state.EnsureViewPerDisplay(DisplayViewKeys(), ViewCap);
         });
 
         // The imported file carries its own per-display switches ([S-845]).
         ReconcileDisplays();
+        _history?.Clear(State);
 
-        Log.Info(Scope, $"imported settings; the previous ones are at {backup}");
+        Log.Info(Scope, $"replaced the settings ({occasion}); the previous ones are at {backup}");
         return null;
     }
 
@@ -140,23 +158,50 @@ internal sealed partial class AppHost
             return; // the last view cannot go: a desktop with no view has nowhere to put a widget
         }
 
+        // [S-902] One change: the view goes, and every reference to it is repaired with it. A display
+        // left without an assignment gets a view again rather than silently falling back to
+        // whatever view happens to be active.
+        var name = State.FindView(viewId)?.Name;
         Mutate(state =>
         {
-            state.Views.RemoveAll(v => v.Id == viewId);
-
-            foreach (var monitor in state.MonitorViews.Where(kv => kv.Value == viewId).Select(kv => kv.Key).ToList())
+            if (ViewOps.Delete(state, viewId))
             {
-                state.MonitorViews.Remove(monitor);
+                state.EnsureViewPerDisplay(DisplayViewKeys(), ViewCap);
             }
+        }, undo: UndoAction.DeleteView);
 
-            if (state.ActiveViewId == viewId)
-            {
-                state.ActiveViewId = state.Views[0].Id;
-            }
-        });
-
-        // A display left without an assignment gets a fresh one rather than silently falling back
-        // to whatever view happens to be active.
-        Mutate(state => state.EnsureViewPerDisplay(DisplayViewKeys()));
+        // [S-881] No confirmation: the notice offers the way back.
+        if (name is not null && State.FindView(viewId) is null)
+        {
+            OfferUndo($"Deleted view “{name}”");
+        }
     }
+
+    /// <summary>
+    /// [S-900] Duplicate a view and show the copy on <paramref name="monitorId"/> (when given), as
+    /// the original did. Within the licence: the copy is one view and all of its widgets.
+    /// </summary>
+    public void DuplicateView(string viewId, string? monitorId)
+    {
+        if (State.FindView(viewId) is not { } source || !AllowCreate(source.Widgets.Count, 1))
+        {
+            return;
+        }
+
+        Mutate(state =>
+        {
+            if (ViewOps.Duplicate(state, viewId) is { } copy && monitorId is not null)
+            {
+                state.ShowViewOn(monitorId, copy.Id);
+            }
+        }, undo: UndoAction.DuplicateView);
+    }
+
+    /// <summary>[S-901] Move a view into another's place in the order.</summary>
+    public void ReorderView(string draggedId, string targetId)
+        => Mutate(state => ViewOps.Reorder(state.Views, draggedId, targetId), undo: UndoAction.ReorderView);
+
+    /// <summary>[S-901] Move a view one place up (-1) or down (+1).</summary>
+    public void MoveView(string viewId, int delta)
+        => Mutate(state => ViewOps.MoveBy(state.Views, viewId, delta), undo: UndoAction.ReorderView);
 }

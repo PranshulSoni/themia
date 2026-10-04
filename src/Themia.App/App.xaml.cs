@@ -76,6 +76,36 @@ public partial class App : Application
         {
             return;
         }
+
+        // And for the desktop view bar ([S-906]) at its anchors and sizes.
+        if (Shell.Gallery.ViewBarRender.TryRunFromCommandLine(this, Environment.GetCommandLineArgs()))
+        {
+            return;
+        }
+
+        // And for the desktop's notices and a widget's error card ([S-880], [S-891]).
+        if (Shell.Gallery.NoticeRender.TryRunFromCommandLine(this, Environment.GetCommandLineArgs()))
+        {
+            return;
+        }
+
+        // And for the app-layout editor ([S-1411]).
+        if (Shell.Gallery.LayoutEditorRender.TryRunFromCommandLine(this, Environment.GetCommandLineArgs()))
+        {
+            return;
+        }
+
+        // And for the intros, frozen mid-flight ([S-1016]).
+        if (Shell.Gallery.MotionRender.TryRunFromCommandLine(this, Environment.GetCommandLineArgs()))
+        {
+            return;
+        }
+
+        // And the surface's drop plumbing, exercised off-screen ([S-1026]).
+        if (Shell.Gallery.DropCheck.TryRunFromCommandLine(this, Environment.GetCommandLineArgs()))
+        {
+            return;
+        }
 #endif
 
         // Themia has no tray entry and no window in the taskbar, so launching it again is the

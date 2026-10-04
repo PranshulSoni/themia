@@ -1,5 +1,7 @@
-﻿using Microsoft.UI.Xaml;
+using Microsoft.UI.Xaml;
+using Themia.App.Services;
 using Themia.Core.Model;
+using Themia.Core.Widgets;
 
 namespace Themia.App.Shell.Config;
 
@@ -24,8 +26,30 @@ internal static partial class WidgetSettings
             FluentLayout.Slider(config.EffectiveBreakMinutes, 1, 180, 1, " min",
                 value => { config.BreakMinutes = (int)Math.Round(value); save(); })));
 
-        // [S-06] The cue sounds on the phase change only — not on start, pause or reset.
-        rows.Add(FluentLayout.Row(Glyphs.Sound, "Sound", "A short cue when the phase changes",
-            FluentLayout.Toggle(config.Alarm, value => { config.Alarm = value; save(); })));
+        // [S-1460] Off or one of twelve ringtones, gentle to insistent; the volume row only while a
+        // sound is chosen. Changing either previews the focus cue, so a choice is made by ear.
+        FrameworkElement? volumeRow = null;
+
+        rows.Add(FluentLayout.Row(Glyphs.Sound, "Sound", "Plays when the phase changes",
+            FluentLayout.Choice(
+                PomodoroSounds.Order.Select(sound => (sound, PomodoroSounds.Label(sound))).ToArray(),
+                config.Sound,
+                value =>
+                {
+                    config.Sound = value;
+                    save();
+                    volumeRow!.Visibility = value == AlarmSound.Off ? Visibility.Collapsed : Visibility.Visible;
+                    Preview(config);
+                })));
+
+        volumeRow = FluentLayout.Row(Glyphs.Volume, "Volume", "How loud the sound plays",
+            FluentLayout.Slider(config.EffectiveVolume, 0, 100, 1, "%",
+                value => { config.Volume = (int)Math.Round(value); save(); Preview(config); }));
+        volumeRow.Visibility = config.Sound == AlarmSound.Off ? Visibility.Collapsed : Visibility.Visible;
+        rows.Add(volumeRow);
+
+        // The player is single-flight: a slider drag restarts the cue rather than stacking copies.
+        static void Preview(PomodoroConfig config)
+            => CuePlayer.Play(PomodoroSounds.Wave(config.Sound, PomodoroPhase.Work, config.EffectiveVolume));
     }
 }

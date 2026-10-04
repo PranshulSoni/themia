@@ -16,6 +16,9 @@ public enum ShortcutCommand
     MoveDown,
     Rename,
     Remove,
+
+    /// <summary>[S-1405] Open the layout editor on an app layout.</summary>
+    EditLayout,
 }
 
 /// <summary>One line of a shortcut's item menu; a null command is a separator.</summary>
@@ -77,6 +80,14 @@ public static class ShortcutRules
     /// cannot be opened but can still be renamed, moved and removed.
     /// </summary>
     public static IReadOnlyList<ShortcutMenuEntry> Menu(LaunchTarget target, int selected, int index, int count)
+        => Menu(target, selected, index, count, layout: null);
+
+    /// <summary>
+    /// [S-1405] The item menu, for an app layout too (original S-26): "Open" launches it (off while
+    /// no pane opens anything), "Edit layout…" replaces the target-specific actions, and the moves,
+    /// Rename and Remove are as for any item.
+    /// </summary>
+    public static IReadOnlyList<ShortcutMenuEntry> Menu(LaunchTarget target, int selected, int index, int count, LayoutNode? layout)
     {
         if (selected > 1)
         {
@@ -89,10 +100,15 @@ public static class ShortcutRules
             ];
         }
 
-        var entries = new List<ShortcutMenuEntry> { new(ShortcutCommand.Open, Disabled: !target.IsValid), ShortcutMenuEntry.Separator };
+        var openable = layout is null ? target.IsValid : LayoutTree.AssignedCount(layout) > 0;
+        var entries = new List<ShortcutMenuEntry> { new(ShortcutCommand.Open, Disabled: !openable), ShortcutMenuEntry.Separator };
 
-        switch (target.Kind)
+        switch (layout is null ? target.Kind : LaunchKind.Refused)
         {
+            case LaunchKind.Refused when layout is not null:
+                entries.Add(new(ShortcutCommand.EditLayout));
+                break;
+
             case LaunchKind.Web:
                 entries.Add(new(ShortcutCommand.CopyUrl));
                 break;
@@ -228,6 +244,9 @@ public static class ShortcutRules
 
         return probe(target.Value);
     }
+
+    /// <summary>[S-1405] The details view's kind column for an app layout.</summary>
+    public const string LayoutKindLabel = "App layout";
 
     /// <summary>[S-1384] The details view's kind column.</summary>
     public static string KindLabel(LaunchTarget target, TargetHealth health) => target.Kind switch

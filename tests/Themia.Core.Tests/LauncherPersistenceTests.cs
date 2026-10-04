@@ -136,18 +136,25 @@ public sealed class LauncherPersistenceTests : IDisposable
     {
         var config = new AppsConfig
         {
+            View = AppsViewMode.Compact,
             ShowFilter = false,
-            ShowCategory = false,
-            OpenOnSingleClick = true,
+            GroupByFolder = false,
+            ClickMode = ItemClickMode.Single,
             MaxCount = 50,
+            HiddenCategories = ["", "Games"],
+            HiddenApps = [@"C:\Menu\Chess.lnk"],
         };
 
         var reloaded = Assert.IsType<AppsConfig>(await RoundTripAsync(config));
 
+        Assert.Equal(AppsViewMode.Compact, reloaded.View);
         Assert.False(reloaded.ShowFilter);
-        Assert.False(reloaded.ShowCategory);
-        Assert.True(reloaded.OpenOnSingleClick);
+        Assert.False(reloaded.GroupByFolder);
+        Assert.Equal(ItemClickMode.Single, reloaded.ClickMode);
         Assert.Equal(50, reloaded.MaxCount);
+        Assert.Equal(["", "Games"], reloaded.HiddenCategories);
+        Assert.Equal([@"C:\Menu\Chess.lnk"], reloaded.HiddenApps);
+        Assert.Contains("\"Compact\"", File.ReadAllText(_path), StringComparison.Ordinal);
     }
 
     [Fact]

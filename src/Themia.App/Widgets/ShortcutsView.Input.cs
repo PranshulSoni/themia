@@ -63,6 +63,9 @@ internal sealed partial class ShortcutsView
 
         _selection.Click(Order(), cell.Item.Id, ctrl, shift);
         PaintAll();
+
+        // [S-1410] A press on an item may become a drag to reorder it.
+        ArmDrag(cell, args);
     }
 
     private void OnCellTapped(object sender, TappedRoutedEventArgs args)
@@ -140,6 +143,11 @@ internal sealed partial class ShortcutsView
 
     private void OnRootPointerMoved(object sender, PointerRoutedEventArgs args)
     {
+        if (MoveDrag(args))
+        {
+            return;
+        }
+
         if (_bandStart is not { } start || _detached)
         {
             return;
@@ -211,6 +219,12 @@ internal sealed partial class ShortcutsView
 
     private void OnRootPointerReleased(object sender, PointerRoutedEventArgs args)
     {
+        if (ReleaseDrag())
+        {
+            args.Handled = true;
+            return;
+        }
+
         if (_bandStart is null)
         {
             return;
@@ -228,7 +242,11 @@ internal sealed partial class ShortcutsView
         EndBand();
     }
 
-    private void OnRootPointerLost(object sender, PointerRoutedEventArgs args) => EndBand();
+    private void OnRootPointerLost(object sender, PointerRoutedEventArgs args)
+    {
+        EndBand();
+        EndReorder(commit: false);
+    }
 
     /// <summary>Tear the band down on every way out: release, capture lost, cancel, a missing button-up.</summary>
     private void EndBand()
@@ -375,7 +393,7 @@ internal sealed partial class ShortcutsView
         var many = selected.Count > 1 && selected.Contains(cell);
         var index = _config.Items.IndexOf(cell.Item);
 
-        foreach (var entry in ShortcutRules.Menu(cell.Target, many ? selected.Count : 1, index, _config.Items.Count))
+        foreach (var entry in ShortcutRules.Menu(cell.Target, many ? selected.Count : 1, index, _config.Items.Count, cell.Item.Layout))
         {
             if (entry.Command is not { } command)
             {
@@ -385,7 +403,9 @@ internal sealed partial class ShortcutsView
 
             yield return command switch
             {
-                ShortcutCommand.Open => new(Glyphs.Open, "Open", () => Open([cell]), Disabled: entry.Disabled),
+                ShortcutCommand.Open => new(Glyphs.Open, cell.Item.IsLayout ? "Open layout" : "Open", () => Open([cell]), Disabled: entry.Disabled),
+                ShortcutCommand.EditLayout => new(Glyphs.Edit, "Edit layout…", () => AppServices.EditAppLayout?.Invoke(cell.Item.Id),
+                    Disabled: AppServices.EditAppLayout is null),
                 ShortcutCommand.OpenAll => new(Glyphs.Open, $"Open {selected.Count}", () => Open(selected)),
                 ShortcutCommand.CopyUrl => new(Glyphs.Copy, "Copy URL", () => Copy(cell.Target.Value)),
                 ShortcutCommand.CopyPath => new(Glyphs.Copy, "Copy path", () => Copy(cell.Target.Value)),
@@ -412,7 +432,12 @@ internal sealed partial class ShortcutsView
 
         foreach (var cell in cells)
         {
-            if (cell.Target.IsValid)
+            if (cell.Item.IsLayout)
+            {
+                // [S-1407] On the display this widget is on.
+                AppLayoutLauncher.Launch(cell.Item.Layout, Window());
+            }
+            else if (cell.Target.IsValid)
             {
                 ShellLauncher.Open(cell.Item.Target);
             }

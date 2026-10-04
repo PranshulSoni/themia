@@ -136,7 +136,7 @@ internal static partial class WidgetSettings
         }
 
         return FluentLayout.Row(Glyphs.Speakers, "Output device",
-            "Default output follows Windows when you switch devices",
+            "Which device this widget shows. Picking one in the widget changes Windows' default instead",
             box, "speaker", "headphones", "sound");
     }
 }

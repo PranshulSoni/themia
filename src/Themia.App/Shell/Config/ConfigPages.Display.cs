@@ -71,7 +71,104 @@ internal static partial class ConfigPages
                 "work area", "taskbar"),
         };
 
+        rows.AddRange(ViewBarRows(host, monitorId));
         return Page(display.ShortName, rows, display.Describe());
+    }
+
+    /// <summary>[S-916] This display's view bar: shown or not, where, how big, names, and which views it offers.</summary>
+    private static List<FrameworkElement> ViewBarRows(AppHost host, string monitorId)
+    {
+        var bar = ViewBarRules.For(host.State, monitorId);
+        void Change(Action<ViewBarSettings> change) => host.Mutate(s => ViewBarRules.Update(s, monitorId, change));
+
+        var rows = new List<FrameworkElement>
+        {
+            FluentLayout.Header("View bar"),
+
+            FluentLayout.Row(Glyphs.View, "Show the view bar",
+                "Chips on the desktop for switching this display's view. With a single view it only shows if you picked that view below",
+                FluentLayout.Toggle(!bar.Hidden, on => Change(b => b.Hidden = !on)),
+                "views", "switcher", "chips"),
+
+            FluentLayout.Row(Glyphs.Display, "Position",
+                "Where on this display it sits, inside the area the taskbar leaves free. In edit mode it can also be dragged by its handle",
+                FluentLayout.Choice<ViewBarAnchor>(
+                [
+                    (ViewBarAnchor.TopLeft, "Top left"),
+                    (ViewBarAnchor.TopCenter, "Top centre"),
+                    (ViewBarAnchor.TopRight, "Top right"),
+                    (ViewBarAnchor.LeftCenter, "Left (vertical)"),
+                    (ViewBarAnchor.RightCenter, "Right (vertical)"),
+                    (ViewBarAnchor.BottomLeft, "Bottom left"),
+                    (ViewBarAnchor.BottomCenter, "Bottom centre"),
+                    (ViewBarAnchor.BottomRight, "Bottom right"),
+                ], bar.Anchor, value => Change(b => b.Anchor = value)),
+                "anchor", "corner", "vertical"),
+
+            FluentLayout.Row(Glyphs.Scale, "Size", null,
+                FluentLayout.Choice<ViewBarSize>(
+                [
+                    (ViewBarSize.Medium, "Medium"),
+                    (ViewBarSize.Large, "Large"),
+                    (ViewBarSize.ExtraLarge, "Extra large"),
+                ], bar.Size, value => Change(b => b.Size = value)),
+                "bigger", "smaller"),
+
+            FluentLayout.Row(Glyphs.Rename, "Show view names",
+                "Off leaves each view's icon, or its initials; the name is still in the tooltip",
+                FluentLayout.Toggle(!bar.IconOnly, on => Change(b => b.IconOnly = !on)),
+                "labels", "icons only", "initials"),
+        };
+
+        // [S-908] One switch per view. A change can be refused (the last view cannot be switched
+        // off), so after every change all the switches are set back from what was stored.
+        var toggles = new List<(string Id, ToggleSwitch Toggle)>();
+        var syncing = false;
+
+        void Sync()
+        {
+            var settings = ViewBarRules.For(host.State, monitorId);
+            var offered = ViewBarRules.VisibleViews(host.State.Views, settings).Select(v => v.Id).ToHashSet(StringComparer.Ordinal);
+            syncing = true;
+            try
+            {
+                foreach (var (id, toggle) in toggles)
+                {
+                    toggle.IsOn = offered.Contains(id);
+                }
+            }
+            finally
+            {
+                syncing = false;
+            }
+        }
+
+        var viewRows = new List<Border>();
+        foreach (var view in host.State.Views)
+        {
+            var id = view.Id;
+            var toggle = FluentLayout.Toggle(false, on =>
+            {
+                if (syncing)
+                {
+                    return;
+                }
+
+                host.Mutate(s => ViewBarRules.Update(s, monitorId, b => b.VisibleViews = ViewBarRules.ToggleVisible(s.Views, b, id, on)));
+                Sync();
+            });
+
+            toggles.Add((id, toggle));
+            viewRows.Add(FluentLayout.Row(string.IsNullOrEmpty(view.Icon) ? Glyphs.View : view.Icon, view.Name, null, toggle));
+        }
+
+        Sync();
+
+        rows.Add(FluentLayout.Expander(Glyphs.View, "Views on the bar",
+            "Each view switched on gets a chip here. With every one on, views you add later get one too",
+            null, viewRows));
+
+        return rows;
     }
 
     /// <summary>The view drop-down: an explicit view, or the active view.</summary>
@@ -104,7 +201,8 @@ internal static partial class ConfigPages
                 }
                 else
                 {
-                    s.MonitorViews[monitorId] = id;
+                    // [S-19] The one way a display is given a view.
+                    s.ShowViewOn(monitorId, id);
                 }
             });
         };

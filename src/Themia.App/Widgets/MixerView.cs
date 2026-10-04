@@ -44,6 +44,9 @@ internal sealed partial class MixerView : Grid, IWidgetView, IWidgetSizeAware, I
 
     private readonly AudioFeed _feed;
     private readonly Grid _listColumn = new();
+
+    /// <summary>[S-1624] Under a short list beside the panel: where the other apps will appear, and Windows' own mixer.</summary>
+    private readonly StackPanel _footer;
     private readonly Button _device = new();
     private readonly TextBlock _deviceName = Fluent.Text(FluentType.Caption, "TextFillColorSecondaryBrush");
     private readonly TextBlock _playing = Fluent.Text(FluentType.Caption, "TextFillColorTertiaryBrush");
@@ -91,6 +94,11 @@ internal sealed partial class MixerView : Grid, IWidgetView, IWidgetSizeAware, I
         SetRow(_scroller, 1);
         _listColumn.Children.Add(_device);
         _listColumn.Children.Add(_scroller);
+
+        _listColumn.RowDefinitions.Add(new RowDefinition { Height = new GridLength(0) });
+        _footer = BuildFooter();
+        SetRow(_footer, 2);
+        _listColumn.Children.Add(_footer);
 
         _panel = new SidePanel(this);
         _panel.Root.Visibility = Visibility.Collapsed;
@@ -285,9 +293,26 @@ internal sealed partial class MixerView : Grid, IWidgetView, IWidgetSizeAware, I
 
         _shown = [.. main, .. quiet.Take(quietRows)];
 
+        // [S-1624] Beside the panel, a list that all fits shares the column's height rather than
+        // stopping short; rows tall enough say what each app is doing under its name.
+        var baseRowHeight = rowHeight;
+
+        if (panel && style == MixerRowStyle.OneLine && rows == main.Count && quietRows == quiet.Count)
+        {
+            rowHeight = MixerFill.RowHeight(_area.Height - Fluent.Space1, _shown.Count, rowHeight);
+        }
+
         ShowDeviceLine(device, snapshot, main);
         ShowRows(style, rowHeight, main.Count);
         _scroller.Height = Math.Min(rows, main.Count) * rowHeight + (quietRows * rowHeight);
+
+        // [S-1624] What a short list leaves (beside the panel, after the rows were shared out, or
+        // under a tall card's list) is not left blank: it says where the other apps will appear and
+        // offers Windows' own volume mixer.
+        var footer = room.Remaining - ((rowHeight - baseRowHeight) * _shown.Count) >= FooterMinHeight;
+        _footer.Visibility = footer ? Visibility.Visible : Visibility.Collapsed;
+        _listColumn.RowDefinitions[1].Height = footer ? GridLength.Auto : new GridLength(1, GridUnitType.Star);
+        _listColumn.RowDefinitions[2].Height = footer ? new GridLength(1, GridUnitType.Star) : new GridLength(0);
 
         _panel.Root.Width = panelWidth;
         _panel.Root.Visibility = panel ? Visibility.Visible : Visibility.Collapsed;
@@ -298,6 +323,35 @@ internal sealed partial class MixerView : Grid, IWidgetView, IWidgetSizeAware, I
         }
 
         RestoreFocus();
+    }
+
+    /// <summary>The room the footer needs before it is shown: its glyph, two lines and the link.</summary>
+    private const double FooterMinHeight = 128;
+
+    private StackPanel BuildFooter()
+    {
+        var text = new TextBlock { Text = "Other apps appear here when they play sound" };
+        var hint = Fluent.EmptyState(Glyphs.Speakers, text, out _);
+
+        var link = new HyperlinkButton
+        {
+            Content = "Volume mixer in Settings",
+            HorizontalAlignment = HorizontalAlignment.Center,
+            Margin = new Thickness(0, Fluent.Space1, 0, 0),
+        };
+        link.Click += (_, _) =>
+        {
+            if (_surface is { IsPreview: false })
+            {
+                ShellLauncher.OpenWindowsSettings(new Uri("ms-settings:apps-volume"));
+            }
+        };
+        return new StackPanel
+        {
+            Children = { hint, link },
+            VerticalAlignment = VerticalAlignment.Center,
+            Visibility = Visibility.Collapsed,
+        };
     }
 
     private void ShowEmpty(string message)
@@ -325,7 +379,7 @@ internal sealed partial class MixerView : Grid, IWidgetView, IWidgetSizeAware, I
                 var row = _shown[i];
                 var visual = _rows[i];
                 visual.Host.Visibility = Visibility.Visible;
-                visual.Arrange(style, rowHeight, _config.ShowIcons);
+                visual.Arrange(style, rowHeight, _config.ShowIcons, detail: rowHeight >= MixerFill.DetailRowHeight);
 
                 // [S-1228] An app holding a session but silent reads as such, and the quiet rows
                 // under the list always do.
@@ -405,19 +459,41 @@ internal sealed partial class MixerView : Grid, IWidgetView, IWidgetSizeAware, I
         AudioDeviceMenu.Build(snapshot, _config.DeviceId, PickDevice).ShowAt(anchor);
     }
 
-    /// <summary>[S-1222] Bind the mixer to a device (null: follow the default) and keep the choice.</summary>
-    private void PickDevice(AudioDevice? device)
+    /// <summary>
+    /// [S-1614] A pick makes the device Windows' default and the mixer keeps following the default;
+    /// when Windows refuses, the mixer binds to the device and a notice says why ([S-1616], [S-880]).
+    /// Null picks "Follow the default output".
+    /// </summary>
+    private async void PickDevice(AudioDevice? device)
     {
         if (_surface is not { IsPreview: false } surface)
         {
             return;
         }
 
-        _config.DeviceId = device?.Id;
-        _config.DeviceName = device?.Name;
-        _overrides.Clear();
-        surface.RequestSave();
-        Lay();
+        try
+        {
+            if (await _feed.PickAsync(device, _config.DeviceId, _config.DeviceName, _snapshot?.DefaultId) is not { } after || _detached)
+            {
+                return;
+            }
+
+            _config.DeviceId = after.DeviceId;
+            _config.DeviceName = after.DeviceName;
+            _overrides.Clear();
+            surface.RequestSave();
+            Lay();
+
+            if (after.Notice is { } notice)
+            {
+                // [S-1616]/[S-880] Said once, as a notice: the widget is bound now, nothing to answer.
+                Themia.App.Services.Notices.Warning("Default output not changed", notice);
+            }
+        }
+        catch (Exception ex)
+        {
+            Themia.Core.Diagnostics.Log.Error("audio", "the mixer could not change its device", ex);
+        }
     }
 
     // ---- writes -------------------------------------------------------------------------------

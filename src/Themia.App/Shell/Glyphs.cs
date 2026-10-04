@@ -163,6 +163,13 @@ internal static class Glyphs
     public static readonly string Pick = From(0xE7C9);
     public static readonly string Fit = From(0xE9A6);
 
+    // The License page ([S-1068]).
+    public static readonly string Shop = From(0xE719);
+    public static readonly string Certificate = From(0xEB95);
+
+    // The language row on the General page ([S-1109]): Fluent's LocaleLanguage.
+    public static readonly string Language = From(0xF2B7);
+
     // The app widgets and the About page.
     public static readonly string Help = From(0xE897);
     public static readonly string Themia = From(0xE8A9);
@@ -211,6 +218,52 @@ internal static class Glyphs
 
     /// <summary>[S-866] Take a widget out of its container.</summary>
     public static readonly string TakeOut = From(0xE8A7);
+
+    /// <summary>[S-913] The view bar's drag handle: upright bars on a row, flat bars on a column.</summary>
+    public static readonly string GripperVertical = From(0xE784);
+
+    public static readonly string GripperHorizontal = From(0xE76F);
+
+    /// <summary>[S-881] A notice's close button, and its success and error marks (InfoBar's own glyphs).</summary>
+    public static readonly string Dismiss = From(0xE711);
+
+    public static readonly string Success = From(0xE930);
+
+    public static readonly string ErrorBadge = From(0xEA39);
+
+    /// <summary>[S-891] A widget that failed: its error card.</summary>
+    public static readonly string Broken = From(0xE783);
+
+    /// <summary>[S-1326] The folder widget's history and file commands.</summary>
+    public static readonly string Forward = From(0xE72A);
+
+    public static readonly string NewFolder = From(0xE8F4);
+
+    public static readonly string OpenWith = From(0xE7AC);
+
+    public static readonly string Pin = From(0xE718);
+
+    public static readonly string Unpin = From(0xE77A);
+
+    /// <summary>[S-1324] Cloud badges: available on this device (outline) and always kept (solid).</summary>
+    public static readonly string CheckCircle = From(0xE930);
+
+    public static readonly string CheckCircleSolid = From(0xEC61);
+
+    /// <summary>[S-1330] "Show more options": the shell's own menu.</summary>
+    public static readonly string More = From(0xE712);
+
+    /// <summary>[S-1323] The breadcrumb's separator.</summary>
+    public static readonly string ChevronRight = From(0xE76C);
+
+    /// <summary>[S-1405] An app layout (Segoe "Tiles").</summary>
+    public static readonly string AppLayout = From(0xECA5);
+
+    /// <summary>[S-1411] Split a pane side by side / one above the other (Segoe "DockLeft" / "DockBottom").</summary>
+    public static readonly string SplitSideBySide = From(0xE90C);
+
+    /// <inheritdoc cref="SplitSideBySide"/>
+    public static readonly string SplitStacked = From(0xE90E);
 
     private static string From(int codePoint) => char.ConvertFromUtf32(codePoint);
 }

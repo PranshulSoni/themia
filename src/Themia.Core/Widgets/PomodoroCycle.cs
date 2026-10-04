@@ -105,4 +105,34 @@ public static class PomodoroCycle
 
     /// <summary>The word for a phase, as the widget says it.</summary>
     public static string PhaseLabel(PomodoroPhase phase) => phase == PomodoroPhase.Work ? "Focus" : "Break";
+
+    /// <summary>The phase after <paramref name="phase"/>.</summary>
+    public static PomodoroPhase Other(PomodoroPhase phase) => phase == PomodoroPhase.Work ? PomodoroPhase.Break : PomodoroPhase.Work;
+
+    /// <summary>
+    /// [S-1466] Skip to the next phase now, with its full length loaded. A skip is the user's own
+    /// flip, so it never sounds; the caller keeps the running state as it was.
+    /// </summary>
+    public static PomodoroState Skip(PomodoroState state, PomodoroConfig config)
+    {
+        ArgumentNullException.ThrowIfNull(config);
+        var next = Other(state.Phase);
+        return new PomodoroState(next, PhaseSeconds(next, config));
+    }
+
+    /// <summary>[S-1466] "Next: Break 5:00" — what the flip will load.</summary>
+    public static string NextLine(PomodoroPhase phase, PomodoroConfig config)
+    {
+        ArgumentNullException.ThrowIfNull(config);
+        var next = Other(phase);
+        return $"Next: {PhaseLabel(next)} {Clock(PhaseSeconds(next, config))}";
+    }
+
+    /// <summary>
+    /// [S-1467] The focus sessions finished so far: a flip out of focus completes one; a skip does
+    /// not (it was abandoned, not finished), and a reset leaves the count alone. In memory only, like
+    /// the rest of the run state ([S-150]).
+    /// </summary>
+    public static int CountSession(int completed, PomodoroTick tick)
+        => tick.Flipped && tick.Phase == PomodoroPhase.Break ? completed + 1 : completed;
 }

@@ -53,6 +53,9 @@ internal sealed partial class HabitTrackerView
             return;
         }
 
+        // A rebuild under a lifted row ends the drag: the rows it was shifting are being replaced.
+        CancelDrag();
+
         // A rename open on a habit that has gone has nothing left to commit onto.
         if (_editor is { HabitId: { } editing } && habits.All(h => h.Id != editing))
         {
@@ -673,6 +676,9 @@ internal sealed partial class HabitTrackerView
 
             _hover = Fluent.Hover(Host);
             _menu = ItemMenu.Attach(Host, () => _owner.MenuFor(Id));
+
+            // [S-1621] A press anywhere but the box can become a drag.
+            _owner.HookDrag(Host);
         }
 
         public string Id { get; }
@@ -814,6 +820,20 @@ internal sealed partial class HabitTrackerView
             box.Visibility = Visibility.Visible;
         }
 
+        /// <summary>Whether a press landed on the tick box, which ticks and never starts a drag.</summary>
+        public bool IsInBox(DependencyObject? source)
+        {
+            for (var node = source; node is not null && !ReferenceEquals(node, Host); node = VisualTreeHelper.GetParent(node))
+            {
+                if (ReferenceEquals(node, _box))
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
         private void OnBoxTapped(object sender, TappedRoutedEventArgs args)
         {
             args.Handled = true;
@@ -850,6 +870,7 @@ internal sealed partial class HabitTrackerView
             _name.DoubleTapped -= OnNameDoubleTapped;
             Host.Tapped -= OnRowTapped;
             Host.LostFocus -= OnLostFocus;
+            _owner.UnhookDrag(Host);
         }
     }
 }

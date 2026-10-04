@@ -66,6 +66,22 @@ internal static partial class ConfigPages
 
         rows.Add(FluentLayout.ClickRow(Glyphs.Code, "Open config file", host.StatePath, () => OpenConfigFile(host)));
 
+        // [S-892] Back to a fresh profile, with what is there now kept beside the settings file.
+        rows.Add(FluentLayout.ConfirmRow(
+            Glyphs.Reset,
+            "Reset all settings",
+            "Views, widgets, appearance and preferences go back to how Themia starts. Accounts, notes, tasks and habits stay",
+            "Reset…",
+            "Reset all settings?",
+            () => $"Every view and widget is replaced by the starting desktop, and appearance and preferences go back to their defaults. What you have now is kept beside {stateName}, so it can be imported again.",
+            () =>
+            {
+                if (host.ResetAll() is { } problem)
+                {
+                    Notices.Error("Couldn't reset the settings", problem);
+                }
+            }));
+
         // [S-1552] The very last card on the page, under its own heading.
         rows.Add(FluentLayout.Header("Uninstall"));
         rows.Add(UninstallRow(host));

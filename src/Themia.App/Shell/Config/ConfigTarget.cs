@@ -28,9 +28,6 @@ internal enum AppPage
     Accounts,
     About,
 
-    /// <summary>Intro, view-transition and unlock animations, and the startup sound.</summary>
-    Animations,
-
     /// <summary>Microsoft Store licence state.</summary>
     License,
 

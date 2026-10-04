@@ -12,9 +12,6 @@ namespace Themia.Core.Model;
 /// </summary>
 public static class WidgetTransfer
 {
-    /// <summary>A unit screen to clamp moved members against: the stored model is fractional.</summary>
-    private static readonly ScreenMetrics Unit = new(1920, 1080);
-
     /// <summary>
     /// Whether a drag that ended over another display should move the widget there.
     /// <para>
@@ -29,74 +26,82 @@ public static class WidgetTransfer
             && !string.Equals(targetViewId, sourceViewId, StringComparison.Ordinal);
 
     /// <summary>
-    /// Move a widget from one view to another, keeping its identity, and place it at
-    /// <paramref name="rect"/>. Returns false if either view or the widget is gone.
+    /// [S-75]/[S-1586] Land a placement: for a move, take the originals out of whatever view they are
+    /// in (each with everything it holds), then add the planned widgets to the target view — all in
+    /// one go, so a move across views can neither duplicate a widget nor drop it, and a move back
+    /// into its own view leaves exactly one of each.
+    /// <para>
+    /// A moved widget that still exists lands as <b>itself</b>: the live instance, with whatever its
+    /// config became since the snapshot, takes the planned rect and parent. Only an original deleted
+    /// meanwhile is put back from the snapshot. Anything the removal took that the plan does not carry
+    /// (a member added to a moved container after the snapshot) goes along unchanged, so a move never
+    /// loses a widget.
+    /// </para>
     /// </summary>
-    public static bool MoveWidget(this AppState state, string widgetId, string fromViewId, string toViewId, FracRect rect)
+    public static void ApplyPlacement(this AppState state, PastePlan plan, string targetViewId)
     {
         ArgumentNullException.ThrowIfNull(state);
+        ArgumentNullException.ThrowIfNull(plan);
 
-        if (string.Equals(fromViewId, toViewId, StringComparison.Ordinal))
+        var removed = new List<WidgetInstance>();
+        foreach (var rootId in plan.RemoveIds)
         {
-            return false;
-        }
+            foreach (var view in state.Views)
+            {
+                if (view.Find(rootId) is null)
+                {
+                    continue;
+                }
 
-        var from = state.FindView(fromViewId);
-        var to = state.FindView(toViewId);
-        if (from is null || to is null)
-        {
-            return false;
-        }
-
-        var widget = from.Widgets.FirstOrDefault(w => w.Id == widgetId);
-        if (widget is null)
-        {
-            return false;
-        }
-
-        // [S-876] A container moves with everything inside it, its members shifted as far as it
-        // moved; the widget itself leaves whatever held it, which stays behind on the old view.
-        var members = from.Widgets.FindAll(w => !ReferenceEquals(w, widget) && from.IsSelfOrDescendant(widgetId, w.Id));
-        var dx = rect.X - widget.X;
-        var dy = rect.Y - widget.Y;
-
-        // Remove before adding: the same instance must never be reachable from two views, or the
-        // next save writes it twice and the load-time duplicate-id repair silently renames one.
-        from.Widgets.Remove(widget);
-        from.Widgets.RemoveAll(members.Contains);
-        widget.Rect = rect;
-        widget.ParentId = null;
-        to.Widgets.Add(widget);
-
-        foreach (var member in members)
-        {
-            member.Rect = GridGeometry.Clamp(member.Rect with { X = member.X + dx, Y = member.Y + dy }, Unit);
-            to.Widgets.Add(member);
-        }
-
-        return true;
-    }
-
-    /// <summary>
-    /// Apply a paste: add the new widget to the target view and, for a cut, remove the original from
-    /// wherever it came from. Both halves happen together, so a cut across views can neither
-    /// duplicate the widget nor drop it.
-    /// </summary>
-    public static void ApplyPaste(this AppState state, PastePlan plan, string targetViewId)
-    {
-        ArgumentNullException.ThrowIfNull(state);
-
-        // [S-876] A cut container goes with everything inside it.
-        if (plan.RemoveFromViewId is { } fromViewId && plan.RemoveWidgetId is { } removeId
-            && state.FindView(fromViewId) is { } from)
-        {
-            var block = from.Widgets.FindAll(w => from.IsSelfOrDescendant(removeId, w.Id));
-            from.Widgets.RemoveAll(block.Contains);
+                var block = view.Widgets.FindAll(w => view.IsSelfOrDescendant(rootId, w.Id));
+                view.Widgets.RemoveAll(block.Contains);
+                removed.AddRange(block);
+                break;
+            }
         }
 
         var target = state.FindView(targetViewId) ?? state.ActiveView();
-        target.Widgets.Add(plan.Widget);
-        target.Widgets.AddRange(plan.Members ?? []);
+
+        foreach (var planned in plan.Added)
+        {
+            var original = removed.Find(w => string.Equals(w.Id, planned.Id, StringComparison.Ordinal));
+            if (original is null)
+            {
+                target.Widgets.Add(planned);
+                continue;
+            }
+
+            removed.Remove(original);
+            original.Rect = planned.Rect;
+            original.ParentId = planned.ParentId;
+            target.Widgets.Add(original);
+        }
+
+        target.Widgets.AddRange(removed);
+    }
+
+    /// <summary>
+    /// The ids a move would take out of the state: each root that exists, with everything it holds,
+    /// in the first view that has it.
+    /// </summary>
+    public static HashSet<string> RemovalBlock(AppState state, IEnumerable<string> rootIds)
+    {
+        ArgumentNullException.ThrowIfNull(state);
+        ArgumentNullException.ThrowIfNull(rootIds);
+
+        var ids = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var rootId in rootIds)
+        {
+            if (state.Views.Find(v => v.Find(rootId) is not null) is { } view)
+            {
+                foreach (var w in view.Widgets.Where(w => view.IsSelfOrDescendant(rootId, w.Id)))
+                {
+                    ids.Add(w.Id);
+                }
+            }
+        }
+
+        return ids;
     }
 
     /// <summary>

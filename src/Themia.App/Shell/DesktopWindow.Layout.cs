@@ -73,6 +73,7 @@ internal sealed partial class DesktopWindow
     private void OnStateChanged()
     {
         ApplyTheme();
+        SyncToolbar();
         Relayout();
     }
 
@@ -96,6 +97,8 @@ internal sealed partial class DesktopWindow
         // part of the desktop.
         ApplyInteractivity();
 
+        // [S-907] The bar gains its grip in edit mode, or appears faded where the user hid it.
+        RefreshViewBar();
         ApplyHitRegion();
 
         if (editing)
@@ -184,11 +187,7 @@ internal sealed partial class DesktopWindow
     }
 
     /// <summary>Whether a container draws this widget, rather than the grid placing it.</summary>
-    private static bool IsArrangedByContainer(ViewState view, WidgetInstance widget)
-    {
-        var parent = view.Find(widget.ParentId);
-        return parent is not null && WidgetTree.OwnsChildGeometry(WidgetTree.ContainerOf(parent.Kind));
-    }
+    private static bool IsArrangedByContainer(ViewState view, WidgetInstance widget) => !view.IsGridPlaced(widget);
 
     /// <summary>Rebuild the cards for this monitor's view and position them.</summary>
     private void Relayout()
@@ -259,12 +258,16 @@ internal sealed partial class DesktopWindow
             $"metrics={Metrics.Width:0}x{Metrics.Height:0} scale={RasterScale:0.00} edit={EditMode}");
 
         ApplyChromeInsets();
+        RefreshViewBar();
         ApplyHitRegion();
 
         if (EditMode)
         {
             DrawGridOverlay();
         }
+
+        // [S-1001] Last, once every card is in place: an armed pass (startup, a view change) plays its intro.
+        PlayArmedIntro(view);
     }
 
     /// <summary>
@@ -340,7 +343,8 @@ internal sealed partial class DesktopWindow
         var work = _monitor.WorkArea;
         var allowed = new PixelRect(work.Left - window.Left, work.Top - window.Top, work.Width, work.Height);
 
-        if (EditMode)
+        // [S-1005] The hyperspace veil spans the work area while it plays, so the region does too.
+        if (EditMode || MotionCoversScreen)
         {
             DesktopLayer.SetHitRegion(_hwnd, [ToRegionRect(allowed)]);
             return;
@@ -373,6 +377,36 @@ internal sealed partial class DesktopWindow
                 offsetY + Math.Floor(box.Y * scale),
                 offsetX + Math.Ceiling((box.X + box.Width) * scale),
                 offsetY + Math.Ceiling((box.Y + box.Height) * scale));
+
+            if (GridGeometry.Intersect(physical, allowed) is { } visible)
+            {
+                rects.Add(ToRegionRect(visible));
+            }
+        }
+
+        // [S-912] The view bar takes clicks too; everything else around it stays the desktop.
+        if (ViewBarBox() is { } bar)
+        {
+            var physical = PixelRect.FromEdges(
+                offsetX + Math.Floor(bar.X * scale),
+                offsetY + Math.Floor(bar.Y * scale),
+                offsetX + Math.Ceiling((bar.X + bar.Width) * scale),
+                offsetY + Math.Ceiling((bar.Y + bar.Height) * scale));
+
+            if (GridGeometry.Intersect(physical, allowed) is { } visible)
+            {
+                rects.Add(ToRegionRect(visible));
+            }
+        }
+
+        // [S-880] Notices paint and take clicks only inside the region, like everything else here.
+        if (NoticeBox() is { } notices)
+        {
+            var physical = PixelRect.FromEdges(
+                offsetX + Math.Floor(notices.X * scale),
+                offsetY + Math.Floor(notices.Y * scale),
+                offsetX + Math.Ceiling((notices.X + notices.Width) * scale),
+                offsetY + Math.Ceiling((notices.Y + notices.Height) * scale));
 
             if (GridGeometry.Intersect(physical, allowed) is { } visible)
             {

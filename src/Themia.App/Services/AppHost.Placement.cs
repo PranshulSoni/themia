@@ -1,76 +1,121 @@
-﻿using Microsoft.UI.Dispatching;
-using Themia.App.Interop;
 using Themia.App.Shell;
-using Themia.App.Shell.Config;
+using Themia.App.Widgets;
 using Themia.Core.Diagnostics;
 using Themia.Core.Model;
-using Themia.Core.Storage;
 
 namespace Themia.App.Services;
 
-/// <summary>Placing a new widget: the kind being placed, and the click that drops it.</summary>
+/// <summary>
+/// [S-1587] The placement session: one or many widgets following the pointer across every display
+/// until a click drops them. Everything that produces or moves widgets goes through it — Add widget,
+/// paste, Duplicate, Move — so none of them drops a widget at a spot the user did not point at.
+/// </summary>
 internal sealed partial class AppHost
 {
-    /// <summary>The kind being placed, while the user is choosing where it goes; otherwise null.</summary>
-    public WidgetKind? PlacingKind { get; private set; }
+    /// <summary>What is being placed, while the user is choosing where it goes; otherwise null.</summary>
+    public PlacementPayload? Placing { get; private set; }
 
     /// <summary>Raised when placement starts, ends or is cancelled.</summary>
     public event Action? PlacementChanged;
 
+    /// <summary>[S-421] Start placing a new widget of <paramref name="kind"/> at its default size.</summary>
+    public void BeginPlacement(WidgetKind kind)
+    {
+        var definition = WidgetCatalog.Definition(kind);
+        BeginPlacement(PlacementPayload.ForNew(kind, definition.DefaultWidthPx, definition.DefaultHeightPx));
+    }
+
     /// <summary>
-    /// [S-421] Start placing a widget. Nothing is added yet: a ghost follows the pointer across every
-    /// display and the widget exists only once the user clicks somewhere.
+    /// [S-421]/[S-1587] Start placing. Nothing is added, removed or moved yet: a ghost of the payload
+    /// follows the pointer across every display and the change happens only once the user clicks.
     /// <para>
     /// The settings window is deliberately not opened. Adding a widget and configuring it are two
     /// decisions, and a window appearing over the very spot the user was about to click is the
     /// fastest way to lose the first one.
     /// </para>
     /// </summary>
-    public void BeginPlacement(WidgetKind kind)
+    public void BeginPlacement(PlacementPayload payload)
     {
-        SetEditMode(true);
-        Select(null);
-        PlacingKind = kind;
-        PlacementChanged?.Invoke();
-        Log.Info(Scope, $"placing a {kind}");
-    }
+        ArgumentNullException.ThrowIfNull(payload);
 
-    /// <summary>Abandon placement without adding anything. Safe to call when nothing is being placed.</summary>
-    public void CancelPlacement()
-    {
-        if (PlacingKind is null)
+        // [S-1065] Refused before the ghost appears, not after the user has aimed it.
+        if (!AllowCreate(payload.Creates))
         {
             return;
         }
 
-        PlacingKind = null;
+        SetEditMode(true);
+        Select(null);
+        Placing = payload;
+        PlacementChanged?.Invoke();
+        Log.Info(Scope, $"placing: {payload.Mode} of {payload.Count} widget(s)");
+    }
+
+    /// <summary>
+    /// Abandon placement without changing anything — a cut stays on the clipboard, a moved widget
+    /// stays where it was ([S-1590]). Safe to call when nothing is being placed.
+    /// </summary>
+    public void CancelPlacement()
+    {
+        if (Placing is null)
+        {
+            return;
+        }
+
+        Placing = null;
         PlacementChanged?.Invoke();
     }
 
     /// <summary>
-    /// [S-422] Put the widget being placed into the view of the display it was dropped on, at the
-    /// rect its ghost showed. Returns the new widget's id, or null when nothing was being placed.
+    /// [S-422]/[S-1586] Land the payload on the display it was dropped on, in that display's view, as
+    /// its ghost showed it with the pointer at (<paramref name="xFrac"/>, <paramref name="yFrac"/>).
+    /// Returns whether anything landed.
     /// </summary>
-    public string? CompletePlacement(DesktopWindow surface, Themia.Core.Geometry.FracRect rect)
+    public bool CompletePlacement(DesktopWindow surface, double xFrac, double yFrac, bool snap)
     {
         ArgumentNullException.ThrowIfNull(surface);
 
-        if (PlacingKind is not { } kind)
+        if (Placing is not { } payload)
         {
-            return null;
+            return false;
         }
 
-        var widget = WidgetInstance.Create(kind, rect);
-        var viewId = surface.CurrentViewId;
+        var plan = payload.Plan(xFrac, yFrac, surface.Metrics, snap);
 
         // Placement ends before the mutation lands, so the relayout it triggers already sees the
-        // surface back in its ordinary edit state rather than drawing a ghost over the new card.
-        PlacingKind = null;
+        // surface back in its ordinary edit state rather than drawing a ghost over the new cards.
+        Placing = null;
         PlacementChanged?.Invoke();
 
-        Mutate(state => (state.FindView(viewId) ?? state.ActiveView()).Widgets.Add(widget));
-        Select(widget.Id);
-        Log.Info(Scope, $"placed a {kind} on {surface.Monitor.GdiName}");
-        return widget.Id;
+        if (!Land(plan, surface.CurrentViewId, UndoActions.ForPlacement(payload.Mode)))
+        {
+            return false;
+        }
+
+        Clipboard.OnPlaced(payload);
+        Log.Info(Scope, $"placed: {payload.Mode} of {payload.Count} widget(s) on {surface.Monitor.GdiName}");
+        return true;
+    }
+
+    /// <summary>
+    /// Apply a plan to a view in one mutation and select what landed. Shared by a placement click and
+    /// a drag handed to another display ([S-1591]), so both land by exactly the same rules.
+    /// </summary>
+    public bool Land(PastePlan plan, string viewId, UndoAction undo = UndoAction.Move)
+    {
+        ArgumentNullException.ThrowIfNull(plan);
+
+        // [S-1065] Checked again on landing: a paste on another display may have used the room, and
+        // a move whose originals were deleted meanwhile adds them back. All or nothing.
+        if (!AllowPaste(plan))
+        {
+            return false;
+        }
+
+        Mutate(state => state.ApplyPlacement(plan, viewId), undo: undo);
+
+        var landedIn = State.FindView(viewId)?.Id ?? State.ActiveView().Id;
+        SelectMany(landedIn, plan.Roots);
+        return true;
     }
 }

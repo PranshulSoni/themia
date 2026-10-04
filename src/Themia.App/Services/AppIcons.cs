@@ -73,7 +73,7 @@ internal static partial class AppIcons
 
         if (!Pending.TryGetValue(key, out var task))
         {
-            task = ExtractSerialisedAsync(path, size);
+            task = ExtractSerialisedAsync(path, size, IconOnly);
             Pending[key] = task;
         }
 
@@ -100,13 +100,39 @@ internal static partial class AppIcons
         return image;
     }
 
-    private static async Task<Pixels?> ExtractSerialisedAsync(string path, int size)
+    /// <summary>
+    /// [S-1324] The icon, or with <paramref name="thumbnail"/> the thumbnail of the item's contents (a
+    /// photo's picture), at <paramref name="size"/> pixels — <b>not cached</b>: for the folder widget,
+    /// whose items come and go with every folder it shows and which keeps its own bounded cache. Null
+    /// when the item has none (a thumbnail of a text file). UI thread, like <see cref="GetAsync(string, int, string?)"/>.
+    /// </summary>
+    public static async Task<ImageSource?> LoadAsync(string path, int size, bool thumbnail)
+    {
+        if (string.IsNullOrWhiteSpace(path))
+        {
+            return null;
+        }
+
+        try
+        {
+            var pixels = await ExtractSerialisedAsync(path, Math.Clamp(size, 16, 256), thumbnail ? ThumbnailOnly : IconOnly)
+                .ConfigureAwait(true);
+            return pixels is null ? null : ToBitmap(pixels);
+        }
+        catch (Exception ex)
+        {
+            Log.Warn(Scope, $"could not extract the image of {path}", ex);
+            return null;
+        }
+    }
+
+    private static async Task<Pixels?> ExtractSerialisedAsync(string path, int size, int flags)
     {
         await OneAtATime.WaitAsync().ConfigureAwait(false);
 
         try
         {
-            return await Task.Run(() => Extract(path, size)).ConfigureAwait(false);
+            return await Task.Run(() => Extract(path, size, flags)).ConfigureAwait(false);
         }
         finally
         {
@@ -122,7 +148,7 @@ internal static partial class AppIcons
         return bitmap;
     }
 
-    private static unsafe Pixels? Extract(string path, int size)
+    private static unsafe Pixels? Extract(string path, int size, int flags)
     {
         // The shell's objects want COM on this thread. Multithreaded, so a pool thread needs no
         // message pump; an apartment-threaded icon handler is hosted for us by COM. A thread that is
@@ -144,13 +170,13 @@ internal static partial class AppIcons
             // IShellItemImageFactory::GetImage is slot 3, after IUnknown's three.
             var getImage = (delegate* unmanaged[Stdcall]<nint, IconSize, int, nint*, int>)(*(nint**)factory)[3];
 
-            var hrImage = getImage(factory, new IconSize(size, size), IconOnly, &bitmap);
+            var hrImage = getImage(factory, new IconSize(size, size), flags, &bitmap);
 
             // E_PENDING: the shell is still extracting this icon for an earlier caller. Asked once
             // more, at once (no wait); a second E_PENDING is an icon this run does without.
             if (hrImage == EPending)
             {
-                hrImage = getImage(factory, new IconSize(size, size), IconOnly, &bitmap);
+                hrImage = getImage(factory, new IconSize(size, size), flags, &bitmap);
             }
 
             if (hrImage < 0 || bitmap == 0)
@@ -276,6 +302,9 @@ internal static partial class AppIcons
 
     /// <summary>IShellItemImageFactory's SIIGBF_ICONONLY: the item's icon, never a thumbnail of its contents.</summary>
     private const int IconOnly = 0x4;
+
+    /// <summary>SIIGBF_THUMBNAILONLY: the contents' thumbnail, or failure — never the icon in its place.</summary>
+    private const int ThumbnailOnly = 0x8;
 
     private const int EPending = unchecked((int)0x8000000A);
 

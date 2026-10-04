@@ -62,6 +62,7 @@ internal sealed partial class PowerView : Grid, IWidgetView, IWidgetSizeAware, I
 
     private PowerSnapshot _snapshot = PowerSnapshot.Unreadable;
     private IReadOnlyList<PowerPlanEntry>? _plans;
+    private PowerTimeouts _timeouts = PowerTimeouts.Unknown;
     private IReadOnlyList<PowerAction> _shownActions = [];
     private PowerTilePlan _plan;
     private string? _error;
@@ -184,10 +185,11 @@ internal sealed partial class PowerView : Grid, IWidgetView, IWidgetSizeAware, I
 
         _snapshot = ReadSnapshot();
 
-        // The plan list costs a registry walk; read it only while the panel shows it.
+        // The plan list and the timeouts cost registry reads; read them only while the panel shows them.
         if (_plan.Strip == PowerStripPlacement.Panel)
         {
             _plans = ReadPlans();
+            _timeouts = ReadTimeouts();
         }
 
         Lay();
@@ -213,6 +215,17 @@ internal sealed partial class PowerView : Grid, IWidgetView, IWidgetSizeAware, I
         }
 #endif
         return PowerStatus.Plans();
+    }
+
+    private PowerTimeouts ReadTimeouts()
+    {
+#if DEBUG
+        if (_preview && Shell.Gallery.PowerFixture.Timeouts is { } fixture)
+        {
+            return fixture;
+        }
+#endif
+        return PowerStatus.Timeouts(_snapshot.Source);
     }
 
     // ---- layout ------------------------------------------------------------------------------
@@ -265,6 +278,7 @@ internal sealed partial class PowerView : Grid, IWidgetView, IWidgetSizeAware, I
         if (_plan.Strip == PowerStripPlacement.Panel && _plans is null)
         {
             _plans = ReadPlans();
+            _timeouts = ReadTimeouts();
         }
 
         BuildButtons(actions, gap);
@@ -455,6 +469,11 @@ internal sealed partial class PowerView : Grid, IWidgetView, IWidgetSizeAware, I
     /// <summary>
     /// [S-1249] The largest tiles' side panel: every fact as a row, then the power plans with the
     /// active one marked. Read-only: switching plans is Settings' job.
+    /// <para>
+    /// [S-1623] On a tile Huge in height it goes on: the time since Windows started under the
+    /// facts, and a "Screen and sleep" section after the plans, so the column under the plans is
+    /// not left empty; its rows are then Windows' standard list height rather than compact.
+    /// </para>
     /// </summary>
     private void DrawPanel(List<PowerFact> facts, double height)
     {
@@ -476,35 +495,54 @@ internal sealed partial class PowerView : Grid, IWidgetView, IWidgetSizeAware, I
         _panel.Width = _plan.StripWidth;
 
         var room = new Disclosure(_plan.StripWidth, height);
-        var rowHeight = Fluent.RowHeightCompact;
-        var factRows = room.TakeRows(rowHeight, facts.Count);
+        var huge = _area.HeightClass >= SizeClass.Huge;
+        var rowHeight = huge ? Fluent.RowHeight : Fluent.RowHeightCompact;
+        var shownFacts = huge ? [.. facts, PowerTimeoutRules.Uptime(TimeSpan.FromMilliseconds(Environment.TickCount64))] : facts;
+        var factRows = room.TakeRows(rowHeight, shownFacts.Count);
 
-        foreach (var fact in facts.Take(factRows))
+        foreach (var fact in shownFacts.Take(factRows))
         {
-            _panel.Children.Add(PanelRow(FactGlyph(fact.Kind), fact.Label, fact.Value, fact.Kind == PowerFactKind.Error));
+            _panel.Children.Add(PanelRow(FactGlyph(fact.Kind), fact.Label, fact.Value, fact.Kind == PowerFactKind.Error, compact: !huge));
         }
 
         var plans = _plans ?? [];
 
-        if (plans.Count == 0 || !room.Take(FluentType.Caption.LineHeight + Fluent.Space3))
+        if (plans.Count > 0 && room.Take(FluentType.Caption.LineHeight + Fluent.Space3))
         {
-            return;
+            _panel.Children.Add(PanelHeading("Power plans"));
+
+            var planRows = room.TakeRows(rowHeight, plans.Count);
+
+            foreach (var plan in plans.Take(planRows))
+            {
+                _panel.Children.Add(PanelRow(plan.Active ? Glyphs.Done : Glyphs.Lightning, plan.Name, plan.Active ? "Active" : string.Empty, false, compact: !huge, accent: plan.Active));
+            }
         }
 
-        var heading = Fluent.Text(FluentType.Caption, "TextFillColorTertiaryBrush");
-        heading.Text = "Power plans";
-        heading.Margin = new Thickness(0, Fluent.Space3, 0, 0);
-        _panel.Children.Add(heading);
+        var timeouts = huge ? PowerTimeoutRules.Facts(_timeouts) : [];
 
-        var planRows = room.TakeRows(rowHeight, plans.Count);
-
-        foreach (var plan in plans.Take(planRows))
+        if (timeouts.Count > 0
+            && Disclosure.WholeRows(room.Remaining - FluentType.Caption.LineHeight - Fluent.Space3, rowHeight) >= timeouts.Count
+            && room.Take(FluentType.Caption.LineHeight + Fluent.Space3))
         {
-            _panel.Children.Add(PanelRow(plan.Active ? Glyphs.Done : Glyphs.Lightning, plan.Name, plan.Active ? "Active" : string.Empty, false, plan.Active));
+            _panel.Children.Add(PanelHeading("Screen and sleep"));
+
+            foreach (var fact in timeouts.Take(room.TakeRows(rowHeight, timeouts.Count)))
+            {
+                _panel.Children.Add(PanelRow(FactGlyph(fact.Kind), fact.Label, fact.Value, false, compact: false));
+            }
         }
     }
 
-    private Border PanelRow(string glyph, string label, string value, bool critical, bool accent = false)
+    private static TextBlock PanelHeading(string text)
+    {
+        var heading = Fluent.Text(FluentType.Caption, "TextFillColorTertiaryBrush");
+        heading.Text = text;
+        heading.Margin = new Thickness(0, Fluent.Space3, 0, 0);
+        return heading;
+    }
+
+    private Border PanelRow(string glyph, string label, string value, bool critical, bool compact, bool accent = false)
     {
         var icon = Fluent.Icon(glyph, accent ? "AccentTextFillColorPrimaryBrush" : "TextFillColorSecondaryBrush");
         icon.Margin = new Thickness(0, 0, Fluent.Space3, 0);
@@ -539,7 +577,7 @@ internal sealed partial class PowerView : Grid, IWidgetView, IWidgetSizeAware, I
         SetColumn(detail, 2);
 
         // The panel sits inside the tile's inset, so its rows pad themselves less than a list's.
-        var row = Fluent.Row(grid, compact: true);
+        var row = Fluent.Row(grid, compact);
         row.Padding = new Thickness(Fluent.Space2, 0, Fluent.Space2, 0);
         _hovers.Add(Fluent.Hover(row));
         return row;
@@ -551,6 +589,10 @@ internal sealed partial class PowerView : Grid, IWidgetView, IWidgetSizeAware, I
         PowerFactKind.Plan => Glyphs.Lightning,
         PowerFactKind.Remaining => Glyphs.Timer,
         PowerFactKind.Saver => Glyphs.BatterySaver,
+        PowerFactKind.Uptime => Glyphs.Hours,
+        PowerFactKind.ScreenOff => Glyphs.Display,
+        PowerFactKind.Sleep => Glyphs.Moon,
+        PowerFactKind.Hibernate => Glyphs.Hibernate,
         _ => Glyphs.Warning,
     };
 

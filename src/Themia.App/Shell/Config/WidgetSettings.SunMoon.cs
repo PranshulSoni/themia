@@ -8,9 +8,10 @@ namespace Themia.App.Shell.Config;
 /// <summary>
 /// The Sun &amp; Moon rows: where the observer is, and how much of the sky to draw.
 /// <para>
-/// The original picked a city from a shared location search backed by a geocoding service [S-01].
-/// There is no such service here and this app makes no network calls for widgets, so the
-/// coordinates are entered directly and validated instead.
+/// [S-1494] The place is picked by city name, as in the original [S-01], through the same search the
+/// weather widgets use (<see cref="PlaceSearch"/>). It resolves to coordinates once, at the pick; the
+/// astronomy itself stays offline. The exact coordinates stay editable below it, validated, for a
+/// place no geocoder knows (a cabin, a ship, a pole).
 /// </para>
 /// </summary>
 internal static partial class WidgetSettings
@@ -23,12 +24,30 @@ internal static partial class WidgetSettings
 
         rows.Add(FluentLayout.Header("Location"));
 
-        var place = new TextBox
-        {
-            Text = config.Place,
-            MinWidth = 200,
-            PlaceholderText = "Zurich",
-        };
+        // Built before the search so a pick can show its coordinates in them at once.
+        var place = new TextBox { Text = config.Place, MinWidth = 200, PlaceholderText = "Zurich" };
+        var latitude = new TextBox { MinWidth = 120, HorizontalAlignment = HorizontalAlignment.Right };
+        var longitude = new TextBox { MinWidth = 120, HorizontalAlignment = HorizontalAlignment.Right };
+
+        // A Sun & moon tile always has a place (it starts at Zurich), so "Change" only reopens the
+        // search; it never clears the coordinates, unlike the weather's, which can have none.
+        PlaceSearch.Add(rows, new PlaceSearchBinding(
+            string.Empty,
+            config.Place,
+            _ => { /* ignore: the typed query is not kept; the chosen place is what is stored */ },
+            picked =>
+            {
+                config.Latitude = picked.Latitude;
+                config.Longitude = picked.Longitude;
+                config.Place = picked.Name;
+                place.Text = picked.Name;
+                latitude.Text = FormatCoordinate(picked.Latitude);
+                longitude.Text = FormatCoordinate(picked.Longitude);
+                save();
+            },
+            () => { }));
+
+        rows.Add(FluentLayout.Header("Exact coordinates"));
 
         // On lost focus, not per keystroke: the widget behind this window redraws on every write,
         // and a half-typed place name is not a place name.
@@ -45,9 +64,10 @@ internal static partial class WidgetSettings
             save();
         };
 
-        rows.Add(FluentLayout.Row(Glyphs.Place, "Place", "The name shown above the readout", place));
+        rows.Add(FluentLayout.Row(Glyphs.Place, "Name", "The name in the header", place));
 
         rows.Add(CoordinateRow(
+            latitude,
             "Latitude",
             "Degrees north, -90 to 90",
             config.Latitude,
@@ -56,6 +76,7 @@ internal static partial class WidgetSettings
             value => { config.Latitude = value; save(); }));
 
         rows.Add(CoordinateRow(
+            longitude,
             "Longitude",
             "Degrees east, -180 to 180",
             config.Longitude,
@@ -76,7 +97,7 @@ internal static partial class WidgetSettings
                 value => { config.PathMode = value; save(); })));
 
         rows.Add(FluentLayout.Row(Glyphs.View, "Event rows",
-            "Sunrise, sunset, daylight and the moon. Always shown while the sun path is hidden",
+            "Sunrise, sunset, daylight, the moon, then noon and twilight as the tile grows. Always shown while the sun path is hidden",
             FluentLayout.Toggle(config.ShowEvents, value => { config.ShowEvents = value; save(); })));
     }
 
@@ -90,6 +111,7 @@ internal static partial class WidgetSettings
     /// </para>
     /// </summary>
     private static FrameworkElement CoordinateRow(
+        TextBox box,
         string title,
         string description,
         double current,
@@ -97,12 +119,7 @@ internal static partial class WidgetSettings
         double maximum,
         Action<double> onChanged)
     {
-        var box = new TextBox
-        {
-            Text = FormatCoordinate(current),
-            MinWidth = 120,
-            HorizontalAlignment = HorizontalAlignment.Right,
-        };
+        box.Text = FormatCoordinate(current);
 
         var verdict = FluentLayout.Verdict();
 

@@ -176,7 +176,7 @@ public sealed class AppStateStoreTests : IDisposable
 
         AppStateStore.Validate(state);
 
-        Assert.Equal(2, view.Widgets.Select(w => w.Id).Distinct().Count());
+        Assert.Equal(view.Widgets.Count, view.Widgets.Select(w => w.Id).Distinct().Count());
     }
 
     [Fact]

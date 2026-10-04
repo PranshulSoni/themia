@@ -122,7 +122,7 @@ internal static unsafe class ShellSignals
     /// The filters are not cosmetic; each one is a window that would otherwise make Show Desktop
     /// look like it had failed. The topmost one in particular: Show Desktop cannot hide a topmost
     /// window, so one sitting there is not evidence that anything went wrong. That is not
-    /// hypothetical — a consent prompt from the hearth hub is exactly such a window, and it alone
+    /// hypothetical — a consent prompt from another program is exactly such a window, and it alone
     /// kept this from ever firing.
     /// </para>
     /// </summary>

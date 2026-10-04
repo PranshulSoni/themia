@@ -36,6 +36,9 @@ internal enum NavIcon
 
     /// <summary>A screen, as Windows Settings' System: every display.</summary>
     Laptop,
+
+    /// <summary>A diamond: License ([S-1068]).</summary>
+    Premium,
 }
 
 internal static class NavIcons
@@ -43,28 +46,43 @@ internal static class NavIcons
     private const string Scope = "config";
 
     /// <summary>
-    /// NavigationView draws an item's icon in a 16-DIP square, so the 16-DIP design of each icon is
-    /// bundled: the Fluent sizes are drawn for their DIP size, and scale up cleanly with the display.
+    /// [S-1601] The icon box of a coloured entry. NavigationView's default is 16 DIP, sized for
+    /// font glyphs that fill their box; the colour icons leave the padding their design asks for,
+    /// so at 16 they read smaller than Windows Settings' own. They get the 20-DIP design in a
+    /// 20-DIP box instead (Fluent draws each size for its DIP size; it scales with the display).
     /// </summary>
-    private const double Size = 16;
+    public const double Size = 20;
+
+    /// <summary>NavigationView's own icon box, which the glyph entries nested under a view keep.</summary>
+    public const double GlyphSize = 16;
+
+    /// <summary>The theme resource NavigationViewItem sizes its icon box from.</summary>
+    private const string IconBoxKey = "NavigationViewItemOnLeftIconBoxHeight";
+
+    /// <summary>
+    /// Size an entry's icon box. Set per entry rather than on the whole pane, and set on the glyph
+    /// entries too: a nested entry would otherwise inherit its parent view's box through the tree.
+    /// </summary>
+    public static void SizeIconBox(NavigationViewItem item, bool coloured) => item.Resources[IconBoxKey] = coloured ? Size : GlyphSize;
 
     /// <summary>The bundled file for an icon, under <c>Assets/NavIcons</c>.</summary>
     public static string FileName(NavIcon icon) => icon switch
     {
-        NavIcon.Settings => "ic_fluent_settings_16_color.svg",
-        NavIcon.PaintBrush => "ic_fluent_paint_brush_16_color.svg",
-        NavIcon.Apps => "ic_fluent_apps_16_color.svg",
-        NavIcon.Person => "ic_fluent_person_16_color.svg",
-        NavIcon.DocumentText => "ic_fluent_document_text_16_color.svg",
-        NavIcon.QuestionCircle => "ic_fluent_question_circle_16_color.svg",
-        NavIcon.ContentView => "ic_fluent_content_view_16_color.svg",
-        NavIcon.Laptop => "ic_fluent_laptop_16_color.svg",
+        NavIcon.Settings => "ic_fluent_settings_20_color.svg",
+        NavIcon.PaintBrush => "ic_fluent_paint_brush_20_color.svg",
+        NavIcon.Apps => "ic_fluent_apps_20_color.svg",
+        NavIcon.Person => "ic_fluent_person_20_color.svg",
+        NavIcon.DocumentText => "ic_fluent_document_text_20_color.svg",
+        NavIcon.QuestionCircle => "ic_fluent_question_circle_20_color.svg",
+        NavIcon.ContentView => "ic_fluent_content_view_20_color.svg",
+        NavIcon.Laptop => "ic_fluent_laptop_20_color.svg",
+        NavIcon.Premium => "ic_fluent_premium_20_color.svg",
         _ => throw new ArgumentOutOfRangeException(nameof(icon), icon, null),
     };
 
     /// <summary>
-    /// [S-1601] A navigation icon, rasterised at exactly the pixels its 16-DIP box covers on the
-    /// display the window is on (16 px at 100 %, 32 px at 200 %), so it is neither blurred by a
+    /// A navigation icon, rasterised at exactly the pixels its 20-DIP box covers on the
+    /// display the window is on (20 px at 100 %, 40 px at 200 %), so it is neither blurred by a
     /// down-scale nor soft from an up-scale. Moving the window to a display with another scale
     /// re-rasterises it. The colours are the icon's own in both themes, as in Windows Settings.
     /// </summary>

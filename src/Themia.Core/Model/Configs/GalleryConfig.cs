@@ -56,8 +56,11 @@ public enum GalleryFit
 /// </summary>
 public sealed class GalleryConfig : WidgetConfig
 {
-    /// <summary>The fewest seconds a slide can be held. Below this it is a flicker, not a slideshow.</summary>
-    public const int MinSlideSeconds = 2;
+    /// <summary>
+    /// [S-1620] The fewest seconds a slide can be held: one, as in the original (its S-09/S-18).
+    /// Below a second it is a flicker, not a slideshow.
+    /// </summary>
+    public const int MinSlideSeconds = 1;
 
     /// <summary>An hour. Past it the timer is indistinguishable from a picture that never changes.</summary>
     public const int MaxSlideSeconds = 3600;

@@ -1,5 +1,8 @@
+using Microsoft.UI;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Controls.Primitives;
+using Microsoft.UI.Xaml.Input;
 using Themia.App.Services;
 using Themia.App.Shell;
 using Themia.Core.Model;
@@ -8,44 +11,43 @@ using Themia.Core.Widgets;
 namespace Themia.App.Widgets;
 
 /// <summary>
-/// The applications this PC has, as a list you can launch from.
-/// <para>
-/// A Windows 11 list rather than a tile wall: the compact 32px row, the Body step for the name, the
-/// Start-menu folder as a right-hand detail column, and no rule between rows. The row carries the
-/// 16px inset as its own padding, so the fill under the pointer reaches both edges of the card the
-/// way a row's does.
-/// </para>
+/// The applications this PC has, as tiles, rows or compact rows you launch from ([S-1520]), each with
+/// the icon Explorer shows for it ([S-1522]), in Start-menu folder sections ([S-1521]).
 /// <para>
 /// The enumeration is disk work and runs off the UI thread, discarded when a newer one has started.
 /// Everything that is opened goes through <see cref="ShellLauncher"/>, which is the app's one launch
-/// path and the only thing that decides what may be launched.
+/// path and the only thing that decides what may be launched. What the user hid stays in the config
+/// ([S-1523]) and is applied before the filter box, so a search never brings it back.
+/// </para>
+/// <para>
+/// Split by concern: this file owns the lifecycle, reading, the ladder ([S-1527]), the card's
+/// commands and the keys ([S-1526]); <c>.Cells.cs</c> builds and paints tiles and rows, loads their
+/// icons and owns the item menu.
 /// </para>
 /// </summary>
-internal sealed partial class AppsView : Grid, IWidgetView, IWidgetSurfaceAware, IWidgetHeaderContent
+internal sealed partial class AppsView : Grid, IWidgetView, IWidgetSurfaceAware, IWidgetHeaderContent,
+    IWidgetContextActions, IWidgetSizeAware, IWidgetKeys
 {
-    /// <summary>Below this width the folder column is dropped: the name is what a launcher is for.</summary>
-    private const double CategoryMinimumWidth = 320;
+    private const string Scope = "apps";
 
-    /// <summary>
-    /// Below this height the filter box is dropped. At 180x120 a 32px box and its margins are most
-    /// of the widget, and a filter over two visible rows is not worth the two rows.
-    /// </summary>
-    private const double FilterHidesBelow = 168;
+    /// <summary>The filter box's line: the stock box plus the gap under it.</summary>
+    private const double FilterLine = Fluent.RowHeightCompact + Fluent.Space2;
 
-    /// <summary>How many characters of a folder name the detail column shows.</summary>
-    private const double CategoryWidth = 96;
+    /// <summary>The folder chips' line (XL).</summary>
+    private const double ChipsLine = 28 + Fluent.Space2;
 
     private readonly ProgressRing _busy = new();
     private readonly TextBox _filter = new();
     private readonly Border _filterHost;
-    private readonly StackPanel _list = new() { Spacing = 0 };
+    private readonly StackPanel _chips = new() { Orientation = Orientation.Horizontal, Spacing = Fluent.Space1 };
+    private readonly ScrollViewer _chipsHost;
+    private readonly Grid _panel = new();
     private readonly ScrollViewer _scroll;
+    private readonly ScrollFade _fade;
+    private readonly TextBlock _footer;
     private readonly StackPanel _empty;
     private readonly FontIcon _emptyIcon;
     private readonly TextBlock _emptyText = new();
-
-    /// <summary>One per row, so the hover handlers come off with the rows they light.</summary>
-    private readonly List<IDisposable> _hovers = [];
 
     private IWidgetSurface? _surface;
     private Ticker? _ticker;
@@ -54,30 +56,34 @@ internal sealed partial class AppsView : Grid, IWidgetView, IWidgetSurfaceAware,
     /// <summary>
     /// [S-13a] A copy of the settings this view last acted on, which is what a change is measured
     /// against. Not <c>_config</c>: the settings page edits the live config object in place, so by
-    /// the time a change arrives the "previous" config already holds the new values, and comparing
-    /// the two found no difference — a new address or place stayed unfetched until the next tick.
+    /// the time a change arrives the "previous" config already holds the new values.
     /// </summary>
     private AppsConfig _applied = new();
     private IDisposable? _subscription;
     private CancellationTokenSource? _inFlight;
 
     private IReadOnlyList<InstalledApp> _apps = [];
+    private WidgetArea _area;
 
-    /// <summary>
-    /// Which scan is current. A reply carrying an older number was started against a config nobody
-    /// is looking at any more, and is dropped rather than drawn.
-    /// </summary>
+    /// <summary>What the cells were last built for; a different shape, or new data, rebuilds them.</summary>
+    private CellShape _shape;
+    private bool _dirty = true;
+
+    /// <summary>[S-1527] The folder chip picked at XL (null: every folder). Not saved: a glance, not a setting.</summary>
+    private string? _category;
+
+    /// <summary>Which scan is current; a reply carrying an older number is dropped rather than drawn.</summary>
     private int _generation;
 
     private bool _everLoaded;
     private bool _detached;
-    private bool _compact;
-    private bool _categoryVisible = true;
 
     public AppsView()
     {
         RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
+        RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
 
         _busy.Width = 14;
         _busy.Height = 14;
@@ -91,9 +97,8 @@ internal sealed partial class AppsView : Grid, IWidgetView, IWidgetSurfaceAware,
         _filter.TextChanged += OnFilterChanged;
         _filter.KeyDown += OnFilterKeyDown;
 
-        // The desktop surface carries WS_EX_NOACTIVATE and never becomes the foreground window, so
-        // a text box on it shows a caret and receives nothing. The surface lifts that while the box
-        // has focus; without these two lines the filter looks like it works and swallows every key.
+        // The desktop surface carries WS_EX_NOACTIVATE, so a text box on it shows a caret and
+        // receives nothing until the box asks for the keyboard lease ([S-801]).
         _filter.GotFocus += OnFilterGotFocus;
         _filter.LostFocus += OnFilterLostFocus;
 
@@ -101,36 +106,52 @@ internal sealed partial class AppsView : Grid, IWidgetView, IWidgetSurfaceAware,
         {
             Child = _filter,
             Padding = new Thickness(Fluent.Space4, 0, Fluent.Space4, Fluent.Space2),
+            Visibility = Visibility.Collapsed,
         };
 
-        SetRow(_filterHost, 0);
+        _chipsHost = new ScrollViewer
+        {
+            Content = _chips,
+            Padding = new Thickness(Fluent.Space4, 0, Fluent.Space4, Fluent.Space2),
+            HorizontalScrollMode = ScrollMode.Enabled,
+            HorizontalScrollBarVisibility = ScrollBarVisibility.Hidden,
+            VerticalScrollMode = ScrollMode.Disabled,
+            VerticalScrollBarVisibility = ScrollBarVisibility.Disabled,
+            Visibility = Visibility.Collapsed,
+        };
 
         _scroll = new ScrollViewer
         {
-            Content = _list,
-            Padding = WidgetLayout.ListInset,
+            Content = _panel,
             HorizontalScrollMode = ScrollMode.Disabled,
             HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
             VerticalScrollBarVisibility = ScrollBarVisibility.Hidden,
         };
 
-        SetRow(_scroll, 1);
+        _fade = new ScrollFade(_scroll, _panel);
+
+        _footer = Fluent.Text(FluentType.Caption, "TextFillColorSecondaryBrush");
+        _footer.Margin = new Thickness(Fluent.Space4, 0, Fluent.Space4, Fluent.Space2);
+        _footer.TextTrimming = TextTrimming.CharacterEllipsis;
+        _footer.Visibility = Visibility.Collapsed;
 
         _empty = Fluent.EmptyState(Glyphs.Apps, _emptyText, out _emptyIcon);
         _empty.Visibility = Visibility.Collapsed;
-        SetRow(_empty, 1);
+
+        SetRow(_filterHost, 0);
+        SetRow(_chipsHost, 1);
+        SetRow(_scroll, 2);
+        SetRow(_footer, 3);
+        SetRow(_empty, 2);
 
         Children.Add(_filterHost);
+        Children.Add(_chipsHost);
         Children.Add(_scroll);
+        Children.Add(_footer);
         Children.Add(_empty);
-
-        SizeChanged += OnSizeChanged;
     }
 
-    /// <summary>
-    /// The ring that spins while the app list is being enumerated, in the card's header. Built in
-    /// the constructor because the card reads this once, when it builds that header.
-    /// </summary>
+    /// <summary>The ring that spins while the Start menu is being read, in the card's header.</summary>
     public FrameworkElement? HeaderTrailing => _busy;
 
     /// <inheritdoc />
@@ -149,13 +170,13 @@ internal sealed partial class AppsView : Grid, IWidgetView, IWidgetSurfaceAware,
 
         _config = next;
         _applied = (AppsConfig)next.Clone();
+        _dirty = true;
 
         // Only a change to what comes back off the disk is worth a re-scan. Dragging the count
         // slider must not fire a Start-menu walk per frame.
         var needsRead = !_everLoaded || previous.EffectiveMaxCount != next.EffectiveMaxCount;
 
-        // Subscribing fires a tick of its own, and that tick re-reads with the config already in
-        // place above, so there is nothing left for this call to do.
+        // Subscribing fires a tick of its own, which reads with the config already in place.
         if (Resubscribe())
         {
             return;
@@ -167,9 +188,14 @@ internal sealed partial class AppsView : Grid, IWidgetView, IWidgetSurfaceAware,
         }
         else
         {
-            ApplyLayout();
-            Render();
+            Lay();
         }
+    }
+
+    public void ApplySize(WidgetArea area)
+    {
+        _area = area;
+        Lay();
     }
 
     private bool Resubscribe()
@@ -209,8 +235,7 @@ internal sealed partial class AppsView : Grid, IWidgetView, IWidgetSurfaceAware,
         // re-reads the same Start menu must not blank the list it is about to redraw.
         if (_apps.Count == 0)
         {
-            ApplyLayout();
-            Render();
+            Lay();
         }
 
         _ = LoadAsync(maxCount, generation, cts);
@@ -230,9 +255,14 @@ internal sealed partial class AppsView : Grid, IWidgetView, IWidgetSurfaceAware,
                 return;
             }
 
-            _apps = apps;
-            ApplyLayout();
-            Render();
+            // A re-read that found the same apps keeps the cells (and the cursor) it has.
+            if (!apps.SequenceEqual(_apps))
+            {
+                _apps = apps;
+                _dirty = true;
+            }
+
+            Lay();
         }
         catch (OperationCanceledException)
         {
@@ -244,6 +274,12 @@ internal sealed partial class AppsView : Grid, IWidgetView, IWidgetSurfaceAware,
             {
                 _inFlight = null;
                 SetBusy(false);
+
+                // The empty state says "Looking for your apps…" while a scan runs.
+                if (_cells.Count == 0)
+                {
+                    Lay();
+                }
             }
 
             cts.Dispose();
@@ -262,203 +298,347 @@ internal sealed partial class AppsView : Grid, IWidgetView, IWidgetSurfaceAware,
     }
 
     // -----------------------------------------------------------------------------------------
-    // Input
+    // The ladder
     // -----------------------------------------------------------------------------------------
-
-    private void OnFilterChanged(object sender, TextChangedEventArgs args) => Render();
-
-    private void OnFilterKeyDown(object sender, Microsoft.UI.Xaml.Input.KeyRoutedEventArgs args)
-    {
-        if (args.Key != Windows.System.VirtualKey.Escape)
-        {
-            return;
-        }
-
-        args.Handled = true;
-        _filter.Text = string.Empty;
-    }
-
-    private void OnFilterGotFocus(object sender, RoutedEventArgs args) => _surface?.RequestTextInput(true);
-
-    private void OnFilterLostFocus(object sender, RoutedEventArgs args) => _surface?.RequestTextInput(false);
-
-    // -----------------------------------------------------------------------------------------
-    // Drawing
-    // -----------------------------------------------------------------------------------------
-
-    private void OnSizeChanged(object sender, SizeChangedEventArgs args)
-    {
-        var compact = args.NewSize.Height < Fluent.CompactBelow;
-        var category = args.NewSize.Width >= CategoryMinimumWidth;
-
-        ApplyLayout();
-
-        if (compact == _compact && category == _categoryVisible)
-        {
-            return;
-        }
-
-        _compact = compact;
-        _categoryVisible = category;
-        Render();
-    }
 
     /// <summary>
-    /// What a tile this size shows. Nothing here is a font size: every piece of type is a fixed ramp
-    /// step and the rows are the standard heights, so a tile that grows shows more rows rather than
-    /// larger ones.
+    /// [S-1527] The items first; the filter box (Regular height), the folder chips (XL) and the
+    /// count line (L) take their lines only where the tier has them, and the items take the rest,
+    /// tiled or rowed by <see cref="AppsLayout"/>. A change of shape or data rebuilds the cells;
+    /// anything else repaints them.
     /// </summary>
-    private void ApplyLayout()
+    private void Lay()
     {
-        var height = ActualHeight;
-        var measured = height > 0;
+        if (_detached)
+        {
+            return;
+        }
 
-        var room = !measured || height >= FilterHidesBelow;
+        var area = _area.IsMeasured ? _area : new WidgetArea(320, 196);
+        var room = new Disclosure(area);
 
-        _filterHost.Visibility = _config.ShowFilter && room ? Visibility.Visible : Visibility.Collapsed;
+        var filter = _config.ShowFilter && AppsLayout.Filter(area) && room.Take(FilterLine);
+        _filterHost.Visibility = filter ? Visibility.Visible : Visibility.Collapsed;
 
-        // The icon is dropped on a tile too short to carry it: a tile showing only an icon says
-        // less than one showing only the sentence.
-        _emptyIcon.Visibility = measured && height < 180 ? Visibility.Collapsed : Visibility.Visible;
-    }
+        var categories = InstalledAppRules.Categories(
+            InstalledAppRules.Visible(_apps, _config.HiddenApps, _config.HiddenCategories, null, null));
+        var chips = AppsLayout.Chips(area) && categories.Count > 1 && room.Take(ChipsLine);
+        _chipsHost.Visibility = chips ? Visibility.Visible : Visibility.Collapsed;
 
-    private void Render()
-    {
-        ClearRows();
+        if (!chips || (_category is { } picked && !categories.Contains(picked, StringComparer.OrdinalIgnoreCase)))
+        {
+            _category = null;
+        }
 
-        // The filter is only applied when its box is actually on screen. A tile shrunk below the
-        // threshold with a query still typed into it would otherwise show a list narrowed by
-        // something the reader cannot see.
-        var query = _filterHost.Visibility == Visibility.Visible ? _filter.Text : string.Empty;
-        var visible = InstalledAppRules.Filter(_apps, query);
+        var footer = AppsLayout.Footer(area) && room.Take(FluentType.Caption.LineHeight + Fluent.Space2);
+        _footer.Visibility = footer ? Visibility.Visible : Visibility.Collapsed;
+
+        // [S-1527] The filter only narrows while its box is on screen: a list narrowed by a query
+        // nobody can see is a list that looks broken.
+        var query = filter ? _filter.Text : string.Empty;
+        var visible = InstalledAppRules.Visible(_apps, _config.HiddenApps, _config.HiddenCategories, _category, query);
 
         if (visible.Count == 0)
         {
-            // Each of these needs a different thing from the reader, so each says which it is: an
-            // app list showing a blank tile is indistinguishable from a broken one.
-            _emptyText.Text = !_everLoaded || _inFlight is not null
-                ? "Looking for your apps…"
-                : _apps.Count == 0
-                    ? "No apps found in your Start menu."
-                    : "Nothing matches that.";
-
-            _empty.Visibility = Visibility.Visible;
-            _scroll.Visibility = Visibility.Collapsed;
+            ShowEmpty(area);
+            UpdateFooter(visible.Count);
             return;
         }
 
         _empty.Visibility = Visibility.Collapsed;
         _scroll.Visibility = Visibility.Visible;
 
-        var detail = _config.ShowCategory && _categoryVisible;
+        var view = _config.View;
+        var sections = InstalledAppRules.Sections(visible, _config.GroupByFolder && view != AppsViewMode.Compact);
+        var headers = AppsLayout.Headers(area, view, sections.Count);
 
-        foreach (var app in visible)
+        var inset = Inset(view);
+        var width = Math.Max(0, area.Width - inset.Left - inset.Right);
+        var height = Math.Max(0, room.Remaining - inset.Top - inset.Bottom);
+
+        var shape = view == AppsViewMode.Grid
+            ? new CellShape(view, AppsLayout.Tiles(area, width, height, visible.Count), default, headers, false, width)
+            : RowShape(area, view, headers, width);
+
+        // The filter and the chips change what is listed, so their coming and going is a new shape.
+        shape = shape with { Filter = filter, Chips = chips };
+
+        _panel.MinHeight = height;
+
+        if (_dirty || shape != _shape)
         {
-            _list.Children.Add(BuildRow(app, detail));
-        }
-    }
-
-    private FrameworkElement BuildRow(InstalledApp app, bool detail)
-    {
-        // A Segoe glyph rather than the shortcut's own icon. Extracting an HICON and turning it
-        // into a XAML brush is a GDI handle dance this port has no AOT-safe path for yet, and a
-        // stock glyph is an honest placeholder where a wrong or missing icon would not be.
-        var icon = Fluent.Icon(Glyphs.Apps);
-        icon.Margin = new Thickness(0, 0, Fluent.Space3, 0);
-
-        var name = Fluent.Text(FluentType.Body);
-        name.Text = app.Name;
-
-        var grid = new Grid
-        {
-            ColumnDefinitions =
-            {
-                new ColumnDefinition { Width = GridLength.Auto },
-                new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) },
-                new ColumnDefinition { Width = GridLength.Auto },
-            },
-        };
-
-        SetColumn(icon, 0);
-        SetColumn(name, 1);
-        grid.Children.Add(icon);
-        grid.Children.Add(name);
-
-        if (detail && app.Category.Length > 0)
-        {
-            var category = Fluent.Text(FluentType.Caption, "TextFillColorSecondaryBrush");
-            category.Text = app.Category;
-            category.TextAlignment = TextAlignment.Right;
-            category.MaxWidth = CategoryWidth;
-            category.Margin = new Thickness(Fluent.Space2, 0, 0, 0);
-
-            SetColumn(category, 2);
-            grid.Children.Add(category);
-        }
-
-        var row = Fluent.Row(grid, _compact);
-        row.Tag = app.Target;
-        _hovers.Add(Fluent.Hover(row));
-
-        // Double-click by default. A widget sits under the pointer's path across the desktop, and a
-        // stray single click launching an application is how a glanceable list becomes a hazard.
-        if (_config.OpenOnSingleClick)
-        {
-            row.Tapped += OnRowActivated;
+            _dirty = false;
+            _shape = shape;
+            Render(sections, chips ? categories : null);
         }
         else
         {
-            row.DoubleTapped += OnRowOpened;
+            PaintAll();
         }
 
-        ToolTipService.SetToolTip(row, app.Category.Length > 0 ? $"{app.Name} — {app.Category}" : app.Name);
-        return row;
+        UpdateFooter(visible.Count);
     }
 
-    private void OnRowActivated(object sender, Microsoft.UI.Xaml.Input.TappedRoutedEventArgs args)
+    private static CellShape RowShape(WidgetArea area, AppsViewMode view, bool headers, double width)
     {
-        args.Handled = true;
-        Open(sender);
+        var rows = AppsLayout.Rows(area, view, headers);
+        return new CellShape(view, default, rows, headers, AppsLayout.CategoryColumn(area, view, headers, rows), width);
     }
 
-    private void OnRowOpened(object sender, Microsoft.UI.Xaml.Input.DoubleTappedRoutedEventArgs args)
+    /// <summary>The padding around the items: tiles keep a margin from the card edge, rows go edge to edge.</summary>
+    private static Thickness Inset(AppsViewMode view) => view == AppsViewMode.Grid
+        ? new Thickness(Fluent.Space2, Fluent.Space1, Fluent.Space2, Fluent.Space2)
+        : WidgetLayout.ListInset;
+
+    /// <summary>
+    /// Each of these needs a different thing from the reader, so each says which it is: an app list
+    /// showing a blank tile is indistinguishable from a broken one.
+    /// </summary>
+    private void ShowEmpty(WidgetArea area)
     {
-        args.Handled = true;
-        Open(sender);
+        ClearCells();
+        _shape = default;
+
+        _emptyText.Text = !_everLoaded || _inFlight is not null
+            ? "Looking for your apps…"
+            : _apps.Count == 0
+                ? "No apps found in your Start menu."
+                : InstalledAppRules.HiddenCount(_apps, _config.HiddenApps, _config.HiddenCategories) == _apps.Count
+                    ? "Every app is hidden. Show them again in this widget's settings."
+                    : "Nothing matches that.";
+
+        // The icon goes on a tile too short to carry it: an icon alone says less than the sentence.
+        _emptyIcon.Visibility = area.HeightClass >= SizeClass.Regular ? Visibility.Visible : Visibility.Collapsed;
+        _empty.Visibility = Visibility.Visible;
+        _scroll.Visibility = Visibility.Collapsed;
     }
 
-    private void Open(object sender)
+    /// <summary>[S-1527] "120 apps", or "12 of 120" under a filter, and how many are hidden.</summary>
+    private void UpdateFooter(int shown)
     {
-        if (_detached || sender is not Border { Tag: string target })
+        if (_footer.Visibility != Visibility.Visible)
         {
             return;
         }
 
-        // The one launch path in the app. It re-checks the target rather than trusting that this
-        // list built it.
-        ShellLauncher.Open(target);
-    }
-
-    private void ClearRows()
-    {
-        foreach (var hover in _hovers)
+        var hidden = InstalledAppRules.HiddenCount(_apps, _config.HiddenApps, _config.HiddenCategories);
+        var total = _apps.Count - hidden;
+        var parts = new List<string>
         {
-            hover.Dispose();
+            shown == total ? (total == 1 ? "1 app" : $"{total} apps") : $"{shown} of {total}",
+        };
+
+        if (hidden > 0)
+        {
+            parts.Add($"{hidden} hidden");
         }
 
-        _hovers.Clear();
+        _footer.Text = string.Join(" · ", parts);
+    }
 
-        foreach (var child in _list.Children)
+    /// <summary>[S-1527] The XL folder chips: "All" and one per folder; the picked one is checked.</summary>
+    private void BuildChips(IReadOnlyList<string>? categories)
+    {
+        foreach (var child in _chips.Children)
         {
-            if (child is Border row)
+            if (child is ToggleButton chip)
             {
-                row.Tapped -= OnRowActivated;
-                row.DoubleTapped -= OnRowOpened;
+                chip.Click -= OnChipClick;
             }
         }
 
-        _list.Children.Clear();
+        _chips.Children.Clear();
+
+        if (categories is null)
+        {
+            return;
+        }
+
+        _chips.Children.Add(Chip("All", null));
+
+        foreach (var category in categories)
+        {
+            _chips.Children.Add(Chip(InstalledAppRules.CategoryTitle(category), category));
+        }
     }
+
+    private ToggleButton Chip(string text, string? category)
+    {
+        var chip = new ToggleButton
+        {
+            Content = text,
+            Tag = category,
+            IsChecked = string.Equals(category, _category, StringComparison.OrdinalIgnoreCase),
+            Height = 28,
+            MinWidth = 0,
+            Padding = new Thickness(Fluent.Space3, 0, Fluent.Space3, 0),
+            FontSize = FluentType.Caption.FontSize,
+            CornerRadius = new CornerRadius(14),
+        };
+
+        chip.Click += OnChipClick;
+        return chip;
+    }
+
+    private void OnChipClick(object sender, RoutedEventArgs args)
+    {
+        if (sender is ToggleButton chip)
+        {
+            _category = chip.Tag as string;
+            _dirty = true;
+            Lay();
+        }
+    }
+
+    // -----------------------------------------------------------------------------------------
+    // Input
+    // -----------------------------------------------------------------------------------------
+
+    private void OnFilterChanged(object sender, TextChangedEventArgs args)
+    {
+        _dirty = true;
+        _cursor = null;
+        Lay();
+    }
+
+    private void OnFilterKeyDown(object sender, KeyRoutedEventArgs args)
+    {
+        switch (args.Key)
+        {
+            case Windows.System.VirtualKey.Escape when _filter.Text.Length > 0:
+                args.Handled = true;
+                _filter.Text = string.Empty;
+                break;
+
+            // [S-1526] Enter in the box opens the app under the cursor, or the first match: type a
+            // few letters, press Enter, as in Start.
+            case Windows.System.VirtualKey.Enter when _cells.Count > 0:
+                args.Handled = true;
+                Open(_cells[_cursor is { } at && at < _cells.Count ? at : 0]);
+                break;
+        }
+    }
+
+    private void OnFilterGotFocus(object sender, RoutedEventArgs args) => _surface?.RequestTextInput(true);
+
+    private void OnFilterLostFocus(object sender, RoutedEventArgs args) => _surface?.RequestTextInput(false);
+
+    /// <inheritdoc />
+    public bool WantsKeys => _cells.Count > 0;
+
+    /// <summary>
+    /// [S-1526] The arrows walk the tiles or rows, section by section, keeping the column; Enter
+    /// opens, the Menu key opens the app's menu, Escape (and the lease ending) drops the cursor.
+    /// </summary>
+    public bool HandleKey(WidgetKey key)
+    {
+        if (_detached)
+        {
+            return false;
+        }
+
+        switch (key)
+        {
+            case WidgetKey.Enter:
+                if (CursorCell() is not { } open)
+                {
+                    return false;
+                }
+
+                Open(open);
+                return true;
+
+            case WidgetKey.Menu:
+                if (CursorCell() is not { } target)
+                {
+                    return false;
+                }
+
+                ShowMenuAt(target);
+                return true;
+        }
+
+        var (next, used) = SectionCursor.Move(SectionSizes(), Columns(), _cursor, key, PageRows());
+
+        if (!used)
+        {
+            return false;
+        }
+
+        _cursor = next;
+        PaintAll();
+        CursorCell()?.Root.StartBringIntoView();
+        return true;
+    }
+
+    /// <summary>Items per visual row: the tile plan's columns, or the list's.</summary>
+    private int Columns() => Math.Max(1, _shape.View == AppsViewMode.Grid ? _shape.Tiles.Columns : _shape.Rows.Columns);
+
+    /// <summary>How many rows a Page key steps: about one screenful.</summary>
+    private int PageRows()
+    {
+        var row = _shape.View == AppsViewMode.Grid ? _shape.Tiles.TileHeight : _shape.Rows.RowHeight;
+        return Math.Max(1, Disclosure.WholeRows(_scroll.ActualHeight, Math.Max(1, row)));
+    }
+
+    // -----------------------------------------------------------------------------------------
+    // The card's commands
+    // -----------------------------------------------------------------------------------------
+
+    /// <summary>
+    /// [S-1528] The card's menu (original S-13 / S-14): Refresh, the other two views, grouping and
+    /// the click. Each names the state it switches to.
+    /// </summary>
+    public IReadOnlyList<WidgetAction> ContextActions
+    {
+        get
+        {
+            var actions = new List<WidgetAction> { new(Glyphs.Refresh, "Refresh", Reload) };
+
+            foreach (var mode in (AppsViewMode[])[AppsViewMode.Grid, AppsViewMode.List, AppsViewMode.Compact])
+            {
+                if (mode != _config.View)
+                {
+                    actions.Add(new WidgetAction(ModeGlyph(mode), $"Show as {ModeName(mode)}", () => SetConfig(c => c.View = mode)));
+                }
+            }
+
+            if (_config.View != AppsViewMode.Compact)
+            {
+                actions.Add(new WidgetAction(Glyphs.Folder, _config.GroupByFolder ? "Don't group by folder" : "Group by folder",
+                    () => SetConfig(c => c.GroupByFolder = !c.GroupByFolder)));
+            }
+
+            actions.Add(new WidgetAction(Glyphs.Open,
+                _config.ClickMode == ItemClickMode.Double ? "Open on single click" : "Open on double click",
+                () => SetConfig(c => c.ClickMode = c.ClickMode == ItemClickMode.Double ? ItemClickMode.Single : ItemClickMode.Double)));
+
+            return actions;
+        }
+    }
+
+    private void SetConfig(Action<AppsConfig> change)
+    {
+        change(_config);
+        _applied = (AppsConfig)_config.Clone();
+        _surface?.RequestSave();
+        _dirty = true;
+        Lay();
+    }
+
+    private static string ModeName(AppsViewMode mode) => mode switch
+    {
+        AppsViewMode.List => "list",
+        AppsViewMode.Compact => "compact list",
+        _ => "tiles",
+    };
+
+    private static string ModeGlyph(AppsViewMode mode) => mode switch
+    {
+        AppsViewMode.List => Glyphs.ListLayout,
+        AppsViewMode.Compact => Glyphs.ColumnsLayout,
+        _ => Glyphs.GridLayout,
+    };
 
     public void Detach()
     {
@@ -469,14 +649,15 @@ internal sealed partial class AppsView : Grid, IWidgetView, IWidgetSurfaceAware,
 
         _detached = true;
 
-        SizeChanged -= OnSizeChanged;
         _filter.TextChanged -= OnFilterChanged;
         _filter.KeyDown -= OnFilterKeyDown;
         _filter.GotFocus -= OnFilterGotFocus;
         _filter.LostFocus -= OnFilterLostFocus;
         _surface?.RequestTextInput(false);
 
-        ClearRows();
+        BuildChips(null);
+        ClearCells();
+        _fade.Dispose();
 
         _subscription?.Dispose();
         _subscription = null;
@@ -489,4 +670,15 @@ internal sealed partial class AppsView : Grid, IWidgetView, IWidgetSurfaceAware,
         _apps = [];
         _ticker = null;
     }
+
+    /// <summary>What the cells were last built for.</summary>
+    private readonly record struct CellShape(
+        AppsViewMode View,
+        ShortcutTilePlan Tiles,
+        ShortcutRowPlan Rows,
+        bool Headers,
+        bool CategoryColumn,
+        double Width,
+        bool Filter = false,
+        bool Chips = false);
 }

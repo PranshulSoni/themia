@@ -40,6 +40,9 @@ internal sealed partial class AppHost : IDisposable
         State = state;
         Ticker = new Ticker(dispatcher);
 
+        // [S-1109] The language before anything with text is built, and before the surfaces subscribe.
+        StartLanguage();
+
         // [S-820] The appearance engine runs before anything is built from a brush, and first on
         // every state change — subscribed before any surface — so the surfaces relayout against the
         // new theme, accent, font and text size. A Windows theme or accent change re-runs the same
@@ -56,6 +59,9 @@ internal sealed partial class AppHost : IDisposable
         _mail = new Mail.MailService(Accounts, Ticker);
         AppServices.Mail = _mail;
         AppServices.ShowAccounts = () => ShowConfig(new ConfigTarget.App(AppPage.Accounts));
+        AppServices.ShowSettings = ShowSettings;
+        AppServices.EditLayout = () => SetEditMode(true);
+        AppServices.EditAppLayout = ShowLayoutEditor;
 
         // [S-591]/[S-607] One task service and one drive service for every widget. The task lists
         // kept on this PC live beside the state file, as the accounts do.
@@ -99,20 +105,37 @@ internal sealed partial class AppHost : IDisposable
     /// <summary>Copy / cut / paste buffer, shared by every surface so widgets move between displays.</summary>
     public WidgetClipboard Clipboard { get; } = new();
 
-    /// <summary>The widget the keyboard commands act on, or null.</summary>
-    public string? SelectedWidgetId { get; private set; }
+    /// <summary>[S-1580] The widgets the edit commands act on: one or many, from one view.</summary>
+    public WidgetSelection Selection { get; } = new();
+
+    /// <summary>The most recently picked selected widget, for commands about one widget; null when none.</summary>
+    public string? SelectedWidgetId => Selection.Primary;
 
     public event Action? SelectionChanged;
 
+    /// <summary>[S-1580] Select exactly this widget, or nothing for null.</summary>
     public void Select(string? widgetId)
-    {
-        if (SelectedWidgetId == widgetId)
-        {
-            return;
-        }
+        => ChangeSelection(Selection.Set(widgetId is null ? null : Find(widgetId)?.View.Id, widgetId));
 
-        SelectedWidgetId = widgetId;
-        SelectionChanged?.Invoke();
+    /// <summary>[S-1580] Ctrl+click: add the widget to the selection, or take it out.</summary>
+    public void ToggleSelect(string widgetId)
+    {
+        if (Find(widgetId) is var (view, _))
+        {
+            ChangeSelection(Selection.Toggle(view.Id, widgetId));
+        }
+    }
+
+    /// <summary>[S-1581]/[S-1582] Select exactly these widgets of one view (a lasso, Ctrl+A).</summary>
+    public void SelectMany(string viewId, IEnumerable<string> ids)
+        => ChangeSelection(Selection.Replace(viewId, ids));
+
+    private void ChangeSelection(bool changed)
+    {
+        if (changed)
+        {
+            SelectionChanged?.Invoke();
+        }
     }
 
     /// <summary>Locate a widget by id across every view. Returns null when it no longer exists.</summary>
@@ -143,11 +166,17 @@ internal sealed partial class AppHost : IDisposable
 
     public void Start()
     {
+        // [S-1063] Ask the Store (packaged only) while the surfaces are built.
+        License.Start();
+
         _command.EditModeToggleRequested += () => SetEditMode(!_editMode);
 
         // [S-848] Listening before the first surface is built, so a taskbar or display change that
         // lands during startup (autostart at logon, before Explorer has docked the taskbar) is heard.
         _command.DisplaysChanged += RequestDisplayPass;
+
+        // [S-1011] The session unlock replays the unlock intro on every display.
+        StartMotion();
 
         if (!_command.Create())
         {
@@ -191,7 +220,13 @@ internal sealed partial class AppHost : IDisposable
         Services.Web.ElementRenderCache.Persist(
             Path.Combine(Path.GetDirectoryName(_store.Path) ?? string.Empty, Themia.Core.Storage.ElementRenderStore.FolderName));
 
+        // [S-890] Counted before the surfaces exist: a start that dies building them leaves its count.
+        BeginStartGuard();
+
         ReconcileDisplays();
+
+        // [S-884]/[S-890] Undo starts from the desktop as built; the start counts once it is laid out.
+        AfterSurfacesBuilt();
 
         // Seed the file on a fresh profile so the starting layout survives a restart even if the
         // user never touches anything.
@@ -285,11 +320,16 @@ internal sealed partial class AppHost : IDisposable
         }
 
         _disposed = true;
+        Notices.Disconnect();
         StopGameMode();
         DesktopZOrder.Stop();
         Clipboard.Clear();
         AppServices.Mail = null;
         AppServices.ShowAccounts = null;
+        AppServices.ShowSettings = null;
+        AppServices.EditLayout = null;
+        AppServices.EditAppLayout = null;
+        CloseLayoutEditor();
         _mail.Dispose();
         AppServices.Tasks?.Dispose();
         AppServices.Tasks = null;
@@ -303,6 +343,7 @@ internal sealed partial class AppHost : IDisposable
         _claudeUsage.Dispose();
         AppServices.Accounts = null;
         Accounts.Dispose();
+        License.Dispose();
 
         // [S-459] Accrues up to now and writes the history synchronously: the process is ending.
         AppServices.ScreenTime = null;

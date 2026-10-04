@@ -1,3 +1,4 @@
+using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Themia.App.Services;
 using Themia.Core.Widgets;
@@ -17,6 +18,7 @@ internal sealed class AudioFeed(Action<AudioSnapshot> onSnapshot, Action<AudioPe
 {
     private IAudioSubscription? _subscription;
     private AudioWant? _want;
+    private bool _picking;
 
     /// <summary>Set from the surface before the first <see cref="Want"/>: a preview never writes.</summary>
     public bool Preview { get; set; }
@@ -68,6 +70,35 @@ internal sealed class AudioFeed(Action<AudioSnapshot> onSnapshot, Action<AudioPe
         }
     }
 
+    /// <summary>
+    /// [S-1614]..[S-1617] A pick in this widget's device picker: make the device Windows' default
+    /// output (the widget then follows the default), or bind the widget to it when Windows refuses.
+    /// Null when nothing changes — always in a preview, and while an earlier pick is still being
+    /// answered (one at a time: a second click on a slow switch must not race the first).
+    /// </summary>
+    /// <param name="picked">The picked device, or null for "Follow the default output".</param>
+    /// <param name="boundId">The widget's configured device id.</param>
+    /// <param name="boundName">The widget's remembered device name.</param>
+    /// <param name="defaultId">Windows' default output as the last snapshot saw it.</param>
+    public async Task<DevicePickResult?> PickAsync(AudioDevice? picked, string? boundId, string? boundName, string? defaultId)
+    {
+        if (_picking)
+        {
+            return null;
+        }
+
+        _picking = true;
+
+        try
+        {
+            return await AudioDefaultRules.PickAsync(Preview, picked, boundId, boundName, defaultId, CoreAudio.DefaultOutputSwitch.Instance);
+        }
+        finally
+        {
+            _picking = false;
+        }
+    }
+
     public void Dispose()
     {
         _subscription?.Dispose();
@@ -77,9 +108,10 @@ internal sealed class AudioFeed(Action<AudioSnapshot> onSnapshot, Action<AudioPe
 }
 
 /// <summary>
-/// [S-1222] The output-device menu both audio widgets open from their device line: "Default output"
-/// (which follows Windows as it changes) and every connected device, the one the widget is bound to
-/// checked. Picking one binds the widget to it; Windows' own default output is left alone.
+/// [S-1222] [S-1618] The output-device menu both audio widgets open from their device line: every
+/// connected device, the one the widget shows checked — Windows' default while the widget follows it.
+/// Picking a device makes it Windows' default output ([S-1614]). A widget bound to its own device
+/// also gets "Follow the default output" at the top.
 /// </summary>
 internal static class AudioDeviceMenu
 {
@@ -91,26 +123,32 @@ internal static class AudioDeviceMenu
         ArgumentNullException.ThrowIfNull(pick);
 
         var menu = new MenuFlyout();
-        var defaultName = snapshot.DefaultId is { } id ? AudioRules.DeviceName(id, snapshot.Devices, null) : "none";
+        var shown = string.IsNullOrEmpty(chosen) ? snapshot.DefaultId : chosen;
 
-        var follow = new RadioMenuFlyoutItem
+        if (!string.IsNullOrEmpty(chosen))
         {
-            Text = $"Default output ({defaultName})",
-            GroupName = "device",
-            IsChecked = string.IsNullOrEmpty(chosen),
-        };
-        follow.Click += (_, _) => pick(null);
-        menu.Items.Add(follow);
-        menu.Items.Add(new MenuFlyoutSeparator());
+            var follow = new MenuFlyoutItem
+            {
+                Text = "Follow the default output",
+                Icon = new FontIcon { Glyph = Shell.Glyphs.Speakers },
+            };
+            follow.Click += (_, _) => pick(null);
+            menu.Items.Add(follow);
+            menu.Items.Add(new MenuFlyoutSeparator());
+        }
 
         foreach (var device in snapshot.Devices)
         {
+            var name = AudioRules.DeviceName(device.Id, snapshot.Devices, null);
             var item = new RadioMenuFlyoutItem
             {
-                Text = AudioRules.DeviceName(device.Id, snapshot.Devices, null),
+                Text = name,
                 GroupName = "device",
-                IsChecked = string.Equals(device.Id, chosen, StringComparison.OrdinalIgnoreCase),
+                IsChecked = string.Equals(device.Id, shown, StringComparison.OrdinalIgnoreCase),
             };
+            ToolTipService.SetToolTip(item, string.Equals(device.Id, snapshot.DefaultId, StringComparison.OrdinalIgnoreCase)
+                ? $"{name} (Windows default)"
+                : $"Make {name} the default output");
             item.Click += (_, _) => pick(device);
             menu.Items.Add(item);
         }

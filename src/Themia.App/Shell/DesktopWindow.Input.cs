@@ -4,6 +4,7 @@ using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
 using Themia.App.Interop;
+using Themia.Core.Model;
 using Themia.Core.Widgets;
 
 namespace Themia.App.Shell;
@@ -46,20 +47,55 @@ internal sealed partial class DesktopWindow
                 break;
 
             case Windows.System.VirtualKey.V when ctrl:
-                // [S-74] The display under the pointer, not the one holding the keyboard. Those
-                // differ exactly when it matters: copy on one screen, point at the other, paste.
-                _host.PasteAtCursor();
+                // [S-74] The ghost appears on the display under the pointer, not the one holding the
+                // keyboard. Those differ exactly when it matters: copy on one screen, point at the
+                // other, paste.
+                _host.Paste();
+                break;
+
+            case Windows.System.VirtualKey.D when ctrl:
+                _host.DuplicateSelected();
+                break;
+
+            // [S-885] Undo and redo, in edit mode only, like every other shortcut here.
+            case Windows.System.VirtualKey.Z when ctrl && IsDown(Windows.System.VirtualKey.Shift):
+            case Windows.System.VirtualKey.Y when ctrl:
+                _host.Redo();
+                break;
+
+            case Windows.System.VirtualKey.Z when ctrl:
+                _host.Undo();
+                break;
+
+            case Windows.System.VirtualKey.A when ctrl:
+                // [S-1582] Everything on the display under the pointer.
+                _host.SelectAllUnderCursor();
                 break;
 
             case Windows.System.VirtualKey.Delete:
                 _host.DeleteSelected();
                 break;
 
+            // [S-904] Ctrl+1..9 shows the n-th view, in edit mode only: the surface has the keyboard
+            // then, and nowhere else may Themia take digits from the app the user is typing in.
+            case >= Windows.System.VirtualKey.Number1 and <= Windows.System.VirtualKey.Number9 when ctrl:
+                ShowViewByNumber(args.Key - Windows.System.VirtualKey.Number1 + 1);
+                break;
+
+            case >= Windows.System.VirtualKey.NumberPad1 and <= Windows.System.VirtualKey.NumberPad9 when ctrl:
+                ShowViewByNumber(args.Key - Windows.System.VirtualKey.NumberPad1 + 1);
+                break;
+
             case Windows.System.VirtualKey.Escape:
-                // Escape backs out one step at a time: out of placing first, out of editing second.
-                if (_host.PlacingKind is not null)
+                // [S-1583] Escape backs out one step at a time: out of placing first, then out of the
+                // selection, then out of editing.
+                if (_host.Placing is not null)
                 {
                     _host.CancelPlacement();
+                }
+                else if (!_host.Selection.IsEmpty)
+                {
+                    _host.Select(null);
                 }
                 else
                 {
@@ -73,6 +109,19 @@ internal sealed partial class DesktopWindow
         }
 
         args.Handled = true;
+    }
+
+    /// <summary>
+    /// [S-904] Show the n-th view on the display under the pointer — the same display a paste lands
+    /// on ([S-74]) — or on this one when the pointer is on none.
+    /// </summary>
+    private void ShowViewByNumber(int number)
+    {
+        if (ViewOps.ForShortcut(_host.State.Views, number) is { } viewId)
+        {
+            var surface = _host.SurfaceUnderCursor() ?? this;
+            _host.ShowView(surface.Monitor.Id, viewId);
+        }
     }
 
     /// <summary>

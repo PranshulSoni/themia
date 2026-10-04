@@ -16,11 +16,12 @@ namespace Themia.App.Widgets;
 /// needs, and unsubscribes when it leaves the tree — a widget that is not on screen must not keep
 /// the process waking up.
 /// <para>
-/// [S-665] Its disclosure ladder, smallest tile first: the time; the date (short when narrow,
-/// with the week appended on a wide strip); the week and day of the year once the tile is
-/// Expanded in height; the time zone once it is Expanded both ways. A tall column stacks the hours
-/// over the minutes, which is the only way its width lets the digits grow. Whatever the rungs
-/// leave, the time fills.
+/// [S-665]/[S-1487] Its disclosure ladder, smallest tile first: the time (or the dial); the label of
+/// a world clock; the date (short when narrow, with the week and offset appended on a wide strip);
+/// the offset line; the week and day of the year once the tile is Expanded in height; the time zone
+/// once it is Expanded both ways. A tall column stacks the hours over the minutes, which is the only
+/// way its width lets the digits grow. Whatever the rungs leave, the time (or the dial) fills. An
+/// analog dial on a wide strip puts its text beside the dial instead of under it.
 /// </para>
 /// </summary>
 public sealed partial class ClockView : UserControl, IWidgetView, IWidgetSizeAware
@@ -37,8 +38,14 @@ public sealed partial class ClockView : UserControl, IWidgetView, IWidgetSizeAwa
     /// <summary>The longer of the detail lines: "UTC+02:00 · W. Europe Daylight Time".</summary>
     private const int DetailCharacters = 34;
 
+    /// <summary>The longest offset line, "−12:45h local", joined to the date with " · ".</summary>
+    private const int OffsetCharacters = 16;
+
     /// <summary>Line height of stacked digits, as a multiple of their size.</summary>
     private const double StackedLeading = 1.05;
+
+    /// <summary>[S-1488] Under this an analog dial is a smear of hairlines; it never draws smaller.</summary>
+    private const double DialFloor = 40;
 
     /// <summary>
     /// One device-independent pixel. The rim and the ticks are drawn at this thickness at the
@@ -52,8 +59,8 @@ public sealed partial class ClockView : UserControl, IWidgetView, IWidgetSizeAwa
     private IDisposable? _subscription;
     private TimeSpan _subscribedInterval = TimeSpan.Zero;
 
-    // The analog face is rebuilt when its box changes size, so the hands' transforms and the
-    // second hand are held here rather than in the XAML.
+    // The analog face is rebuilt when its diameter changes, so the hands' transforms and the second
+    // hand are held here rather than in the XAML.
     private RotateTransform _hourRotation = new();
     private RotateTransform _minuteRotation = new();
     private RotateTransform _secondRotation = new();
@@ -66,8 +73,12 @@ public sealed partial class ClockView : UserControl, IWidgetView, IWidgetSizeAwa
     private bool _stacked;
     private bool _shortDate;
     private bool _dateWithWeek;
+    private bool _showOffset;
+    private bool _offsetOnDate;
     private bool _showWeek;
     private bool _showZone;
+    private bool _side;
+    private string? _label;
 
     public ClockView()
     {
@@ -80,18 +91,15 @@ public sealed partial class ClockView : UserControl, IWidgetView, IWidgetSizeAwa
         // the digits could have had.
         Root.Padding = new Thickness(WidgetLayout.ContentInset, Fluent.Space2, WidgetLayout.ContentInset, Fluent.Space2);
         TimeRow.Spacing = Fluent.Space1;
+        LabelText.Margin = new Thickness(0, 0, 0, Fluent.Space1);
         DateText.Margin = new Thickness(0, Fluent.Space1, 0, 0);
+        OffsetText.Margin = new Thickness(0, Fluent.Space1, 0, 0);
         WeekText.Margin = new Thickness(0, Fluent.Space1, 0, 0);
         ZoneText.Margin = new Thickness(0, Fluent.Space1, 0, 0);
 
         // Block line height, so a stacked readout's lines sit exactly one ramp line apart rather
         // than at the font's own (looser) spacing.
         TimeText.LineStackingStrategy = LineStackingStrategy.BlockLineHeight;
-        TimeText.TextAlignment = TextAlignment.Center;
-
-        // Its own handler rather than Root's: the analog box is only measured once Root has been
-        // arranged, so reading its size from Root's SizeChanged would read the previous one.
-        AnalogRoot.SizeChanged += (_, _) => LayoutAnalog();
 
         Unloaded += (_, _) => Detach();
     }
@@ -107,9 +115,12 @@ public sealed partial class ClockView : UserControl, IWidgetView, IWidgetSizeAwa
     public void ApplyConfig(WidgetConfig config)
     {
         _config = config as ClockConfig ?? new ClockConfig();
+        _label = ClockFormatter.Label(_config);
+        LabelText.Text = _label ?? string.Empty;
 
-        DigitalRoot.Visibility = _config.Face == ClockFace.Digital ? Visibility.Visible : Visibility.Collapsed;
-        AnalogRoot.Visibility = _config.Face == ClockFace.Analog ? Visibility.Visible : Visibility.Collapsed;
+        var analog = _config.Face == ClockFace.Analog;
+        TimeRow.Visibility = analog ? Visibility.Collapsed : Visibility.Visible;
+        AnalogFace.Visibility = analog ? Visibility.Visible : Visibility.Collapsed;
         MeridiemText.Visibility = _config.Use24Hour ? Visibility.Collapsed : Visibility.Visible;
 
         if (_secondHand is not null)
@@ -118,7 +129,6 @@ public sealed partial class ClockView : UserControl, IWidgetView, IWidgetSizeAwa
         }
 
         Lay();
-        LayoutAnalog();
         Resubscribe();
     }
 
@@ -130,7 +140,7 @@ public sealed partial class ClockView : UserControl, IWidgetView, IWidgetSizeAwa
     }
 
     /// <summary>
-    /// Climb the ladder for the current area, then give the time everything the rungs left.
+    /// Climb the ladder for the current area, then give the face everything the rungs left.
     /// <para>
     /// The size classes decide which rungs are considered — a week line on a 150-pixel tile would be
     /// taking room from the one thing it is for — and <see cref="Disclosure"/> decides which of those
@@ -141,56 +151,149 @@ public sealed partial class ClockView : UserControl, IWidgetView, IWidgetSizeAwa
     private void Lay()
     {
         var box = _area.Deflate(Root.Padding.Left, Root.Padding.Top);
+        var analog = _config.Face == ClockFace.Analog;
+
+        // [S-1488] A dial on a strip: text beside it, not under it, or the dial is a postage stamp
+        // in the middle of a band of nothing.
+        _side = analog && _area.Shape == AreaShape.Wide && _area.WidthClass >= SizeClass.Regular;
+        Arrange(_side);
+        ApplyAlignment();
+
+        if (_side)
+        {
+            LaySide(box);
+        }
+        else
+        {
+            LayColumn(box, analog);
+        }
+
+        Render();
+    }
+
+    /// <summary>The ordinary column: label, face, then the rungs under it.</summary>
+    private void LayColumn(WidgetArea box, bool analog)
+    {
         var width = box.Width;
         var height = box.Height;
-
         var room = new Disclosure(box, Fluent.Space1);
 
-        // The time at its smallest is always there; the rungs share what it leaves.
-        room.Reserve(FluentType.Subtitle.LineHeight);
+        // The face at its smallest is always there; the rungs share what it leaves.
+        var floor = analog ? DialFloor
+            : _config.Face == ClockFace.Stacked ? 2 * FluentType.Subtitle.LineHeight
+            : FluentType.Subtitle.LineHeight;
+        room.Reserve(floor);
+
+        // [S-1488] A dial on the smallest tile is the whole tile: no words under a 70px clock face.
+        var words = !analog || _area.WidthClass >= SizeClass.Regular || _area.HeightClass >= SizeClass.Regular;
+
+        // [S-1482] The label first: on a world clock "Tokyo" says more than the date does.
+        var labelStep = FluentType.Fit(width, height * 0.16, Math.Max(4, _label?.Length ?? 0), FluentType.Caption, FluentType.BodyLarge);
+        var showLabel = words && _label is not null && room.Take(labelStep.LineHeight);
 
         // The date: the long one when the line can hold it, the short one when it cannot, and on a
-        // wide strip — which has width it cannot otherwise use — the week after it.
-        _dateWithWeek = _area.Shape == AreaShape.Wide && _area.WidthClass >= SizeClass.Expanded;
+        // wide strip — which has width it cannot otherwise use — the week (and the offset) after it.
+        _dateWithWeek = !analog && _area.Shape == AreaShape.Wide && _area.WidthClass >= SizeClass.Expanded;
         _shortDate = !_dateWithWeek && width < FluentType.EstimateWidth(FluentType.Caption, LongDateCharacters);
-        var dateCharacters = _dateWithWeek ? DateWithWeekCharacters : _shortDate ? ShortDateCharacters : LongDateCharacters;
+        _offsetOnDate = _dateWithWeek && _config.ShowDate && _config.OffsetMode != ClockOffsetMode.None;
+        var dateCharacters = (_dateWithWeek ? DateWithWeekCharacters : _shortDate ? ShortDateCharacters : LongDateCharacters)
+            + (_offsetOnDate ? OffsetCharacters : 0);
 
         // Support, never a second headline: capped at BodyLarge however large the tile grows (the
         // steps above it are semibold and would read as a second title).
         var dateStep = FluentType.Fit(width, height * 0.22, dateCharacters, FluentType.Caption, FluentType.BodyLarge);
-        var showDate = _config.ShowDate && room.Take(dateStep.LineHeight);
+        var showDate = words && _config.ShowDate && room.Take(dateStep.LineHeight);
+        _offsetOnDate &= showDate;
 
         // The details are a step under the date, so the eye reads time, date, then the rest.
         var detailStep = FluentType.Fit(width, height * 0.12, DetailCharacters, FluentType.Caption, FluentType.Body);
+        _showOffset = words && !_offsetOnDate && _config.OffsetMode != ClockOffsetMode.None && room.Take(detailStep.LineHeight);
         _showWeek = showDate && !_dateWithWeek && _area.HeightClass >= SizeClass.Expanded && room.Take(detailStep.LineHeight);
-        _showZone = _area.AtLeast(SizeClass.Expanded, SizeClass.Expanded) && room.Take(detailStep.LineHeight);
+        _showZone = words && _area.AtLeast(SizeClass.Expanded, SizeClass.Expanded) && room.Take(detailStep.LineHeight);
 
-        DateText.Visibility = showDate ? Visibility.Visible : Visibility.Collapsed;
-        WeekText.Visibility = _showWeek ? Visibility.Visible : Visibility.Collapsed;
-        ZoneText.Visibility = _showZone ? Visibility.Visible : Visibility.Collapsed;
-
+        Show(showLabel, showDate);
+        LabelText.Apply(FluentType.Strong(labelStep));
         DateText.Apply(dateStep);
+        OffsetText.Apply(detailStep);
         WeekText.Apply(detailStep);
         ZoneText.Apply(detailStep);
 
-        // The time has what the rungs left, plus the minimum it reserved for itself.
-        var timeHeight = room.Remaining + FluentType.Subtitle.LineHeight;
+        // The face has what the rungs left, plus the minimum it reserved for itself.
+        var faceHeight = room.Remaining + floor;
 
+        if (analog)
+        {
+            SizeDial(Math.Min(width, faceHeight));
+            return;
+        }
+
+        SizeDigits(width, faceHeight);
+    }
+
+    /// <summary>[S-1488] A dial on a strip: the dial takes the height, the text column the rest.</summary>
+    private void LaySide(WidgetArea box)
+    {
+        var diameter = Math.Floor(Math.Max(DialFloor, Math.Min(box.Height, box.Width * 0.45)));
+        var textWidth = Math.Max(0, box.Width - diameter - Fluent.Space4);
+        var room = new Disclosure(textWidth, box.Height, Fluent.Space1);
+
+        var labelStep = FluentType.Fit(textWidth, box.Height * 0.3, Math.Max(4, _label?.Length ?? 0), FluentType.Caption, FluentType.Subtitle);
+        var showLabel = _label is not null && room.Take(labelStep.LineHeight);
+
+        _dateWithWeek = false;
+        _offsetOnDate = false;
+        _shortDate = textWidth < FluentType.EstimateWidth(FluentType.Caption, LongDateCharacters);
+        var dateStep = FluentType.Fit(textWidth, box.Height * 0.25, _shortDate ? ShortDateCharacters : LongDateCharacters, FluentType.Caption, FluentType.BodyLarge);
+        var showDate = _config.ShowDate && room.Take(dateStep.LineHeight);
+
+        var detailStep = FluentType.Fit(textWidth, box.Height * 0.2, DetailCharacters, FluentType.Caption, FluentType.Body);
+        _showOffset = _config.OffsetMode != ClockOffsetMode.None && room.Take(detailStep.LineHeight);
+        _showWeek = showDate && room.Take(detailStep.LineHeight);
+        _showZone = _area.HeightClass >= SizeClass.Regular && room.Take(detailStep.LineHeight);
+
+        Show(showLabel, showDate);
+        LabelText.Apply(FluentType.Strong(labelStep));
+        DateText.Apply(dateStep);
+        OffsetText.Apply(detailStep);
+        WeekText.Apply(detailStep);
+        ZoneText.Apply(detailStep);
+        Info.Width = textWidth;
+
+        SizeDial(diameter);
+    }
+
+    private void Show(bool label, bool date)
+    {
+        LabelText.Visibility = Visible(label);
+        DateText.Visibility = Visible(date);
+        OffsetText.Visibility = Visible(_showOffset);
+        WeekText.Visibility = Visible(_showWeek);
+        ZoneText.Visibility = Visible(_showZone);
+    }
+
+    private static Visibility Visible(bool shown) => shown ? Visibility.Visible : Visibility.Collapsed;
+
+    /// <summary>The digital and stacked readouts: the largest ramp step that fits what the rungs left.</summary>
+    private void SizeDigits(double width, double timeHeight)
+    {
         // "12:34:56" plus " PM" — the meridiem sits on the same line, so it counts towards the width.
         var meridiem = _config.Use24Hour ? 0 : 3;
         var characters = (_config.ShowSeconds ? 8 : 5) + meridiem;
         var timeStep = FluentType.Hero(width, timeHeight, characters);
 
         // A tall column is too narrow for "15:40" to be large on one line; the hours over the minutes
-        // (over the seconds) use its height instead — only when that actually draws them larger.
-        // Stacked digits are set solid (StackedLeading) rather than at the ramp's 1.3 leading: two
-        // lines of figures with a ramp line's air between them read as two separate numbers.
-        var lines = _config.ShowSeconds ? 3 : 2;
-        var perLine = timeHeight / lines;
-        var byWidth = FluentType.Hero(width, perLine * 2, 2 + meridiem);
+        // use its height instead — only when that actually draws them larger. [S-1483] The Stacked
+        // style always stacks, with the seconds and the meridiem a step down beside the minutes, as
+        // the original set them. Stacked digits are set solid (StackedLeading) rather than at the
+        // ramp's 1.3 leading: two lines of figures with a ramp line's air between them read as two
+        // separate numbers.
+        var tail = _config.ShowSeconds || !_config.Use24Hour ? 1.2 : 0;
+        var perLine = timeHeight / 2;
+        var byWidth = FluentType.Hero(width, perLine * 2, 2 + tail);
         var stackedSize = Math.Min(byWidth.FontSize, perLine / StackedLeading);
         var stackedStep = new TypeStep(stackedSize, stackedSize * StackedLeading, true);
-        _stacked = _area.Shape == AreaShape.Tall && stackedStep.FontSize > timeStep.FontSize * 1.2;
+        _stacked = _config.Face == ClockFace.Stacked
+            || (_area.Shape == AreaShape.Tall && stackedStep.FontSize > timeStep.FontSize * 1.2);
 
         if (_stacked)
         {
@@ -200,52 +303,100 @@ public sealed partial class ClockView : UserControl, IWidgetView, IWidgetSizeAwa
         TimeText.Apply(timeStep);
 
         // The meridiem is the largest ramp step that stays well under the readout: a clock whose
-        // "PM" is as tall as its digits reads as two numbers.
-        var meridiemStep = FluentType.Fit(
-            width,
-            timeStep.FontSize * 0.45,
-            2,
-            FluentType.Caption,
-            FluentType.Title);
+        // "PM" is as tall as its digits reads as two numbers. Stacked, the seconds share its step.
+        var tailStep = _stacked
+            ? new TypeStep(Math.Max(FluentType.Caption.FontSize, stackedSize * 0.4), Math.Max(FluentType.Caption.FontSize, stackedSize * 0.4) * 1.15, false)
+            : FluentType.Fit(width, timeStep.FontSize * 0.45, 2, FluentType.Caption, FluentType.Title);
+        MeridiemText.Apply(tailStep);
+        SecondsText.Apply(tailStep);
+        SecondsText.Visibility = _stacked && _config.ShowSeconds ? Visibility.Visible : Visibility.Collapsed;
 
-        MeridiemText.Apply(meridiemStep);
-
-        // Both blocks are bottom-aligned, so lifting the meridiem by the difference in half-leading
+        // Both blocks are bottom-aligned, so lifting the tail by the difference in half-leading
         // sits its glyphs on the readout's baseline instead of under it.
-        var lift = HalfLeading(timeStep) - HalfLeading(meridiemStep);
-        MeridiemText.Margin = new Thickness(0, 0, 0, Math.Max(0, lift));
-
-        Render();
+        var lift = HalfLeading(timeStep) - HalfLeading(tailStep);
+        Tail.Margin = new Thickness(0, 0, 0, Math.Max(0, lift));
     }
 
     private static double HalfLeading(TypeStep step) => (step.LineHeight - step.FontSize) / 2;
+
+    /// <summary>
+    /// [S-1484] Left, centre or right, for the whole column and every line in it. Beside a dial the
+    /// text reads from the dial outwards, so it stays left-aligned to it; the alignment places the pair.
+    /// </summary>
+    private void ApplyAlignment()
+    {
+        var (horizontal, text) = _config.Align switch
+        {
+            ClockAlign.Left => (HorizontalAlignment.Left, TextAlignment.Left),
+            ClockAlign.Right => (HorizontalAlignment.Right, TextAlignment.Right),
+            _ => (HorizontalAlignment.Center, TextAlignment.Center),
+        };
+
+        Stack.HorizontalAlignment = horizontal;
+        TimeRow.HorizontalAlignment = horizontal;
+        AnalogFace.HorizontalAlignment = horizontal;
+        TimeText.TextAlignment = text;
+
+        var lines = _side ? HorizontalAlignment.Left : horizontal;
+        var lineText = _side ? TextAlignment.Left : text;
+
+        foreach (var line in new[] { LabelText, DateText, OffsetText, WeekText, ZoneText })
+        {
+            line.HorizontalAlignment = lines;
+            line.TextAlignment = lineText;
+        }
+    }
+
+    /// <summary>
+    /// Column or side by side. The label is the one part that changes parent: over the face in a
+    /// column, at the top of the text beside a dial. Only on a change, never per pass.
+    /// </summary>
+    private void Arrange(bool side)
+    {
+        Stack.Orientation = side ? Orientation.Horizontal : Orientation.Vertical;
+        Stack.Spacing = side ? Fluent.Space4 : 0;
+
+        var inInfo = Info.Children.Contains(LabelText);
+
+        if (side && !inInfo)
+        {
+            Stack.Children.Remove(LabelText);
+            Info.Children.Insert(0, LabelText);
+        }
+        else if (!side && inInfo)
+        {
+            Info.Children.Remove(LabelText);
+            Stack.Children.Insert(0, LabelText);
+        }
+
+        if (!side)
+        {
+            Info.Width = double.NaN;
+        }
+    }
 
     // -----------------------------------------------------------------------------------------
     // Analog face
     // -----------------------------------------------------------------------------------------
 
     /// <summary>
-    /// Rebuild the analog face when the box it lives in changed size. A resize, not a tick — the
-    /// once-a-second path only moves three transforms.
+    /// [S-1488] Size the dial to what the ladder left it. Rebuilt only when the diameter actually
+    /// changed — the once-a-second path only moves three transforms.
     /// </summary>
-    private void LayoutAnalog()
+    private void SizeDial(double available)
     {
-        if (_config.Face != ClockFace.Analog)
-        {
-            return;
-        }
+        var diameter = Math.Floor(available);
 
-        var diameter = Math.Floor(Math.Min(AnalogRoot.ActualWidth, AnalogRoot.ActualHeight));
-
-        // A box that has not been measured, or one too small for a readable dial, gets no face at
-        // all rather than a smear of overlapping hairlines.
-        if (!double.IsFinite(diameter) || diameter < 24)
+        // An unmeasured area gets no face rather than a dial drawn at a guess.
+        if (!_area.IsMeasured || !double.IsFinite(diameter) || diameter < 1)
         {
             AnalogFace.Children.Clear();
             _secondHand = null;
             _analogDiameter = 0;
             return;
         }
+
+        diameter = Math.Max(DialFloor, diameter);
 
         if (Math.Abs(diameter - _analogDiameter) < 1)
         {
@@ -254,7 +405,6 @@ public sealed partial class ClockView : UserControl, IWidgetView, IWidgetSizeAwa
 
         _analogDiameter = diameter;
         BuildAnalogFace(diameter);
-        Render();
     }
 
     private void BuildAnalogFace(double diameter)
@@ -392,28 +542,42 @@ public sealed partial class ClockView : UserControl, IWidgetView, IWidgetSizeAwa
 
     private void Render()
     {
-        var reading = ClockFormatter.Read(DateTimeOffset.UtcNow, _config);
+        var now = DateTimeOffset.UtcNow;
+        var reading = ClockFormatter.Read(now, _config);
+        var offset = _showOffset || _offsetOnDate ? ClockFormatter.OffsetLine(now, _config) : null;
+        OffsetText.Text = offset ?? string.Empty;
 
-        if (_config.Face == ClockFace.Digital)
+        // The extras are worked out only when a rung that shows one is up.
+        if (_shortDate || _dateWithWeek || _showWeek || _showZone)
         {
-            TimeText.Text = _stacked ? reading.Time.Replace(':', '\n') : reading.Time;
-            MeridiemText.Text = reading.Meridiem ?? string.Empty;
+            var details = ClockFormatter.Details(now, _config);
+            var date = _shortDate ? details.ShortDate
+                : _dateWithWeek ? $"{reading.Date} · {details.Week}"
+                : reading.Date ?? string.Empty;
+            DateText.Text = _offsetOnDate && offset is not null ? $"{date} · {offset}" : date;
+            WeekText.Text = details.Week;
+            ZoneText.Text = details.Zone;
+        }
+        else
+        {
+            DateText.Text = reading.Date ?? string.Empty;
+        }
 
-            // The extras are worked out only when a rung that shows one is up.
-            if (_shortDate || _dateWithWeek || _showWeek || _showZone)
+        if (_config.Face != ClockFace.Analog)
+        {
+            if (_stacked)
             {
-                var details = ClockFormatter.Details(DateTimeOffset.UtcNow, _config);
-                DateText.Text = _shortDate ? details.ShortDate
-                    : _dateWithWeek ? $"{reading.Date} · {details.Week}"
-                    : reading.Date ?? string.Empty;
-                WeekText.Text = details.Week;
-                ZoneText.Text = details.Zone;
+                // Hours over minutes; the seconds, if any, ride in the tail beside the minutes.
+                var parts = reading.Time.Split(':');
+                TimeText.Text = $"{parts[0]}\n{parts[1]}";
+                SecondsText.Text = parts.Length > 2 ? parts[2] : string.Empty;
             }
             else
             {
-                DateText.Text = reading.Date ?? string.Empty;
+                TimeText.Text = reading.Time;
             }
 
+            MeridiemText.Text = reading.Meridiem ?? string.Empty;
             return;
         }
 

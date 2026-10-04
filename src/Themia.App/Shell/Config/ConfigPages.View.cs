@@ -1,17 +1,13 @@
-﻿using Microsoft.UI;
-using Microsoft.UI.Text;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
-using Microsoft.UI.Xaml.Media;
 using Themia.App.Services;
 using Themia.App.Widgets;
-using Themia.Core.Diagnostics;
 using Themia.Core.Model;
 using Themia.Core.Widgets;
 
 namespace Themia.App.Shell.Config;
 
-/// <summary>One view's page: its name, its widgets, and the displays showing it.</summary>
+/// <summary>One view's page: its name and icon, its place in the order, its widgets, copying and deleting it.</summary>
 internal static partial class ConfigPages
 {
     private static FrameworkElement BuildView(AppHost host, string viewId, Action<ConfigTarget> navigate)
@@ -31,6 +27,21 @@ internal static partial class ConfigPages
             }
         });
 
+        // [S-903] One glyph from the shared icon grid, or the name's initials — which is what a view
+        // without an icon shows in the view bar, so the "default" cell shows exactly that.
+        var icon = IconChoice.Create(
+            view.Icon,
+            Glyphs.View,
+            glyph => host.Mutate(s =>
+            {
+                if (s.FindView(viewId) is { } target)
+                {
+                    target.Icon = glyph;
+                }
+            }),
+            defaultText: ViewSwitcherRules.Initials(view.Name),
+            defaultName: "Initials");
+
         // On the screen the button was pressed on: every display shows a view of its own, so "show
         // this view" has to say where.
         var activate = new Button { Content = "Show on this screen" };
@@ -40,6 +51,14 @@ internal static partial class ConfigPages
             {
                 host.ShowView(surface.Monitor.Id, viewId);
             }
+        };
+
+        var duplicate = new Button { Content = "Duplicate" };
+        duplicate.Click += (_, _) =>
+        {
+            // [S-900] The copy shows where the pointer is, as the toolbar's and the bar's do.
+            var surface = host.SurfaceUnderCursor() ?? host.Surfaces.FirstOrDefault();
+            host.DuplicateView(viewId, surface?.Monitor.Id);
         };
 
         var delete = new Button { Content = "Delete view", IsEnabled = host.State.Views.Count > 1 };
@@ -52,9 +71,12 @@ internal static partial class ConfigPages
         var rows = new List<FrameworkElement>
         {
             FluentLayout.Row(Glyphs.Rename, "Name", null, name),
+            FluentLayout.Row(Glyphs.View, "Icon", "Shown in the view bar, the view switcher and this window; without one, the initials are", icon, "glyph", "symbol"),
             FluentLayout.Row(Glyphs.View, "Active view",
                 host.State.ActiveView().Id == viewId ? "This view is showing now" : "Switch the desktop to it",
                 activate),
+            OrderRow(host, viewId),
+            FluentLayout.Row(Glyphs.Copy, "Duplicate this view", "A copy with every widget in it, shown on this screen", duplicate, "copy", "clone"),
             FluentLayout.Header("Widgets"),
         };
 
@@ -90,5 +112,50 @@ internal static partial class ConfigPages
             delete));
 
         return Page(view.Name, rows);
+    }
+
+    /// <summary>
+    /// [S-901] The view's place in the order — the order of the view bar, the switchers, this
+    /// window and Ctrl+1..9 in edit mode. The buttons are set again after each move, since the page
+    /// is not rebuilt for a change it made itself.
+    /// </summary>
+    private static Border OrderRow(AppHost host, string viewId)
+    {
+        var up = FluentLayout.IconCommand(Glyphs.MoveUp, "Move up");
+        var down = FluentLayout.IconCommand(Glyphs.MoveDown, "Move down");
+        var where = new TextBlock { VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, Fluent.Space2, 0) };
+
+        void Sync()
+        {
+            var index = host.State.Views.FindIndex(v => v.Id == viewId);
+            up.IsEnabled = index > 0;
+            down.IsEnabled = index >= 0 && index < host.State.Views.Count - 1;
+            where.Text = index >= 0 ? $"{index + 1} of {host.State.Views.Count}" : string.Empty;
+        }
+
+        up.Click += (_, _) =>
+        {
+            host.MoveView(viewId, -1);
+            Sync();
+        };
+
+        down.Click += (_, _) =>
+        {
+            host.MoveView(viewId, +1);
+            Sync();
+        };
+
+        Sync();
+
+        var controls = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            Spacing = Fluent.Space1,
+            Children = { where, up, down },
+        };
+
+        return FluentLayout.Row(Glyphs.MoveUp, "Order",
+            "Where it comes in the view bar and the view switcher; in edit mode, Ctrl+1 to Ctrl+9 show the first nine",
+            controls, "reorder", "move", "position", "shortcut");
     }
 }

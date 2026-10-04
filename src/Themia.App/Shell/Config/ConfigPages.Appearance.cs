@@ -121,24 +121,10 @@ internal static partial class ConfigPages
             FluentLayout.Row(Glyphs.Scale, "Widget scale", "Scales widget content without moving the widgets",
                 FluentLayout.Slider(design.UiScale * 100, 50, 300, 5, "%",
                     value => host.Mutate(s => s.Design.UiScale = value / 100))),
-
-            FluentLayout.Header("Motion"),
-
-            FluentLayout.Row(Glyphs.Motion, "Intro animation", "Played once when a view appears",
-                FluentLayout.Choice(
-                    [
-                        (IntroAnimation.None, "None"),
-                        (IntroAnimation.Fade, "Fade"),
-                        (IntroAnimation.Scale, "Scale"),
-                        (IntroAnimation.Slide, "Slide"),
-                    ],
-                    design.IntroAnimation,
-                    value => host.Mutate(s => s.Design.IntroAnimation = value))),
-
-            FluentLayout.Row(Glyphs.Timer, "Animation length", null,
-                FluentLayout.Slider(design.IntroAnimationMs, 0, 1500, 50, "ms",
-                    value => host.Mutate(s => s.Design.IntroAnimationMs = value))),
         };
+
+        // [S-1014] The intros and the startup sound.
+        rows.AddRange(MotionRows(host));
 
         page.With(rows);
     }

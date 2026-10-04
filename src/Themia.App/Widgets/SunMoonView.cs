@@ -27,6 +27,13 @@ namespace Themia.App.Widgets;
 /// and drawing it there would imply they do. [S-169]
 /// </para>
 /// <para>
+/// [S-1492] Its disclosure ladder: the graphic (never dropped, 46px floor); the number strip; the
+/// event rows in priority order — sunrise and sunset (just the next of the two when only one row
+/// fits), daylight with its change since yesterday, the moon, solar noon with the sun's height,
+/// civil dawn and dusk, the next full or new moon. On a strip the rows stand beside the graphic; on
+/// a large tile the graphic keeps at least 45% of the height and the rows go two to a line.
+/// </para>
+/// <para>
 /// The drawing is a Windows control, not an illustration: the travelled arc and the daylight behind
 /// it are the theme's accent, the untravelled arc and the night stretch are the theme's greys, the
 /// horizon is a hairline in the divider colour, and the sun below the horizon changes to the
@@ -38,15 +45,16 @@ namespace Themia.App.Widgets;
 /// so this file only turns numbers into shapes.
 /// </para>
 /// </summary>
-internal sealed partial class SunMoonView : Grid, IWidgetView, IWidgetSurfaceAware
+internal sealed partial class SunMoonView : Grid, IWidgetView, IWidgetSurfaceAware, IWidgetSizeAware, IWidgetContextActions
 {
     /// <summary>[S-170] The graphic is never dropped; below this it is simply drawn smaller.</summary>
     private const double GraphicFloor = 46;
 
-    /// <summary>Under either of these the rows go compact: Windows' 32px list row. </summary>
-    private const double CompactWidth = 260;
+    /// <summary>[S-1492] On a tile Expanded in height the graphic keeps this share of it; rows take the rest.</summary>
+    private const double GraphicShare = 0.45;
 
-    private const double CompactHeight = 220;
+    /// <summary>The number strip's height at its smallest step: a Caption line plus its top margin.</summary>
+    private const double StripFloor = 24;
 
     private readonly Canvas _canvas = new();
     private readonly Polygon _elapsedFill = new();
@@ -66,12 +74,20 @@ internal sealed partial class SunMoonView : Grid, IWidgetView, IWidgetSurfaceAwa
     private readonly StackPanel _moonPanel;
 
     private readonly Grid _body;
-    private readonly StackPanel _rowList = new() { Spacing = 0 };
+    private readonly Grid _rowGrid = new();
     private readonly EventRow _sunriseRow;
     private readonly EventRow _sunsetRow;
     private readonly EventRow _daylightRow;
     private readonly EventRow _moonRow;
+    private readonly EventRow _noonRow;
+    private readonly EventRow _dawnRow;
+    private readonly EventRow _duskRow;
+    private readonly EventRow _phaseRow;
     private readonly MoonVisual _moonGlyph;
+    private readonly MoonVisual _phaseGlyph;
+
+    /// <summary>The rows in the order they are given up: the last one goes first.</summary>
+    private readonly EventRow[] _ladder;
 
     /// <summary>The accent, as a fill. The travelled arc, the daylight behind it and the sun.</summary>
     private readonly Brush _accent = FluentLayout.Themed("AccentFillColorDefaultBrush", Colors.DodgerBlue);
@@ -92,6 +108,11 @@ internal sealed partial class SunMoonView : Grid, IWidgetView, IWidgetSurfaceAwa
     private TimeSpan _subscribedInterval = TimeSpan.Zero;
     private DateTimeOffset _now = DateTimeOffset.Now;
 
+    private WidgetArea _area;
+
+    /// <summary>How many rows the ladder settled on; one means "the next event only".</summary>
+    private int _rowCount;
+
     public SunMoonView()
     {
         BuildCanvas();
@@ -103,18 +124,28 @@ internal sealed partial class SunMoonView : Grid, IWidgetView, IWidgetSurfaceAwa
 
         _moonBadge = new MoonVisual();
         _moonGlyph = new MoonVisual();
+        _phaseGlyph = new MoonVisual();
         _moonPanel = BuildMoonPanel();
 
         _sunriseRow = new EventRow(Fluent.Icon(Glyphs.Sun), "Sunrise");
         _sunsetRow = new EventRow(Fluent.Icon(Glyphs.Sun), "Sunset");
         _daylightRow = new EventRow(Fluent.Icon(Glyphs.Clock), "Daylight");
         _moonRow = new EventRow(_moonGlyph.Root, "Moon");
+        _noonRow = new EventRow(Fluent.Icon(Glyphs.Sun), "Solar noon");
+        _dawnRow = new EventRow(Fluent.Icon(Glyphs.Sun), "Dawn");
+        _duskRow = new EventRow(Fluent.Icon(Glyphs.Moon), "Dusk");
+        _phaseRow = new EventRow(_phaseGlyph.Root, "Full moon");
 
-        _rowList.Margin = new Thickness(0, 0, 0, Fluent.Space2);
-        _rowList.Children.Add(_sunriseRow.Root);
-        _rowList.Children.Add(_sunsetRow.Root);
-        _rowList.Children.Add(_daylightRow.Root);
-        _rowList.Children.Add(_moonRow.Root);
+        _ladder = [_sunriseRow, _sunsetRow, _daylightRow, _moonRow, _noonRow, _dawnRow, _duskRow, _phaseRow];
+
+        _rowGrid.Margin = new Thickness(0, 0, 0, Fluent.Space2);
+        _rowGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        _rowGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(0) });
+
+        foreach (var row in _ladder)
+        {
+            _rowGrid.Children.Add(row.Root);
+        }
 
         // The graphic and its number strip share a column; the moon takes the one beside it, so it
         // can never be drawn on top of the sun's arc. [S-169]
@@ -136,7 +167,7 @@ internal sealed partial class SunMoonView : Grid, IWidgetView, IWidgetSurfaceAwa
         {
             // The rows carry the inset as their own padding, so only the parts above them take it
             // as a margin; that is what lets a row highlight reach both edges of the widget.
-            Margin = new Thickness(Fluent.Space4, 0, Fluent.Space4, 0),
+            Margin = new Thickness(Fluent.Space4, 0, Fluent.Space4, Fluent.Space2),
             ColumnDefinitions =
             {
                 new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) },
@@ -151,14 +182,12 @@ internal sealed partial class SunMoonView : Grid, IWidgetView, IWidgetSurfaceAwa
 
         RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
         RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-
-        SetRow(_body, 0);
-        SetRow(_rowList, 1);
+        ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
 
         Children.Add(_body);
-        Children.Add(_rowList);
+        Children.Add(_rowGrid);
 
-        SizeChanged += (_, _) => ApplyLayout();
         _canvas.SizeChanged += (_, _) => Redraw();
     }
 
@@ -267,9 +296,59 @@ internal sealed partial class SunMoonView : Grid, IWidgetView, IWidgetSurfaceAwa
 
         Resubscribe();
 
-        // ApplyLayout ends in a Refresh, so the readout and the drawing pick the new config up in
-        // the same pass rather than in two.
-        ApplyLayout();
+        // Lay ends in a Refresh, so the readout and the drawing pick the new config up in the same
+        // pass rather than in two.
+        Lay();
+    }
+
+    /// <summary>[S-663] The card's word on how much room there is.</summary>
+    public void ApplySize(WidgetArea area)
+    {
+        _area = area;
+        Lay();
+    }
+
+    /// <summary>
+    /// [S-1493] The original's widget menu: the sun path's three modes (the current one checked) and
+    /// the event rows on or off. Written straight to the config and saved, like a setting.
+    /// </summary>
+    public IReadOnlyList<WidgetAction> ContextActions
+    {
+        get
+        {
+            var actions = new List<WidgetAction>();
+
+            foreach (var (mode, label) in new[]
+            {
+                (SunPathMode.Numbers, "Sun path: curve and times"),
+                (SunPathMode.Plain, "Sun path: curve only"),
+                (SunPathMode.Hidden, "Sun path: hidden"),
+            })
+            {
+                actions.Add(new(_config.PathMode == mode ? Glyphs.Done : Glyphs.Sun, label, () =>
+                {
+                    _config.PathMode = mode;
+                    Changed();
+                }));
+            }
+
+            actions.Add(new(
+                _config.ShowEvents ? Glyphs.Done : Glyphs.View,
+                "Event rows",
+                () =>
+                {
+                    _config.ShowEvents = !_config.ShowEvents;
+                    Changed();
+                }));
+
+            return actions;
+        }
+    }
+
+    private void Changed()
+    {
+        Lay();
+        _surface?.RequestSave();
     }
 
     private void Resubscribe()
@@ -302,24 +381,19 @@ internal sealed partial class SunMoonView : Grid, IWidgetView, IWidgetSurfaceAwa
     }
 
     /// <summary>
-    /// What is shown at this size. [S-170]
+    /// [S-170]/[S-1492] What is shown at this size.
     /// <para>
     /// The graphic is never dropped — the user asked for it — so only extras shed as the tile
     /// shrinks: first the countdown, then the label icons and the moon's percentage, then the
-    /// daylight label, then the number strip.
-    /// </para>
-    /// <para>
-    /// How many rows appear is no longer a set of height thresholds picked by hand: rows are a fixed
-    /// 40px, or 32 on a small tile, so the widget simply works out how many of that height are left
-    /// once the graphic's floor has taken its share, and shows that many — moon first to go, then
-    /// daylight, then the two events. With the graphic hidden all four stay, since a widget showing
-    /// nothing is never the answer.
+    /// daylight label, then the number strip. The rows are a ladder on <see cref="Disclosure"/>:
+    /// whole rows of what the graphic leaves, in priority order. With the graphic hidden every row
+    /// that fits shows, since a widget showing nothing is never the answer.
     /// </para>
     /// </summary>
-    private void ApplyLayout()
+    private void Lay()
     {
-        var width = ActualWidth;
-        var height = ActualHeight;
+        var width = _area.Width;
+        var height = _area.Height;
 
         var graphic = _config.PathMode != SunPathMode.Hidden;
 
@@ -328,8 +402,15 @@ internal sealed partial class SunMoonView : Grid, IWidgetView, IWidgetSurfaceAwa
         var rows = _config.ShowEvents || !graphic;
         var numbers = graphic && _config.PathMode == SunPathMode.Numbers;
 
-        var compact = width > 0 && height > 0 && (width < CompactWidth || height < CompactHeight);
+        // Windows' 32px list row on a tile that is small either way; the full 40 from a panel.
+        var compact = _area.WidthClass == SizeClass.Compact || _area.HeightClass <= SizeClass.Regular;
         var rowHeight = compact ? Fluent.RowHeightCompact : Fluent.RowHeight;
+
+        // [S-1492] A strip puts the rows beside the graphic; a large tile two rows to a line.
+        var side = graphic && rows && _area.Shape == AreaShape.Wide && _area.WidthClass >= SizeClass.Regular;
+        var pairs = rows && !side && _area.AtLeast(SizeClass.Expanded, SizeClass.Expanded);
+        var graphicWidth = side ? Math.Floor(width * 0.5) : width;
+        var rowWidth = side ? width - graphicWidth : pairs ? width / 2 : width;
 
         // The thresholds are the width the shed-able parts need at their ramp step, so nothing ever
         // has to be clipped to fit.
@@ -339,43 +420,44 @@ internal sealed partial class SunMoonView : Grid, IWidgetView, IWidgetSurfaceAwa
         // column only has from a 250px tile, and "in 6h 45m" under it needs about 64px, from
         // 280px. At the old 160 and 190 a 200px tile drew each icon over the time beside it
         // ("07:2⊙ 11h 33m☼ 19:0") and trimmed the countdown to "in 6…".
-        var showStrip = numbers && height >= 80 && width >= 120;
-        var showCountdown = width >= 280 && height >= 120;
-        var showDaylightLabel = width >= 140;
-        var showSmallExtras = width >= 250;
+        var showStrip = numbers && height >= 80 && graphicWidth >= 120;
+        var showCountdown = graphicWidth >= 280 && height >= 120;
+        var showDaylightLabel = graphicWidth >= 140;
+        var showSmallExtras = graphicWidth >= 250;
+        var rowNotes = rowWidth >= 280;
 
-        // What is left for rows once the graphic's floor has taken its share. The header belongs to
-        // the card and sits outside this box, so it takes nothing out of it.
-        var chrome = Fluent.Space4 + Fluent.Space2 + (graphic ? GraphicFloor : 0);
+        // What the rows may have: everything the graphic does not keep. On a strip the rows have the
+        // whole height beside it.
+        var room = new Disclosure(width, height - Fluent.Space2);
 
-        var room = height - chrome;
-        var fit = room > 0 ? (int)Math.Floor(room / rowHeight) : 0;
+        if (graphic && !side)
+        {
+            var keep = _area.HeightClass >= SizeClass.Expanded
+                ? Math.Max(GraphicFloor, height * GraphicShare)
+                : GraphicFloor + (showStrip ? StripFloor : 0);
+            room.Reserve(keep);
+        }
 
-        var showEventRows = rows && (!graphic || fit >= 2);
-        var showDaylightRow = rows && (!graphic || fit >= 3);
-        var showMoonRow = rows && (!graphic || fit >= 4);
+        var lines = rows ? room.TakeRows(rowHeight, pairs ? (_ladder.Length + 1) / 2 : _ladder.Length) : 0;
+        _rowCount = rows ? Math.Min(_ladder.Length, pairs ? lines * 2 : lines) : 0;
+
+        // [S-1492] Below two rows a pair of sunrise/sunset is half an answer: the one row is the next
+        // event, whichever it is (the Refresh fills it in).
+        PlaceRows(pairs, side);
 
         _canvas.Visibility = Show(graphic);
         _moonPanel.Visibility = Show(graphic);
         _body.Visibility = Show(graphic);
 
-        // Under a graphic the rows sit at the bottom; on their own they sit at the top, because
-        // nothing above them is pushing them down.
-        RowDefinitions[0].Height = graphic ? new GridLength(1, GridUnitType.Star) : GridLength.Auto;
-        RowDefinitions[1].Height = graphic ? GridLength.Auto : new GridLength(1, GridUnitType.Star);
-        _rowList.VerticalAlignment = graphic ? VerticalAlignment.Bottom : VerticalAlignment.Top;
         _strip.Visibility = Show(showStrip);
-        _rowList.Visibility = Show(showEventRows || showDaylightRow || showMoonRow);
+        _rowGrid.Visibility = Show(_rowCount > 0);
 
-        _sunriseRow.Root.Visibility = Show(showEventRows);
-        _sunsetRow.Root.Visibility = Show(showEventRows);
-        _daylightRow.Root.Visibility = Show(showDaylightRow);
-        _moonRow.Root.Visibility = Show(showMoonRow);
-
-        _sunriseRow.SetDensity(compact);
-        _sunsetRow.SetDensity(compact);
-        _daylightRow.SetDensity(compact);
-        _moonRow.SetDensity(compact);
+        foreach (var row in _ladder)
+        {
+            row.SetDensity(compact);
+            row.AllowCountdown = showCountdown || (side && rowNotes);
+            row.AllowNote = rowNotes;
+        }
 
         _moonPercent.Visibility = Show(graphic && numbers && showSmallExtras);
         _dayLabel.Root.Visibility = Show(showDaylightLabel);
@@ -388,14 +470,57 @@ internal sealed partial class SunMoonView : Grid, IWidgetView, IWidgetSurfaceAwa
         _dayLabel.AllowCountdown = false;
         _setLabel.AllowCountdown = showCountdown;
 
-        _sunriseRow.AllowCountdown = showCountdown;
-        _sunsetRow.AllowCountdown = showCountdown;
-
         // The graphic keeps its floor but gives the rest of the tile back when the rows are hidden.
         _canvas.MinHeight = graphic ? GraphicFloor : 0;
 
-        ApplyType(width, height);
+        ApplyType(graphicWidth, side ? height : height - (lines * rowHeight));
         Refresh();
+    }
+
+    /// <summary>
+    /// Put the graphic and the rows where this shape wants them, and the first <see cref="_rowCount"/>
+    /// rows of the ladder into the row grid — one column, or two to a line on a large tile.
+    /// </summary>
+    private void PlaceRows(bool pairs, bool side)
+    {
+        // Column: graphic over rows. Side: graphic left, rows right, both full height. Graphic hidden:
+        // the rows sit at the top, because nothing above them is pushing them down.
+        var graphic = _config.PathMode != SunPathMode.Hidden;
+
+        SetRow(_body, 0);
+        SetColumn(_body, 0);
+        SetRowSpan(_body, side ? 2 : 1);
+        SetColumnSpan(_body, side ? 1 : 2);
+
+        SetRow(_rowGrid, side || !graphic ? 0 : 1);
+        SetColumn(_rowGrid, side ? 1 : 0);
+        SetRowSpan(_rowGrid, side || !graphic ? 2 : 1);
+        SetColumnSpan(_rowGrid, side ? 1 : 2);
+
+        ColumnDefinitions[0].Width = new GridLength(1, GridUnitType.Star);
+        ColumnDefinitions[1].Width = side ? new GridLength(1, GridUnitType.Star) : GridLength.Auto;
+        RowDefinitions[0].Height = graphic ? new GridLength(1, GridUnitType.Star) : GridLength.Auto;
+        RowDefinitions[1].Height = graphic && !side ? GridLength.Auto : new GridLength(1, GridUnitType.Star);
+        _rowGrid.VerticalAlignment = graphic && !side ? VerticalAlignment.Bottom : side ? VerticalAlignment.Center : VerticalAlignment.Top;
+
+        _rowGrid.ColumnDefinitions[1].Width = pairs ? new GridLength(1, GridUnitType.Star) : new GridLength(0);
+        _rowGrid.ColumnSpacing = pairs ? Fluent.Space2 : 0;
+
+        while (_rowGrid.RowDefinitions.Count < _ladder.Length)
+        {
+            _rowGrid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        }
+
+        for (var i = 0; i < _ladder.Length; i++)
+        {
+            var root = _ladder[i].Root;
+            var shown = i < _rowCount;
+            root.Visibility = Show(shown);
+
+            // Pairs read across: sunrise beside sunset, daylight beside the moon.
+            SetRow(root, pairs ? i / 2 : i);
+            SetColumn(root, pairs ? i % 2 : 0);
+        }
     }
 
     /// <summary>
@@ -411,7 +536,7 @@ internal sealed partial class SunMoonView : Grid, IWidgetView, IWidgetSurfaceAwa
         // Each strip column is 26% of the content width, and holds an icon, a time and a little
         // slack — roughly eight characters' worth.
         var column = Math.Max(0, (width - (Fluent.Space4 * 2)) * 0.26);
-        var band = Math.Max(0, height - GraphicFloor - (Fluent.Space6 * 2));
+        var band = Math.Max(0, (height - GraphicFloor) * 0.4);
         var value = FluentType.Strong(FluentType.Fit(column, band, 8, FluentType.Caption, FluentType.Subtitle));
 
         _riseLabel.SetStep(value);
@@ -425,17 +550,17 @@ internal sealed partial class SunMoonView : Grid, IWidgetView, IWidgetSurfaceAwa
 
     private static double BadgeSize(double width, double height)
     {
-        if (width >= 420 && height >= 320)
+        if (width >= 420 && height >= 280)
         {
             return 40;
         }
 
-        if (width >= 300 && height >= 220)
+        if (width >= 300 && height >= 180)
         {
             return 32;
         }
 
-        return width >= 200 && height >= 150 ? 24 : 16;
+        return width >= 200 && height >= 110 ? 24 : 16;
     }
 
     /// <summary>Recompute the readout and redraw. Called on a tick, a config change and a resize.</summary>
@@ -451,12 +576,13 @@ internal sealed partial class SunMoonView : Grid, IWidgetView, IWidgetSurfaceAwa
 
         var sunrise = Clock(times.Sunrise);
         var sunset = Clock(times.Sunset);
-        var daylight = Daylight(times);
+        var daylight = SkyText.Daylight(times);
         var southern = latitude < 0;
+        var percent = $"{(int)Math.Round(moon.Illumination * 100)}%";
 
         // The time remaining rides on whichever of the two rows is next, and that row is
         // emphasised. There is no separate banner.
-        var countdown = next is { } evt ? Countdown(evt.At - _now) : null;
+        var countdown = next is { } evt ? SkyText.Countdown(evt.At - _now) : null;
         var riseCountdown = next?.Kind == SunEventKind.Sunrise ? countdown : null;
         var setCountdown = next?.Kind == SunEventKind.Sunset ? countdown : null;
 
@@ -464,13 +590,41 @@ internal sealed partial class SunMoonView : Grid, IWidgetView, IWidgetSurfaceAwa
         _dayLabel.Set(daylight, null);
         _setLabel.Set(sunset, setCountdown);
 
-        _sunriseRow.Set(sunrise, riseCountdown);
-        _sunsetRow.Set(sunset, setCountdown);
-        _daylightRow.Set(daylight, null);
-        _moonRow.SetLabel(MoonPhase.Label(moon.Name));
-        _moonRow.Set($"{(int)Math.Round(moon.Illumination * 100)}%", null);
+        // [S-1492] One row: the next event, in the first row's place.
+        if (_rowCount == 1 && next?.Kind == SunEventKind.Sunset)
+        {
+            _sunriseRow.SetLabel("Sunset");
+            _sunriseRow.Set(sunset, setCountdown);
+        }
+        else
+        {
+            _sunriseRow.SetLabel("Sunrise");
+            _sunriseRow.Set(sunrise, riseCountdown);
+        }
 
-        _moonPercent.Text = $"{(int)Math.Round(moon.Illumination * 100)}%";
+        _sunsetRow.Set(sunset, setCountdown);
+
+        // [S-1490] The change since yesterday is the daylight row's note; noon carries the sun's height.
+        var change = SolarPosition.DaylightChange(_now, latitude, longitude);
+        _daylightRow.SetPlain(daylight, change is { } delta ? SkyText.Change(delta) : null);
+
+        _moonRow.SetLabel(MoonPhase.Label(moon.Name));
+        _moonRow.SetPlain(percent, null);
+
+        var noon = SolarPosition.NoonFor(_now, latitude, longitude);
+        _noonRow.SetPlain(Clock(noon.At), SkyText.Degrees(noon.AltitudeDegrees));
+
+        var twilight = SolarPosition.CivilTwilightFor(_now, latitude, longitude);
+        _dawnRow.SetPlain(Clock(twilight.Sunrise), "civil");
+        _duskRow.SetPlain(Clock(twilight.Sunset), "civil");
+
+        // [S-1491] The next full or new moon, in the machine's zone like every other time here.
+        var major = MoonPhase.NextMajor(_now);
+        _phaseRow.SetLabel(MoonPhase.Label(major.Name));
+        _phaseRow.SetPlain(SkyText.ShortDate(major.At.ToLocalTime()), null);
+        _phaseGlyph.Update(major.Name == MoonPhaseName.FullMoon ? 0.5 : 0, southern, up: true);
+
+        _moonPercent.Text = percent;
         _moonBadge.Update(moon.Phase, southern, moonUp);
         _moonGlyph.Update(moon.Phase, southern, moonUp);
 
@@ -572,24 +726,8 @@ internal sealed partial class SunMoonView : Grid, IWidgetView, IWidgetSurfaceAwa
     private static string Clock(DateTimeOffset? moment)
         => moment is { } instant ? $"{instant.ToLocalTime():HH\\:mm}" : "—";
 
-    private static string Daylight(SunTimes times)
-    {
-        if (times.Sunrise is not { } sunrise || times.Sunset is not { } sunset)
-        {
-            return times.Polar == PolarState.Day ? "24h" : "0h";
-        }
-
-        var minutes = (int)Math.Round((sunset - sunrise).TotalMinutes);
-        return $"{minutes / 60}h {minutes % 60}m";
-    }
-
-    private static string Countdown(TimeSpan remaining)
-    {
-        var minutes = Math.Max(0, (int)Math.Round(remaining.TotalMinutes));
-        return minutes >= 60 ? $"in {minutes / 60}h {minutes % 60}m" : $"in {minutes}m";
-    }
-
     private static Visibility Show(bool visible) => visible ? Visibility.Visible : Visibility.Collapsed;
+
 
     /// <summary>
     /// The moon at its current phase. [S-169]
@@ -799,6 +937,21 @@ internal sealed partial class SunMoonView : Grid, IWidgetView, IWidgetSurfaceAwa
             _label.Apply(isNext ? FluentType.BodyStrong : FluentType.Body);
             _label.Foreground = isNext ? _accentText : _secondary;
             _value.Foreground = isNext ? _accentText : _primary;
+        }
+
+        /// <summary>[S-1490] Whether a plain row's note ("+2m 14s", "34°") has the width to show.</summary>
+        public bool AllowNote { get; set; } = true;
+
+        /// <summary>A row that is never "next": its value, and a quiet note beside the label.</summary>
+        public void SetPlain(string value, string? note)
+        {
+            _value.Text = value;
+            _countdown.Text = note ?? string.Empty;
+            _countdown.Visibility = note is not null && AllowNote ? Visibility.Visible : Visibility.Collapsed;
+
+            _label.Apply(FluentType.Body);
+            _label.Foreground = _secondary;
+            _value.Foreground = _primary;
         }
     }
     /// <summary>

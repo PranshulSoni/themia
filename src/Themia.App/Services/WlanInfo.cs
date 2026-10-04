@@ -7,7 +7,8 @@ namespace Themia.App.Services;
 /// <summary>The Wi-Fi network an adapter is joined to, and how strong its signal is.</summary>
 /// <param name="Ssid">The network's name, or null when hidden or not readable.</param>
 /// <param name="Signal">Signal quality 0..100, or null.</param>
-internal readonly record struct WlanConnection(string? Ssid, int? Signal);
+/// <param name="Refused">[S-1611] Windows refused the query for want of location permission.</param>
+internal readonly record struct WlanConnection(string? Ssid, int? Signal, bool Refused = false);
 
 /// <summary>
 /// [S-1193] The Wi-Fi network name and signal of a wireless adapter, from the native Wi-Fi API
@@ -15,8 +16,9 @@ internal readonly record struct WlanConnection(string? Ssid, int? Signal);
 /// <para>
 /// Windows treats the network name as location data: without the user's location permission for
 /// desktop apps the call is refused (ERROR_ACCESS_DENIED), and the tile then shows the link speed
-/// without a name rather than an error. Asked at most every half minute per adapter, and only for an
-/// adapter a tile is describing.
+/// without a name rather than an error — packaged, with a hint to allow it ([S-1613]). Asked at most
+/// every half minute per adapter, and only for an adapter a tile is describing; a change of the
+/// location permission ([S-1611]) asks again at once.
 /// </para>
 /// </summary>
 internal static unsafe partial class WlanInfo
@@ -25,6 +27,7 @@ internal static unsafe partial class WlanInfo
 
     private const uint ClientVersion = 2;
     private const uint Success = 0;
+    private const uint AccessDenied = 5;
     private const int OpcodeCurrentConnection = 7;
     private const int Connected = 1;
 
@@ -39,7 +42,7 @@ internal static unsafe partial class WlanInfo
 
     private const long ReuseMs = 30_000;
 
-    private static readonly Dictionary<Guid, (long At, WlanConnection? Value)> Cache = [];
+    private static readonly Dictionary<Guid, (long At, int Generation, WlanConnection? Value)> Cache = [];
     private static uint _lastError;
 
     /// <summary>The connection of the adapter with this id (<c>NetworkInterface.Id</c>, a GUID), or null.</summary>
@@ -51,8 +54,9 @@ internal static unsafe partial class WlanInfo
         }
 
         var now = Environment.TickCount64;
+        var generation = LocationConsent.Generation;
 
-        if (Cache.TryGetValue(guid, out var cached) && now - cached.At >= 0 && now - cached.At < ReuseMs)
+        if (Cache.TryGetValue(guid, out var cached) && cached.Generation == generation && now - cached.At >= 0 && now - cached.At < ReuseMs)
         {
             return cached.Value;
         }
@@ -70,7 +74,7 @@ internal static unsafe partial class WlanInfo
             value = null;
         }
 
-        Cache[guid] = (now, value);
+        Cache[guid] = (now, generation, value);
         return value;
     }
 
@@ -98,7 +102,7 @@ internal static unsafe partial class WlanInfo
             {
                 // ERROR_INVALID_STATE is "not connected"; ERROR_ACCESS_DENIED is no location permission.
                 Note(result, "could not read the Wi-Fi connection");
-                return null;
+                return result == AccessDenied ? new WlanConnection(null, null, Refused: true) : null;
             }
 
             Note(Success, null);

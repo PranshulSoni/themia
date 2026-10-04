@@ -10,60 +10,72 @@ public class WidgetClipboardTests
 
     private static (AppState State, ViewState View, WidgetInstance Widget) Fixture()
     {
+        // One clock, not the first-run desktop ([S-893]): the counts below are about that one widget.
         var state = AppState.CreateDefault();
         var view = state.ActiveView();
+        view.Widgets.RemoveRange(1, view.Widgets.Count - 1);
         return (state, view, view.Widgets[0]);
     }
 
+    private static PastePlan Paste(WidgetClipboard clipboard, double x = 0.5, double y = 0.5, ScreenMetrics? screen = null, bool snap = false)
+        => clipboard.Payload!.Plan(x, y, screen ?? Screen, snap);
+
     [Fact]
-    public void An_empty_clipboard_plans_nothing()
+    public void An_empty_clipboard_has_nothing_to_place()
     {
         var clipboard = new WidgetClipboard();
 
         Assert.False(clipboard.HasContent);
-        Assert.Null(clipboard.PlanPaste(new FracRect(0.5, 0.5, 0, 0), Screen, snapEnabled: false));
+        Assert.Null(clipboard.Payload);
     }
 
     [Fact]
-    public void A_pasted_copy_gets_a_new_id_so_it_can_coexist_with_the_original()
+    public void Copying_ids_the_view_does_not_have_leaves_the_clipboard_alone()
+    {
+        var (_, view, _) = Fixture();
+        var clipboard = new WidgetClipboard();
+
+        Assert.False(clipboard.Copy(view, ["nope"]));
+        Assert.False(clipboard.HasContent);
+    }
+
+    [Fact]
+    public void S72_a_pasted_copy_gets_a_new_id_so_it_can_coexist_with_the_original()
     {
         var (_, view, widget) = Fixture();
         var clipboard = new WidgetClipboard();
-        clipboard.Copy(widget, view.Id);
+        clipboard.Copy(view, [widget.Id]);
 
-        var plan = clipboard.PlanPaste(new FracRect(0.5, 0.5, 0, 0), Screen, snapEnabled: false);
+        var pasted = Assert.Single(Paste(clipboard).Added);
 
-        Assert.NotNull(plan);
-        Assert.NotEqual(widget.Id, plan.Value.Widget.Id);
-        Assert.Equal(widget.Kind, plan.Value.Widget.Kind);
+        Assert.NotEqual(widget.Id, pasted.Id);
+        Assert.Equal(widget.Kind, pasted.Kind);
     }
 
     [Fact]
-    public void A_copy_carries_the_config_not_a_shared_reference()
+    public void S72_a_copy_carries_the_config_not_a_shared_reference()
     {
         var (_, view, widget) = Fixture();
         ((ClockConfig)widget.Config).ShowSeconds = true;
         var clipboard = new WidgetClipboard();
-        clipboard.Copy(widget, view.Id);
+        clipboard.Copy(view, [widget.Id]);
 
         // Mutating the original afterwards must not reach into the clipboard entry.
         ((ClockConfig)widget.Config).ShowSeconds = false;
 
-        var plan = clipboard.PlanPaste(new FracRect(0.5, 0.5, 0, 0), Screen, snapEnabled: false);
-
-        Assert.True(((ClockConfig)plan!.Value.Widget.Config).ShowSeconds);
+        Assert.True(((ClockConfig)Paste(clipboard).Added[0].Config).ShowSeconds);
     }
 
     [Fact]
-    public void A_copy_survives_the_original_being_deleted()
+    public void S72_a_copy_survives_the_original_being_deleted()
     {
         var (_, view, widget) = Fixture();
         var clipboard = new WidgetClipboard();
-        clipboard.Copy(widget, view.Id);
+        clipboard.Copy(view, [widget.Id]);
         view.Widgets.Clear();
 
         Assert.True(clipboard.HasContent);
-        Assert.NotNull(clipboard.PlanPaste(new FracRect(0.5, 0.5, 0, 0), Screen, snapEnabled: false));
+        Assert.Single(Paste(clipboard).Added);
     }
 
     [Fact]
@@ -71,33 +83,30 @@ public class WidgetClipboardTests
     {
         var (_, view, widget) = Fixture();
         var clipboard = new WidgetClipboard();
-        clipboard.Copy(widget, view.Id);
+        clipboard.Copy(view, [widget.Id]);
 
-        var plan = clipboard.PlanPaste(new FracRect(0.5, 0.5, 0, 0), Screen, snapEnabled: false)!.Value;
-
-        Assert.Null(plan.RemoveFromViewId);
-        Assert.Null(plan.RemoveWidgetId);
+        Assert.Empty(Paste(clipboard).RemoveIds);
     }
 
     [Fact]
-    public void A_cut_plan_names_the_original_to_remove()
+    public void S73_a_cut_plan_names_the_original_to_move_and_keeps_its_id()
     {
         var (_, view, widget) = Fixture();
         var clipboard = new WidgetClipboard();
-        clipboard.Cut(widget, view.Id);
+        clipboard.Cut(view, [widget.Id]);
 
-        var plan = clipboard.PlanPaste(new FracRect(0.5, 0.5, 0, 0), Screen, snapEnabled: false)!.Value;
+        var plan = Paste(clipboard);
 
-        Assert.Equal(view.Id, plan.RemoveFromViewId);
-        Assert.Equal(widget.Id, plan.RemoveWidgetId);
+        Assert.Equal([widget.Id], plan.RemoveIds);
+        Assert.Equal(widget.Id, Assert.Single(plan.Added).Id);
     }
 
     [Fact]
-    public void A_cut_does_not_remove_anything_until_it_is_pasted()
+    public void S73_a_cut_does_not_remove_anything_until_it_is_pasted()
     {
         var (_, view, widget) = Fixture();
         var clipboard = new WidgetClipboard();
-        clipboard.Cut(widget, view.Id);
+        clipboard.Cut(view, [widget.Id]);
 
         // Marking only: changing your mind after a cut must cost nothing.
         Assert.Single(view.Widgets);
@@ -105,78 +114,89 @@ public class WidgetClipboardTests
     }
 
     [Fact]
-    public void A_cut_is_consumed_by_one_paste_but_a_copy_is_not()
+    public void S73_a_cut_is_consumed_by_the_placement_that_lands_it_but_a_copy_is_not()
     {
         var (_, view, widget) = Fixture();
 
         var cut = new WidgetClipboard();
-        cut.Cut(widget, view.Id);
-        cut.OnPasted();
+        cut.Cut(view, [widget.Id]);
+        cut.OnPlaced(cut.Payload!);
         Assert.False(cut.HasContent);
 
         var copy = new WidgetClipboard();
-        copy.Copy(widget, view.Id);
-        copy.OnPasted();
+        copy.Copy(view, [widget.Id]);
+        copy.OnPlaced(copy.Payload!);
         Assert.True(copy.HasContent);
     }
 
     [Fact]
-    public void A_paste_is_centred_on_the_drop_point()
+    public void S1590_landing_some_other_placement_does_not_consume_the_cut()
+    {
+        var (_, view, widget) = Fixture();
+        var clipboard = new WidgetClipboard();
+        clipboard.Cut(view, [widget.Id]);
+
+        clipboard.OnPlaced(PlacementPayload.ForNew(WidgetKind.Clock, 200, 200));
+
+        Assert.True(clipboard.HasContent);
+    }
+
+    [Fact]
+    public void S74_a_paste_is_centred_on_the_drop_point()
     {
         var (_, view, widget) = Fixture();
         widget.Rect = new FracRect(0.1, 0.1, 0.2, 0.1);
         var clipboard = new WidgetClipboard();
-        clipboard.Copy(widget, view.Id);
+        clipboard.Copy(view, [widget.Id]);
 
-        var plan = clipboard.PlanPaste(new FracRect(0.5, 0.5, 0, 0), Screen, snapEnabled: false)!.Value;
+        var rect = Paste(clipboard).Added[0].Rect;
 
-        Assert.Equal(0.5, plan.Widget.Rect.X + (plan.Widget.Rect.W / 2), 6);
-        Assert.Equal(0.5, plan.Widget.Rect.Y + (plan.Widget.Rect.H / 2), 6);
+        Assert.Equal(0.5, rect.X + (rect.W / 2), 6);
+        Assert.Equal(0.5, rect.Y + (rect.H / 2), 6);
     }
 
     [Fact]
-    public void A_paste_keeps_the_widget_size()
+    public void S74_a_paste_keeps_the_widget_size()
     {
         var (_, view, widget) = Fixture();
         widget.Rect = new FracRect(0.1, 0.1, 0.25, 0.15);
         var clipboard = new WidgetClipboard();
-        clipboard.Copy(widget, view.Id);
+        clipboard.Copy(view, [widget.Id]);
 
-        var plan = clipboard.PlanPaste(new FracRect(0.5, 0.5, 0, 0), Screen, snapEnabled: false)!.Value;
+        var rect = Paste(clipboard).Added[0].Rect;
 
-        Assert.Equal(0.25, plan.Widget.Rect.W, 6);
-        Assert.Equal(0.15, plan.Widget.Rect.H, 6);
+        Assert.Equal(0.25, rect.W, 6);
+        Assert.Equal(0.15, rect.H, 6);
     }
 
     [Fact]
-    public void A_paste_at_a_screen_corner_is_clamped_fully_on_screen()
+    public void S74_a_paste_at_a_screen_corner_is_clamped_fully_on_screen()
     {
         var (_, view, widget) = Fixture();
         widget.Rect = new FracRect(0.1, 0.1, 0.3, 0.3);
         var clipboard = new WidgetClipboard();
-        clipboard.Copy(widget, view.Id);
+        clipboard.Copy(view, [widget.Id]);
 
-        var plan = clipboard.PlanPaste(new FracRect(1.0, 1.0, 0, 0), Screen, snapEnabled: true)!.Value;
+        var rect = Paste(clipboard, 1.0, 1.0, snap: true).Added[0].Rect;
 
-        Assert.True(plan.Widget.Rect.X >= 0);
-        Assert.True(plan.Widget.Rect.Y >= 0);
-        Assert.True(plan.Widget.Rect.Right <= 1.0000001);
-        Assert.True(plan.Widget.Rect.Bottom <= 1.0000001);
+        Assert.True(rect.X >= 0);
+        Assert.True(rect.Y >= 0);
+        Assert.True(rect.Right <= 1.0000001);
+        Assert.True(rect.Bottom <= 1.0000001);
     }
 
     [Fact]
-    public void Pasting_onto_a_differently_shaped_display_still_lands_on_screen()
+    public void S74_pasting_onto_a_differently_shaped_display_still_lands_on_screen()
     {
         var (_, view, widget) = Fixture();
         widget.Rect = new FracRect(0.4, 0.4, 0.5, 0.5);
         var clipboard = new WidgetClipboard();
-        clipboard.Copy(widget, view.Id);
+        clipboard.Copy(view, [widget.Id]);
 
-        var portrait = new ScreenMetrics(1080, 1920);
-        var plan = clipboard.PlanPaste(new FracRect(0.9, 0.9, 0, 0), portrait, snapEnabled: false)!.Value;
+        var rect = Paste(clipboard, 0.9, 0.9, new ScreenMetrics(1080, 1920)).Added[0].Rect;
 
-        Assert.True(plan.Widget.Rect.Right <= 1.0000001);
-        Assert.True(plan.Widget.Rect.Bottom <= 1.0000001);
+        Assert.True(rect.Right <= 1.0000001);
+        Assert.True(rect.Bottom <= 1.0000001);
     }
 
     [Fact]
@@ -190,7 +210,7 @@ public class WidgetClipboardTests
         clipboard.Clear();          // nothing to clear
         Assert.Equal(0, changes);
 
-        clipboard.Copy(widget, view.Id);
+        clipboard.Copy(view, [widget.Id]);
         Assert.Equal(1, changes);
 
         clipboard.Clear();

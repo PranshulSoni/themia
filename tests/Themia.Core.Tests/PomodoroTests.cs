@@ -146,83 +146,169 @@ public class PomodoroCycleTests
         => Assert.Equal(expected, PomodoroCycle.Clock(remaining));
 }
 
-/// <summary>[S-06] the phase-flip cue.</summary>
-public class PomodoroAlarmTests
+/// <summary>[S-1460]..[S-1463] the twelve ringtones, their volume, and the phase-flip direction.</summary>
+public class PomodoroSoundTests
 {
-    [Fact]
-    public void S06_the_cue_ascends_into_focus_and_descends_into_a_break()
+    public static TheoryData<AlarmSound> Sounding()
     {
-        var work = PomodoroAlarm.Notes(PomodoroPhase.Work);
-        var rest = PomodoroAlarm.Notes(PomodoroPhase.Break);
-
-        // The direction is the whole message: it says which phase is starting without being read.
-        Assert.Equal(work, rest.Reverse());
-        Assert.True(work[0] < work[1] && work[1] < work[2], "the focus cue must ascend");
-        Assert.True(rest[0] > rest[1] && rest[1] > rest[2], "the break cue must descend");
-    }
-
-    [Theory]
-    [InlineData(PomodoroPhase.Work)]
-    [InlineData(PomodoroPhase.Break)]
-    public void S06_the_cue_is_a_well_formed_16_bit_mono_wave(PomodoroPhase phase)
-    {
-        var wave = PomodoroAlarm.BuildWave(phase);
-        var span = wave.AsSpan();
-
-        Assert.Equal("RIFF"u8.ToArray(), span[..4].ToArray());
-        Assert.Equal("WAVE"u8.ToArray(), span[8..12].ToArray());
-        Assert.Equal("fmt "u8.ToArray(), span[12..16].ToArray());
-        Assert.Equal("data"u8.ToArray(), span[36..40].ToArray());
-
-        Assert.Equal((short)1, BinaryPrimitives.ReadInt16LittleEndian(span[20..]));                    // PCM
-        Assert.Equal((short)1, BinaryPrimitives.ReadInt16LittleEndian(span[22..]));                    // mono
-        Assert.Equal(PomodoroAlarm.SampleRate, BinaryPrimitives.ReadInt32LittleEndian(span[24..]));
-        Assert.Equal((short)16, BinaryPrimitives.ReadInt16LittleEndian(span[34..]));                   // bit depth
-
-        // The two declared sizes must agree with the buffer, or every player truncates or overruns.
-        var dataBytes = BinaryPrimitives.ReadInt32LittleEndian(span[40..]);
-        Assert.Equal(wave.Length - 44, dataBytes);
-        Assert.Equal(wave.Length - 8, BinaryPrimitives.ReadInt32LittleEndian(span[4..]));
-        Assert.Equal(0, dataBytes % 2);
-    }
-
-    [Theory]
-    [InlineData(PomodoroPhase.Work)]
-    [InlineData(PomodoroPhase.Break)]
-    public void S06_no_sample_reaches_the_peak_bound_so_the_cue_cannot_clip(PomodoroPhase phase)
-    {
-        var wave = PomodoroAlarm.BuildWave(phase);
-        var bound = (int)Math.Ceiling(PomodoroAlarm.Peak * short.MaxValue);
-        var loudest = 0;
-
-        for (var offset = 44; offset + 1 < wave.Length; offset += 2)
+        var data = new TheoryData<AlarmSound>();
+        foreach (var sound in PomodoroSounds.Order.Where(s => s != AlarmSound.Off))
         {
-            loudest = Math.Max(loudest, Math.Abs(BinaryPrimitives.ReadInt16LittleEndian(wave.AsSpan(offset))));
+            data.Add(sound);
         }
 
-        Assert.True(loudest <= bound, $"peak {loudest} exceeded the bound {bound}");
-
-        // And it is actually audible rather than a buffer of silence.
-        Assert.True(loudest > bound / 4, $"peak {loudest} is too quiet to be a cue");
+        return data;
     }
 
     [Fact]
-    public void S06_the_cue_starts_and_ends_in_silence()
+    public void S1460_off_and_twelve_ringtones_listed_gentle_to_insistent()
     {
-        // A waveform that starts or stops mid-swing clicks, which is the one thing a gentle cue
-        // must not do.
-        var wave = PomodoroAlarm.BuildWave(PomodoroPhase.Work);
-
-        Assert.Equal((short)0, BinaryPrimitives.ReadInt16LittleEndian(wave.AsSpan(44)));
-        Assert.Equal((short)0, BinaryPrimitives.ReadInt16LittleEndian(wave.AsSpan(wave.Length - 2)));
+        Assert.Equal(13, PomodoroSounds.Order.Count);
+        Assert.Equal(AlarmSound.Off, PomodoroSounds.Order[0]);
+        Assert.Equal(AlarmSound.Chime, PomodoroSounds.Order[1]);
+        Assert.Equal(AlarmSound.Buzzer, PomodoroSounds.Order[^1]);
+        Assert.Equal(Enum.GetValues<AlarmSound>().Length, PomodoroSounds.Order.Distinct().Count());
     }
 
     [Fact]
-    public void S06_the_cue_is_short_enough_to_be_a_notification()
+    public void S1460_defaults_are_chime_at_seventy()
     {
-        var wave = PomodoroAlarm.BuildWave(PomodoroPhase.Work);
-        var seconds = (wave.Length - 44) / 2.0 / PomodoroAlarm.SampleRate;
+        var config = new PomodoroConfig();
+        Assert.Equal(AlarmSound.Chime, config.Sound);
+        Assert.Equal(70, config.Volume);
+    }
 
-        Assert.InRange(seconds, 0.2, 1.5);
+    [Fact]
+    public void S1460_an_unknown_sound_name_reads_as_the_default_chime()
+    {
+        var config = Assert.IsType<PomodoroConfig>(ConfigJson.Read("Pomodoro", """{"kind":"pomodoro","sound":"kazoo","volume":40}"""));
+        Assert.Equal(AlarmSound.Chime, config.Sound);
+        Assert.Equal(40, config.Volume);
+    }
+
+    [Fact]
+    public void S1460_a_sound_reads_by_name_in_any_case()
+        => Assert.Equal(AlarmSound.Gong, Assert.IsType<PomodoroConfig>(ConfigJson.Read("Pomodoro", """{"kind":"pomodoro","sound":"Gong"}""")).Sound);
+
+    [Theory]
+    [InlineData(-5, 0)]
+    [InlineData(250, 100)]
+    [InlineData(55, 55)]
+    public void S1460_volume_is_repaired_into_zero_to_a_hundred(int stored, int expected)
+    {
+        var config = new PomodoroConfig { Volume = stored };
+        var repairs = config.Repair();
+        Assert.Equal(expected, config.Volume);
+        Assert.Equal(stored != expected, repairs.Count > 0);
+    }
+
+    [Fact]
+    public void S1461_off_is_the_empty_plan_and_renders_nothing()
+    {
+        Assert.True(PomodoroSounds.Plan(AlarmSound.Off, PomodoroPhase.Work).IsEmpty);
+        Assert.Empty(PomodoroSounds.Wave(AlarmSound.Off, PomodoroPhase.Break, 100));
+    }
+
+    [Theory]
+    [MemberData(nameof(Sounding))]
+    public void S1461_every_sound_rises_into_focus_and_falls_into_a_break(AlarmSound sound)
+    {
+        var focus = PomodoroSounds.Notes(sound, PomodoroPhase.Work);
+        var rest = PomodoroSounds.Notes(sound, PomodoroPhase.Break);
+
+        Assert.True(focus.Length >= 2);
+        Assert.True(focus[^1] > focus[0], $"{sound} must rise into focus");
+        Assert.Equal(focus.Reverse(), rest);
+    }
+
+    [Theory]
+    [MemberData(nameof(Sounding))]
+    public void S1463_every_sound_is_levelled_to_the_same_peak_bound(AlarmSound sound)
+    {
+        var plan = PomodoroSounds.Plan(sound, PomodoroPhase.Work);
+        Assert.Equal(PomodoroSounds.Peak, plan.PeakBound(), 6);
+    }
+
+    [Theory]
+    [MemberData(nameof(Sounding))]
+    public void S1463_no_sound_clips_at_volume_a_hundred(AlarmSound sound)
+    {
+        var samples = PomodoroSounds.Plan(sound, PomodoroPhase.Break).Render(1.0);
+        Assert.All(samples, s => Assert.True(Math.Abs(s) < 1.0, $"{sound} clips: {s}"));
+    }
+
+    [Theory]
+    [MemberData(nameof(Sounding))]
+    public void S1462_every_sound_is_a_well_formed_wave_that_starts_and_ends_silent(AlarmSound sound)
+    {
+        var wave = PomodoroSounds.Wave(sound, PomodoroPhase.Work, 70);
+        var span = wave.AsSpan();
+
+        Assert.True("RIFF"u8.SequenceEqual(span[..4]));
+        Assert.True("WAVE"u8.SequenceEqual(span[8..12]));
+        Assert.Equal(SoundPlan.SampleRate, BinaryPrimitives.ReadInt32LittleEndian(span[24..]));
+        Assert.Equal(16, BinaryPrimitives.ReadInt16LittleEndian(span[34..]));
+        Assert.Equal(wave.Length - 44, BinaryPrimitives.ReadInt32LittleEndian(span[40..]));
+
+        Assert.Equal(0, BinaryPrimitives.ReadInt16LittleEndian(span[44..]));
+        Assert.Equal(0, BinaryPrimitives.ReadInt16LittleEndian(span[^2..]));
+
+        // A notification, not a song: the longest (the zen bowl) is under three seconds.
+        Assert.InRange((wave.Length - 44) / 2.0 / SoundPlan.SampleRate, 0.3, 3.0);
+    }
+
+    [Fact]
+    public void S1462_volume_scales_the_cue_and_zero_is_silence()
+    {
+        var loud = PomodoroSounds.Plan(AlarmSound.Chime, PomodoroPhase.Work).Render(1.0).Max(Math.Abs);
+        var soft = PomodoroSounds.Plan(AlarmSound.Chime, PomodoroPhase.Work).Render(0.5).Max(Math.Abs);
+
+        Assert.Equal(loud / 2, soft, 6);
+        Assert.Empty(PomodoroSounds.Wave(AlarmSound.Chime, PomodoroPhase.Work, 0));
+    }
+
+    [Fact]
+    public void S1462_rendering_is_deterministic_noise_included()
+        => Assert.Equal(PomodoroSounds.Wave(AlarmSound.Gong, PomodoroPhase.Work, 80), PomodoroSounds.Wave(AlarmSound.Gong, PomodoroPhase.Work, 80));
+
+    [Fact]
+    public void S1462_an_envelope_ramps_between_points_and_holds_outside_them()
+    {
+        EnvPoint[] envelope = [new(0, 0), new(10, 1), new(20, 0)];
+
+        Assert.Equal(0, SoundPlan.Envelope(envelope, -5));
+        Assert.Equal(0.5, SoundPlan.Envelope(envelope, 5), 9);
+        Assert.Equal(1, SoundPlan.Envelope(envelope, 10), 9);
+        Assert.Equal(0.25, SoundPlan.Envelope(envelope, 17.5), 9);
+        Assert.Equal(0, SoundPlan.Envelope(envelope, 99));
+    }
+}
+
+/// <summary>[S-1466]/[S-1467] skip, the next-phase line, and the session count.</summary>
+public class PomodoroLadderRulesTests
+{
+    [Fact]
+    public void S1466_skip_loads_the_other_phase_in_full()
+    {
+        var config = new PomodoroConfig { WorkMinutes = 25, BreakMinutes = 5 };
+        var skipped = PomodoroCycle.Skip(new PomodoroState(PomodoroPhase.Work, 61), config);
+        Assert.Equal(new PomodoroState(PomodoroPhase.Break, 300), skipped);
+        Assert.Equal(new PomodoroState(PomodoroPhase.Work, 1500), PomodoroCycle.Skip(skipped, config));
+    }
+
+    [Fact]
+    public void S1466_the_next_line_names_the_phase_the_flip_loads()
+    {
+        var config = new PomodoroConfig { WorkMinutes = 50, BreakMinutes = 10 };
+        Assert.Equal("Next: Break 10:00", PomodoroCycle.NextLine(PomodoroPhase.Work, config));
+        Assert.Equal("Next: Focus 50:00", PomodoroCycle.NextLine(PomodoroPhase.Break, config));
+    }
+
+    [Fact]
+    public void S1467_a_flip_out_of_focus_completes_a_session_and_nothing_else_does()
+    {
+        Assert.Equal(3, PomodoroCycle.CountSession(2, new PomodoroTick(PomodoroPhase.Break, 300, Flipped: true)));
+        Assert.Equal(2, PomodoroCycle.CountSession(2, new PomodoroTick(PomodoroPhase.Work, 1500, Flipped: true)));
+        Assert.Equal(2, PomodoroCycle.CountSession(2, new PomodoroTick(PomodoroPhase.Work, 40, Flipped: false)));
     }
 }

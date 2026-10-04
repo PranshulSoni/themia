@@ -1,27 +1,10 @@
-using System.Diagnostics;
 using Themia.Core.Diagnostics;
-using Themia.Core.Model;
 using Themia.Core.Widgets;
 
 namespace Themia.App.Services;
 
-/// <summary>What one listing was asked for. A value, so it can be captured by a background task.</summary>
-/// <param name="Path">An already-validated, fully qualified folder path.</param>
-/// <param name="Sort">Which column orders the rows.</param>
-/// <param name="Descending">Reverse that column.</param>
-/// <param name="FoldersFirst">Group directories above files.</param>
-/// <param name="ShowHidden">Include hidden and system entries.</param>
-/// <param name="MaxCount">How many rows to keep, already clamped by the config.</param>
-internal readonly record struct FolderRequest(
-    string Path,
-    FolderSort Sort,
-    bool Descending,
-    bool FoldersFirst,
-    bool ShowHidden,
-    int MaxCount);
-
 /// <summary>
-/// Reading a folder off the disk, and handing it to the shell when a row is opened.
+/// Reading a folder off the disk.
 /// <para>
 /// Every method here is <b>background work</b>. Enumerating a directory is I/O, and on a mapped
 /// drive whose server has gone away a single <c>FindFirstFile</c> can sit for the better part of a
@@ -29,8 +12,9 @@ internal readonly record struct FolderRequest(
 /// here, onto a thread pool thread, and marshals a <see cref="FolderSnapshot"/> back.
 /// </para>
 /// <para>
-/// Nothing here writes. The widget is read-only by design, so the only shell verb it knows is the
-/// default one, and file operations stay in Explorer where there is an undo stack.
+/// Everything is returned unsorted and unfiltered: the order, the filters and the search are applied
+/// by the view ([S-1321]), so changing any of them redraws what is in hand rather than re-reading the
+/// disk. File operations live in <see cref="Files.ShellFileOps"/>.
 /// </para>
 /// </summary>
 internal static class FolderListing
@@ -53,32 +37,24 @@ internal static class FolderListing
     /// List a folder. Never throws: every failure comes back as a named
     /// <see cref="FolderListingStatus"/> the widget has a sentence for.
     /// </summary>
-    public static FolderSnapshot Read(FolderRequest request, CancellationToken token)
+    public static FolderSnapshot Read(string path, CancellationToken token)
     {
         try
         {
             // The order of these two matters. "It is a file" and "it is not there" want different
             // sentences, and Directory.Exists answers false to both.
-            if (!Directory.Exists(request.Path))
+            if (!Directory.Exists(path))
             {
-                return FolderSnapshot.Of(File.Exists(request.Path)
+                return FolderSnapshot.Of(File.Exists(path)
                     ? FolderListingStatus.NotAFolder
                     : FolderListingStatus.NotFound);
             }
 
-            var scanned = Scan(request.Path, token);
+            var scanned = Scan(path, token);
 
-            var arranged = FolderRules.Arrange(
-                scanned,
-                request.Sort,
-                request.Descending,
-                request.FoldersFirst,
-                request.ShowHidden,
-                request.MaxCount);
-
-            return arranged.Count == 0
+            return scanned.Count == 0
                 ? FolderSnapshot.Of(FolderListingStatus.Empty)
-                : new FolderSnapshot(FolderListingStatus.Ok, arranged);
+                : new FolderSnapshot(FolderListingStatus.Ok, scanned);
         }
         catch (OperationCanceledException)
         {
@@ -87,30 +63,30 @@ internal static class FolderListing
         }
         catch (UnauthorizedAccessException ex)
         {
-            Log.Warn(Scope, $"access denied listing '{request.Path}'", ex);
+            Log.Warn(Scope, $"access denied listing '{path}'", ex);
             return FolderSnapshot.Of(FolderListingStatus.AccessDenied);
         }
         catch (DirectoryNotFoundException ex)
         {
             // Racing a delete between the Exists check and the enumeration.
-            Log.Warn(Scope, $"'{request.Path}' disappeared while it was being listed", ex);
+            Log.Warn(Scope, $"'{path}' disappeared while it was being listed", ex);
             return FolderSnapshot.Of(FolderListingStatus.NotFound);
         }
         catch (IOException ex)
         {
-            Log.Error(Scope, $"could not list '{request.Path}'", ex);
+            Log.Error(Scope, $"could not list '{path}'", ex);
             return FolderSnapshot.Of(FolderListingStatus.Failed);
         }
         catch (ArgumentException ex)
         {
             // The path passed validation but the framework still refused it. Worth saying out loud,
             // because it means the two disagree about what a path is.
-            Log.Error(Scope, $"'{request.Path}' was refused as a path", ex);
+            Log.Error(Scope, $"'{path}' was refused as a path", ex);
             return FolderSnapshot.Of(FolderListingStatus.InvalidPath);
         }
         catch (NotSupportedException ex)
         {
-            Log.Error(Scope, $"'{request.Path}' is not a supported path", ex);
+            Log.Error(Scope, $"'{path}' is not a supported path", ex);
             return FolderSnapshot.Of(FolderListingStatus.InvalidPath);
         }
     }
@@ -183,41 +159,13 @@ internal static class FolderListing
                 isDirectory,
                 info is FileInfo file ? file.Length : 0,
                 new DateTimeOffset(info.LastWriteTime),
-                (attributes & (FileAttributes.Hidden | FileAttributes.System)) != 0);
+                (attributes & (FileAttributes.Hidden | FileAttributes.System)) != 0,
+                (int)attributes);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
             Log.Debug(Scope, $"skipping '{info.Name}': {ex.Message}");
             return null;
-        }
-    }
-
-    /// <summary>
-    /// Hand a path to the shell, which is what double-clicking a row does: the same open Explorer
-    /// would do, with the user's own file associations, and no verb this widget chose.
-    /// </summary>
-    public static void Open(string fullPath)
-    {
-        if (string.IsNullOrWhiteSpace(fullPath))
-        {
-            return;
-        }
-
-        try
-        {
-            // using: ShellExecute hands back a process handle even when nothing is going to be
-            // waited on, and leaking one per double-click on a surface that lives for weeks adds up.
-            using var process = Process.Start(new ProcessStartInfo
-            {
-                FileName = fullPath,
-                UseShellExecute = true,
-            });
-        }
-        catch (Exception ex) when (ex is System.ComponentModel.Win32Exception or InvalidOperationException or IOException)
-        {
-            // No association, a cancelled elevation prompt, or the file went away. The desktop
-            // stays up and the log says why nothing opened.
-            Log.Warn(Scope, $"could not open '{fullPath}'", ex);
         }
     }
 }

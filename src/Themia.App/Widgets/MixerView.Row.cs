@@ -29,6 +29,7 @@ internal sealed partial class MixerView
         private readonly Image _image = new() { Width = Fluent.Space5, Height = Fluent.Space5, Stretch = Stretch.Uniform };
         private readonly FontIcon _glyph = Fluent.Icon(Glyphs.Apps, "TextFillColorSecondaryBrush");
         private readonly TextBlock _name = Fluent.Text(FluentType.Body);
+        private readonly TextBlock _detail = Fluent.Text(FluentType.Caption, "TextFillColorTertiaryBrush");
         private readonly Border _count;
         private readonly TextBlock _countText = Fluent.Text(FluentType.Caption, "TextFillColorSecondaryBrush");
         private readonly TextBlock _percent = Fluent.Text(FluentType.Body, "TextFillColorSecondaryBrush");
@@ -46,6 +47,7 @@ internal sealed partial class MixerView
         private string? _iconPath;
         private MixerRowStyle? _style;
         private bool _icons = true;
+        private bool _detailOn;
         private bool _meterOn;
         private bool _echoing;
         private bool _grabbed;
@@ -59,6 +61,8 @@ internal sealed partial class MixerView
             _iconSlot.VerticalAlignment = VerticalAlignment.Center;
 
             _name.VerticalAlignment = VerticalAlignment.Center;
+            _detail.TextTrimming = TextTrimming.CharacterEllipsis;
+            _detail.Visibility = Visibility.Collapsed;
 
             // [S-442] How many sessions the one slider drives — a quiet pill, not an unread badge.
             _countText.VerticalAlignment = VerticalAlignment.Center;
@@ -122,6 +126,7 @@ internal sealed partial class MixerView
 
             _grid.Children.Add(_iconSlot);
             _grid.Children.Add(_nameLine);
+            _grid.Children.Add(_detail);
             _grid.Children.Add(_slider);
             _grid.Children.Add(_meter);
             _grid.Children.Add(_percent);
@@ -146,33 +151,46 @@ internal sealed partial class MixerView
         /// Gaps are margins on the parts rather than grid spacing, because spacing is paid between
         /// empty columns too, and a narrow row cannot afford thirty pixels of gaps around nothing.
         /// </summary>
-        public void Arrange(MixerRowStyle style, double height, bool icons)
+        /// <param name="detail">
+        /// [S-1624] A one-line row tall enough for it has a caption under the name; the slider, the
+        /// percent and the mute then span both lines, centred on the row.
+        /// </param>
+        public void Arrange(MixerRowStyle style, double height, bool icons, bool detail)
         {
             Host.Height = height;
             Host.MinHeight = height;
 
-            if (_style == style && _icons == icons)
+            detail &= style == MixerRowStyle.OneLine;
+
+            if (_style == style && _icons == icons && _detailOn == detail)
             {
                 return;
             }
 
             _style = style;
             _icons = icons;
-            Place(_iconSlot, 0, 0, 1);
+            _detailOn = detail;
+            _detail.Visibility = detail ? Visibility.Visible : Visibility.Collapsed;
+            var lines = detail ? 2 : 1;
+            Place(_iconSlot, 0, 0, 1, lines);
 
             switch (style)
             {
                 case MixerRowStyle.OneLine:
                     Place(_nameLine, 0, 1, 1);
-                    Place(_slider, 0, 2, 1);
-                    Place(_meter, 0, 2, 1);
-                    Place(_percent, 0, 3, 1);
-                    Place(_mute, 0, 4, 1);
+                    Place(_detail, 1, 1, 1);
+                    Place(_slider, 0, 2, 1, lines);
+                    Place(_meter, 0, 2, 1, lines);
+                    Place(_percent, 0, 3, 1, lines);
+                    Place(_mute, 0, 4, 1, lines);
+                    _nameLine.VerticalAlignment = detail ? VerticalAlignment.Bottom : VerticalAlignment.Center;
+                    _detail.VerticalAlignment = VerticalAlignment.Top;
                     _slider.Margin = new Thickness(Fluent.Space3, 0, 0, 0);
                     _meter.Margin = new Thickness(Fluent.Space3 + Fluent.Space2, 0, Fluent.Space2, 0);
                     break;
 
                 case MixerRowStyle.TwoLine:
+                    _nameLine.VerticalAlignment = VerticalAlignment.Center;
                     Place(_nameLine, 0, 1, 2);
                     Place(_percent, 0, 3, 1);
                     Place(_mute, 0, 4, 1);
@@ -185,6 +203,7 @@ internal sealed partial class MixerView
                     break;
 
                 default:
+                    _nameLine.VerticalAlignment = VerticalAlignment.Center;
                     Place(_nameLine, 0, 1, 2);
                     Place(_percent, 0, 3, 1);
                     Place(_mute, 0, 4, 1);
@@ -197,6 +216,7 @@ internal sealed partial class MixerView
             // name only comes back when there is no icon to do it.
             _nameLine.Visibility = style == MixerRowStyle.Compact && icons ? Visibility.Collapsed : Visibility.Visible;
             _nameLine.Margin = new Thickness(icons ? Fluent.Space2 : 0, 0, 0, 0);
+            _detail.Margin = _nameLine.Margin;
             _percent.Margin = new Thickness(Fluent.Space2, 0, 0, 0);
             _mute.Margin = new Thickness(Fluent.Space1, 0, 0, 0);
 
@@ -210,9 +230,10 @@ internal sealed partial class MixerView
             };
         }
 
-        private static void Place(FrameworkElement element, int row, int column, int span)
+        private static void Place(FrameworkElement element, int row, int column, int span, int rows = 1)
         {
             SetRow(element, row);
+            SetRowSpan(element, rows);
             SetColumn(element, column);
             SetColumnSpan(element, span);
         }
@@ -227,6 +248,7 @@ internal sealed partial class MixerView
             var name = RowName(row);
             _name.Text = name;
             _name.Foreground = row.Muted ? MutedBrush : dimmed ? QuietBrush : PrimaryBrush;
+            _detail.Text = MixerFill.Detail(row);
             ToolTipService.SetToolTip(Host, dimmed ? $"{name} (not playing)" : name);
 
             _count.Visibility = row.Sessions > 1 ? Visibility.Visible : Visibility.Collapsed;

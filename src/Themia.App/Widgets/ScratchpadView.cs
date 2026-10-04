@@ -41,7 +41,7 @@ namespace Themia.App.Widgets;
 /// actually saw: a press it never sees the end of was a widget being dragged, and is discarded.
 /// </para>
 /// </summary>
-internal sealed partial class ScratchpadView : Grid, IWidgetView, IWidgetSurfaceAware, IWidgetHeaderContent
+internal sealed partial class ScratchpadView : Grid, IWidgetView, IWidgetSurfaceAware, IWidgetHeaderContent, IWidgetSizeAware
 {
     private const string Scope = "scratchpad";
 
@@ -119,7 +119,8 @@ internal sealed partial class ScratchpadView : Grid, IWidgetView, IWidgetSurface
         _pad.PointerCaptureLost += OnPointerCaptureLost;
         _pad.PointerCanceled += OnPointerCaptureLost;
 
-        SizeChanged += OnSizeChanged;
+        _pad.SizeChanged += OnPadSizeChanged;
+        BuildBar();
     }
 
     // -----------------------------------------------------------------------------------------
@@ -287,6 +288,7 @@ internal sealed partial class ScratchpadView : Grid, IWidgetView, IWidgetSurface
 
         RenderAll();
         UpdateCommands();
+        LayBar();
     }
 
     public void Detach()
@@ -312,7 +314,8 @@ internal sealed partial class ScratchpadView : Grid, IWidgetView, IWidgetSurface
         _pad.PointerCaptureLost -= OnPointerCaptureLost;
         _pad.PointerCanceled -= OnPointerCaptureLost;
 
-        SizeChanged -= OnSizeChanged;
+        _pad.SizeChanged -= OnPadSizeChanged;
+        DetachBar();
     }
 
     // -----------------------------------------------------------------------------------------
@@ -686,20 +689,19 @@ internal sealed partial class ScratchpadView : Grid, IWidgetView, IWidgetSurface
         _undoButton.IsEnabled = _undo.Count > 0;
         _clearButton.IsEnabled = _config.Strokes.Count > 0;
         ToolTipService.SetToolTip(_eraser, _eraser.IsChecked == true ? "Draw" : "Erase strokes");
+        UpdateBar();
     }
 
     // -----------------------------------------------------------------------------------------
     // Rendering
     // -----------------------------------------------------------------------------------------
 
-    private void OnSizeChanged(object sender, SizeChangedEventArgs args)
-    {
-        ShedTools(args.NewSize.Width);
-
-        // The drawing is in pad units, so a resize is a re-plot, not a resample: this is the whole
-        // reason the strokes are geometry.
-        RenderAll();
-    }
+    /// <summary>
+    /// The pad is an inner drawing host, so it re-plots on its own size: the drawing is in pad units,
+    /// so a resize is a re-plot, not a resample — the whole reason the strokes are geometry. The
+    /// widget's own layout (header tools, the ink bar) comes from <see cref="ApplySize"/>.
+    /// </summary>
+    private void OnPadSizeChanged(object sender, SizeChangedEventArgs args) => RenderAll();
 
     /// <summary>
     /// [S-651] The tools ride on the card's header, beside its icon and title, so a narrow tile can
