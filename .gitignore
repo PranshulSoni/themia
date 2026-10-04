@@ -1,4 +1,33 @@
+# ---- .NET build output ---------------------------------------------------------------------
 bin/
 obj/
-*.user
+artifacts/
+TestResults/
+*.binlog
+
+# ---- IDEs ----------------------------------------------------------------------------------
 .vs/
+.idea/
+.vscode/
+*.user
+*.suo
+*.DotSettings.user
+
+# ---- Secrets -------------------------------------------------------------------------------
+# Release credentials live here on main. Never committed from any branch.
+.env
+.env.*
+
+# ---- Local tooling -------------------------------------------------------------------------
+.claude/
+*.log
+
+# ---- Left over from the Tauri app on main --------------------------------------------------
+# These folders stay in the working tree because main needs them (build caches, installed
+# packages, local marketing data). This branch never tracks them.
+node_modules/
+target/
+src-tauri/
+dist/
+dist-shots/
+marketing/
