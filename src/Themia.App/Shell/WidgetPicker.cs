@@ -81,13 +81,11 @@ internal sealed partial class WidgetPicker : Grid
     private PickerTarget _target;
     private int _cursor = -1;
 
-    /// <param name="developerMode">[S-950] Whether developer-only widgets are offered.</param>
     /// <param name="targets">The desktop first, then the containers on this display that will take a widget.</param>
     /// <param name="initialTarget">Index into <paramref name="targets"/> to start on.</param>
     /// <param name="pick">Runs when a widget is chosen, with where it should go.</param>
     /// <param name="close">Runs on Escape.</param>
     public WidgetPicker(
-        bool developerMode,
         IReadOnlyList<PickerTarget> targets,
         int initialTarget,
         Action<WidgetDefinition, PickerTarget> pick,
@@ -103,7 +101,7 @@ internal sealed partial class WidgetPicker : Grid
         _target = targets[Math.Clamp(initialTarget, 0, targets.Count - 1)];
         _pick = pick;
         _close = close;
-        _offered = [.. WidgetCatalog.All.Where(d => WidgetPickerRules.IsListed(d.Kind, developerMode))];
+        _offered = [.. WidgetCatalog.All];
 
         RowSpacing = Fluent.Space3;
         RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });

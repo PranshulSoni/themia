@@ -77,12 +77,6 @@ internal sealed class SettingsSearchIndex(AppHost host)
 
         foreach (var entry in ConfigPages.AppPages)
         {
-            // [S-990] A page the menu does not offer is not offered by search either.
-            if (!entry.IsAvailable(host.State))
-            {
-                continue;
-            }
-
             Build(new ConfigTarget.App(entry.Page));
         }
 

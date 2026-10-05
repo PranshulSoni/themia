@@ -1,55 +1,16 @@
 namespace Themia.Core.Widgets;
 
-/// <summary>[S-1202] How one adapter's panel arranges its parts.</summary>
-public enum GpuArrangement
-{
-    /// <summary>One column: the reading and its lines, the chart taking what they leave at the bottom.</summary>
-    Stack = 0,
-
-    /// <summary>A strip: the reading and its lines on the left, the chart on the right, full height.</summary>
-    Side = 1,
-
-    /// <summary>
-    /// Wide and more than a strip: the reading, its lines and the chart on the left; the engine and
-    /// process lists down the right.
-    /// </summary>
-    Panels = 2,
-}
-
 /// <summary>
-/// [S-1202] [S-1207] Where the GPU tile puts things, decided from the room alone: how a panel is
-/// arranged, and how several adapters' panels share the tile.
+/// [S-1207] How several adapters' panels share the GPU tile, decided from the room alone; each panel
+/// then lays itself out as a meter does (<see cref="MeterFace"/>).
 /// </summary>
 public static class GpuLayout
 {
-    /// <summary>
-    /// A panel narrower than this cannot set its name beside its number, nor a memory line's figure
-    /// beside its label, without cutting one of them.
-    /// </summary>
+    /// <summary>A panel narrower than this cannot set its name beside its number without cutting one of them.</summary>
     public const double ComfortableWidth = 240;
 
-    /// <summary>A panel this tall has its name, number, a line and a strip of history.</summary>
+    /// <summary>A panel this tall has its name, its number and a strip of history.</summary>
     public const double ComfortableHeight = 90;
-
-    /// <summary>
-    /// [S-1202] A strip (wide, Compact height) puts the chart beside; a tile Expanded wide and at least
-    /// Regular tall gives the lists their own column (a single L or XL tile, or one of two adapters
-    /// stacked on one); anything narrower is one column.
-    /// </summary>
-    public static GpuArrangement Arrange(WidgetArea area)
-    {
-        if (!area.IsMeasured)
-        {
-            return GpuArrangement.Stack;
-        }
-
-        if (area.WidthClass < SizeClass.Expanded)
-        {
-            return GpuArrangement.Stack;
-        }
-
-        return area.HeightClass == SizeClass.Compact ? GpuArrangement.Side : GpuArrangement.Panels;
-    }
 
     /// <summary>
     /// [S-1207] How <paramref name="count"/> adapters' panels tile the area: the column count whose

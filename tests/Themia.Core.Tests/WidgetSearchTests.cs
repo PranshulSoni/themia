@@ -261,12 +261,4 @@ public sealed class WidgetSearchTests
         Assert.Contains(WidgetKind.Contacts, google);
         Assert.Contains(WidgetKind.Tasks, google);
     }
-
-    [Fact]
-    public void S950_WebElementIsListedOnlyInDeveloperMode()
-    {
-        Assert.False(WidgetPickerRules.IsListed(WidgetKind.WebElement, developerMode: false));
-        Assert.True(WidgetPickerRules.IsListed(WidgetKind.WebElement, developerMode: true));
-        Assert.True(WidgetPickerRules.IsListed(WidgetKind.Clock, developerMode: false));
-    }
 }

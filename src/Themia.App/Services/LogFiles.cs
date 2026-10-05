@@ -6,8 +6,8 @@ using Themia.Core.Storage;
 namespace Themia.App.Services;
 
 /// <summary>
-/// [S-980] The log's sinks: the rotating files under <c>%LOCALAPPDATA%\Themia\logs</c>, the
-/// session buffer the Logs page lists ([S-987]) and the event log mirror ([S-986]).
+/// [S-980] The log's sinks: the rotating files under <c>%LOCALAPPDATA%\Themia\logs</c> and the
+/// event log mirror ([S-986]).
 /// <para>
 /// Local, not roaming app data: a log describes this machine, and a roaming profile should not
 /// carry 20 MB of it from desk to desk. The uninstall's data purge already covers the local
@@ -26,9 +26,6 @@ internal static class LogFiles
     private static FileStream? _stream;
     private static bool _broken;
 
-    /// <summary>This session's records, for the Logs page. Filled from process start in every mode.</summary>
-    public static LogBuffer Recent { get; } = new();
-
     /// <summary>The log folder.</summary>
     public static string Folder { get; } = Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
@@ -39,18 +36,14 @@ internal static class LogFiles
     public static string CurrentFile => Path.Combine(Folder, LogFileRules.CurrentName);
 
     /// <summary>
-    /// The sinks every process gets — the debugger and the session buffer — and the starting
-    /// floor. The gallery and the settings render stop here: they must never write into the
-    /// user's log folder while the user's own copy is running.
+    /// The sink every process gets — the debugger — and the floor. The gallery and the settings
+    /// render stop here: they must never write into the user's log folder while the user's own copy
+    /// is running.
     /// </summary>
     public static void InstallBasics()
     {
-        Log.Floor = LogPolicy.Floor(verbose: false, debugBuild: IsDebugBuild);
-        Log.AddSink(static record =>
-        {
-            System.Diagnostics.Debug.WriteLine(LogFormat.Record(record));
-            Recent.Add(record);
-        });
+        Log.Floor = LogPolicy.Floor(IsDebugBuild);
+        Log.AddSink(static record => System.Diagnostics.Debug.WriteLine(LogFormat.Record(record)));
     }
 
     /// <summary>
@@ -66,60 +59,6 @@ internal static class LogFiles
             Write(record);
             EventLogSink.Report(record);
         });
-    }
-
-    /// <summary>[S-982] Apply the verbose switch. Takes effect on the next record; no restart.</summary>
-    public static void Apply(AppPreferences preferences)
-    {
-        var floor = LogPolicy.Floor(LogPolicy.Verbose(preferences), IsDebugBuild);
-        if (Log.Floor != floor)
-        {
-            Log.Floor = floor;
-
-            // Said at Warn so it reaches the file whichever way the switch went: a reader of the log
-            // must be able to see where the detail starts and stops.
-            Log.Warn("log", floor == LogLevel.Debug ? "verbose logging on" : "verbose logging off");
-        }
-    }
-
-    /// <summary>The folder's files with their sizes, for the Logs page. Empty when there is no folder yet.</summary>
-    public static (int Files, long Bytes) Usage()
-    {
-        try
-        {
-            var directory = new DirectoryInfo(Folder);
-            if (!directory.Exists)
-            {
-                return (0, 0);
-            }
-
-            var files = directory.GetFiles("themia*.log");
-            return (files.Length, files.Sum(f => f.Length));
-        }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-        {
-            Log.Warn("log", "could not measure the log folder", ex);
-            return (0, 0);
-        }
-    }
-
-    /// <summary>
-    /// Reveal the folder in Explorer, creating it first so a user who has just turned verbose
-    /// logging on is not dropped somewhere else by Explorer's missing-path behaviour.
-    /// </summary>
-    public static LaunchOutcome OpenFolder()
-    {
-        try
-        {
-            Directory.CreateDirectory(Folder);
-        }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-        {
-            Log.Error("log", "could not create the log folder", ex);
-            return LaunchOutcome.Failed;
-        }
-
-        return ShellLauncher.Open(Folder);
     }
 
     private static bool IsDebugBuild =>

@@ -283,7 +283,7 @@ internal sealed partial class OneDriveView
                 return true;
 
             case ListCommand.Menu when decision.Index < _rows.Count:
-                ItemMenu.Build(ItemEntries(_shown[decision.Index])).ShowAt(_rows[decision.Index]);
+                ItemMenu.Open(_rows[decision.Index], ItemEntries(_shown[decision.Index]));
                 return true;
 
             case ListCommand.Release:

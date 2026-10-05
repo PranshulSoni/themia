@@ -166,7 +166,6 @@ internal sealed partial class FolderView
             Visibility = Visibility.Collapsed,
             Background = Fluent.RowRest(),
         };
-        _columnHeader.RightTapped += OnColumnHeaderRightTapped;
         SetRow(_columnHeader, 2);
 
         _items = new StackPanel();

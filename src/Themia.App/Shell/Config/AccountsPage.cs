@@ -80,10 +80,12 @@ internal sealed class AccountsPage
 
 #if DEBUG
         // Lets the debug settings render (--settings-png Accounts) draw a flow as well as the list.
-        // Google is left out on purpose: it opens the browser, which a render must never do.
+        // The browser flows draw their card only: opening the browser is something a render must
+        // never do.
         switch (Environment.GetEnvironmentVariable("THEMIA_DEBUG_ACCOUNTS_FLOW"))
         {
-            case "microsoft": StartDevice(AccountProvider.Microsoft); break;
+            case "microsoft": ShowBrowserFlow(AccountProvider.Microsoft); break;
+            case "google": ShowBrowserFlow(AccountProvider.Google); break;
             case "imap": StartImap(); break;
             case "caldav": StartDav(AccountProvider.CalDav); break;
             case "github-token": StartGitHubToken(); break;
@@ -289,14 +291,14 @@ internal sealed class AccountsPage
             menu.Items.Add(item);
         }
 
-        Add("Microsoft", AccountProvider.Microsoft, () => StartDevice(AccountProvider.Microsoft));
-        Add("Google", AccountProvider.Google, StartGoogle);
+        Add("Microsoft", AccountProvider.Microsoft, () => StartBrowser(AccountProvider.Microsoft));
+        Add("Google", AccountProvider.Google, () => StartBrowser(AccountProvider.Google));
         menu.Items.Add(new MenuFlyoutSeparator());
         Add(Str.Shell_Accounts_MenuImap.Text(), AccountProvider.Imap, StartImap);
         Add(Str.Shell_Accounts_MenuCalDav.Text(), AccountProvider.CalDav, () => StartDav(AccountProvider.CalDav));
         Add(Str.Shell_Accounts_MenuCardDav.Text(), AccountProvider.CardDav, () => StartDav(AccountProvider.CardDav));
         menu.Items.Add(new MenuFlyoutSeparator());
-        Add("GitHub", AccountProvider.GitHub, () => StartDevice(AccountProvider.GitHub));
+        Add("GitHub", AccountProvider.GitHub, StartGitHubDevice);
         Add(Str.Shell_Accounts_MenuGitHubToken.Text(), AccountProvider.GitHub, StartGitHubToken);
         Add("Claude", AccountProvider.Claude, StartClaude);
 
@@ -350,10 +352,12 @@ internal sealed class AccountsPage
         }
     }
 
-    // ---- device code: Microsoft, GitHub ----------------------------------------------------
+    // ---- device code: GitHub --------------------------------------------------------------
 
-    private void StartDevice(AccountProvider provider)
+    private void StartGitHubDevice()
     {
+        const AccountProvider provider = AccountProvider.GitHub;
+
         var code = Fluent.Text(FluentType.TitleLarge);
         code.Text = "········";
         code.FontFamily = new FontFamily("Cascadia Mono, Consolas");
@@ -383,11 +387,10 @@ internal sealed class AccountsPage
         };
 
         var token = ShowFlow(Str.Shell_Accounts_SignInTo.Format(("provider", provider.Label())), FluentLayout.Card(body));
-        _ = RunDeviceAsync(provider, code, where, copy, open, ring, line, token);
+        _ = RunGitHubDeviceAsync(code, where, copy, open, ring, line, token);
     }
 
-    private async Task RunDeviceAsync(
-        AccountProvider provider,
+    private async Task RunGitHubDeviceAsync(
         TextBlock code,
         TextBlock where,
         Button copy,
@@ -398,7 +401,7 @@ internal sealed class AccountsPage
     {
         try
         {
-            var signIn = await _service.BeginDeviceSignInAsync(provider, cancellation).ConfigureAwait(true);
+            var signIn = await _service.BeginGitHubSignInAsync(cancellation).ConfigureAwait(true);
             var session = signIn.Session;
 
             code.Text = session.UserCode;
@@ -411,8 +414,8 @@ internal sealed class AccountsPage
 
             Say(line, Str.Shell_Accounts_WaitingApproval.Format(("time", LocaleFormat.Time(Strings.Current, session.ExpiresAt.ToLocalTime().DateTime))), critical: false);
 
-            var account = await _service.CompleteDeviceSignInAsync(signIn, cancellation).ConfigureAwait(true);
-            CloseFlow(Str.Shell_Accounts_SignedInAs.Format(("provider", provider.Label()), ("address", account.Address)));
+            var account = await _service.CompleteGitHubSignInAsync(signIn, cancellation).ConfigureAwait(true);
+            CloseFlow(Str.Shell_Accounts_SignedInAs.Format(("provider", "GitHub"), ("address", account.Address)));
         }
         catch (OperationCanceledException) when (cancellation.IsCancellationRequested)
         {
@@ -424,44 +427,52 @@ internal sealed class AccountsPage
         }
         catch (Exception ex)
         {
-            Log.Error(Scope, $"{provider} sign-in failed unexpectedly", ex);
+            Log.Error(Scope, "GitHub sign-in failed unexpectedly", ex);
             Fail(ring, line, Str.Shell_Accounts_FlowFailed.Format(("reason", ex.Message)), copy, open);
         }
     }
 
-    // ---- Google ----------------------------------------------------------------------------
+    // ---- browser: Microsoft, Google --------------------------------------------------------
 
-    private void StartGoogle()
+    /// <summary>[S-1783] Microsoft and Google sign in the same way, so they share one flow.</summary>
+    private void StartBrowser(AccountProvider provider)
     {
-        if (AccountService.GoogleUnavailableReason is { } reason)
+        if (provider == AccountProvider.Google && AccountService.GoogleUnavailableReason is { } reason)
         {
-            ShowFlow(Str.Shell_Accounts_SignInTo.Format(("provider", "Google")), Message(reason, critical: true));
+            ShowFlow(Str.Shell_Accounts_SignInTo.Format(("provider", provider.Label())), Message(reason, critical: true));
             return;
         }
 
+        var (ring, line, token) = ShowBrowserFlow(provider);
+        _ = RunBrowserAsync(provider, ring, line, token);
+    }
+
+    /// <summary>The card a browser sign-in waits in: what is about to happen, a live status line, Cancel.</summary>
+    private (ProgressRing Ring, TextBlock Line, CancellationToken Token) ShowBrowserFlow(AccountProvider provider)
+    {
         var explain = Fluent.Text(FluentType.Body, "TextFillColorSecondaryBrush");
         explain.TextWrapping = TextWrapping.Wrap;
-        explain.Text = Str.Shell_Accounts_GoogleExplain.Text();
+        explain.Text = Str.Shell_Accounts_BrowserExplain.Format(("provider", provider.Label()));
 
         var cancel = new Button { Content = Str.Common_Cancel.Text() };
         cancel.Click += (_, _) => CloseFlow();
 
         var (status, ring, line) = StatusLine(Str.Shell_Accounts_OpeningBrowser.Text());
 
-        var token = ShowFlow(Str.Shell_Accounts_SignInTo.Format(("provider", "Google")), FluentLayout.Card(new StackPanel
+        var token = ShowFlow(Str.Shell_Accounts_SignInTo.Format(("provider", provider.Label())), FluentLayout.Card(new StackPanel
         {
             Spacing = Fluent.Space3,
             Children = { explain, status, cancel },
         }));
 
-        _ = RunGoogleAsync(ring, line, token);
+        return (ring, line, token);
     }
 
-    private async Task RunGoogleAsync(ProgressRing ring, TextBlock line, CancellationToken cancellation)
+    private async Task RunBrowserAsync(AccountProvider provider, ProgressRing ring, TextBlock line, CancellationToken cancellation)
     {
         try
         {
-            var account = await _service.SignInWithGoogleAsync(url =>
+            var account = await _service.SignInWithBrowserAsync(provider, url =>
             {
                 var opened = ShellLauncher.Open(url.AbsoluteUri) == LaunchOutcome.Opened;
                 if (opened)
@@ -472,7 +483,7 @@ internal sealed class AccountsPage
                 return opened;
             }, cancellation).ConfigureAwait(true);
 
-            CloseFlow(Str.Shell_Accounts_SignedInAs.Format(("provider", "Google"), ("address", account.Address)));
+            CloseFlow(Str.Shell_Accounts_SignedInAs.Format(("provider", provider.Label()), ("address", account.Address)));
         }
         catch (OperationCanceledException) when (cancellation.IsCancellationRequested)
         {
@@ -484,7 +495,7 @@ internal sealed class AccountsPage
         }
         catch (Exception ex)
         {
-            Log.Error(Scope, "Google sign-in failed unexpectedly", ex);
+            Log.Error(Scope, $"{provider} sign-in failed unexpectedly", ex);
             Fail(ring, line, Str.Shell_Accounts_FlowFailed.Format(("reason", ex.Message)));
         }
     }

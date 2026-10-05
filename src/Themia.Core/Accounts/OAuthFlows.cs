@@ -1,3 +1,5 @@
+using System.Globalization;
+using System.Text.Json;
 using Themia.Core.Localization;
 
 namespace Themia.Core.Accounts;
@@ -25,7 +27,8 @@ public readonly record struct OAuthRedirect(RedirectKind Kind, string? Code, str
 {
     /// <summary>
     /// [S-513] Read the redirect from the first line of the request the browser sent to the loopback
-    /// port — <c>GET /?code=…&amp;state=… HTTP/1.1</c>.
+    /// port — <c>GET /?code=…&amp;state=… HTTP/1.1</c>. [S-1781] Microsoft's and Google's come back
+    /// through this one reader.
     /// <para>
     /// The state is checked before anything else is believed, error included: anything on this
     /// machine can connect to the port, and only the browser this app opened knows the state. A
@@ -96,6 +99,79 @@ public readonly record struct OAuthRedirect(RedirectKind Kind, string? Code, str
     }
 }
 
+/// <summary>The tokens an authorization-code exchange handed out.</summary>
+/// <param name="AccessToken">Never empty.</param>
+/// <param name="RefreshToken">Null when the provider gave none.</param>
+/// <param name="ExpiresIn">Seconds, as the provider said; <see cref="TokenExpiry"/> judges it.</param>
+public sealed record CodeGrant(string AccessToken, string? RefreshToken, long? ExpiresIn);
+
+/// <summary>What a token endpoint answered an authorization-code exchange: a grant, or why not.</summary>
+/// <param name="Grant">The tokens; null when the exchange failed.</param>
+/// <param name="Failure">The provider's own words (one line) or the HTTP status; null on success.</param>
+public readonly record struct CodeExchange(CodeGrant? Grant, string? Failure)
+{
+    /// <summary>
+    /// [S-1782] Read a token endpoint's answer. Only a 2xx carrying a non-empty <c>access_token</c>
+    /// is a grant; anything else fails with what the provider said (<c>error_description</c>, cut to
+    /// its first line — Microsoft appends trace and correlation ids) or, failing that, the status.
+    /// <c>expires_in</c> is read as a number or a numeric string; a non-string token field is absent.
+    /// </summary>
+    public static CodeExchange Parse(int status, string? body)
+    {
+        var success = status is >= 200 and < 300;
+
+        if (success && ReadGrant(body) is { } grant)
+        {
+            return new CodeExchange(grant, null);
+        }
+
+        return new CodeExchange(null, ErrorBody.Message(body) ?? $"HTTP {status.ToString(CultureInfo.InvariantCulture)}");
+    }
+
+    private static CodeGrant? ReadGrant(string? body)
+    {
+        if (string.IsNullOrWhiteSpace(body))
+        {
+            return null;
+        }
+
+        try
+        {
+            using var document = JsonDocument.Parse(body);
+            var root = document.RootElement;
+
+            if (root.ValueKind != JsonValueKind.Object || Text(root, "access_token") is not { Length: > 0 } access)
+            {
+                return null;
+            }
+
+            return new CodeGrant(access, Text(root, "refresh_token") is { Length: > 0 } refresh ? refresh : null, Seconds(root, "expires_in"));
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
+    }
+
+    private static string? Text(JsonElement root, string name)
+        => root.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.String ? value.GetString() : null;
+
+    private static long? Seconds(JsonElement root, string name)
+    {
+        if (!root.TryGetProperty(name, out var value))
+        {
+            return null;
+        }
+
+        return value.ValueKind switch
+        {
+            JsonValueKind.Number when value.TryGetInt64(out var number) => number,
+            JsonValueKind.String when long.TryParse(value.GetString(), NumberStyles.None, CultureInfo.InvariantCulture, out var text) => text,
+            _ => null,
+        };
+    }
+}
+
 /// <summary>How one poll of a device-code token endpoint came out.</summary>
 public enum DevicePoll
 {
@@ -130,10 +206,9 @@ public readonly record struct DeviceStep(DevicePoll Poll, TimeSpan Delay, string
 /// <summary>
 /// [S-514] The device authorization grant (RFC 8628) as a state machine: no I/O, no clock of its own.
 /// <para>
-/// Microsoft and GitHub run the same grant, so there is one of these for both — two copies of a
-/// polling loop are two places for the interval or the stop rule to drift. The waiting is
-/// server-directed: never faster than the interval the server named, five seconds more after every
-/// <c>slow_down</c>, and over when the code's own lifetime is.
+/// GitHub's sign-in runs it. The waiting is server-directed: never faster than the interval the
+/// server named, five seconds more after every <c>slow_down</c>, and over when the code's own
+/// lifetime is.
 /// </para>
 /// </summary>
 public sealed class DeviceCodeSession

@@ -12,6 +12,7 @@ using Themia.Core.Localization;
 using Themia.Core.Widgets;
 using Windows.System;
 using Windows.UI.Core;
+using Themia.Core.Shell;
 
 namespace Themia.App.Widgets;
 
@@ -174,12 +175,12 @@ internal sealed partial class HabitTrackerView
         return
         [
             new(done ? Glyphs.Undo : Glyphs.Done, done ? Str.WidgetsB_Habits_NotDone.Format(("when", noun)) : Str.WidgetsB_Habits_Done.Format(("when", noun)), () => Toggle(habitId)),
-            new(Glyphs.Rename, Str.WidgetsB_Folder_Rename.Text(), () => BeginRename(habitId)),
+            new(Glyphs.Rename, Str.WidgetsB_Folder_Rename.Text(), () => BeginRename(habitId), Quick: QuickCommand.Rename),
             ItemMenuEntry.Separator,
             new(Glyphs.MoveUp, Str.ChildList_MoveUp.Text(), () => Move(habitId, -1), Disabled: index <= 0),
             new(Glyphs.MoveDown, Str.ChildList_MoveDown.Text(), () => Move(habitId, +1), Disabled: index < 0 || index >= Habits.Count - 1),
             ItemMenuEntry.Separator,
-            new(Glyphs.Delete, Str.Common_Delete.Text(), () => Delete(habitId), Danger: true),
+            new(Glyphs.Delete, Str.Common_Delete.Text(), () => Delete(habitId), Danger: true, Quick: QuickCommand.Delete),
         ];
     }
 

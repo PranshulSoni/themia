@@ -455,7 +455,7 @@ internal sealed partial class AppsView
     {
         try
         {
-            ItemMenu.Build(MenuFor(cell)).ShowAt(cell.Root);
+            ItemMenu.Open(cell.Root, MenuFor(cell));
         }
         catch (Exception ex)
         {

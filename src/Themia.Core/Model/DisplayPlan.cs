@@ -140,11 +140,11 @@ public static class DisplayPlan
     }
 
     /// <summary>
-    /// [S-843] The displays that may be given a view of their own. A display whose id did not
-    /// resolve is only included when it already has one: a real panel answers with its ordinal for a
-    /// moment while it wakes, and interning that ordinal would bind the screen to a fresh, empty view
-    /// that the next display change abandons. A permanently path-less display (a virtual or remote
-    /// one) keeps the binding it was given.
+    /// [S-843] The displays that may be given a view assignment. A display whose id did not resolve
+    /// is only included when it already has one: a real panel answers with its ordinal for a moment
+    /// while it wakes, and interning that ordinal would store a binding under a key the next display
+    /// change abandons. A permanently path-less display (a virtual or remote one) keeps the binding
+    /// it was given.
     /// </summary>
     public static List<string> ViewKeys(IReadOnlyList<DisplayInfo> enabled, IReadOnlyDictionary<string, string> monitorViews)
     {
@@ -152,6 +152,40 @@ public static class DisplayPlan
         ArgumentNullException.ThrowIfNull(monitorViews);
 
         return [.. enabled.Where(d => d.IdResolved || monitorViews.ContainsKey(d.Id)).Select(d => d.Id)];
+    }
+
+    /// <summary>
+    /// [S-847]/[S-1705] Give every display in <paramref name="displayIds"/> that has no view (or one
+    /// naming a deleted view) an existing view: the one chosen for new displays
+    /// (<see cref="AppState.DefaultViewForNewDisplays"/>), else the active view — the last one the
+    /// user showed anywhere ([S-19]). A display that has a view keeps it.
+    /// <para>
+    /// Never creates a view. Views are made by the user only; a monitor plugged in used to get an
+    /// empty "Display n" view of its own, which the user had to find and delete. The assignment is
+    /// stored rather than left to fall back to the active view, so switching another display later
+    /// does not drag this one along.
+    /// </para>
+    /// </summary>
+    /// <returns>How many displays were given a view, so the caller knows whether to save.</returns>
+    public static int AssignViews(AppState state, IReadOnlyList<string> displayIds)
+    {
+        ArgumentNullException.ThrowIfNull(state);
+        ArgumentNullException.ThrowIfNull(displayIds);
+
+        var assigned = 0;
+        foreach (var display in displayIds)
+        {
+            if (state.MonitorViews.TryGetValue(display, out var existing) && state.FindView(existing) is not null)
+            {
+                continue;
+            }
+
+            var view = state.FindView(state.DefaultViewForNewDisplays) ?? state.ActiveView();
+            state.MonitorViews[display] = view.Id;
+            assigned++;
+        }
+
+        return assigned;
     }
 
     /// <summary>

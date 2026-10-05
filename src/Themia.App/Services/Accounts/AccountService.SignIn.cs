@@ -6,17 +6,14 @@ using Themia.Core.Localization;
 
 namespace Themia.App.Services.Accounts;
 
-/// <summary>A device-code sign-in in progress: what to show the user, and what to poll with.</summary>
+/// <summary>A GitHub device-code sign-in in progress: what to show the user, and what to poll with.</summary>
 internal sealed class DeviceSignIn
 {
-    internal DeviceSignIn(AccountProvider provider, DeviceCodeSession session, string deviceCode)
+    internal DeviceSignIn(DeviceCodeSession session, string deviceCode)
     {
-        Provider = provider;
         Session = session;
         DeviceCode = deviceCode;
     }
-
-    public AccountProvider Provider { get; }
 
     /// <summary>The code to show big, where to type it, and the polling rules.</summary>
     public DeviceCodeSession Session { get; }
@@ -34,30 +31,21 @@ internal sealed partial class AccountService
     private static readonly TimeSpan BrowserDeadline = TimeSpan.FromMinutes(5);
 
     // -----------------------------------------------------------------------------------------
-    // Device code: Microsoft and GitHub
+    // Device code: GitHub
     // -----------------------------------------------------------------------------------------
 
     /// <summary>
-    /// [S-535] Ask for a device code. The caller shows <see cref="DeviceCodeSession.UserCode"/> and
-    /// opens <see cref="DeviceCodeSession.VerificationUri"/>, then awaits
-    /// <see cref="CompleteDeviceSignInAsync"/>.
+    /// [S-510] Ask GitHub for a device code. The caller shows <see cref="DeviceCodeSession.UserCode"/>
+    /// and opens <see cref="DeviceCodeSession.VerificationUri"/>, then awaits
+    /// <see cref="CompleteGitHubSignInAsync"/>.
     /// </summary>
-    public async Task<DeviceSignIn> BeginDeviceSignInAsync(AccountProvider provider, CancellationToken cancellation = default)
+    public async Task<DeviceSignIn> BeginGitHubSignInAsync(CancellationToken cancellation = default)
     {
-        var request = provider switch
-        {
-            AccountProvider.Microsoft => RequestTemplate.Form(OAuthClients.Microsoft.DeviceCodeUrl,
-            [
-                new("client_id", OAuthClients.Microsoft.ClientId),
-                new("scope", OAuthClients.Microsoft.Scope),
-            ]),
-            AccountProvider.GitHub => RequestTemplate.Form(OAuthClients.GitHub.DeviceCodeUrl,
-            [
-                new("client_id", OAuthClients.GitHub.ClientId),
-                new("scope", OAuthClients.GitHub.Scope),
-            ]),
-            _ => throw new ArgumentOutOfRangeException(nameof(provider), provider, "no device-code sign-in"),
-        };
+        var request = RequestTemplate.Form(OAuthClients.GitHub.DeviceCodeUrl,
+        [
+            new("client_id", OAuthClients.GitHub.ClientId),
+            new("scope", OAuthClients.GitHub.Scope),
+        ]);
 
         var reply = await AccountHttp.SendAsync(request, CredentialKind.None, null, cancellation).ConfigureAwait(false);
         var code = Parse(reply.Body, AccountWireContext.Default.DeviceCodeReply);
@@ -68,17 +56,17 @@ internal sealed partial class AccountService
             || verify.Scheme != Uri.UriSchemeHttps)
         {
             throw new AccountException(AccountError.BadResponse,
-                Str.Shell_Accounts_NoCode.Format(("provider", provider.Label()), ("reason", ErrorBody.Message(reply.Body) ?? $"HTTP {reply.Status}")), reply.Status);
+                Str.Shell_Accounts_NoCode.Format(("provider", "GitHub"), ("reason", ErrorBody.Message(reply.Body) ?? $"HTTP {reply.Status}")), reply.Status);
         }
 
-        return new DeviceSignIn(provider, new DeviceCodeSession(code.UserCode, verify, code.Interval, code.ExpiresIn, Now), code.DeviceCode);
+        return new DeviceSignIn(new DeviceCodeSession(code.UserCode, verify, code.Interval, code.ExpiresIn, Now), code.DeviceCode);
     }
 
     /// <summary>
     /// Poll until the user approves, declines, or the code runs out — at the server's interval,
     /// slowing down when told to ([S-514]) — then save the account. Cancel to give up waiting.
     /// </summary>
-    public async Task<AccountInfo> CompleteDeviceSignInAsync(DeviceSignIn signIn, CancellationToken cancellation = default)
+    public async Task<AccountInfo> CompleteGitHubSignInAsync(DeviceSignIn signIn, CancellationToken cancellation = default)
     {
         ArgumentNullException.ThrowIfNull(signIn);
 
@@ -89,26 +77,19 @@ internal sealed partial class AccountService
         {
             await Task.Delay(delay, cancellation).ConfigureAwait(false);
 
-            var poll = signIn.Provider == AccountProvider.Microsoft
-                ? RequestTemplate.Form(OAuthClients.Microsoft.TokenUrl,
-                [
-                    new("grant_type", "urn:ietf:params:oauth:grant-type:device_code"),
-                    new("client_id", OAuthClients.Microsoft.ClientId),
-                    new("device_code", signIn.DeviceCode),
-                ])
-                : RequestTemplate.Form(OAuthClients.GitHub.TokenUrl,
-                [
-                    new("client_id", OAuthClients.GitHub.ClientId),
-                    new("device_code", signIn.DeviceCode),
-                    new("grant_type", "urn:ietf:params:oauth:grant-type:device_code"),
-                ]);
+            var poll = RequestTemplate.Form(OAuthClients.GitHub.TokenUrl,
+            [
+                new("client_id", OAuthClients.GitHub.ClientId),
+                new("device_code", signIn.DeviceCode),
+                new("grant_type", "urn:ietf:params:oauth:grant-type:device_code"),
+            ]);
 
             var reply = await AccountHttp.SendAsync(poll, CredentialKind.None, null, cancellation).ConfigureAwait(false);
             var token = Parse(reply.Body, AccountWireContext.Default.TokenReply);
 
             if (token is null)
             {
-                throw new AccountException(AccountError.BadResponse, $"{signIn.Provider.Label()} answered the sign-in with something unexpected (HTTP {reply.Status}).", reply.Status);
+                throw new AccountException(AccountError.BadResponse, $"GitHub answered the sign-in with something unexpected (HTTP {reply.Status}).", reply.Status);
             }
 
             var outcome = DeviceCodeSession.Classify(token.Error, !string.IsNullOrEmpty(token.AccessToken));
@@ -116,9 +97,7 @@ internal sealed partial class AccountService
 
             if (step.Poll == DevicePoll.Success)
             {
-                return signIn.Provider == AccountProvider.Microsoft
-                    ? await SaveMicrosoftAsync(token, cancellation).ConfigureAwait(false)
-                    : await SaveGitHubAsync(token.AccessToken!, OAuthClients.GitHub.DefaultApiBase, null, cancellation).ConfigureAwait(false);
+                return await SaveGitHubAsync(token.AccessToken!, OAuthClients.GitHub.DefaultApiBase, null, cancellation).ConfigureAwait(false);
             }
 
             if (step.Done)
@@ -132,34 +111,8 @@ internal sealed partial class AccountService
         }
     }
 
-    private async Task<AccountInfo> SaveMicrosoftAsync(TokenReply token, CancellationToken cancellation)
-    {
-        var access = token.AccessToken!;
-        var me = await GetAnonymousJsonAsync(OAuthClients.Microsoft.MeUrl, access, AccountWireContext.Default.GraphMe, "Microsoft", cancellation)
-            .ConfigureAwait(false);
-
-        if (me.Id is not { Length: > 0 } id)
-        {
-            throw new AccountException(AccountError.BadResponse, Str.Shell_Accounts_WhoUnknown.Format(("provider", "Microsoft")));
-        }
-
-        var address = me.Mail is { Length: > 0 } mail ? mail : me.UserPrincipalName ?? id;
-
-        return await UpsertAsync(new Account
-        {
-            Id = AccountIds.Microsoft(id),
-            Provider = AccountProvider.Microsoft,
-            Address = address,
-            DisplayName = me.DisplayName ?? address,
-            SealedAccessToken = Dpapi.Seal(access),
-            SealedRefreshToken = Dpapi.SealOrNull(token.RefreshToken),
-            ExpiresAt = TokenExpiry.FromExpiresIn(token.ExpiresIn, Now),
-            AddedAt = Now,
-        }, cancellation).ConfigureAwait(false);
-    }
-
     // -----------------------------------------------------------------------------------------
-    // Google: browser, loopback, PKCE
+    // Microsoft and Google: browser, loopback, PKCE
     // -----------------------------------------------------------------------------------------
 
     /// <summary>
@@ -177,21 +130,38 @@ internal sealed partial class AccountService
             : BuildSecrets.GoogleClientSecret;
 
     /// <summary>
-    /// Sign in to Google: open the consent page in the user's browser, wait for it to come back to
-    /// the loopback port, exchange the code (with the PKCE verifier), and save the account.
+    /// [S-1780] Sign in to Microsoft or Google in the user's browser: open the provider's page with a
+    /// PKCE challenge and a fresh state, wait for it to come back to the loopback port ([S-527]),
+    /// exchange the code with the verifier, prove who signed in ([S-535]), and save the account. One
+    /// path for both; they differ only in the addresses, Google's client secret and the "who" call.
     /// </summary>
     /// <param name="openBrowser">Opens a URL in the system browser; returns false when it could not.</param>
-    public async Task<AccountInfo> SignInWithGoogleAsync(Func<Uri, bool> openBrowser, CancellationToken cancellation = default)
+    public async Task<AccountInfo> SignInWithBrowserAsync(AccountProvider provider, Func<Uri, bool> openBrowser, CancellationToken cancellation = default)
     {
         ArgumentNullException.ThrowIfNull(openBrowser);
 
-        var secret = GoogleSecretOrThrow();
+        if (provider is not (AccountProvider.Microsoft or AccountProvider.Google))
+        {
+            throw new ArgumentOutOfRangeException(nameof(provider), provider, "no browser sign-in");
+        }
+
+        var microsoft = provider == AccountProvider.Microsoft;
+        var secret = microsoft ? null : GoogleSecretOrThrow();
 
         using var loopback = new Loopback();
         var verifier = Pkce.CreateVerifier();
         var state = Pkce.CreateState();
+        var challenge = Pkce.Challenge(verifier);
 
-        if (!openBrowser(OAuthClients.Google.AuthorizeUrl(loopback.RedirectUri, state, Pkce.Challenge(verifier))))
+        var redirect = microsoft
+            ? OAuthClients.Microsoft.RedirectUri(loopback.Port)
+            : OAuthClients.Google.RedirectUri(loopback.Port);
+
+        var authorize = microsoft
+            ? OAuthClients.Microsoft.AuthorizeUrl(redirect, state, challenge)
+            : OAuthClients.Google.AuthorizeUrl(redirect, state, challenge);
+
+        if (!openBrowser(authorize))
         {
             throw new AccountException(AccountError.Refused, Str.Shell_Accounts_BrowserNotOpened.Text());
         }
@@ -210,24 +180,73 @@ internal sealed partial class AccountService
             }
         }
 
-        var reply = await AccountHttp.SendAsync(RequestTemplate.Form(OAuthClients.Google.TokenUrl,
-        [
-            new("grant_type", "authorization_code"),
-            new("code", code),
-            new("client_id", OAuthClients.Google.ClientId),
-            new("client_secret", secret),
-            new("code_verifier", verifier),
-            new("redirect_uri", loopback.RedirectUri),
-        ]), CredentialKind.None, null, cancellation).ConfigureAwait(false);
+        // The redirect URI goes again, exactly as sent: both providers compare it with the first one.
+        // Microsoft is a public client and gets no secret; the verifier is the proof.
+        var exchange = microsoft
+            ? RequestTemplate.Form(OAuthClients.Microsoft.TokenUrl,
+            [
+                new("grant_type", "authorization_code"),
+                new("code", code),
+                new("client_id", OAuthClients.Microsoft.ClientId),
+                new("code_verifier", verifier),
+                new("redirect_uri", redirect),
+                new("scope", OAuthClients.Microsoft.Scope),
+            ])
+            : RequestTemplate.Form(OAuthClients.Google.TokenUrl,
+            [
+                new("grant_type", "authorization_code"),
+                new("code", code),
+                new("client_id", OAuthClients.Google.ClientId),
+                new("client_secret", secret!),
+                new("code_verifier", verifier),
+                new("redirect_uri", redirect),
+            ]);
 
-        var token = Parse(reply.Body, AccountWireContext.Default.TokenReply);
-        if (!reply.IsSuccess || token?.AccessToken is not { Length: > 0 } access)
+        var reply = await AccountHttp.SendAsync(exchange, CredentialKind.None, null, cancellation).ConfigureAwait(false);
+
+        var answer = CodeExchange.Parse(reply.Status, reply.Body);
+
+        if (answer.Grant is not { } grant)
         {
             throw new AccountException(AccountError.Refused,
-                Str.Shell_Accounts_ProviderRefusedReason.Format(("provider", "Google"), ("reason", token?.ErrorDescription ?? token?.Error ?? ErrorBody.Message(reply.Body) ?? $"HTTP {reply.Status}")), reply.Status);
+                Str.Shell_Accounts_ProviderRefusedReason.Format(("provider", provider.Label()), ("reason", answer.Failure ?? $"HTTP {reply.Status}")), reply.Status);
         }
 
-        var me = await GetAnonymousJsonAsync(OAuthClients.Google.UserInfoUrl, access, AccountWireContext.Default.GoogleUserInfo, "Google", cancellation)
+        return microsoft
+            ? await SaveMicrosoftAsync(grant, cancellation).ConfigureAwait(false)
+            : await SaveGoogleAsync(grant, cancellation).ConfigureAwait(false);
+    }
+
+    /// <summary>Graph <c>/me</c> names the account; the Graph user id is its id.</summary>
+    private async Task<AccountInfo> SaveMicrosoftAsync(CodeGrant grant, CancellationToken cancellation)
+    {
+        var me = await GetAnonymousJsonAsync(OAuthClients.Microsoft.MeUrl, grant.AccessToken, AccountWireContext.Default.GraphMe, "Microsoft", cancellation)
+            .ConfigureAwait(false);
+
+        if (me.Id is not { Length: > 0 } id)
+        {
+            throw new AccountException(AccountError.BadResponse, Str.Shell_Accounts_WhoUnknown.Format(("provider", "Microsoft")));
+        }
+
+        var address = me.Mail is { Length: > 0 } mail ? mail : me.UserPrincipalName ?? id;
+
+        return await UpsertAsync(new Account
+        {
+            Id = AccountIds.Microsoft(id),
+            Provider = AccountProvider.Microsoft,
+            Address = address,
+            DisplayName = me.DisplayName ?? address,
+            SealedAccessToken = Dpapi.Seal(grant.AccessToken),
+            SealedRefreshToken = Dpapi.SealOrNull(grant.RefreshToken),
+            ExpiresAt = TokenExpiry.FromExpiresIn(grant.ExpiresIn, Now),
+            AddedAt = Now,
+        }, cancellation).ConfigureAwait(false);
+    }
+
+    /// <summary>OpenID userinfo names the account; the subject is its id.</summary>
+    private async Task<AccountInfo> SaveGoogleAsync(CodeGrant grant, CancellationToken cancellation)
+    {
+        var me = await GetAnonymousJsonAsync(OAuthClients.Google.UserInfoUrl, grant.AccessToken, AccountWireContext.Default.GoogleUserInfo, "Google", cancellation)
             .ConfigureAwait(false);
 
         if (me.Subject is not { Length: > 0 } subject)
@@ -243,9 +262,9 @@ internal sealed partial class AccountService
             Provider = AccountProvider.Google,
             Address = address,
             DisplayName = me.Name ?? address,
-            SealedAccessToken = Dpapi.Seal(access),
-            SealedRefreshToken = Dpapi.SealOrNull(token.RefreshToken),
-            ExpiresAt = TokenExpiry.FromExpiresIn(token.ExpiresIn, Now),
+            SealedAccessToken = Dpapi.Seal(grant.AccessToken),
+            SealedRefreshToken = Dpapi.SealOrNull(grant.RefreshToken),
+            ExpiresAt = TokenExpiry.FromExpiresIn(grant.ExpiresIn, Now),
             AddedAt = Now,
         }, cancellation).ConfigureAwait(false);
     }
@@ -291,12 +310,14 @@ internal sealed partial class AccountService
             new("state", signIn.State),
         ]), CredentialKind.None, null, cancellation).ConfigureAwait(false);
 
-        var token = Parse(reply.Body, AccountWireContext.Default.TokenReply);
-        if (!reply.IsSuccess || token?.AccessToken is not { Length: > 0 } access)
+        var answer = CodeExchange.Parse(reply.Status, reply.Body);
+        if (answer.Grant is not { } token)
         {
             throw new AccountException(AccountError.Refused,
-                Str.Shell_Accounts_ProviderRefusedReason.Format(("provider", "Claude"), ("reason", ErrorBody.Message(reply.Body) ?? token?.Error ?? $"HTTP {reply.Status}")), reply.Status);
+                Str.Shell_Accounts_ProviderRefusedReason.Format(("provider", "Claude"), ("reason", answer.Failure ?? $"HTTP {reply.Status}")), reply.Status);
         }
+
+        var access = token.AccessToken;
 
         // Validate before saving: the fresh token must be able to read usage.
         var usage = new RequestTemplate(HttpMethod.Get, OAuthClients.Claude.UsageUrl);

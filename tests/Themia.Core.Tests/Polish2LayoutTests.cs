@@ -5,7 +5,7 @@ using Xunit;
 namespace Themia.Core.Tests;
 
 /// <summary>
-/// [S-1622] The per-core strip's forms and the ladder's "first size that fits"; [S-1623] the
+/// [S-1622] The ladder's "first size that fits"; [S-1623] the
 /// power tile's screen and sleep section.
 /// </summary>
 public class Polish2LayoutTests
@@ -48,63 +48,6 @@ public class Polish2LayoutTests
         Assert.Equal(40, room.Remaining);
         Assert.True(room.Take(32));
     }
-
-    // -----------------------------------------------------------------------------------------
-    // [S-1622] the per-core strip's forms
-    // -----------------------------------------------------------------------------------------
-
-    [Fact]
-    public void S1622_the_forms_run_from_the_full_strip_to_bare_short_bars_each_shorter()
-    {
-        var forms = MeterCellForms.Ladder(24, 528, tall: true, labelWidth: 14);
-
-        Assert.Equal(3, forms.Count);
-        Assert.Equal(new CellGrid(24, 1, true), forms[0].Shape);
-        Assert.Equal(MeterCellForms.TallBar, forms[0].BarHeight);
-        Assert.True(forms[0].Labels && forms[0].Title);
-
-        Assert.Equal(MeterCellForms.ShortBar, forms[1].BarHeight);
-        Assert.False(forms[1].Labels);
-        Assert.True(forms[1].Title);
-
-        Assert.False(forms[2].Title);
-        Assert.Equal(MeterCellForms.ShortBar, forms[2].Height);
-
-        for (var i = 1; i < forms.Count; i++)
-        {
-            Assert.True(forms[i].Height < forms[i - 1].Height);
-        }
-    }
-
-    [Fact]
-    public void S1622_a_short_form_with_its_caption_is_as_tall_as_a_stat_tile_so_it_can_sit_beside_one()
-    {
-        var shortTitled = MeterCellForms.Ladder(24, 300, tall: true, labelWidth: 14)
-            .First(f => f.Title && !f.Labels && f.BarHeight == MeterCellForms.ShortBar);
-
-        // A stat tile is a Caption label over a BodyStrong value.
-        Assert.True(shortTitled.Height <= FluentType.Caption.LineHeight + FluentType.BodyStrong.LineHeight + Disclosure.Tolerance);
-    }
-
-    [Fact]
-    public void S1622_a_strip_already_in_short_bars_offers_only_its_bare_form_after_it()
-    {
-        // 64 bars on a 168-px column need several rows, which are short bars already.
-        var forms = MeterCellForms.Ladder(64, 168, tall: true, labelWidth: 14);
-
-        Assert.Equal(2, forms.Count);
-        Assert.True(forms[0].Shape.Rows > 1);
-        Assert.Equal(MeterCellForms.ShortBar, forms[0].BarHeight);
-        Assert.True(forms[0].Title);
-        Assert.False(forms[1].Title);
-    }
-
-    [Theory]
-    [InlineData(0, 300)]
-    [InlineData(8, 0)]
-    [InlineData(8, double.NaN)]
-    public void S1622_nothing_to_draw_offers_no_form(int count, double width)
-        => Assert.Empty(MeterCellForms.Ladder(count, width, tall: false, labelWidth: 14));
 
     // -----------------------------------------------------------------------------------------
     // [S-1623] the power tile's screen and sleep section

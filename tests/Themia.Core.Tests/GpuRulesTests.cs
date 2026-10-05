@@ -114,21 +114,6 @@ public sealed class GpuRulesTests
             luid));
     }
 
-    [Fact]
-    public void S434_memory_adds_up_per_adapter_and_ignores_negatives()
-    {
-        var luid = GpuRules.LuidKey(0, 0xABCD);
-        var items = new List<(string, long)>
-        {
-            ("luid_0x00000000_0x0000abcd_phys_0", 1024),
-            ("luid_0x00000000_0x0000abcd_phys_1", 2048),
-            ("luid_0x00000000_0x0000ffff_phys_0", 4096),
-            ("luid_0x00000000_0x0000abcd_phys_0", -10),
-        };
-
-        Assert.Equal(3072UL, GpuRules.Bytes(items, luid));
-    }
-
     // ---- [S-435] whose load figure wins ------------------------------------------------------
 
     [Fact]
@@ -153,7 +138,7 @@ public sealed class GpuRulesTests
         Assert.Equal(100, GpuRules.ChooseUtilization(null, 250));
     }
 
-    // ---- [S-432] / [S-437] pressure and memory rows -----------------------------------------
+    // ---- [S-432] pressure ------------------------------------------------------------------------
 
     [Theory]
     [InlineData(0, GpuPressure.Normal)]
@@ -165,31 +150,6 @@ public sealed class GpuRulesTests
         => Assert.Equal(expected, GpuRules.LoadPressure(percent));
 
     [Theory]
-    [InlineData(0.79, GpuPressure.Normal)]
-    [InlineData(0.8, GpuPressure.High)]
-    [InlineData(0.9, GpuPressure.Critical)]
-    public void S437_memory_pressure_thresholds(double fraction, GpuPressure expected)
-        => Assert.Equal(expected, GpuRules.MemoryPressure(fraction));
-
-    [Fact]
-    public void S437_dedicated_row_is_dropped_when_use_exceeds_the_reported_total()
-    {
-        // An integrated adapter: a 128 MB carve-out "using" 3 GB.
-        Assert.False(GpuRules.ShowsDedicated(3UL << 30, 128UL << 20));
-        Assert.True(GpuRules.ShowsDedicated(1UL << 30, 8UL << 30));
-        Assert.True(GpuRules.ShowsDedicated(1UL << 30, 0));
-        Assert.False(GpuRules.ShowsDedicated(0, 8UL << 30));
-    }
-
-    [Fact]
-    public void S437_shared_row_needs_use_and_a_budget()
-    {
-        Assert.True(GpuRules.ShowsShared(1, 2));
-        Assert.False(GpuRules.ShowsShared(0, 2));
-        Assert.False(GpuRules.ShowsShared(1, 0));
-    }
-
-    [Theory]
     [InlineData("NVIDIA GeForce RTX 4060 Ti", "RTX 4060 Ti")]
     [InlineData("Intel(R) UHD Graphics 770", "UHD Graphics 770")]
     [InlineData("AMD Radeon(TM) RX 7900 XTX", "Radeon RX 7900 XTX")]
@@ -197,12 +157,4 @@ public sealed class GpuRulesTests
     [InlineData("  ", "GPU")]
     public void S430_card_titles_drop_vendor_and_trademark_noise(string name, string expected)
         => Assert.Equal(expected, GpuRules.ShortName(name));
-
-    [Fact]
-    public void S437_fraction_is_clamped_and_zero_without_a_total()
-    {
-        Assert.Equal(0.5, GpuRules.Fraction(1, 2));
-        Assert.Equal(1, GpuRules.Fraction(5, 2));
-        Assert.Equal(0, GpuRules.Fraction(5, 0));
-    }
 }

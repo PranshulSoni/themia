@@ -37,7 +37,7 @@ internal sealed record GpuSnapshot(IReadOnlyList<GpuAdapter> Adapters, IReadOnly
 /// <para>
 /// <b>NVIDIA.</b> When the driver's management library is present it is asked too ([S-435]): its
 /// load figure is the true one for a borderless full-screen game, where the 3D counter reads near
-/// zero, and it is the only source of temperature, power, fan, clocks and the video engines. It is
+/// zero. It is
 /// loaded with <see cref="NativeLibrary"/> and called through function pointers, so a machine
 /// without it costs one failed <c>LoadLibrary</c> and nothing else.
 /// </para>
@@ -187,7 +187,6 @@ internal static partial class GpuSampler
         private readonly IReadOnlyList<GpuAdapter> _adapters;
         private readonly GpuCounters? _counters;
         private readonly Nvml? _nvml;
-        private readonly Dictionary<int, string> _names = [];
         private bool _baselined;
 
         public Session()
@@ -200,8 +199,6 @@ internal static partial class GpuSampler
         public GpuSnapshot Sample()
         {
             var engines = _counters?.Engines() ?? [];
-            var dedicated = _counters?.Dedicated() ?? [];
-            var shared = _counters?.Shared() ?? [];
 
             // The query collected once when it opened, so every sample after the first has a
             // second reading to make a rate from.
@@ -221,101 +218,16 @@ internal static partial class GpuSampler
 
                 var counters = GpuRules.Utilization(engines, adapter.Luid);
 
-                // [S-1203]/[S-1204] The engine breakdown is the counters', with the driver's video
-                // figures over theirs where it gives them. Both are a rate, so not before a baseline.
-                var loads = baselined ? GpuEngines.Loads(engines, adapter.Luid) : [];
-                loads = GpuEngines.WithDriverVideo(loads, driver?.EncoderPercent, driver?.DecoderPercent);
-
-                readings.Add(new GpuReading(
-                    adapter.Name,
-                    GpuRules.ChooseUtilization(driver?.Utilization, counters),
-                    GpuRules.Bytes(dedicated, adapter.Luid),
-                    adapter.DedicatedBytes,
-                    GpuRules.Bytes(shared, adapter.Luid),
-                    adapter.SharedBytes)
+                readings.Add(new GpuReading(adapter.Name, GpuRules.ChooseUtilization(driver, counters))
                 {
                     // The driver's load needs no baseline, so an NVIDIA card has a real figure at once.
-                    HasLoad = baselined || driver?.Utilization is not null,
-                    TemperatureC = driver?.TemperatureC,
-                    PowerWatts = driver?.PowerWatts,
-                    FanPercent = driver?.FanPercent,
-                    CoreClockMhz = driver?.CoreClockMhz,
-                    MemoryClockMhz = driver?.MemoryClockMhz,
-                    EncoderPercent = driver?.EncoderPercent,
-                    DecoderPercent = driver?.DecoderPercent,
-                    Engines = loads,
-                    Processes = baselined ? Processes(engines, adapter.Luid) : [],
+                    HasLoad = baselined || driver is not null,
                 });
 
                 anyLoad |= readings[^1].HasLoad;
             }
 
-            ForgetExited(engines);
             return new GpuSnapshot(_adapters, readings, anyLoad);
-        }
-
-        /// <summary>
-        /// [S-1205] The busiest processes on one adapter, named. The pid comes free with the engine
-        /// instances already read; the name is a kernel query and a version-resource read, so it is
-        /// asked once per process and only for the few that make the list. This runs on the pool.
-        /// </summary>
-        private List<GpuProcessLoad> Processes(List<(string Instance, double Percent)> engines, string luid)
-        {
-            var top = GpuEngines.TopProcesses(engines, luid, GpuEngines.MaxProcesses);
-            var result = new List<GpuProcessLoad>(top.Count);
-
-            foreach (var (pid, percent) in top)
-            {
-                if (!_names.TryGetValue(pid, out var name))
-                {
-                    name = NameOf(pid);
-                    _names[pid] = name;
-                }
-
-                result.Add(new GpuProcessLoad(pid, name, percent));
-            }
-
-            return result;
-        }
-
-        private static string NameOf(int pid)
-        {
-            // The kernel (pid 4) has no image path but does use the GPU (its scheduler's copies).
-            if (pid == 4)
-            {
-                return Str.Shell_Process_System.Text();
-            }
-
-            // A protected or already-exited process has no path to read; it is still a process.
-            if (ProcessNames.ExePath((uint)pid) is not { } path)
-            {
-                return Str.Shell_Process_Pid.Format(("pid", pid.ToString(System.Globalization.CultureInfo.InvariantCulture)));
-            }
-
-            return ProcessNames.DisplayName(path) ?? Path.GetFileNameWithoutExtension(path);
-        }
-
-        /// <summary>Drop the names of processes no longer on any engine, so a reused pid is named afresh.</summary>
-        private void ForgetExited(List<(string Instance, double Percent)> engines)
-        {
-            if (_names.Count == 0)
-            {
-                return;
-            }
-
-            var live = new HashSet<int>();
-            foreach (var (instance, _) in engines)
-            {
-                if (GpuEngines.PidOf(instance) is { } pid)
-                {
-                    live.Add(pid);
-                }
-            }
-
-            foreach (var pid in _names.Keys.Where(pid => !live.Contains(pid)).ToList())
-            {
-                _names.Remove(pid);
-            }
         }
 
         public void Dispose()
@@ -444,22 +356,18 @@ internal static partial class GpuSampler
     // ---------------------------------------------------------------------------------------------
 
     /// <summary>
-    /// The three GPU counter sets in one shared <see cref="PdhQuery"/>, which owns the query handle
-    /// and closes it exactly once; the counters belong to the query and go with it.
+    /// The GPU engine counters in one shared <see cref="PdhQuery"/>, which owns the query handle and
+    /// closes it exactly once; the counter belongs to the query and goes with it.
     /// </summary>
     private sealed class GpuCounters : IDisposable
     {
         private readonly PdhQuery _query;
         private readonly PdhCounter _engines;
-        private readonly PdhCounter? _dedicated;
-        private readonly PdhCounter? _shared;
 
-        private GpuCounters(PdhQuery query, PdhCounter engines, PdhCounter? dedicated, PdhCounter? shared)
+        private GpuCounters(PdhQuery query, PdhCounter engines)
         {
             _query = query;
             _engines = engines;
-            _dedicated = dedicated;
-            _shared = shared;
         }
 
         /// <summary>The counters, collected once so the next collection has something to rate against. Null when PDH refuses.</summary>
@@ -478,12 +386,7 @@ internal static partial class GpuSampler
                 return null;
             }
 
-            // Memory is optional: a load meter is still worth drawing without it.
-            var counters = new GpuCounters(
-                query,
-                engines,
-                query.Add(@"\GPU Adapter Memory(*)\Dedicated Usage"),
-                query.Add(@"\GPU Adapter Memory(*)\Shared Usage"));
+            var counters = new GpuCounters(query, engines);
 
             query.Collect();
             return counters;
@@ -492,14 +395,10 @@ internal static partial class GpuSampler
         /// <summary>Per-instance engine load, after collecting the query for this sample.</summary>
         public List<(string Instance, double Percent)> Engines()
         {
-            // One collection per sample, and the engine read is always the first of the three.
+            // One collection per sample.
             _query.Collect();
             return _query.Doubles(_engines);
         }
-
-        public List<(string Instance, long Bytes)> Dedicated() => _dedicated is { } counter ? _query.Larges(counter) : [];
-
-        public List<(string Instance, long Bytes)> Shared() => _shared is { } counter ? _query.Larges(counter) : [];
 
         public void Dispose() => _query.Dispose();
     }
@@ -508,27 +407,14 @@ internal static partial class GpuSampler
     // NVML: what only an NVIDIA driver will say
     // ---------------------------------------------------------------------------------------------
 
-    /// <summary>What the NVIDIA driver reported for one card. Each field null when that call failed.</summary>
-    private sealed record DriverReading(
-        double? Utilization,
-        double? TemperatureC,
-        double? PowerWatts,
-        int? FanPercent,
-        int? CoreClockMhz,
-        int? MemoryClockMhz,
-        double? EncoderPercent,
-        double? DecoderPercent);
-
     /// <summary>
-    /// [S-435] The NVIDIA management library, if this machine has it. Initialised once per session
-    /// and shut down with it; a failure at any point leaves every driver-only row hidden.
+    /// [S-435] The NVIDIA management library, if this machine has it: the true load of a card in a
+    /// borderless full-screen game. Initialised once per session and shut down with it; a failure at
+    /// any point leaves the counters' figure.
     /// </summary>
     private sealed unsafe class Nvml : IDisposable
     {
         private const int Success = 0;
-        private const int TemperatureGpu = 0;
-        private const int ClockGraphics = 0;
-        private const int ClockMemory = 2;
 
         private readonly nint _library;
         private readonly delegate* unmanaged<int> _shutdown;
@@ -536,12 +422,6 @@ internal static partial class GpuSampler
         private readonly delegate* unmanaged<uint, nint*, int> _handle;
         private readonly delegate* unmanaged<nint, byte*, uint, int> _name;
         private readonly delegate* unmanaged<nint, uint*, int> _utilization;
-        private readonly delegate* unmanaged<nint, int, uint*, int> _temperature;
-        private readonly delegate* unmanaged<nint, uint*, int> _power;
-        private readonly delegate* unmanaged<nint, uint*, int> _fan;
-        private readonly delegate* unmanaged<nint, int, uint*, int> _clock;
-        private readonly delegate* unmanaged<nint, uint*, uint*, int> _encoder;
-        private readonly delegate* unmanaged<nint, uint*, uint*, int> _decoder;
         private bool _disposed;
 
         private Nvml(nint library)
@@ -552,12 +432,6 @@ internal static partial class GpuSampler
             _handle = (delegate* unmanaged<uint, nint*, int>)NativeLibrary.GetExport(library, "nvmlDeviceGetHandleByIndex_v2");
             _name = (delegate* unmanaged<nint, byte*, uint, int>)NativeLibrary.GetExport(library, "nvmlDeviceGetName");
             _utilization = (delegate* unmanaged<nint, uint*, int>)NativeLibrary.GetExport(library, "nvmlDeviceGetUtilizationRates");
-            _temperature = (delegate* unmanaged<nint, int, uint*, int>)NativeLibrary.GetExport(library, "nvmlDeviceGetTemperature");
-            _power = (delegate* unmanaged<nint, uint*, int>)NativeLibrary.GetExport(library, "nvmlDeviceGetPowerUsage");
-            _fan = (delegate* unmanaged<nint, uint*, int>)NativeLibrary.GetExport(library, "nvmlDeviceGetFanSpeed");
-            _clock = (delegate* unmanaged<nint, int, uint*, int>)NativeLibrary.GetExport(library, "nvmlDeviceGetClockInfo");
-            _encoder = (delegate* unmanaged<nint, uint*, uint*, int>)NativeLibrary.GetExport(library, "nvmlDeviceGetEncoderUtilization");
-            _decoder = (delegate* unmanaged<nint, uint*, uint*, int>)NativeLibrary.GetExport(library, "nvmlDeviceGetDecoderUtilization");
         }
 
         /// <summary>The library, initialised, or null on any machine without a working NVIDIA driver.</summary>
@@ -597,11 +471,11 @@ internal static partial class GpuSampler
         }
 
         /// <summary>
-        /// The card DXGI calls <paramref name="name"/>, or null when it is not an NVIDIA card or cannot
-        /// be told apart. Matched by name; <paramref name="ordinal"/> — how many adapters of the same
+        /// The load of the card DXGI calls <paramref name="name"/>, 0..100, or null when it is not an
+        /// NVIDIA card, cannot be told apart, or the call failed. Matched by name; <paramref name="ordinal"/> — how many adapters of the same
         /// name came before it — picks between identical cards.
         /// </summary>
-        public DriverReading? Read(string name, int ordinal)
+        public double? Read(string name, int ordinal)
         {
             if (_disposed || !name.Contains("NVIDIA", StringComparison.OrdinalIgnoreCase))
             {
@@ -613,18 +487,8 @@ internal static partial class GpuSampler
                 return null;
             }
 
-            uint a, b;
             var utilization = stackalloc uint[2];
-
-            return new DriverReading(
-                _utilization(device, utilization) == Success ? utilization[0] : null,
-                _temperature(device, TemperatureGpu, &a) == Success ? a : null,
-                _power(device, &a) == Success ? a / 1000.0 : null,
-                _fan(device, &a) == Success ? (int)a : null,
-                _clock(device, ClockGraphics, &a) == Success ? (int)a : null,
-                _clock(device, ClockMemory, &a) == Success ? (int)a : null,
-                _encoder(device, &a, &b) == Success ? a : null,
-                _decoder(device, &a, &b) == Success ? a : null);
+            return _utilization(device, utilization) == Success ? utilization[0] : null;
         }
 
         private nint? Device(string name, int ordinal)
@@ -664,7 +528,7 @@ internal static partial class GpuSampler
             }
 
             // No name matched. With a single card there is no way to pick the wrong one; with
-            // several, a guess would put one card's temperature under another card's name.
+            // several, a guess would put one card's load under another card's name.
             return only;
         }
 

@@ -6,6 +6,7 @@ using Themia.App.Services;
 using Themia.App.Shell;
 using Themia.Core.Localization;
 using Themia.Core.Model;
+using Themia.Core.Shell;
 using Themia.Core.Widgets;
 
 namespace Themia.App.Widgets;
@@ -408,50 +409,18 @@ internal sealed partial class CountdownView : Grid, IWidgetView, IWidgetSizeAwar
     // The timer menu ([S-1445], the original C-60)
     // -----------------------------------------------------------------------------------------
 
-    private static readonly CountdownFormat[] Formats =
-        [CountdownFormat.Auto, CountdownFormat.Days, CountdownFormat.DaysHoursMinutes, CountdownFormat.DaysHoursMinutesSeconds];
-
     /// <summary>
-    /// A "Display" header, the four formats with the current one checked, then Remove. A pick closes
-    /// the menu (WinUI menus cannot stay open; the original's keep-open preview, C-61, is not ported).
+    /// The timer's own menu: Remove. [S-1746] The display format is how the timer looks: it is chosen
+    /// in the widget's settings only.
     /// </summary>
     private IEnumerable<ItemMenuEntry> TimerMenu(string id)
     {
-        var timer = _config.Timers.Find(t => t.Id == id);
-
-        if (_detached || timer is null)
+        if (_detached || _config.Timers.Find(t => t.Id == id) is null)
         {
             return [];
         }
 
-        var entries = new List<ItemMenuEntry> { new(null, Str.Countdown_CtxDisplay.Text(), static () => { }, Disabled: true) };
-
-        foreach (var format in Formats)
-        {
-            var value = format;
-            entries.Add(new(null, CountdownFormatter.FormatLabel(value, Strings.Current), () => SetFormat(id, value), Checked: timer.Format == value));
-        }
-
-        entries.Add(ItemMenuEntry.Separator);
-        entries.Add(new(Glyphs.Delete, Str.WidgetsA_Common_RemoveEllipsis.Text(), () => _ = RemoveAsync(id), Danger: true));
-        return entries;
-    }
-
-    private void SetFormat(string id, CountdownFormat format)
-    {
-        var timer = _config.Timers.Find(t => t.Id == id);
-
-        if (_detached || timer is null || timer.Format == format)
-        {
-            return;
-        }
-
-        timer.Format = format;
-        _surface?.RequestSave();
-
-        // The save does not relayout (it must not, for typing views), so this view redraws itself:
-        // the cadence may change with the format, and the hero's width does.
-        Rebuild();
+        return [new(Glyphs.Delete, Str.WidgetsA_Common_RemoveEllipsis.Text(), () => _ = RemoveAsync(id), Danger: true, Quick: QuickCommand.Delete)];
     }
 
     private async Task RemoveAsync(string id)

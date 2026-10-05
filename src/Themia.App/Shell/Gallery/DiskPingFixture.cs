@@ -9,7 +9,7 @@ namespace Themia.App.Shell.Gallery;
 /// [S-1169] The disk and ping meters' gallery samples: three made-up drives (one near full, one
 /// removable) with reads and writes that rise and fall, and a router that answers in 3–40 ms and
 /// misses one probe in nine — so a machine with one drive and no network still shows the populated
-/// layout, the drives list, the second series, and loss on the chart's baseline.
+/// layout, the second series, and loss on the chart's baseline.
 /// <para>
 /// Read only by a meter that is a preview (<see cref="Widgets.IWidgetSurface.IsPreview"/>), so a
 /// desktop widget in the same Debug process never sees made-up drives. Debug builds only.
@@ -63,7 +63,7 @@ internal static class DiskPingFixture
             ["E:"] = new(0, t % 7 == 0 ? 2.4e6 : 0),
         };
 
-        return new DiskActivity(rates, 180 + (90 * Math.Sin(t / 3.0)), 60 + (25 * Math.Sin(t / 2.0)));
+        return new DiskActivity(rates);
     }
 
     /// <summary>The next probe: an answer in ms, or null for a miss (one in nine).</summary>
@@ -79,7 +79,7 @@ internal static class DiskPingFixture
         return Math.Round(12 + (6 * Math.Sin(t / 2.5)) + (t % 11 == 7 ? 28 : 0));
     }
 
-    public static DiskConfig DiskConfig() => new() { Drives = ["C:\\", "D:\\", "E:\\"], IntervalSeconds = 1, GraphSpanSeconds = 60 };
+    public static DiskConfig DiskConfig() => new() { Drive = "C:\\", IntervalSeconds = 1, GraphSpanSeconds = 60 };
 
     public static PingConfig PingConfig() => new() { Host = "192.168.1.1", HostLabel = "Router", IntervalSeconds = 1, GraphSpanSeconds = 60 };
 }

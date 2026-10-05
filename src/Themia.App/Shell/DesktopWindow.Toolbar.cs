@@ -143,9 +143,9 @@ internal sealed partial class DesktopWindow
         var flyout = new MenuFlyout();
 
 #if DEBUG
-        // [S-957] Debug builds only, not "release behind developer mode": the gallery's sample data
-        // and its PNG command line are debug-only and live in the same files, and a release gallery
-        // without them would show nothing but empty states.
+        // [S-957] Debug builds only: the gallery's sample data and its PNG command line are
+        // debug-only and live in the same files, and a release gallery without them would show
+        // nothing but empty states.
         var gallery = new MenuFlyoutItem { Text = "Widget gallery", Icon = new FontIcon { Glyph = Glyphs.Apps } };
         gallery.Click += (_, _) => Gallery.WidgetGallery.Open(WidgetKind.Clock);
         flyout.Items.Add(gallery);

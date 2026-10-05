@@ -10,8 +10,8 @@ namespace Themia.App.Shell.Config;
 internal static partial class WidgetSettings
 {
     /// <summary>
-    /// [S-1160] [S-1168] The drives to report on (several may be chosen; the first is the reading),
-    /// then the metrics. Each metric says whether a figure may appear; the tile decides if it fits.
+    /// [S-1160] [S-1168] The drive to report on and whose reads and writes the chart plots, then the
+    /// rows every meter has ([S-1762]).
     /// </summary>
     public static void Disk(List<FrameworkElement> rows, DiskConfig disk, Action save)
     {
@@ -20,26 +20,8 @@ internal static partial class WidgetSettings
         ArgumentNullException.ThrowIfNull(save);
 
         rows.Add(FluentLayout.Header(Str.WidgetsB_Settings_Disk_Disk.Text()));
-        AddDriveRows(rows, disk, save);
-
-        rows.Add(FluentLayout.Header(Str.WidgetsB_Settings_Meters_Show.Text()));
-
+        AddDriveRow(rows, disk, save);
         AddIoRow(rows, disk, save);
-
-        rows.Add(FluentLayout.Row(Glyphs.Count, Str.WidgetsB_Settings_Disk_Operations_Label.Text(),
-            Str.WidgetsB_Settings_Disk_Operations_Desc.Text(),
-            FluentLayout.Toggle(disk.ShowIops, value => { disk.ShowIops = value; save(); }),
-            "iops"));
-
-        rows.Add(FluentLayout.Row(Glyphs.Info, Str.WidgetsB_Settings_Disk_Volume_Label.Text(),
-            Str.WidgetsB_Settings_Disk_Volume_Desc.Text(),
-            FluentLayout.Toggle(disk.ShowVolume, value => { disk.ShowVolume = value; save(); }),
-            "label", "file system", "ntfs"));
-
-        rows.Add(FluentLayout.Row(Glyphs.ListLayout, Str.WidgetsB_Settings_Disk_AllDrives_Label.Text(),
-            Str.WidgetsB_Settings_Disk_AllDrives_Desc.Text(),
-            FluentLayout.Toggle(disk.ShowAllDrives, value => { disk.ShowAllDrives = value; save(); }),
-            "per disk", "drives list"));
 
         MeterRows(rows, disk, save, Str.WidgetsB_Settings_Disk_Refresh.Text());
     }
@@ -74,7 +56,7 @@ internal static partial class WidgetSettings
         }
 
         rows.Add(FluentLayout.Row(Glyphs.Motion, Str.WidgetsB_Settings_Disk_Chart_Label.Text(),
-            Str.WidgetsB_Settings_Disk_Chart_Desc.Text(),
+            Str.Shell_Meters_ChartDesc.Text(),
             FluentLayout.Choice(
                 [.. options.Select((o, i) => (i, o.Label))],
                 Math.Max(0, options.FindIndex(o => o.Value == current)),
@@ -93,53 +75,39 @@ internal static partial class WidgetSettings
     }
 
     /// <summary>
-    /// One switch per drive, in the order Windows lists them; the drives switched on are the ones the
-    /// widget reports on, in that order. None switched on means the system drive, said under the
-    /// header so the widget's behaviour is never something to infer from a row of switches all off.
+    /// [S-1160] The drive the number is about: the system drive (said by name, so the widget's
+    /// behaviour is never something to infer), or one of the drives Windows lists. A chosen drive
+    /// that has since been removed stays offered, so the choice still reads true.
     /// </summary>
-    private static void AddDriveRows(List<FrameworkElement> rows, DiskConfig disk, Action save)
+    private static void AddDriveRow(List<FrameworkElement> rows, DiskConfig disk, Action save)
     {
-        var volumes = DiskMetrics.Volumes(refresh: true).ToList();
-        var chosen = disk.Drives.Select(DiskRules.Root).OfType<string>().ToList();
-
-        // A drive that has since been removed stays listed, so it can be switched off rather than
-        // left silently pointing at nothing.
-        foreach (var root in chosen)
-        {
-            if (!volumes.Any(v => string.Equals(v.Root, root, StringComparison.OrdinalIgnoreCase)))
-            {
-                volumes.Add(new DiskVolume(root, Str.WidgetsB_Settings_Disk_NotConnectedLabel.Text(), string.Empty, true, 0, 0));
-            }
-        }
-
         var system = DiskRules.Root(DiskMetrics.SystemRoot) ?? "C:\\";
-        var switches = new List<Border>(volumes.Count);
-
-        foreach (var volume in volumes)
+        var options = new List<(string Value, string Label)>
         {
-            var root = volume.Root;
-            var on = chosen.Contains(root, StringComparer.OrdinalIgnoreCase);
-            var detail = volume.Total > 0 ? DiskRules.FreeOfTotal(volume) : Str.WidgetsB_Settings_Disk_NotConnected.Text();
+            (string.Empty, Str.Shell_Meters_SystemDrive.Format(("drive", DiskRules.Instance(system)))),
+        };
 
-            switches.Add(FluentLayout.Row(Glyphs.Disk, DiskRules.Title(volume), detail,
-                FluentLayout.Toggle(on, value =>
-                {
-                    // Rebuilt in the order the switches are listed, so the first switched on is the reading.
-                    var now = disk.Drives.Select(DiskRules.Root).OfType<string>().ToList();
-                    now.RemoveAll(d => string.Equals(d, root, StringComparison.OrdinalIgnoreCase));
-
-                    if (value)
-                    {
-                        now.Add(root);
-                    }
-
-                    disk.Drives = [.. volumes.Select(v => v.Root).Where(r => now.Contains(r, StringComparer.OrdinalIgnoreCase))];
-                    save();
-                })));
+        foreach (var volume in DiskMetrics.Volumes(refresh: true))
+        {
+            options.Add((volume.Root, DiskRules.Title(volume)));
         }
 
-        rows.Add(FluentLayout.Expander(Glyphs.Disk, Str.WidgetsB_Settings_Disk_Drives_Label.Text(),
-            Str.WidgetsB_Settings_Disk_Drives_Desc.Format(("drive", DiskRules.Instance(system))),
-            null, switches, expanded: true));
+        var current = DiskRules.Root(disk.Drive) ?? string.Empty;
+
+        if (!options.Any(o => string.Equals(o.Value, current, StringComparison.OrdinalIgnoreCase)))
+        {
+            options.Add((current, Str.WidgetsB_Settings_Disk_NotConnectedDrive.Format(("drive", DiskRules.Instance(current)))));
+        }
+
+        rows.Add(FluentLayout.Row(Glyphs.Disk, Str.Shell_Meters_Drive_Label.Text(), Str.Shell_Meters_Drive_Desc.Text(),
+            FluentLayout.Choice(
+                [.. options.Select((o, i) => (i, o.Label))],
+                Math.Max(0, options.FindIndex(o => string.Equals(o.Value, current, StringComparison.OrdinalIgnoreCase))),
+                index =>
+                {
+                    disk.Drive = options[index].Value;
+                    save();
+                }),
+            "drive", "volume", "disk"));
     }
 }

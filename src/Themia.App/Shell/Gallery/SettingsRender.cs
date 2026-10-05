@@ -81,7 +81,7 @@ internal static class SettingsRender
 
         if (at + 2 >= args.Length)
         {
-            Log.Error(Scope, "usage: --settings-png <General|Appearance|Layout|About|Accounts|Widget:<Kind>|View|Display> <out.png> [waitMs] [--theme light|dark] [--search text] [--land text] [--flyout row-title] [--width dips]");
+            Log.Error(Scope, "usage: --settings-png <General|Appearance|Accounts|License|About|Widget:<Kind>|View|Display> <out.png> [waitMs] [--theme light|dark] [--search text] [--land text] [--flyout row-title] [--width dips]");
             app.Exit();
             return true;
         }
@@ -217,8 +217,6 @@ internal static class SettingsRender
             var statePath = Path.Combine(Path.GetTempPath(), "themia-settings-render", "state.json");
             var state = DemoState();
             state.Design.Theme = request.Theme;
-            // [S-991] --dev renders with developer mode on: the banner, and the Logs page in the navigation.
-            state.Preferences.DevMode = Environment.GetCommandLineArgs().Contains("--dev");
             // [S-1109] --lang: the host applies the state's language, so the demo state carries it.
             if (RenderLanguage.Setting(Environment.GetCommandLineArgs()) is { } language)
             {

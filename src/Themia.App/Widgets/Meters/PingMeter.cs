@@ -13,9 +13,9 @@ using Themia.Core.Widgets;
 namespace Themia.App.Widgets.Meters;
 
 /// <summary>
-/// [S-1170]..[S-1174] Round-trip time to a host, with the original's status (a dot and Online /
-/// Offline / Checking…), jitter, loss, fastest / mean / slowest answer, a chart scaled to the
-/// window's slowest answer with unanswered probes on its baseline, and a Refresh command.
+/// [S-1170]..[S-1174] Round-trip time to a host, with the original's status as a dot in the header
+/// (Online / Offline / Checking… on hover), a chart scaled to the window's slowest answer with
+/// unanswered probes on its baseline, and a Refresh command.
 /// <para>
 /// The one reading that cannot be taken synchronously: a probe takes up to two seconds and the tick
 /// runs on the UI thread, so <see cref="Sample"/> starts a probe and the reading lands later.
@@ -27,7 +27,8 @@ internal sealed class PingMeter : MeterPart
     private static readonly Brush OfflineBrush = FluentLayout.Themed("SystemFillColorCriticalBrush", Colors.Red);
     private static readonly Brush CheckingBrush = FluentLayout.Themed("TextFillColorTertiaryBrush", Colors.Gray);
 
-    // [S-1171] Every probe since the history started, answered or not; as long as the chart spans.
+    // Every probe since the history started, answered or not; as long as the chart spans. The
+    // status dot reads it.
     private readonly PingHistory _history = new(60);
 
     private readonly Ellipse _dot = new()
@@ -51,19 +52,8 @@ internal sealed class PingMeter : MeterPart
 
     public override WidgetKind Kind => WidgetKind.Ping;
 
-    public override MeterUnit Unit => MeterUnit.Latency;
-
     /// <summary>"999 ms".</summary>
     public override double ReadingCharacters => Formatting.Latency(999).Length;
-
-    /// <summary>"Checking…", the longest status word, so the caption never hops between probes.</summary>
-    public override double CaptionCharacters(string live) => PingStats.StatusCharacters;
-
-    /// <summary>
-    /// [S-1171] The tiles carry fastest / mean / slowest from <see cref="PingStats"/>, over answers
-    /// only: the view's own min / avg / max would count an unanswered probe as a 0 ms one.
-    /// </summary>
-    public override bool Moves => false;
 
     /// <summary>[S-1172] Against the slowest answer on screen, as the original scaled it (floor 1 ms).</summary>
     public override ChartScale Scale => ChartScale.Peak(1);
@@ -82,8 +72,7 @@ internal sealed class PingMeter : MeterPart
         _config = config as PingConfig ?? new PingConfig();
         _history.Capacity = _config.GraphCapacity;
 
-        // A new cadence restarts the view's chart ([S-1120]); the statistics start with it, so the
-        // tiles never describe probes the chart no longer shows.
+        // A new cadence restarts the view's chart ([S-1120]); the probes the dot reads start with it.
         if (_interval != 0 && _interval != _config.EffectiveIntervalSeconds)
         {
             _history.Clear();
@@ -106,8 +95,8 @@ internal sealed class PingMeter : MeterPart
         // the new host — cancelling afterwards would kill exactly that probe.
         CancelProbe();
 
-        // A different host is a different measurement, so the samples already on the chart, and the
-        // statistics, belong to something else. On the first config there is nothing to clear.
+        // A different host is a different measurement, so the samples already on the chart belong
+        // to something else. On the first config there is nothing to clear.
         _history.Clear();
         ShowStatus();
 
@@ -133,7 +122,7 @@ internal sealed class PingMeter : MeterPart
     /// simply updates more slowly, which is the truth.
     /// </para>
     /// </summary>
-    public override void Sample(MeterDemand demand, IMeterHost host)
+    public override void Sample(IMeterHost host)
     {
         if (_probe is not null || _detached)
         {
@@ -149,10 +138,10 @@ internal sealed class PingMeter : MeterPart
         }
 #endif
 
-        // [S-1170] Until the first probe is back the tile says so, rather than a bare "--".
+        // [S-1170] Until the first probe is back the tile says so on hover, and the dot is quiet.
         if (!_history.Any)
         {
-            host.Present(new MeterReading(null, "--", PingStats.StatusText(PingStatus.Checking), false));
+            host.Present(MeterReading.Unavailable(PingStats.StatusText(PingStatus.Checking)));
         }
 
         var probe = new CancellationTokenSource();
@@ -174,7 +163,7 @@ internal sealed class PingMeter : MeterPart
             }
 
             NoteProbeState(outcome.Detail);
-            Record(outcome.Reading is { Available: true, Value: { } ms } ? ms : null, host);
+            Record(outcome.Reading is { Available: true, Value: { } ms } ? ms : null, host, outcome.Reading.Reason);
         }
         catch (OperationCanceledException)
         {
@@ -204,78 +193,17 @@ internal sealed class PingMeter : MeterPart
 
     /// <summary>
     /// [S-1170] [S-1172] One probe into the history, and the reading it makes. An unanswered probe is
-    /// a dimmed "--" over "Offline" that still plots — on the baseline, as the original drew it —
+    /// a dimmed "--" (Offline on hover) that still plots — on the baseline, as the original drew it —
     /// so a dropout shows on the chart as a dip rather than as a gap that looks like nothing happened.
     /// </summary>
-    private void Record(double? latency, IMeterHost host)
+    private void Record(double? latency, IMeterHost host, string? reason = null)
     {
         _history.Add(latency);
         ShowStatus();
 
-        var summary = _history.Summarise();
-        var status = Status;
-        var caption = PingStats.StatusText(status);
-        var facts = Facts(summary);
-        var details = Details(summary);
-
         host.Present(latency is { } ms
-            ? new MeterReading(
-                Math.Clamp(ms / NetworkMetrics.LatencyCeilingMs, 0, 1),
-                Formatting.Latency(ms),
-                caption,
-                true,
-                Value: ms,
-                Facts: facts,
-                Details: details)
-            : new MeterReading(0, "--", caption, false, Value: 0, Facts: facts, Details: details));
-    }
-
-    /// <summary>[S-1171] Fastest, mean, slowest: the tiles of a wide or tall tile. None before an answer.</summary>
-    private IReadOnlyList<MeterFact>? Facts(PingSummary summary)
-    {
-        if (!_config.ShowMinAvgMax || summary is not { Min: { } min, Average: { } average, Max: { } max })
-        {
-            return null;
-        }
-
-        return
-        [
-            new MeterFact(Str.WidgetsB_Ping_Fastest.Text(), Formatting.Latency(min)),
-            new MeterFact(Str.WidgetsB_Meters_Average.Text(), Formatting.Latency(average)),
-            new MeterFact(Str.WidgetsB_Ping_Slowest.Text(), Formatting.Latency(max)),
-        ];
-    }
-
-    /// <summary>
-    /// [S-1171] [S-1173] Jitter, loss, the address behind a label, how many probes the figures cover;
-    /// priority order. Jitter appears with the first answer, loss with the first probe.
-    /// </summary>
-    private List<MeterFact> Details(PingSummary summary)
-    {
-        var lines = new List<MeterFact>(4);
-
-        if (_config.ShowJitter && summary.Jitter is { } jitter)
-        {
-            lines.Add(new MeterFact(Str.WidgetUi_Jitter.Text(), Formatting.Latency(jitter)));
-        }
-
-        if (_config.ShowLoss && summary.Loss is { } loss)
-        {
-            lines.Add(new MeterFact(Str.WidgetUi_Loss.Text(), Formatting.Percent(loss)));
-        }
-
-        // Only beside a label: without one the header already shows the address.
-        if (_config.EffectiveLabel is not null)
-        {
-            lines.Add(new MeterFact(Str.Ping_AddressLabel.Text(), _config.EffectiveHost));
-        }
-
-        if (summary.Samples > 0)
-        {
-            lines.Add(new MeterFact(Str.WidgetsB_Ping_Probes.Text(), PingStats.AnsweredText(summary)));
-        }
-
-        return lines;
+            ? new MeterReading(Math.Clamp(ms / NetworkMetrics.LatencyCeilingMs, 0, 1), Formatting.Latency(ms), true, Value: ms)
+            : new MeterReading(0, "--", false, Value: 0, Reason: reason ?? PingStats.StatusText(Status)));
     }
 
     /// <summary>[S-1170] The header dot: success, critical, or quiet while checking.</summary>

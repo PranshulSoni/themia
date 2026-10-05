@@ -195,9 +195,6 @@ public sealed class DesignState
 
     public double UnlockAnimationMs { get; set; } = 500;
 
-    /// <summary>Play a short sound with the startup animation. Opt-in, as in the original.</summary>
-    public bool StartupSound { get; set; }
-
     /// <summary>Launch with Windows, via the per-user Run key.</summary>
     public bool RunAtStartup { get; set; }
 
@@ -225,7 +222,6 @@ public sealed class DesignState
         TransitionAnimationMs = TransitionAnimationMs,
         UnlockAnimation = UnlockAnimation,
         UnlockAnimationMs = UnlockAnimationMs,
-        StartupSound = StartupSound,
         RunAtStartup = RunAtStartup,
     };
 }

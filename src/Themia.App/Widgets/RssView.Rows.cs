@@ -235,7 +235,7 @@ internal sealed partial class RssView
         {
             if (_cursor is { } item && item < _merged.Entries.Count && item < _rowElements.Count)
             {
-                ItemMenu.Build(MenuFor(_merged.Entries[item])).ShowAt(_rowElements[item]);
+                ItemMenu.Open(_rowElements[item], MenuFor(_merged.Entries[item]));
                 return true;
             }
 
@@ -302,7 +302,7 @@ internal sealed partial class RssView
     /// </summary>
     private Grid Favicon(string link)
     {
-        var globe = Fluent.Icon(Glyphs.WebElement, "TextFillColorTertiaryBrush", 12);
+        var globe = Fluent.Icon(Glyphs.Globe, "TextFillColorTertiaryBrush", 12);
         globe.HorizontalAlignment = HorizontalAlignment.Center;
 
         var image = new Image { Width = Fluent.IconSize, Height = Fluent.IconSize, Visibility = Visibility.Collapsed };

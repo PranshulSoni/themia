@@ -447,7 +447,6 @@ public static class SettingsTransfer
         Line(Str.Shell_Transfer_TransitionLength, old.TransitionAnimationMs, @new.TransitionAnimationMs, Ms);
         Line(Str.Shell_Motion_Unlock, old.UnlockAnimation, @new.UnlockAnimation, Intro);
         Line(Str.Shell_Transfer_UnlockLength, old.UnlockAnimationMs, @new.UnlockAnimationMs, Ms);
-        Line(Str.Settings_Style_StartupSound_Label, old.StartupSound, @new.StartupSound, OnOff);
     }
 
     private static void ComparePreferences(Locale locale, AppPreferences old, AppPreferences @new, List<string> changes)
@@ -474,8 +473,6 @@ public static class SettingsTransfer
         Toggle(Str.Shell_Settings_General_GameMode, old.GameModeSuspend, @new.GameModeSuspend);
         Toggle(Str.Settings_DesktopIcons_Label, old.DesktopIconsVisible, @new.DesktopIconsVisible);
         Toggle(Str.Shell_Settings_General_LocalNetwork, old.AllowPrivateNetwork, @new.AllowPrivateNetwork);
-        Toggle(Str.Shell_Settings_General_DevMode, old.DevMode, @new.DevMode);
-        Toggle(Str.Shell_Logs_Verbose, old.VerboseLogging, @new.VerboseLogging);
     }
 
 }

@@ -9,6 +9,7 @@ using Themia.Core.Diagnostics;
 using Themia.Core.Localization;
 using Themia.Core.Model;
 using Themia.Core.Widgets;
+using Themia.Core.Shell;
 
 namespace Themia.App.Widgets;
 
@@ -366,8 +367,8 @@ internal sealed partial class ClipboardView : Grid, IWidgetView, IWidgetHeaderCo
 
         return
         [
-            new(Glyphs.Copy, Str.Common_Copy.Text(), () => CopyBack(text)),
-            new(Glyphs.Delete, Str.WidgetsA_Clipboard_Remove.Text(), () => Remove(text), Danger: true),
+            new(Glyphs.Copy, Str.Common_Copy.Text(), () => CopyBack(text), Quick: QuickCommand.Copy),
+            new(Glyphs.Delete, Str.WidgetsA_Clipboard_Remove.Text(), () => Remove(text), Danger: true, Quick: QuickCommand.Delete),
             ItemMenuEntry.Separator,
             new(Glyphs.Clear, Str.WidgetsA_Clipboard_ClearEllipsis.Text(), () => _ = ConfirmClearAsync(), Danger: true),
         ];
@@ -471,7 +472,7 @@ internal sealed partial class ClipboardView : Grid, IWidgetView, IWidgetHeaderCo
                 return true;
 
             case ListCommand.Menu when decision.Index < _rows.Count:
-                ItemMenu.Build(RowMenu(_history.Entries[decision.Index].Text)).ShowAt(_rows[decision.Index]);
+                ItemMenu.Open(_rows[decision.Index], RowMenu(_history.Entries[decision.Index].Text));
                 return true;
 
             case ListCommand.Release:

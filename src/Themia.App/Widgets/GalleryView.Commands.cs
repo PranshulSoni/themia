@@ -28,15 +28,6 @@ internal sealed partial class GalleryView
     private Button _pauseButton = null!;
     private bool _hovering;
 
-    /// <summary>Each layout's glyph, its name (the item menu's radio) and its "Show as …" command (the card menu).</summary>
-    private static readonly (GalleryLayout Layout, string Glyph, Str Text, Str ShowAs)[] Layouts =
-    [
-        (GalleryLayout.Slideshow, Glyphs.Play, Str.Gallery_ModeSlideshow, Str.WidgetsB_Gallery_ShowAsSlideshow),
-        (GalleryLayout.Grid, Glyphs.Grid, Str.Gallery_ModeGrid, Str.WidgetsB_Gallery_ShowAsGrid),
-        (GalleryLayout.Scatter, Glyphs.Shuffle, Str.Gallery_ModeScatter, Str.WidgetsB_Gallery_ShowAsScatter),
-        (GalleryLayout.Mosaic, Glyphs.Group, Str.Gallery_ModeMosaic, Str.WidgetsB_Gallery_ShowAsMosaic),
-    ];
-
     private void BuildCommands()
     {
         var previous = ControlButton(new FontIcon { Glyph = Glyphs.Previous, FontSize = Fluent.IconSize }, Str.WidgetsB_Gallery_Previous.Text(), Previous);
@@ -224,25 +215,13 @@ internal sealed partial class GalleryView
         UpdateControls();
     }
 
-    private void SetLayout(GalleryLayout layout)
-    {
-        if (_config.Layout == layout)
-        {
-            return;
-        }
-
-        _config.Layout = layout;
-        _surface?.RequestSave();
-        ApplyConfig(_config);
-    }
-
     /// <summary>[S-773] Read the source again now, and deal a fresh scatter or mosaic.</summary>
     private void RefreshNow() => Rescan(reroll: true);
 
     /// <summary>
     /// [S-771] The menu of the picture under the pointer — open it, show it in Explorer — followed by
-    /// the layout switch and refresh, which on a card covered edge to edge in pictures would
-    /// otherwise only be reachable from the header.
+    /// pause and refresh, which on a card covered edge to edge in pictures would otherwise only be
+    /// reachable from the header. [S-1746] The layout is chosen in the settings only.
     /// </summary>
     private void OnRightTapped(object sender, RightTappedRoutedEventArgs args)
     {
@@ -278,18 +257,6 @@ internal sealed partial class GalleryView
             yield return ItemMenuEntry.Separator;
         }
 
-        // [S-36] The layouts are a folder's; a file and the photo of the day are one picture.
-        if (!_config.IsSingleSource)
-        {
-            foreach (var (layout, glyph, text, _) in Layouts)
-            {
-                var chosen = layout;
-                yield return new ItemMenuEntry(glyph, text.Text(), () => SetLayout(chosen), Checked: _config.Layout == layout);
-            }
-
-            yield return ItemMenuEntry.Separator;
-        }
-
         if (IsSlideshow)
         {
             yield return new ItemMenuEntry(_paused ? Glyphs.Play : Glyphs.Pause, _paused ? Str.WidgetsB_Gallery_Resume.Text() : Str.WidgetsB_Gallery_Pause.Text(), TogglePause);
@@ -298,7 +265,7 @@ internal sealed partial class GalleryView
         yield return new ItemMenuEntry(Glyphs.Refresh, Str.CtxMenu_RefreshImages.Text(), RefreshNow);
     }
 
-    /// <summary>[S-773] The card's own menu: the other layouts, pause, and refresh.</summary>
+    /// <summary>[S-773] The card's own menu: pause and refresh. [S-1746] The layout is chosen in the settings only.</summary>
     public IReadOnlyList<WidgetAction> ContextActions
     {
         get
@@ -311,19 +278,6 @@ internal sealed partial class GalleryView
             }
 
             actions.Add(new WidgetAction(Glyphs.Refresh, Str.CtxMenu_RefreshImages.Text(), RefreshNow));
-
-            if (!_config.IsSingleSource)
-            {
-                foreach (var (layout, glyph, _, showAs) in Layouts)
-                {
-                    if (layout != _config.Layout)
-                    {
-                        var chosen = layout;
-                        actions.Add(new WidgetAction(glyph, showAs.Text(), () => SetLayout(chosen)));
-                    }
-                }
-            }
-
             return actions;
         }
     }

@@ -3,8 +3,9 @@ using System.Text.Json.Serialization;
 namespace Themia.App.Services.Accounts;
 
 /// <summary>
-/// An OAuth token endpoint's answer, success or error, for every provider. GitHub answers errors
-/// with a 200 and this same shape, so the error fields are read whatever the status was.
+/// A token endpoint's answer to a refresh or a GitHub device poll, success or error. GitHub answers
+/// errors with a 200 and this same shape, so the error fields are read whatever the status was. An
+/// authorization-code exchange is read by Core's <c>CodeExchange</c> instead.
 /// </summary>
 internal sealed class TokenReply
 {
@@ -24,7 +25,7 @@ internal sealed class TokenReply
     public string? ErrorDescription { get; set; }
 }
 
-/// <summary>The start of a device authorization grant (RFC 8628 §3.2).</summary>
+/// <summary>The start of GitHub's device authorization grant (RFC 8628 §3.2).</summary>
 internal sealed class DeviceCodeReply
 {
     [JsonPropertyName("device_code")]

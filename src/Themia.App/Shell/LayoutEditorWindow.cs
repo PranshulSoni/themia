@@ -720,7 +720,7 @@ internal sealed class LayoutEditorWindow
     {
         var glyph = Fluent.Icon(assignment.Source switch
         {
-            LayoutSource.Url => Glyphs.WebElement,
+            LayoutSource.Url => Glyphs.Globe,
             LayoutSource.Folder => Glyphs.Folder,
             LayoutSource.File => Glyphs.File,
             _ => Glyphs.Apps,

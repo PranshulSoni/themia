@@ -23,17 +23,8 @@ public sealed class PingConfig : GaugeConfig
     /// <summary>Host or address to probe. Empty falls back to <see cref="DefaultHost"/>.</summary>
     public string Host { get; set; } = DefaultHost;
 
-    /// <summary>[S-1173] A name for the host ("Router", "Game server"): the header title, with the address as a detail line.</summary>
+    /// <summary>[S-1173] A name for the host ("Router", "Game server"): the header title.</summary>
     public string HostLabel { get; set; } = string.Empty;
-
-    /// <summary>[S-1171] How much consecutive answers vary.</summary>
-    public bool ShowJitter { get; set; } = true;
-
-    /// <summary>[S-1171] The share of probes that went unanswered.</summary>
-    public bool ShowLoss { get; set; } = true;
-
-    /// <summary>[S-1171] Fastest, mean and slowest answer.</summary>
-    public bool ShowMinAvgMax { get; set; } = true;
 
     /// <summary>A probe goes over the network, so it may be slower than a local read: up to five minutes.</summary>
     [JsonIgnore]
@@ -53,9 +44,6 @@ public sealed class PingConfig : GaugeConfig
         {
             Host = Host,
             HostLabel = HostLabel,
-            ShowJitter = ShowJitter,
-            ShowLoss = ShowLoss,
-            ShowMinAvgMax = ShowMinAvgMax,
         };
         CopyTo(copy);
         return copy;

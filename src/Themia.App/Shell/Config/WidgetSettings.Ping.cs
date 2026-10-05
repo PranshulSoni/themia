@@ -19,22 +19,6 @@ internal static partial class WidgetSettings
         AddHostRow(rows, config, save);
         AddLabelRow(rows, config, save);
 
-        rows.Add(FluentLayout.Header(Str.WidgetsB_Settings_Meters_Show.Text()));
-
-        rows.Add(FluentLayout.Row(Glyphs.Motion, Str.WidgetsB_Settings_Ping_Jitter_Label.Text(),
-            Str.WidgetsB_Settings_Ping_Jitter_Desc.Text(),
-            FluentLayout.Toggle(config.ShowJitter, value => { config.ShowJitter = value; save(); })));
-
-        rows.Add(FluentLayout.Row(Glyphs.Warning, Str.WidgetsB_Settings_Ping_Loss_Label.Text(),
-            Str.WidgetsB_Settings_Ping_Loss_Desc.Text(),
-            FluentLayout.Toggle(config.ShowLoss, value => { config.ShowLoss = value; save(); }),
-            "loss"));
-
-        rows.Add(FluentLayout.Row(Glyphs.Gauge, Str.WidgetsB_Settings_Ping_Range_Label.Text(),
-            Str.WidgetsB_Settings_Ping_Range_Desc.Text(),
-            FluentLayout.Toggle(config.ShowMinAvgMax, value => { config.ShowMinAvgMax = value; save(); }),
-            "min", "avg", "max", "minimum", "maximum"));
-
         MeterRows(rows, config, save, Str.WidgetsB_Settings_Ping_Refresh.Text());
     }
 

@@ -15,6 +15,7 @@ using Windows.ApplicationModel.DataTransfer;
 using Windows.System;
 using Windows.UI;
 using Windows.UI.Core;
+using Themia.Core.Shell;
 
 namespace Themia.App.Widgets;
 
@@ -78,7 +79,7 @@ internal sealed class MarkdownEditor
 
     private readonly Dictionary<FormatKey, ITextCharacterFormat> _formats = [];
     private readonly List<(NoteCommand Command, Button Button, int Rank)> _buttons = [];
-    private readonly MenuFlyout _menu = new();
+    private readonly CommandBarFlyout _menu = new() { AlwaysExpanded = true };
 
     private string _text = string.Empty;
     private List<NoteLine> _lines = NoteMarkdown.Parse(string.Empty);
@@ -854,29 +855,20 @@ internal sealed class MarkdownEditor
     {
         _menu.Opening += (_, _) =>
         {
-            _menu.Items.Clear();
             var (start, end) = Selection();
             var selected = start != end;
 
-            var items = ItemMenu.Build(
+            ItemMenu.Fill(_menu,
             [
                 new ItemMenuEntry(Glyphs.Undo, Str.WidgetsC_Notes_Editor_Undo.Text(), () => Step(redo: false), Disabled: _readOnly || !_history.CanUndo),
                 new ItemMenuEntry(Glyphs.Reset, Str.WidgetsC_Notes_Editor_Redo.Text(), () => Step(redo: true), Disabled: _readOnly || !_history.CanRedo),
                 ItemMenuEntry.Separator,
-                new ItemMenuEntry(Glyphs.Cut, Str.Common_Cut.Text(), () => Box.Document.Selection.Cut(), Disabled: _readOnly || !selected),
-                new ItemMenuEntry(Glyphs.Copy, Str.Common_Copy.Text(), () => Box.Document.Selection.Copy(), Disabled: !selected),
-                new ItemMenuEntry(Glyphs.Paste, Str.Common_Paste.Text(), () => _ = PasteAsync(), Disabled: _readOnly),
+                new ItemMenuEntry(Glyphs.Cut, Str.Common_Cut.Text(), () => Box.Document.Selection.Cut(), Disabled: _readOnly || !selected, Quick: QuickCommand.Cut),
+                new ItemMenuEntry(Glyphs.Copy, Str.Common_Copy.Text(), () => Box.Document.Selection.Copy(), Disabled: !selected, Quick: QuickCommand.Copy),
+                new ItemMenuEntry(Glyphs.Paste, Str.Common_Paste.Text(), () => _ = PasteAsync(), Disabled: _readOnly, Quick: QuickCommand.Paste),
                 ItemMenuEntry.Separator,
                 new ItemMenuEntry(null, Str.Folder_SelectAll.Text(), () => Box.Document.Selection.SetRange(0, _text.Length)),
             ]);
-
-            // The entries are built once here and moved across, so the menu keeps its own instance.
-            while (items.Items.Count > 0)
-            {
-                var item = items.Items[0];
-                items.Items.RemoveAt(0);
-                _menu.Items.Add(item);
-            }
         };
 
         Box.ContextFlyout = _menu;

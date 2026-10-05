@@ -44,6 +44,15 @@ internal sealed partial class ConfigWindow
     private bool _rebuilding;
     private bool _closed;
 
+    /// <summary>[S-1720] Whether this window has the focus: while it does, a state change is the user's own.</summary>
+    private bool _active = true;
+
+    /// <summary>[S-1720] What the page on screen shows (<see cref="SettingsPageSync.Signature"/>).</summary>
+    private string? _shown;
+
+    /// <summary>A catch-up is queued; the state changes before it runs fold into it.</summary>
+    private bool _syncQueued;
+
     public ConfigWindow(AppHost host)
     {
         _host = host;
@@ -65,6 +74,7 @@ internal sealed partial class ConfigWindow
 
         _host.StateChanged += OnStateChanged;
         Themia.Core.Localization.Strings.Changed += OnLanguageChanged;
+        _window.Activated += OnActivated;
     }
 
     /// <summary>Raised once the window has closed, so the host can drop its reference.</summary>
@@ -82,7 +92,6 @@ internal sealed partial class ConfigWindow
         }
 
         ApplyTheme();
-        ApplyDevBanner();
 
         // Only when the tree would actually look different. Rebuilding on every state change meant
         // that dragging a slider tore down and rebuilt the page under the pointer many times a
@@ -99,15 +108,75 @@ internal sealed partial class ConfigWindow
             UpdateBackButton();
         }
 
-        // The body is deliberately NOT re-rendered here. It is the thing being edited; the only
-        // reason to replace it is that whatever it was editing no longer exists.
+        // The body is not re-rendered for a change the user made with it: it is the thing being
+        // edited. It is replaced when whatever it was editing no longer exists, and caught up when
+        // what it shows was changed from somewhere else ([S-1720]).
         if (!Exists(_target))
         {
             _target = _history.Current ?? new ConfigTarget.App();
             SelectForTarget();
             RenderBody();
+            return;
+        }
+
+        QueueSync();
+    }
+
+    /// <summary>
+    /// [S-1720] Losing the focus closes the run of the user's own edits: whatever the page's controls
+    /// wrote is what they show, so that becomes the page's signature. A change after this came from
+    /// somewhere else and is caught up.
+    /// </summary>
+    private void OnActivated(object sender, WindowActivatedEventArgs args)
+    {
+        _active = args.WindowActivationState != WindowActivationState.Deactivated;
+        if (!_active && !_closed)
+        {
+            _shown = Signature(_target);
         }
     }
+
+    /// <summary>
+    /// [S-1720] Build the page again if the state it shows was changed from outside this window.
+    /// Queued, so a burst of changes is one rebuild and the sender's own handler has finished first.
+    /// </summary>
+    private void QueueSync()
+    {
+        if (_active || _syncQueued)
+        {
+            return;
+        }
+
+        _syncQueued = _window.DispatcherQueue.TryEnqueue(() =>
+        {
+            _syncQueued = false;
+            if (_closed)
+            {
+                return;
+            }
+
+            var current = Signature(_target);
+            if (SettingsPageSync.NeedsRebuild(_active, _shown, current))
+            {
+                RenderBody(keepScroll: true);
+            }
+        });
+
+        if (!_syncQueued)
+        {
+            Log.Warn(Scope, "could not queue the settings page catch-up");
+        }
+    }
+
+    /// <summary>[S-1721] The signature of what a target's page shows.</summary>
+    private string Signature(ConfigTarget target) => target switch
+    {
+        ConfigTarget.App => SettingsPageSync.Signature(_host.State, SettingsScope.App, null),
+        ConfigTarget.View view => SettingsPageSync.Signature(_host.State, SettingsScope.View, view.ViewId),
+        ConfigTarget.Display display => SettingsPageSync.Signature(_host.State, SettingsScope.Display, display.MonitorId),
+        ConfigTarget.Widget widget => SettingsPageSync.Signature(_host.State, SettingsScope.Widget, widget.WidgetId),
+        _ => string.Empty,
+    };
 
     /// <summary>
     /// Everything the navigation tree draws, so a change to any of it rebuilds the tree and a
@@ -121,8 +190,7 @@ internal sealed partial class ConfigWindow
                 $"{v.Id}~{v.Name}~{v.Icon}~{string.Join(",", v.Widgets.Select(w => $"{w.Id}={w.Kind}={w.Label}"))}"));
 
         var displays = string.Join(",", _host.Displays.Select(d => $"{d.Describe()}~{_host.State.DisabledMonitors.Contains(d.Id)}"));
-        // [S-990] Developer mode adds and removes the Logs page.
-        return $"{views}||{displays}||{_host.State.Preferences.DevMode}";
+        return $"{views}||{displays}";
     }
 
     private bool Exists(ConfigTarget target) => target switch
@@ -130,7 +198,7 @@ internal sealed partial class ConfigWindow
         ConfigTarget.Widget widget => _host.Find(widget.WidgetId) is not null,
         ConfigTarget.View view => _host.State.FindView(view.ViewId) is not null,
         ConfigTarget.Display display => _host.FindDisplay(display.MonitorId) is not null,
-        ConfigTarget.App app => ConfigPages.AppPages.FirstOrDefault(p => p.Page == app.Page)?.IsAvailable(_host.State) ?? true,
+        ConfigTarget.App app => ConfigPages.AppPages.Any(p => p.Page == app.Page),
         _ => true,
     };
 
@@ -142,8 +210,13 @@ internal sealed partial class ConfigWindow
     /// Build the page for the current target, put its title in the breadcrumb, and hand its rows to
     /// search — the page on screen is always what search knows of it.
     /// </summary>
-    private FrameworkElement RenderBody()
+    /// <param name="keepScroll">
+    /// [S-1720] Stay where the reader was: the same page built again to catch up with a change, not
+    /// a new page, which starts at the top.
+    /// </param>
+    private FrameworkElement RenderBody(bool keepScroll = false)
     {
+        var offset = _bodyHost.VerticalOffset;
         FrameworkElement page;
 
         try
@@ -158,8 +231,16 @@ internal sealed partial class ConfigWindow
         }
 
         _pageColumn.Child = page;
+        _shown = Signature(_target);
         RenderCrumbs(page is SettingsPage settings ? settings.Title : NavTitle(_target));
-        _bodyHost.ChangeView(null, 0, null, disableAnimation: true);
+
+        if (keepScroll)
+        {
+            // Measured first, or the offset is clamped against a page that has no height yet.
+            _bodyHost.UpdateLayout();
+        }
+
+        _bodyHost.ChangeView(null, keepScroll ? offset : 0, null, disableAnimation: true);
         _index.Update(_target, page);
         return page;
     }

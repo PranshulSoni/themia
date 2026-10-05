@@ -5,7 +5,6 @@
   "widgetsA.apps.count": {
     "other": "{count} 個のアプリ"
   },
-  "widgetsA.apps.group": "フォルダーでグループ化",
   "widgetsA.apps.hiddenCount": {
     "other": "{count} 個非表示"
   },
@@ -32,11 +31,7 @@
   "widgetsA.apps.settings.view.compact": "コンパクト リスト",
   "widgetsA.apps.settings.view.desc": "アイコンの下に名前があるタイル、行、または名前だけのコンパクトな行",
   "widgetsA.apps.settings.view.tiles": "タイル",
-  "widgetsA.apps.showAsCompact": "コンパクト リストで表示",
-  "widgetsA.apps.showAsList": "リストで表示",
-  "widgetsA.apps.showAsTiles": "タイルで表示",
   "widgetsA.apps.shownOf": "{total} 個中 {shown} 個",
-  "widgetsA.apps.ungroup": "フォルダーでグループ化しない",
   "widgetsA.audio.followDefault": "既定の出力に従う",
   "widgetsA.audio.isDefault": "{name} (Windows の既定)",
   "widgetsA.audio.makeDefault": "{name} を既定の出力にする",
@@ -134,7 +129,6 @@
   "widgetsA.calendar.weekdayDay": "{day}日 ({weekday})",
   "widgetsA.calendar.weekdayInitials": "日,月,火,水,木,金,土",
   "widgetsA.catalog.apps.description": "インストール済みのアプリを起動",
-  "widgetsA.catalog.battery.description": "充電残量と残り時間",
   "widgetsA.catalog.bluetooth.description": "ペアリング済みのデバイスとバッテリー残量",
   "widgetsA.catalog.calculator.description": "計算用のメモ帳",
   "widgetsA.catalog.calendar.description": "Microsoft、Google、CalDAV のカレンダーと誕生日",
@@ -171,7 +165,6 @@
   "widgetsA.catalog.githubNotifications.label": "通知",
   "widgetsA.catalog.githubReviews.description": "レビュー待ちのプルリクエスト",
   "widgetsA.catalog.githubReviews.label": "レビュー依頼",
-  "widgetsA.catalog.gpu.description": "グラフィックスの負荷とビデオメモリ",
   "widgetsA.catalog.gpu.label": "GPU",
   "widgetsA.catalog.group.description": "ほかのウィジェットを入れる領域",
   "widgetsA.catalog.habits.description": "毎日のチェックと連続記録",
@@ -219,8 +212,6 @@
   "widgetsA.catalog.viewSwitcher.label": "ビュー切り替え",
   "widgetsA.catalog.volume.description": "マスター音量とミュート",
   "widgetsA.catalog.weather.description": "現在地の天気",
-  "widgetsA.catalog.webElement.description": "Web ページの一部を常に最新の状態で表示",
-  "widgetsA.catalog.webElement.label": "Web 要素",
   "widgetsA.claude.bar.session": "セッション (5 時間)",
   "widgetsA.claude.bar.sessionMini": "5時間",
   "widgetsA.claude.bar.sessionShort": "セッション",

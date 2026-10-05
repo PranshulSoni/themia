@@ -49,10 +49,6 @@ internal sealed partial class ContactsView : Grid, IWidgetView, IWidgetHeaderCon
     /// <summary>Below this width the count gives its room to the title.</summary>
     private const double NarrowBelow = 160;
 
-    private static readonly string ListGlyph = char.ConvertFromUtf32(0xE779);
-    private static readonly string CompactGlyph = char.ConvertFromUtf32(0xE14C);
-    private static readonly string DetailsGlyph = char.ConvertFromUtf32(0xE80A);
-    private static readonly string CardsGlyph = char.ConvertFromUtf32(0xE8A9);
     private static readonly string PhoneGlyph = char.ConvertFromUtf32(0xE717);
     private static readonly string MessageGlyph = char.ConvertFromUtf32(0xE8BD);
 
@@ -261,28 +257,8 @@ internal sealed partial class ContactsView : Grid, IWidgetView, IWidgetHeaderCon
         }
     }
 
-    /// <inheritdoc />
-    public IReadOnlyList<WidgetAction> ContextActions
-    {
-        get
-        {
-            // [S-581] The classic menu: refresh, then the four layouts with the current one checked.
-            var actions = new List<WidgetAction> { new(Glyphs.Refresh, Str.Common_Refresh.Text(), () => _ = RefreshAsync(force: true)) };
-
-            foreach (var (layout, label, glyph) in new[]
-            {
-                (ContactsLayout.List, Str.Apps_ViewList.Text(), ListGlyph),
-                (ContactsLayout.Compact, Str.Apps_ViewCompact.Text(), CompactGlyph),
-                (ContactsLayout.Details, Str.CtxMenu_Details.Text(), DetailsGlyph),
-                (ContactsLayout.Grid, Str.Apps_ViewGrid.Text(), CardsGlyph),
-            })
-            {
-                actions.Add(new(_config.EffectiveLayout == layout ? Glyphs.Done : glyph, label, () => SetLayout(layout)));
-            }
-
-            return actions;
-        }
-    }
+    /// <summary>[S-581] Refresh. [S-1746] The layout is how the widget looks: it is chosen in its settings only.</summary>
+    public IReadOnlyList<WidgetAction> ContextActions => [new(Glyphs.Refresh, Str.Common_Refresh.Text(), () => _ = RefreshAsync(force: true))];
 
     public void Detach()
     {
@@ -426,13 +402,6 @@ internal sealed partial class ContactsView : Grid, IWidgetView, IWidgetHeaderCon
     {
         _busy.IsActive = busy;
         _busy.Visibility = busy ? Visibility.Visible : Visibility.Collapsed;
-    }
-
-    private void SetLayout(ContactsLayout layout)
-    {
-        _config.Layout = layout;
-        _surface?.RequestSave();
-        Render();
     }
 
     // -----------------------------------------------------------------------------------------
@@ -1119,7 +1088,7 @@ internal sealed partial class ContactsView : Grid, IWidgetView, IWidgetHeaderCon
         {
             args.Handled = true;
             Select(contact.Id);
-            BuildMenu(contact).ShowAt(row, args.GetPosition(row));
+            ItemMenu.ShowAt(row, args.GetPosition(row), BuildMenu(contact));
         };
     }
 
@@ -1155,42 +1124,35 @@ internal sealed partial class ContactsView : Grid, IWidgetView, IWidgetHeaderCon
     /// [S-587] The classic contact menu: the name and role as a header, then write and copy the
     /// address, call, message and copy the number, copy the name, and refresh.
     /// </summary>
-    private MenuFlyout BuildMenu(Contact contact)
+    private List<ItemMenuEntry> BuildMenu(Contact contact)
     {
-        var menu = new MenuFlyout();
-
-        var header = new MenuFlyoutItem { Text = string.IsNullOrEmpty(ContactRules.Role(contact)) ? contact.Name : $"{contact.Name} · {ContactRules.Role(contact)}", IsEnabled = false };
-        menu.Items.Add(header);
-        menu.Items.Add(new MenuFlyoutSeparator());
+        var menu = new List<ItemMenuEntry>
+        {
+            new(null, string.IsNullOrEmpty(ContactRules.Role(contact)) ? contact.Name : $"{contact.Name} · {ContactRules.Role(contact)}", static () => { }, Disabled: true),
+            ItemMenuEntry.Separator,
+        };
 
         if (ContactLinks.Build(ContactLinkKind.Email, contact.Email) is not null)
         {
-            menu.Items.Add(Item(Str.CtxMenu_SendEmail.Text(), Glyphs.Mail, () => ShellLauncher.OpenContactLink(ContactLinkKind.Email, contact.Email)));
-            menu.Items.Add(Item(Str.CtxMenu_CopyEmail.Text(), Glyphs.Copy, () => Copy(contact.Email!)));
+            menu.Add(new(Glyphs.Mail, Str.CtxMenu_SendEmail.Text(), () => ShellLauncher.OpenContactLink(ContactLinkKind.Email, contact.Email)));
+            menu.Add(new(Glyphs.Copy, Str.CtxMenu_CopyEmail.Text(), () => Copy(contact.Email!)));
         }
 
         if (ContactLinks.Build(ContactLinkKind.Call, contact.Phone) is not null)
         {
-            menu.Items.Add(Item(Str.CtxMenu_Call.Text(), PhoneGlyph, () => ShellLauncher.OpenContactLink(ContactLinkKind.Call, contact.Phone)));
-            menu.Items.Add(Item(Str.CtxMenu_Message.Text(), MessageGlyph, () => ShellLauncher.OpenContactLink(ContactLinkKind.Message, contact.Phone)));
+            menu.Add(new(PhoneGlyph, Str.CtxMenu_Call.Text(), () => ShellLauncher.OpenContactLink(ContactLinkKind.Call, contact.Phone)));
+            menu.Add(new(MessageGlyph, Str.CtxMenu_Message.Text(), () => ShellLauncher.OpenContactLink(ContactLinkKind.Message, contact.Phone)));
         }
 
         if (!string.IsNullOrWhiteSpace(contact.Phone))
         {
-            menu.Items.Add(Item(Str.CtxMenu_CopyPhone.Text(), Glyphs.Copy, () => Copy(contact.Phone!)));
+            menu.Add(new(Glyphs.Copy, Str.CtxMenu_CopyPhone.Text(), () => Copy(contact.Phone!)));
         }
 
-        menu.Items.Add(Item(Str.CtxMenu_CopyName.Text(), Glyphs.Copy, () => Copy(contact.Name)));
-        menu.Items.Add(new MenuFlyoutSeparator());
-        menu.Items.Add(Item(Str.Common_Refresh.Text(), Glyphs.Refresh, () => _ = RefreshAsync(force: true)));
+        menu.Add(new(Glyphs.Copy, Str.CtxMenu_CopyName.Text(), () => Copy(contact.Name)));
+        menu.Add(ItemMenuEntry.Separator);
+        menu.Add(new(Glyphs.Refresh, Str.Common_Refresh.Text(), () => _ = RefreshAsync(force: true)));
         return menu;
-
-        static MenuFlyoutItem Item(string text, string glyph, Action action)
-        {
-            var item = new MenuFlyoutItem { Text = text, Icon = new FontIcon { Glyph = glyph } };
-            item.Click += (_, _) => action();
-            return item;
-        }
     }
 
     private static void Copy(string text)

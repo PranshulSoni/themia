@@ -203,13 +203,7 @@ internal sealed partial class ScreenTimeView
                 return;
             }
 
-            var hide = new MenuFlyoutItem { Text = Str.Screentime_HideApp.Text(), Icon = new FontIcon { Glyph = Glyphs.Hide } };
-            hide.Click += (_, _) => _owner.Hide(segment.Key);
-
-            var menu = new MenuFlyout();
-            menu.Items.Add(hide);
-            menu.ShowAt(Host, args.GetPosition(Host));
-            args.Handled = true;
+            ItemMenu.Show(Host, args, [new ItemMenuEntry(Glyphs.Hide, Str.Screentime_HideApp.Text(), () => _owner.Hide(segment.Key))]);
         }
 
         public void Detach()

@@ -16,12 +16,12 @@ Owning files: `Themia.Core/Geometry/*`, `Themia.Core/Model/*`, `Themia.Core/Stor
 Sections, grouped by area (file order below; search for the heading).
 
 - **Foundations.** Geometry model; Rendering; Grid snap aid; Constraints; Defaults & placement; Views & displays; Window layering; Transparency; Ticking; Persistence; Failure rules; Clipboard & transfer between displays; No backwards compatibility.
-- **Shell, windows and settings.** Displays (WP2); Desktop integration and suspend (WP3); Appearance engine (WP1); Notices, resilience and undo (WP4); Widget picker: search and adding into containers (WP5); Multi-select and the placement session (MULTISELECT-PLACEMENT); Views and the view bar (WP8); Keyboard lease (WP11); Containers; Containers and shell hooks (PA); Shell skeleton and shared settings; Settings window: Windows 11 Settings; Settings navigation icons (NAV-ICONS); Logging and developer mode (WP7); Network safety (WP6); Localization infrastructure (LOC-INFRA); Microsoft Store package and licensing; Gallery.
+- **Shell, windows and settings.** Displays (WP2); Desktop integration and suspend (WP3); Appearance engine (WP1); Notices, resilience and undo (WP4); Widget picker: search and adding into containers (WP5); Multi-select and the placement session (MULTISELECT-PLACEMENT); Context menus (R4-MENUS); Views and the view bar (WP8); Settings side menu and display views (R4-NAV); Icon picker and showcase views (R4-ICONS); Keyboard lease (WP11); Containers; Containers and shell hooks (PA); Shell skeleton and shared settings; Settings window: Windows 11 Settings; Settings navigation icons (NAV-ICONS); Logging (WP7); Network safety (WP6); Localization infrastructure (LOC-INFRA); Microsoft Store package and licensing; Gallery.
 - **Look and layout.** Rows and the card edge; Looking like Windows; The widget header; Responsive layout (shared foundation); Adding a widget; Layout pass over the ported widgets; Widget polish 1 (POLISH-1); Widget polish 2: leftover parity and layout gaps (POLISH-2).
 - **Accounts and sign-in.** Where account data comes from; Accounts and sign-in.
 - **System widgets.** System meters; Meter framework and memory; CPU and processes; Disk and ping; Battery and network; Processes, network and ping; System widgets: GPU, mixer and screen time; GPU and screen time: the whole tile (SYS-P4); Mixer and Volume (SYS-P5); Power and Bluetooth; Device and location (DEVICE-AND-LOCATION).
 - **Time, desk and launch widgets.** Clock; Countdown and pomodoro; Sun and moon; Clock, Sun & moon, Quote and Scratchpad: parity and the whole tile (PJ); Music and Pomodoro: parity and the whole tile (PF); Notes and calculator; Notes: note store and markdown editor; Calculator keypad and colour swatch modes (PK); Clipboard, Countdown and Mood: the whole tile; Habits; Apps, Search, Help and Themia: parity and the whole tile (PI-A); Shortcuts A: display and items (PC); Folder: the file browser (FOLDER); View switcher: item menu, keys and the whole tile (PI-B); App widgets and About.
-- **Mail, calendar, tasks and online widgets.** Mail; Calendar and contacts; Tasks and OneDrive; Mail and OneDrive: the whole tile; Calendar and contacts: the whole tile; Tasks and Claude usage: using the whole tile, and the rest of the original; Developer widgets: GitHub and Claude usage; GitHub widgets: filling the tile, detail, saved copies; Weather: current conditions and forecast; Feed, stocks and the web widgets: parity and the whole tile (OFF-E); Web widgets: video stream and web element; Web widgets: size ladder, overlay, guard and saved renders.
+- **Mail, calendar, tasks and online widgets.** Mail; Calendar and contacts; Tasks and OneDrive; Mail and OneDrive: the whole tile; Calendar and contacts: the whole tile; Tasks and Claude usage: using the whole tile, and the rest of the original; Developer widgets: GitHub and Claude usage; GitHub widgets: filling the tile, detail, saved copies; Weather: current conditions and forecast; Feed, stocks and the web widgets: parity and the whole tile (OFF-E); Web widgets: video stream; Web widgets: size ladder and overlay.
 
 ---
 
@@ -102,7 +102,8 @@ Sections, grouped by area (file order below; search for the heading).
   was the bug: a new feed address, stock symbol, weather place or folder sort stayed unfetched until
   the next scheduled refresh.
 - **[S-18]** `monitorViews` maps a display's **stable id** ([S-842]) to a view id; a display with no entry shows
-  the active view. An entry pointing at a deleted view is dropped at load, not resolved.
+  the active view until the display pass gives it one ([S-1705]). An entry pointing at a deleted view
+  is dropped at load, not resolved.
 - **[S-19]** Showing a view puts it on **one display**: that display's own assignment changes, and
   the active view follows so a display plugged in later starts on the last view chosen. Switching
   only the active view is not enough and was the bug: every display gets an assignment at startup
@@ -386,13 +387,11 @@ Sections, grouped by area (file order below; search for the heading).
 - **[S-107]** A late ping completion is discarded once the view is detached or the host has changed.
   Changing the host cancels the in-flight probe, clears the sparkline and re-probes at once.
 - **[S-108]** A timeout or an unreachable host is a displayed state, not an error: logged once per
-  transition, never once per tick, and the caption keeps the host so `--` says what failed.
+  transition, never once per tick, and the reading's tooltip names the host so `--` says what failed
+  ([S-1762]: the tile carries no caption).
 - **[S-109]** The ping host is validated at **both** boundaries — the settings box and the probe. An
   implausible value is never persisted, and an empty box means the default host, named in the panel,
   never "probe nothing".
-- **[S-110]** The latency bar is scaled against a 300 ms ceiling, not the adapter's link speed: a
-  negotiated line rate says nothing about round-trip time and would pin every reading at the bottom.
-
 - **[S-111a]** A sparkline's x-axis is a fixed window of slots, not "spread whatever samples are held
   across the full width". The newest sample is pinned to the right edge and each older one steps left
   by exactly one slot, so the trace grows in from the right and reaches the left edge only when the
@@ -402,9 +401,6 @@ Sections, grouped by area (file order below; search for the heading).
 - **[S-111b]** The y-axis is the full range, never the range actually observed. A meter rescaled to
   its own recent minimum and maximum turns a steady 47% into a dramatic zigzag of noise, which is the
   opposite of what a glanceable readout is for.
-- **[S-111c]** A meter's caption is laid out in a star column, not a horizontal stack. A stack
-  measures its children with unbounded width, so the caption never learns how much room it has and
-  its trimming never fires: on a narrow tile it ran past the edge of the card and was cut mid-word.
 
 ## Notes and calculator
 
@@ -683,8 +679,8 @@ Help, Themia and the view switcher, ported from `widgets/others/{help,themia,vie
   names. Names show when a button is at least 88px wide and "Initials only" is off; otherwise
   initials, with the name in the tooltip. Default size 320×56: one row with names. The ladder that
   replaced this rule — grids, faces, overflow — is [S-1653]..[S-1655].
-- **[S-492]** The card's right-click menu carries "Initials only" / "Show names" (was the original's
-  `contextActions`), written to the widget's own config and saved.
+- **[S-492]** *(Retired by [S-1746].)* "Initials only" / "Show names" is a setting only; the card
+  menu no longer carries it.
 - **[S-493]** About is the **last** item of the settings navigation, in its footer under everything
   else. The page follows karpo's About section for section: the name card (64-DIP mark, "Themia",
   "Version x.y.z", ".NET x · Windows App SDK y"), **Made by** Lometics (lometics.com) with its mark and a
@@ -716,36 +712,30 @@ locale files) — the guide's text is still English; the string layer and the ni
 ([S-1100]). Karpo's "isn't running / Start" card — the settings
 window here runs inside the app, so it is never open while the app is not.
 
-## Web widgets: video stream and web element
+## Web widgets: video stream
 
-Ported from `widgets/online/{video-stream,web-element}` on `main`. Owning files:
-`Widgets/VideoStreamView.cs`, `Widgets/WebElementView.cs`, `Widgets/RotatedBox.cs`,
-`Widgets/ShownWatch.cs`, `Widgets/IWidgetContextActions.cs`, `Services/Web/StreamSession.cs`,
-`Services/Web/PageSnapshot.cs`, `Services/Web/WebViewHost.cs`, `Shell/Config/ElementPickerWindow.cs`,
-`Shell/Config/WidgetSettings.Web.cs`, `Shell/Gallery/GalleryFixtures.cs`,
-`Themia.Core/Widgets/{VideoStreamRules,MjpegFrameReader,WebElementRules}.cs`,
-`Themia.Core/Model/Configs/WebWidgetConfigs.cs`.
+Ported from `widgets/online/video-stream` on `main`. Owning files: `Widgets/VideoStreamView.cs`,
+`Widgets/RotatedBox.cs`, `Widgets/ShownWatch.cs`, `Widgets/IWidgetContextActions.cs`,
+`Services/Web/StreamSession.cs`, `Shell/Config/WidgetSettings.Web.cs`,
+`Shell/Gallery/GalleryFixtures.cs`, `Themia.Core/Widgets/{VideoStreamRules,MjpegFrameReader}.cs`,
+`Themia.Core/Model/Configs/WebWidgetConfigs.cs`. The original's web element widget is not part of
+this app ([S-1724]).
 
-Both widgets run only while they can be seen. A paused camera, and either widget folded into a closed
-stack row, an unselected tab or a collapsed group (`ShownWatch` follows the card's ancestors), holds no
-socket, no decoder and no browser; `Detach` releases everything.
+The widget runs only while it can be seen. A paused camera, or one folded into a closed stack row,
+an unselected tab or a collapsed group (`ShownWatch` follows the card's ancestors), holds no socket
+and no decoder; `Detach` releases everything.
 
 - **[S-460]** Video stream title: the user's label, else the stream's `host:port` (`Uri.Authority`,
   so a non-default port is kept), else the widget name (was [S-01]).
-- **[S-461]** Web element title: the user's label, else the page host without `www.`, else the widget
-  name (was [S-11]).
-- **[S-462]** The pinned element is a passive picture: not hit-testable, no scrolling, no links, no
-  focus (was [S-10]). How it is sized and cropped is [S-1316].
-- **[S-463]** The web element's right-click menu has **Refresh**: re-render now (was [S-15]).
 - **[S-464]** A failed, dropped, stalled or ended stream shows "Stream unavailable. Reconnecting…" and
   retries after 2 s, 4 s, 8 s … capped at 30 s (`VideoStreamRules.RetryDelay`; was [S-05]/[S-06]). The
   counter resets on the first decoded frame and on any restart. The delay is armed by the failure and
   cancelled with the session. A stream that sends no bytes for 30 s counts as dropped — a socket
   deadline, which closes the original's [U-02] without a frame-rate watchdog.
-- **[S-465]** The camera's right-click menu has **Pause/Resume**, **Rotate** and **Refresh** (was
-  [S-11] and the original's `contextActions`). Refresh reconnects at once with the backoff reset.
+- **[S-465]** The camera's right-click menu has **Pause/Resume** and **Refresh** (was [S-11] and the
+  original's `contextActions`); rotation is a setting (and an overlay button), not a menu entry ([S-1746]). Refresh reconnects at once with the backoff reset.
   Context actions are a card-level hook: a view implements `IWidgetContextActions` and the card lists
-  them under Configure, read fresh each time the menu opens.
+  them in the list under the icon row ([S-1743]), read fresh each time the menu opens.
 - **[S-466]** Fit: whole picture (letterbox, default), fill and crop, stretch (was [S-16]). One
   `Stretch` mapping drives both the decoded-frame `Image` and the video player.
 - **[S-467]** The stream address is checked by `WebInput.Url` on every read — http/https only, no
@@ -774,45 +764,9 @@ socket, no decoder and no browser; `Detach` releases everything.
   empty parts are handled; with no boundary at all, frames are cut at the JPEG start/end markers. A
   frame past 8 MB, or a stream that never delimits, overflows and is reconnected rather than buffered.
   Frames are decoded by WIC at the size drawn; while one decodes, newer frames are dropped, not queued.
-- **[S-473]** Web element `Url` (default empty) is checked by `WebInput.Url` on every read (was [S-07]).
-- **[S-474]** `Selector` (default empty) is the pinned element's CSS selector; `PickedLabel` is a
-  friendly description shown only in settings (was [S-08]). A selector that is empty, over 1024
-  characters or holds a control character is treated as unset. It reaches the page only as a JSON
-  string literal, never spliced into script. With no address or selector the widget prompts "Pick an
-  element from a web page in settings" (was [S-01]).
-- **[S-475]** `RefreshMinutes`, default 15, clamped to 5–120 (was [S-09]/[S-20]), offered as 5/15/30/60
-  in settings. The shared ticker asks at that cadence; a render happens only when the widget is
-  visible and its picture is due, and a widget shown again after being hidden renders at once if stale.
-- **[S-476]** Rendering (replaces [S-03]/[S-04]/[S-16]): `PageSnapshot` loads the page in an
-  off-screen WebView2 at a 1280×900 desktop viewport and the display's device scale, captured at the size it is drawn ([S-1317]), lets it settle
-  (600 ms without a DOM mutation, 8 s at most, then again briefly after scrolling the element into
-  view), and captures **a PNG of the element** with DevTools `Page.captureScreenshot`. No remote HTML
-  is parsed or shown by the app, so there is no sanitiser, no URL rewriting and no stylesheet inlining
-  — and web fonts, which the original could not load, render. One render at a time across all widgets
-  (30 s budget), and the browser is closed after each: none runs between refreshes.
-- **[S-477]** A selector that matches nothing, or a zero-sized element, is "not on the page any more"
-  — its own state, not an error — and drops the old picture (was [S-05]).
-- **[S-478]** A failed render (unreachable, timed out, bad certificate, browser missing, a reply not
-  the probe's shape) shows its reason; with a good render already on screen, the picture stays and its
-  tooltip says the last refresh failed and how old the picture is (was [S-06]/[S-25]).
-- **[S-479]** **Pick element…** in settings opens a picker window on the live page (was
-  [S-13]/[S-14]/[S-32]). The toolbar has Back, the address, **Pick element** (a toggle) and Cancel;
-  browsing is fully interactive until the toggle is on, then the hovered element is outlined and the
-  next click pins it; Escape returns to browsing. The page's own `cssPath` (unique-id anchor, else a
-  `tag:nth-of-type(n)` chain) is the original's. Its message is parsed by
-  `WebElementRules.ParsePickerMessage` — two shapes only, the address re-checked — and a pick is
-  accepted only while the toggle is on. The picked page's address (the user may have navigated)
-  replaces the widget's. One picker at a time. Picker and renderer share one WebView2 profile, so a
-  cookie banner dismissed in the picker stays dismissed for the renderer.
-
-Not ported, on purpose: the HTML extraction pipeline ([S-03]/[S-04] — `sanitizeForRender`,
-`extractElement`, `absolutizeUrls`, stylesheet inlining and their tests), replaced by the screenshot;
-the developer-mode gate ([S-33]) — this app has no developer mode, so the widget is listed normally;
-`cssPath` unit tests — the selector code runs only inside the page and there is no DOM in the Core
-tests; the `demoVideoFrame`/`demoWebElementRender` demo fixtures — the debug gallery's `Kind+fixture`
-pages (a loopback MJPEG test card, a loopback status page) take their place. The SSRF guard
-([S-08b] `check_url`) and the cached render across restarts ([S-20]) are now ported: [S-1314] and
-[S-1319]. The video stream stays unguarded, as in the original. RTSP stays unsupported ([U-01]);
+Not ported, on purpose: the `demoVideoFrame` demo fixture — the debug gallery's
+`VideoStream+fixture` page (a loopback MJPEG test card) takes its place. The video stream stays
+unguarded, as in the original. RTSP stays unsupported ([U-01]);
 credentials in the address are refused ([U-03]).
 
 ## Accounts and sign-in
@@ -844,9 +798,9 @@ OneDrive, GitHub and Claude usage. Ported from the classic app's `widgets/office
   `expires_in` becomes an hour (ceiling 30 days).
 - **[S-508]** PKCE S256 (RFC 7636 test vector pinned) with a 43-character unreserved verifier, and a
   random state compared in fixed time.
-- **[S-509]** Microsoft signs in by device code against `common` with the classic client id and scopes;
-  Google's consent URL asks for `access_type=offline` and `prompt=consent` so a refresh token always
-  comes back.
+- **[S-509]** Microsoft signs in against `common` with the classic client id and scopes (incl.
+  `offline_access`), by the browser flow of [S-1780] (was: device code); Google's consent URL asks for
+  `access_type=offline` and `prompt=consent` so a refresh token always comes back.
 - **[S-510]** GitHub: one OAuth device flow for github.com (same scopes as the token path), and a
   personal-access-token form whose API root must be https — the only way in for GitHub Enterprise.
 - **[S-511]** Claude: Themia's own authorization-code + PKCE grant on the CLI's client (the usage
@@ -859,7 +813,7 @@ OneDrive, GitHub and Claude usage. Ported from the classic app's `widgets/office
   (favicon) is answered 404 and the listener keeps waiting.
 - **[S-514]** Device-code polling is a pure state machine: pending waits the server's interval,
   `slow_down` adds five seconds for good, expiry/denial/other errors end the flow with a sentence,
-  and nothing is polled past the code's lifetime. Microsoft and GitHub share it.
+  and nothing is polled past the code's lifetime. Only GitHub uses it ([S-1780]).
 - **[S-515]** DAV multistatus is read by local name (any prefix), properties under a non-2xx propstat
   are absent, a body that is not XML reads as nothing, DTDs are refused.
 - **[S-516]** DAV hrefs resolve against the URL the answer came from after redirects; the `.well-known`
@@ -891,8 +845,9 @@ OneDrive, GitHub and Claude usage. Ported from the classic app's `widgets/office
   text. A secret that will not open is reported on the account ("sign in again"), never dropped.
 - **[S-526]** One HTTP client for every account request (pooled, user agent, 10 s connect, 30 s per
   request, 16 MB read cap) and one path through it.
-- **[S-527]** Google's redirect is a raw listener on `127.0.0.1:<random>`, answering one request; the
-  browser wait gives up after five minutes.
+- **[S-527]** The browser sign-ins (Google, Microsoft) come back to a raw listener on a random loopback
+  port, answering one request; the browser wait gives up after five minutes ("did not come back within
+  five minutes. Start again."). Google's redirect names `http://127.0.0.1:<port>`.
 - **[S-528]** An IMAP account is saved only after a TLS connect, greeting and LOGIN succeed (then
   LOGOUT); nothing is selected or read.
 - **[S-529]** `AccountService` (one, in `AppServices.Accounts`) lists, renames, signs out and adds;
@@ -908,7 +863,8 @@ OneDrive, GitHub and Claude usage. Ported from the classic app's `widgets/office
 - **[S-533]** DAV requests go as the account with basic auth, `Depth`, and the method and body kept
   across redirects.
 - **[S-534]** IMAP credentials are opened only when a session asks for them.
-- **[S-535]** Device-code sign-ins verify the account (`/me`, `/user`) before saving.
+- **[S-535]** OAuth sign-ins verify who signed in (Graph `/me`, Google userinfo, GitHub `/user`) before
+  saving.
 - **[S-536]** Google's Desktop client secret is never in source: it is compiled in from
   `THEMIA_GOOGLE_CLIENT_SECRET` (a generated constant, validated to look like a secret); without it,
   Google sign-in refuses before the browser opens and token refresh fails with the same sentence.
@@ -916,9 +872,31 @@ OneDrive, GitHub and Claude usage. Ported from the classic app's `widgets/office
   403 get different guidance, 403 with Anthropic's own reason.
 - **[S-539]** Settings → Accounts lists each account (provider icon, name, address, problem), renames
   in a flyout, signs out after a confirmation, and adds through one flow at a time drawn in place:
-  device code shown large with copy and open buttons and a live status line; Google waiting on the
-  browser; forms for IMAP, CalDAV, CardDAV and a GitHub token; Claude's open-then-paste. Errors appear
-  on the page; leaving it cancels a flow.
+  GitHub's device code shown large with copy and open buttons and a live status line; Microsoft and
+  Google waiting on the browser ([S-1783]); forms for IMAP, CalDAV, CardDAV and a GitHub token;
+  Claude's open-then-paste. Errors appear on the page; leaving it cancels a flow.
+- **[S-1780]** Microsoft signs in with the authorization-code grant + PKCE (S256) in the system
+  browser: `…/common/oauth2/v2.0/authorize` with `response_type=code`, `response_mode=query`,
+  `prompt=select_account`, a fresh state and challenge, and redirect `http://localhost:<port>/`; the
+  code is exchanged at `…/token` with the verifier, the same redirect URI and the scopes, and no client
+  secret (a public client). Microsoft and Google run this as one path; they differ in addresses,
+  Google's secret ([S-536]) and the "who" call. The app registration must list `http://localhost`
+  under "Mobile and desktop applications" (Microsoft ignores the port of a localhost redirect, but does
+  not match `127.0.0.1` against it).
+- **[S-1781]** Microsoft's callback is validated by the same reader as Google's ([S-513]): a wrong or
+  missing state is refused before anything else is believed; `error` ends the sign-in with its
+  `error_description` (`access_denied` reads "cancelled"); a missing or empty `code` is an error, never
+  a sign-in. Codes, states and tokens are never logged ([S-983]).
+- **[S-1782]** A token exchange answer is a grant only when it is a 2xx with a non-empty string
+  `access_token`; `expires_in` is read as a number or numeric string; anything else fails with the
+  provider's `error_description` cut to its first line (Microsoft appends trace ids), else its
+  `error`, else the HTTP status. Microsoft, Google and Claude exchanges share it.
+- **[S-1783]** Settings → Accounts: Microsoft and Google share one browser card ("Your browser opens
+  *provider*'s sign-in page…", a live status line, Cancel). There is no code to copy for Microsoft any
+  more.
+- **[S-1784]** The loopback listens on 127.0.0.1 and, on the same port, on ::1, so a `localhost`
+  redirect lands whichever address the browser tries first; without ::1 (IPv6 off, port taken there)
+  it carries on with 127.0.0.1 alone, which browsers fall back to.
 
 Not ported: the anonymous endpoint probe and its preset health badges ([S-46], [S-48]) — the presets
 here are a fill-in table and the add itself is the check; the two-page preset picker and brand icons
@@ -937,49 +915,37 @@ Ported from `widgets/system/{gpu,mixer,screentime}` on `main`. Owning files:
 
 ### GPU
 
-- **[S-430]** The GPU tile reads like the CPU and memory tiles: the load as the hero number, the
-  detail lines under it, and the history as a full-bleed sparkline band along the bottom
-  (`SparkBand`, 60 samples, the same fixed-slot x-axis). One adapter names the card after itself,
-  without vendor and trademark noise (`GpuRules.ShortName`: "RTX 4060 Ti"). Load reads `--` for the
-  first sample: it is a rate and needs two readings.
-- **[S-431]** Data comes from DXGI (which adapters exist: name, dedicated memory, shared budget,
-  LUID) and the PDH GPU counters (`\GPU Engine(*)\Utilization Percentage`,
-  `\GPU Adapter Memory(*)\Dedicated Usage` and `Shared Usage`), all through `LibraryImport` and
-  vtable calls, so AOT-clean. The original's registry enumeration is replaced: its numbered class
-  subkeys include adapters that are gone and stop at the first gap, while DXGI hands over the LUID
-  the counters are filed under. One sampler is shared by every GPU widget: opened by the first,
-  closed by the last, sampled on the pool, single-flight, and a request within 500 ms of a sample
-  reuses it.
-- **[S-432]** Pressure colours the trace and the memory bars, never the number: high from 70% load,
-  critical from 90% (theme caution and critical brushes).
+- **[S-430]** The GPU tile reads like the other meters ([S-1762]): the load as the number and the
+  history as a full-bleed `SparkBand`. One adapter names the card after itself, without vendor and
+  trademark noise (`GpuRules.ShortName`: "RTX 4060 Ti"). Load reads `--` for the first sample: it is
+  a rate and needs two readings.
+- **[S-431]** Data comes from DXGI (which adapters exist: name, LUID) and the PDH GPU counters
+  (`\GPU Engine(*)\Utilization Percentage`), all through `LibraryImport` and vtable calls, so
+  AOT-clean. The original's registry enumeration is replaced: its numbered class subkeys include
+  adapters that are gone and stop at the first gap, while DXGI hands over the LUID the counters are
+  filed under. One sampler is shared by every GPU widget: opened by the first, closed by the last,
+  sampled on the pool, single-flight, and a request within 500 ms of a sample reuses it.
+- **[S-432]** Pressure colours the trace, never the number: high from 70% load, critical from 90%
+  (theme caution and critical brushes).
 - **[S-433]** `Adapters` is a list of DXGI positions, in drawing order. Negative and repeated entries
   are dropped; an empty selection draws the primary adapter. The settings picker shows the raw
   selection (no primary-adapter default) and is offered only with two or more adapters. Two or more
-  selected adapters stack as panels, each with its own name, reading and history; they scroll.
+  selected adapters share the tile as panels, each with its own name, reading and history ([S-1207]).
 - **[S-434]** A counter instance belongs to the adapter whose `luid_...` token it carries, found
   anywhere in the name (engine instances start with `pid_...`, which the original's "starts with"
   match missed). Load is the **busiest engine**: per-engine sums across processes, then the
   maximum, which is Task Manager's figure. The original summed the 3D engine only and read near zero
   during video decode or compute.
 - **[S-435]** On NVIDIA cards the driver's management library (`nvml.dll`, loaded with
-  `NativeLibrary`, called through function pointers) is asked too: its load wins over the counters
-  (a borderless full-screen game collapses the 3D counter), and it alone supplies temperature,
-  power, fan, clocks and the video engines. Matched to the DXGI adapter by name (the n-th of
-  identical cards), never guessed among several. Loaded once per sampler session; any failure hides
-  those rows.
+  `NativeLibrary`, called through function pointers) is asked for the load too, and it wins over the
+  counters (a borderless full-screen game collapses the 3D counter). Matched to the DXGI adapter by
+  name (the n-th of identical cards), never guessed among several. Loaded once per sampler session;
+  any failure leaves the counters' figure.
 - **[S-436]** Samples every `IntervalSeconds` (1 to 60, default 2). Changing the selection rebuilds
   the panels, so a new adapter's history starts fresh.
-- **[S-437]** The dedicated row shows only when used is at most the total (or the total is unknown):
-  an integrated adapter's 128 MB carve-out "using" 3 GB is dropped rather than drawn. The shared row
-  needs both a figure and a budget. Bars: high from 80% full, critical from 90%.
-- **[S-438]** `ShowGraph`, `ShowDedicated` and `ShowShared` toggle the band and the memory rows.
-  Rows that do not fit are dropped from the bottom before the number shrinks below Subtitle.
-- **[S-439]** Driver rows (`ShowTemperature`, `ShowPower`, `ShowFan`, `ShowClocks`)
-  hide themselves on a card whose driver does not answer; their defaults and the video engines are
-  now [S-1204], [S-1208].
 
-Not ported: the widget's own `label` (the card's label is the instance's). The `graphSpanSec`
-setting and the one-decimal percentage are ported since ([S-1200], [S-1206]).
+Not ported: the widget's own `label` (the card's label is the instance's); video memory, the
+driver's sensors, the engines and the processes ([S-1762]).
 
 ### Mixer
 
@@ -1156,8 +1122,8 @@ instead of a separate hub program; [S-90]/[S-91] no longer describe it. Ported f
   line of user-ordered columns under a header row) views [S-14, S-37]; newest or oldest first over
   the same newest N [S-17]. The card title is the folder; the header carries the unread badge
   [S-02], a warning glyph naming an account that failed or needs signing in (tap → Accounts), and a
-  busy ring only for a refresh the user asked for. The card menu offers Refresh, the three views, the
-  five folders and the order [S-20].
+  busy ring only for a refresh the user asked for. The card menu offers Refresh and the five folders
+  [S-20]; the view and the order are settings only ([S-1746]).
 - **[S-543]** List fields Subject / Preview / Account, default all on; Preview only in the list view;
   the account tag shows whenever chosen [S-43]. Row columns From, Subject, Date, Preview, Account,
   reorderable, at least one on [S-16].
@@ -1338,7 +1304,7 @@ hub. Pure rules in `Themia.Core/Office` (tested), one shared source in `Services
   page (CalDAV has none: tooltip only).
 - **[S-561]** Config: `accountIds`, `calendars`, `calendarColors`, `view` (month | week | day | agenda,
   default month), `weekStart`, `showBirthdays` (on), `agendaCount` (1–100, 20). The context menu
-  offers Refresh and the four views (current one checked); switching saves the config.
+  offers Refresh; the view is chosen in the settings only ([S-1746]).
 - **[S-562]** An empty `accountIds` means every calendar account (later ones too — the Mail
   pattern); settings offer "Every calendar account" or a choice where the last cannot be turned off.
   Chosen accounts that were signed out are skipped; when none are left the widget says so with a
@@ -1568,12 +1534,8 @@ list on this desktop). The cache across restarts and anonymous public access are
   (`Disclosure.WholeRows` / `TakeRows`, 0.5 DIP rounding tolerance).
 - **[S-663]** The card tells a view that implements `IWidgetSizeAware` its slot, once per layout pass
   that changed it, never unmeasured; views that do not implement it are unaffected.
-- **[S-664]** Meters: reading → caption → sparkline (or bar) → min / avg / max (a line at Regular
-  height; three stat tiles at Expanded width, beside the reading on a strip, under it on a panel, one
-  under another in a tall column; a non-moving meter's tiles carry its breakdown, e.g. a drive's
-  used / free / total) → a scale line naming the chart's span at Expanded × Expanded. A wider chart
-  spans more history (one sample per ~6 DIPs, 30..180 samples). With a chart, the reading stops at
-  Display and the chart takes the rest; without one, the reading fills the tile.
+- **[S-664]** Meters: the reading, then the history growing to fill the tile; a tiny tile is the
+  reading alone (the ladder is [S-1762]). A wider chart spans more history (one sample per ~6 DIPs).
 - **[S-665]** Clock: time → date (short "Sun 4 Oct" when narrow; with the ISO week and day of the
   year appended on a wide strip) → "Week 40 · Day 277" at Expanded height → time zone ("UTC+02:00 ·
   name") at Expanded × Expanded. A tall column stacks hours over minutes when that draws them larger.
@@ -1589,18 +1551,17 @@ rules are these.
   a loaded widget keeps the placement it was saved with.
 - **[S-701]** The app pages of the settings window come from one table, `ConfigPages.AppPages`
   (page, title, glyph, main or footer slot, builder). The navigation and the body both read it, so a
-  page is added with one line plus its own `ConfigPages.<Page>.cs`. `AppPage` reserves Animations,
-  License and Logs; a reserved page with no table entry is not in the menu and, if asked for, logs a
+  page is added with one line plus its own `ConfigPages.<Page>.cs`. A reserved `AppPage` value with
+  no table entry is not in the menu and, if asked for, logs a
   warning and shows an empty page. About stays the last footer entry ([S-493]).
 - **[S-702]** Behaviour switches live in `AppState.Preferences` (`AppPreferences`), apart from the
   look (`DesignState`): language (`AppLanguage`, default follow Windows), hide in full-screen apps
-  (off), desktop icons (on), local network access (off), developer mode (off), verbose logging (off).
+  (off), desktop icons (on), local network access (off).
   Nothing reads them yet; each is wired by its package. Import brings them over and lists changes.
 - **[S-703]** A view may carry an icon (`ViewState.Icon`, one glyph, null = initials). Anything but
   a single glyph is repaired to null at load.
 - **[S-704]** Design gains the header fill (`HeaderBackgroundColor`, empty = the widget's fill;
-  `HeaderOpacity` 0..1), the view-change and unlock animations with their own durations (0..3000 ms),
-  and the opt-in startup sound. `IntroAnimation` gains Sides, TopBottom, Flip, Blur, Hyperspace and
+  `HeaderOpacity` 0..1), the view-change and unlock animations with their own durations (0..3000 ms). `IntroAnimation` gains Sides, TopBottom, Flip, Blur, Hyperspace and
   Hacker. Out-of-range values are clamped, unknown animations reset to Scale, at load.
 - **[S-705]** Per-display settings on `AppState`, keyed like `MonitorViews`: `DisabledMonitors`
   (blank and repeated ids dropped), `MonitorScales` (clamped to 0.5..2), and
@@ -1647,12 +1608,12 @@ Pictures from a folder, one picture file, or Bing's photo of the day (S-760..S-7
   the widget, in the slideshow with more than one picture. Pause is not persisted.
 - **[S-770]** The slideshow's own timer runs only while it is a folder slideshow with more than one
   picture and not paused.
-- **[S-771]** Double-click a picture opens it; right-click a picture: Open, Show in Explorer, the
-  layout switch (folder only, current checked), Pause / Resume, Refresh images.
+- **[S-771]** Double-click a picture opens it; right-click a picture: Open, Show in Explorer,
+  Pause / Resume, Refresh images (no layout switch, [S-1746]).
 - **[S-772]** `RefreshMinutes` is one of 5 / 15 / 30 / 60 (default 60, the original's); a corrupt
   value snaps to the nearest.
-- **[S-773]** The card's menu adds Pause / Resume, Refresh images (re-reads now and deals a new
-  scatter / mosaic) and "Show as …" for the other layouts (folder only).
+- **[S-773]** The card's menu adds Pause / Resume and Refresh images (re-reads now and deals a new
+  scatter / mosaic); the layout is a setting only ([S-1746]).
 - Left / Right / Space keys ([S-29] of the original) are ported through the keyboard lease
   ([S-811]). Not ported: a file or folder caption
   of date taken. The slide minimum is 1 s, as in the original ([S-1620]).
@@ -1742,8 +1703,8 @@ Rules in `Themia.Core/Widgets` (`WeatherLayout`, `WeatherFacts`, `WeatherReport`
   a chart the reading stops at Display and the chart takes the rest. "Show detail" off = the reading
   alone at every size.
 - **[S-724]** Forecast layout setting `Layout` = Auto | Rows | Columns | Grid (default Auto: columns
-  on a strip of width ≥ Regular, rows elsewhere); the user's choice always wins. Widget menu: the
-  two layouts not on screen, and "Automatic layout" when one is pinned.
+  on a strip of width ≥ Regular, rows elsewhere); the user's choice always wins. Chosen in the settings
+  only ([S-1746]).
 - **[S-725]** Rows: stretched to fill the tile when every day fits at the row floor (40, or 32
   compact under a 200px list), capped at 80, else scrolling (hidden bar). Columns by width: icon +
   low ≥ 160, range bar ≥ 300, sky ≥ 380, droplet + amount ≥ 420, chance and max wind ≥ 500. A row
@@ -1924,6 +1885,33 @@ The settings window is drawn as Windows 11's Settings app (S-1540..S-1559). Owni
   without one) opens on a confirmed uninstall, as the original installer did on an interactive one.
 - **[S-1555]** Nothing is removed or deleted without the dialog's Uninstall; no dialog, no
   uninstall; a debug settings render never uninstalls.
+- **[S-1720]** The open page follows changes made elsewhere — snap to grid from the edit toolbar, a
+  keyboard shortcut, another window. A page's controls are built from the state and then only
+  write, so the window builds the page again when what it shows changed while the window was in the
+  background (`SettingsPageSync.NeedsRebuild`): on every state change while the window is not the
+  active one, queued and coalesced, the current page's signature is compared with the one it was
+  built from (or caught up to when the window last lost the focus) and a difference rebuilds it in
+  place, keeping the scroll position. A change while the window is active is the user's own, made
+  with the page's controls, which already show it: the page is never rebuilt under the pointer or
+  out from under a text box being typed in.
+- **[S-1721]** What a page shows (`SettingsPageSync.Signature`): an app page, the design, the
+  preferences, the default view for new displays and the views by name; a view page, its name,
+  icon, widgets by kind and label and the displays showing it; a display page, its view, on/off,
+  scale, view bar and the views it can pick from; a widget page, its config, label, surface,
+  header and parent. Never where widgets sit, so a drag on the desktop rebuilds nothing. Changes
+  that do not raise `StateChanged` (`Mutate(relayout: false)`) are not followed.
+- **[S-1722]** The app pages: General, Appearance and Accounts in the main slot; License and About in
+  the footer. There is no Layout page: its two rows (gap between widgets, snap to grid) are the
+  Layout section at the end of Appearance's look, before the motion rows. General has no Data
+  section (it held only "open the data folder") and no Developer section.
+- **[S-1723]** Every font setting picks through one control, `FontChoice`: the presets, then the
+  installed families ([S-827]), each entry drawn in the font it names (a preset in the family it
+  maps to, [S-826]; the system entry in the UI's own). The closed box shows the name in the UI font.
+- **[S-1724]** No developer mode and nothing behind one: no `DevMode` or `VerboseLogging`
+  preference, no Logs page, no developer banner, no `--dev` render switch, and no Web element
+  widget (the original's pre-release widget behind developer mode: its view, picker window,
+  off-screen WebView2 renderer, saved renders, settings, keys and fixture are gone). The debug-only
+  render flags (`--gallery-png`, `--settings-png`, `--picker-png`, ...) are build tooling and stay.
 - Not ported / different: karpo's status bar (removed by user request). The SDK's `TitleBar` and
   `BreadcrumbBar` controls are not used (the first crashed an earlier build; the second needs a WinRT
   collection) — equivalents are built from a grid and text blocks.
@@ -1931,7 +1919,8 @@ The settings window is drawn as Windows 11's Settings app (S-1540..S-1559). Owni
 ## Meter framework and memory
 
 The six meters (CPU, memory, disk, battery, network, ping) share one view, `MeterView`, and differ
-only in a `MeterPart` per kind (`Widgets/Meters/<Kind>Meter.cs`).
+only in a `MeterPart` per kind (`Widgets/Meters/<Kind>Meter.cs`): where the number comes from, what
+the chart plots and how it is coloured. Layout is Core `MeterFace` (tests `MeterFaceTests`).
 
 - **[S-1120]** Every meter has a refresh interval (`GaugeConfig.IntervalSeconds`, 1–60 s; ping
   1–300 s). Defaults: CPU, memory, network 1 s; disk 5 s; battery 15 s; ping 10 s; GPU 2 s. Load
@@ -1943,47 +1932,37 @@ only in a `MeterPart` per kind (`Widgets/Meters/<Kind>Meter.cs`).
   newest it has room for (`MeterTiming.Window`). Defaults: CPU, memory, network, GPU 1 min; disk
   3 min; battery 5 min; ping 20 min (the original's).
 - **[S-1122]** A meter's settings page ends with the shared rows: Show history, Chart span, Refresh.
-  The kind's own rows come first.
+  The kind's own rows (a drive, a host, adapters) come first; CPU, memory, battery and network
+  have none.
 - **[S-1123]** Pressure colours, as the original: usage accent < 70 %, caution 70–89 %, critical
   ≥ 90 % (CPU, memory); a drive 80/90; a battery success > 50 %, caution 21–50 %, critical ≤ 20 %,
-  accent while charging. Compared in whole percent. They colour the chart, the bars and the
-  composition — never the reading, which stays primary text.
+  accent while charging. Compared in whole percent. They colour the chart (and the battery glyph) —
+  never the reading, which stays primary text.
 - **[S-1124]** A share is charted against 100 %. A rate (network) is charted against the peak of
   the samples on screen, floor 1 KB/s — not the session's all-time peak, which let one burst
-  flatten the trace for the rest of the session. A large tile's scale line names that top.
+  flatten the trace for the rest of the session.
 - **[S-1125]** Performance counters go through one AOT-safe `PdhQuery` (English counter paths,
   `SafeHandle`-owned query, every counter closed with it). The GPU sampler uses it too.
 - **[S-1126]** The chart (`SparkBand`) draws one or two series: the first filled, the second a
   thinner line (upload, writes). The battery draws its history when Show history is on (the first
   port ignored the setting).
-- **[S-1127]** A kind adds detail lines (priority order) and a breakdown list to its reading. The
-  layout shows detail lines from Regular height (two) and all of them from Expanded height; the
-  list in whole compact rows from Expanded height, up to the kind's ceiling. A part is told what
-  fits (`MeterDemand`) so it only does work that will be seen; when the room grows it is asked for
-  a fresh reading at once rather than leaving the space empty for an interval.
-- **[S-1128]** A kind may draw a usage bar beside its chart (from Regular height), which on a tile
-  Expanded in height and wide enough for its legend becomes a composition bar.
-- **[S-1129]** Arrangements: stacked (one column, chart full-bleed along the bottom, guaranteed 22 %
-  of the height from Regular); side on a wide strip with a chart (reading and details left, chart
-  the full height on the right); panels on a Huge-wide, Expanded-tall tile with a list (meter left,
-  list right, each row with a share bar).
-- **[S-1130]** Memory: percent used, caption "used of total". Data from `GlobalMemoryStatusEx`;
-  the commit charge is `TotalPageFile − AvailPageFile` of `TotalPageFile`.
-- **[S-1131]** Memory composition: in use / cached (standby + modified) / free, from the PDH
-  standby and modified-list counters, always summing to the total; absent if a counter is missing.
-- **[S-1132]** Memory detail lines: Available; Swap (page file used of total · %, total = commit
-  limit − physical, used from `\Paging File(_Total)\% Usage`; hidden with no page file);
-  Committed. The PDH query is opened only while a memory widget can show them, and closed when the
-  last one detaches.
-- **[S-1133]** Memory top processes: by working set, a ceiling of 1–10 (default 10; the tile shows
-  what fits), name and size, pid on hover. The process walk is shared and refreshed at most every
-  2 s whatever the meter's cadence.
-- **[S-1134]** Memory settings: Usage bar, Available, Swap, Committed, Top processes (+ ceiling),
-  each on by default — a toggle says whether a figure may appear; the tile decides if it fits.
-- Not ported / different: the original's `visibleMetrics` multi-select (typed toggles instead) and
-  per-metric ordering (fixed ladder order); its "Usage" toggle (the reading is the meter); friendly
-  process descriptions in the memory list (image names — a description needs a handle per process
-  per refresh). The audit's `MeterLadder` was not built: `Disclosure` is the one ladder.
+- **[S-1130]** Memory: percent used, from `GlobalMemoryStatusEx` (total less available).
+- **[S-1762]** **A system meter shows its label, its reading and its history — nothing else** (user
+  requirement): the card's header is the label (a drive's or a host's name where the kind knows
+  one), the reading is the number (the battery's glyph before it, [S-1187]), the history is the
+  chart. No caption, detail lines, stat tiles, scale line, usage / composition bar, per-core strip
+  or breakdown list; the settings that only switched those are gone with them, and so is the code
+  that read their data (sensor polls, the process walk, page-file and cache counters, IOPS, the
+  battery device, Wi-Fi name and public address). Why a reading is unavailable is its tooltip.
+  The ladder (`MeterFace.Plan`, shared by `MeterView` and each GPU panel): a tile Compact both ways
+  is the reading alone, filling it; a Wide strip at least Expanded wide puts the reading in a column
+  on the left (35–50 % of the width) and the history the full height on the right; everything else
+  stacks the reading over the history, which is promised half the height (never under 24 px), the
+  reading growing by ramp step up to Display in what is left, and the history taking every pixel
+  the reading does not — no empty space at L or XL. With Show history off the reading fills the tile.
+- Not ported / different: the original's `visibleMetrics` multi-select and everything it switched
+  (removed by [S-1762]). The audit's `MeterLadder` was not built: `MeterFace` and `Disclosure` are
+  the ladders.
 
 ## Power and Bluetooth
 
@@ -2007,8 +1986,8 @@ Port of `main`'s Power (`widgets/system/power`, [S-01]..[S-11]) and Bluetooth (`
   "successful" `AdjustTokenPrivileges` is "not allowed". The token is a `SafeHandle`. The plan per
   action is decided in Core (`PowerActionRules.Plan`); `Win32PowerActions` only executes it, on a
   worker thread (sleep blocks until resume, orig. [S-04]); one action at a time.
-- **[S-1244]** `ShowLabels` (default on) puts names under icons where the tile has room; the
-  widget's context menu toggles it (orig. context action).
+- **[S-1244]** `ShowLabels` (default on) puts names under icons where the tile has room; set in the
+  settings only ([S-1746]; the original's context toggle is gone).
 - **[S-1245]** With `Confirm` on (default), shut down, restart and sign out arm on the first press
   ("Confirm" in the critical colour) and run on the second; sleep, hibernate, lock and display-off
   never arm (orig. [S-05]). `Confirm` off runs everything on one press.
@@ -2271,10 +2250,8 @@ Code: `Widgets/ClipboardView.cs`, `Widgets/CountdownView.cs`, `Widgets/MoodTrack
   (confirmed through `FluentLayout.ConfirmAsync`, like the header bin). `HandleKey`: Up/Down/Home/End
   cursor, Enter copies, Escape drops it — through the shell's keyboard lease ([S-800]..[S-812]),
   `ClipboardView : IWidgetKeys`; needs a live pass.
-- **[S-1445]** Countdown timer menu on every row and on the hero (original C-60): a "Display" header,
-  the four formats with the current one checked, Remove… (confirmed). A pick writes the timer and
-  saves (`RequestSave`) and the view rebuilds itself. Original C-61 (menu stays open while
-  previewing formats) is not ported: a WinUI menu closes on a pick.
+- **[S-1445]** Countdown timer menu on every row and on the hero (original C-60): Remove… (confirmed).
+  The display format is chosen per timer in the settings only ([S-1746]); original C-61 is moot.
 - **[S-1446]** The featured timer is the soonest still ahead, else the most recently passed; the
   "Next: <label> in <auto>" line names the soonest other upcoming one. The featured timer is not
   listed again; when it passes, the next tick re-lays the tile.
@@ -2317,38 +2294,16 @@ minimum square); it then clips at the bottom.
 
 ## CPU and processes
 
-- **[S-1140]** CPU: percent of all cores (`GetSystemTimes` delta, shared per tick [S-643]); caption the
-  clock ("4.72 GHz", [S-1141]) or, with Speed off or unknown, "N logical". The dead "all cores" caption is gone.
-- **[S-1141]** Speed = base clock (`CallNtPowerInformation(ProcessorInformation).MaxMhz`) × PDH
-  `\Processor Information(_Total)\% Processor Performance` / 100 (Task Manager's figure, turbo included);
-  without the counter, the reported `CurrentMhz`. GHz to two decimals. Counter held only while a tile shows Speed.
-- **[S-1142]** Per-core load: `NtQuerySystemInformation(SystemProcessorPerformanceInformation)` idle/kernel/user
-  deltas per logical processor (kernel includes idle); a backwards counter reads 0, a changed processor
-  count gives no answer for that tick. First processor group only (≤ 64).
-- **[S-1143]** Uptime from `GetTickCount64`, two largest units: `3d 4h`, `2h 5m`, `7m`.
-- **[S-1144]** Totals from the same process snapshot as the list: processes (pid 0 excluded), threads
-  (`NumberOfThreads`), handles (`HandleCount`). Detail lines "Processes 312 · 4,210 threads", "Handles 128,402".
-- **[S-1145]** Top processes by CPU: friendly name (version-info description, resolved off the UI thread
-  once per pid+image, image name until then / when none), exe + pid tooltip, share bar on panels. Ceiling
-  1–20 (default 20, above the original 10 so an XL list panel fills); the tile decides how many fit. One process walk per 2 s shared by every process
-  list (`ProcessList.Recent`).
-- **[S-1146]** Temperature (default off): LibreHardwareMonitor/OpenHardwareMonitor web server
-  `http://localhost:8085/data.json` first (package/Tctl/Tdie inside the CPU node, else its hottest; outside a
-  CPU node only a probe named "CPU"), then the ACPI thermal zone via PDH `\Thermal Zone Information(*)\Temperature`
-  (Kelvin, hottest, 0–150 °C kept). Once on it never vanishes: "N/A" when nothing answers, nothing before the
-  first poll (no N/A flash). WMI is not used (AOT).
-- **[S-1147]** Fan (default off): fastest plausible (1–60000) RPM sensor named for the CPU in the monitor's
-  tree; "N/A" otherwise — Windows has no fan API.
-- **[S-1148]** Sensor poll: only while a tile with Temperature or Fan holds a lease; every 5 s while a source
-  answers, 60 s otherwise; single-flight; a poll cut short by the last release does not count.
-- **[S-1149]** CPU config: ShowFrequency, ShowCores, ShowUptime, ShowProcessCount, ShowTopProcesses
-  (+ TopProcessCount) default on; ShowTemperature, ShowFan default off. Detail order: Temperature, Fan,
-  Uptime, Processes, Handles. Settings page "Show" + "Sensors" + the shared history/refresh rows.
-- **[S-1150]** Meter framework rung "cells" (`MeterReading.Cells`, `MeterPart.CellsWanted`,
-  `MeterDemand.Cells`): a strip of per-part bars after the stats, at H ≥ Regular or on a strip's left
-  column; bars ≥ 4 px with 2 px gaps in balanced rows (`MeterCellGrid.Fit`), taller and with each figure
-  under it when the tile is Expanded in height and every bar is ≥ the figure's width; each bar in its own
-  pressure colour.
+- **[S-1140]** CPU: percent of all cores (`GetSystemTimes` delta, shared per tick [S-643]); the reading
+  and its history only ([S-1762]). The clock, per-core strip, sensors, totals and top processes of the
+  earlier ladder ([S-1141], [S-1142], [S-1145]..[S-1150]) are removed with their settings.
+- **[S-1143]** Uptime wording (`CpuRules.Uptime`, used by the power tile), two largest units:
+  `3d 4h`, `2h 5m`, `7m`.
+- **[S-1144]** Process and thread totals (`CpuRules.Totals`), the process list's footer:
+  "312 processes · 4,210 threads".
+- **[S-1145]** Process names in the process list are friendly (`ProcessLabels`: the version-info
+  description, resolved off the UI thread once per pid + image; the image name until then or when
+  there is none). One process walk per 2 s is shared by every reader (`ProcessList.Recent`).
 - **[S-1151]** Processes: whole rows (`Disclosure.TakeRows`) up to a ceiling 1–30 (default 20), so a bigger
   tile shows more. Laid out from `IWidgetSizeAware`, no private `SizeChanged`.
 - **[S-1152]** Processes columns (`ProcessTable.Columns`): the ranked figure always, then the other figure,
@@ -2357,11 +2312,10 @@ minimum square); it then clips at the bottom.
 - **[S-1153]** Processes at H ≥ Expanded: column headers (ranked one stronger) and a footer
   "312 processes · 4,210 threads" (ShowTotals); at Expanded × Expanded a hairline share bar per row
   (CPU share, or working set over physical memory).
-- **[S-1154]** Re-rank in place: clicking the CPU / Memory heading, or the card menu's
-  "Rank by memory / processor"; persisted through `RequestSave`.
+- **[S-1154]** Re-rank in place: clicking the CPU / Memory heading (or the setting); persisted
+  through `RequestSave`. No card-menu entry ([S-1746]).
 - **[S-1155]** Processes settings: Rank by, Most processes (1–30), Columns: Memory, Threads, Process ID, Totals.
-- Not ported: per-core sparklines in each cell (the original's per-core grid) — a bar per core carries the
-  same comparison at a fraction of the drawing cost; per-core history would need 64 more series per tick.
+- Not ported: the original's per-core grid ([S-1762]: the meter is its reading and history).
 
 ## Displays (WP2)
 
@@ -2390,9 +2344,9 @@ model that keeps widgets still when the taskbar changes (S-840..S-859).
   mismatch, a per-path lookup failure or a failed query is logged with its Win32 code.
   `ERROR_INSUFFICIENT_BUFFER` (topology changed between sizing and querying) re-sizes and retries.
 - **[S-843]** A monitor with no device path (a virtual or remote display, or a panel still waking)
-  falls back to its GDI name, flagged unresolved and logged. An unresolved id is never *given* a new
-  view: it shows the active view until it resolves, so a waking panel does not bind to a fresh empty
-  view the next display change abandons. One that already has a view (a permanently path-less
+  falls back to its GDI name, flagged unresolved and logged. An unresolved id is never *given* a view
+  assignment: it shows the active view until it resolves, so a waking panel does not store a binding
+  under a key the next display change abandons. One that already has a view (a permanently path-less
   display) keeps it. When the path appears, the same pass re-keys the fallback to the real id before
   planning (`DisplayPlan.Rekeys` / `AdoptResolvedIds` / `SurfaceRekeys`): whatever is stored under the
   ordinal (view, on/off, scale, view bar) moves to the path, replacing the path's own entry (it is what
@@ -2410,7 +2364,9 @@ model that keeps widgets still when the taskbar changes (S-840..S-859).
 - **[S-846]** An empty monitor enumeration builds nothing and closes nothing: it is a driver
   mid-change, and the next display message runs the pass again. No phantom fallback surface.
 - **[S-847]** `DefaultViewForNewDisplays` (General page, "New displays show"): a display without a
-  view shows that view, shared rather than claimed. Unset, a new display gets a view of its own.
+  view shows that view, shared rather than claimed. Unset ("The last view shown"), it shows the
+  active view: the last one the user showed anywhere ([S-19]). Was: unset gave each new display an
+  empty view of its own.
 - **[S-848]** The watcher is the command window: `WM_DISPLAYCHANGE`, `WM_SETTINGCHANGE` with
   `SPI_SETWORKAREA`, `WM_DPICHANGED` and Explorer's `TaskbarCreated` each request a pass. Requests are
   **coalesced, not timed**: the first queues one pass at low dispatcher priority, behind the rest of
@@ -2544,75 +2500,52 @@ is about 80 characters already, and a cap would leave the empty band the ladder 
 
 ## Disk and ping
 
-Package P2 of the system audit. Both stay `MeterPart`s on the shared `MeterView` ([S-1129]).
+Package P2 of the system audit. Both stay `MeterPart`s on the shared `MeterView`; like every meter
+they show the label, the reading and the history only ([S-1762]).
 
-- **[S-1160]** Disk reports on `Drives` (roots `C:\`, chosen order, each once; empty = the system
-  drive). The first is the reading; load repairs the list (drive letters only, deduped, at most 26;
-  anything else dropped and logged). Changing the first drive clears the chart (original [S-22]).
-  The settings page lists every drive with a switch (a removed drive stays listed as "not
-  connected" so it can be switched off). `Drive` (single) is gone, no migration.
+- **[S-1160]** Disk reports on one `Drive` (a root, `C:\`; empty = the system drive). Load repairs it
+  to its root and drops anything that is not a drive letter, logged. Changing the drive clears the
+  chart (original [S-22]). The settings page offers "System drive (C:)" and every drive Windows lists;
+  a chosen drive that has been removed stays offered as "not connected".
 - **[S-1161]** The header title names the drive as Explorer does ("System (C:)", "Local Disk (D:)",
-  "USB Drive (E:)"; "Disks" with several chosen). Space is the reading (% used), a used / free bar
-  beside the chart (the bar alone with the history off), the "Space 412 GB free of 931 GB" detail
-  line, and used / free / total as the stat tiles. Colours 80 / 90 ([S-1123]).
+  "USB Drive (E:)"). The reading is the space used (%); colours 80 / 90 ([S-1123]).
 - **[S-1162]** Read and write rates are per drive from one shared PDH query
   (`\LogicalDisk(*)\Disk Read|Write Bytes/sec`, matched by letter ignoring case; `_Total` and folder
   mounts left out). A drive the counters do not list has no rate, never the system total (original
-  themia-releases#49). The query is opened by the first disk widget that can show a rate and
-  closed when the last lets go. Volumes and labels are re-walked at most every 30 s (original
-  [S-21]); free space is read on every sample (microseconds, and the figure that should move while
-  a large copy runs — the audit's "once a minute" was the old space-only cadence).
+  themia-releases#49). The query is held only while the history is on, and closed when the last
+  disk widget lets go. Volumes and labels are re-walked at most every 30 s (original [S-21]); free
+  space is read on every sample.
 - **[S-1163]** **The chart is disk I/O, never space** (user requirement): reads (filled) and writes
-  (line) against the peak of what is on screen, floor 1 KB/s; no space-over-time history exists. Its
-  caption is the current rates "R 12 MB/s · W 0 B/s" (the meter caption, placed for its widest; with
-  the history off the caption is the space instead). Whose I/O: `IoScope` = the reading's drive
-  (default), all drives (sum of the letter instances, never `_Total` too) or one named drive
-  (`IoDrive`); a detail line says which when it is not the reading's. Load repairs an unknown scope
-  or a non-letter drive to the reading's, loudly. Changing what is charted clears the chart. No rate
-  yet is a gap, not a 0. The history is on by default, as in the original.
-- **[S-1164]** Detail line "IOPS R 120 · W 34 /s", system-wide from `\PhysicalDisk(_Total)\Disk
-  Reads|Writes/sec` (`ShowIops`).
-- **[S-1165]** Detail line "Volume System · NTFS · fixed" (`ShowVolume`).
-- **[S-1166]** The drives list (where the tile has room, whole rows; a share bar per row on panels):
-  the chosen drives, then with `ShowAllDrives` every other volume; one drive alone is no list. A
-  row is the drive's name and "42% · 1.2 MB/s"; its tooltip has free / total and read / write.
-  Clicking a row, or the card's "Open C: in Explorer", opens the drive through `ShellLauncher`.
-  List rows hover only when they do something.
+  (line) against the peak of what is on screen, floor 1 KB/s. Whose I/O: `IoScope` = the reading's
+  drive (default), all drives (sum of the letter instances, never `_Total` too) or one named drive
+  (`IoDrive`). Load repairs an unknown scope or a non-letter drive to the reading's, loudly. Changing
+  what is charted clears the chart. No rate yet is a gap, not a 0. The history is on by default.
+- **[S-1166]** The card's "Open C: in Explorer" opens the drive through `ShellLauncher`.
 - **[S-1167]** Framework hooks for a kind (`MeterView.Part.cs`): a header title
   (`IMeterHost.SetTitle`), right-click commands (`MeterPart.ContextActions`), a header trailing
   element, and `IMeterHost.SampleNow`. A reading that carries a fraction is plotted even when it is
   not available (a missed ping); every other unavailable reading carries none.
-- **[S-1168]** Disk settings: Drives, then Chart (same drive as the reading / all drives / each
-  drive), Operations, Volume, All drives (all on), then the shared meter rows.
+- **[S-1168]** Disk settings: Drive, Chart (same drive as the reading / all drives / each drive),
+  then the shared meter rows.
 - **[S-1169]** Gallery samples (Debug only, preview tiles only): `Disk+fixture` is three made-up
-  drives (System, a nearly full Data, a removable stick) with rising and falling rates;
+  drives (System, Data, a removable stick) with rising and falling rates on the system drive;
   `Ping+fixture` is a labelled router answering in 3–40 ms that misses one probe in nine, with no
   packet sent. The plain pages read this machine and probe the default host.
 - **[S-1170]** Ping status: Checking… until the first probe returns, then Online / Offline from the
   last probe. A dot at the right of the header carries it in the success / critical / tertiary
-  colour; the caption says it in words (placed for "Checking…").
-- **[S-1171]** Ping statistics over the probes the chart spans (`PingHistory`, span / interval):
-  jitter = mean absolute difference of consecutive answers (gaps dropped; 0 after exactly one;
-  hidden before any); loss = unanswered share (hidden before any probe; **100 % when none was ever
-  answered** — the original's [S-10] defect, fixed); fastest / average / slowest over answers only,
-  as the stat tiles (the view's own min / avg / max would count a miss as 0 ms). Detail lines:
-  Jitter, Loss, Address (only beside a label), Probes "38 of 40 answered". A new cadence restarts
-  them with the chart.
+  colour; its tooltip says it in words, and so does a dimmed reading's.
 - **[S-1172]** The ping chart is latency against the window's slowest answer (floor 1 ms); an
   unanswered probe is a dimmed "--" that plots on the baseline. Online colours the chart success,
-  offline critical. The bar (history off) keeps [S-110]'s 300 ms ceiling.
+  offline critical.
 - **[S-1173]** `HostLabel` (≤ 64 characters, stored as typed, trimmed when shown): the header title is
-  the label, else the host; the address becomes a detail line when a label is set.
+  the label, else the host.
 - **[S-1174]** Ping "Refresh" on the card's menu probes now; a probe already out is the answer
   coming, so it is not doubled ([S-106]).
-- **[S-1175]** Ping settings: Host, Name, then Jitter, Packet loss, Fastest / average / slowest (all
-  on), then the shared meter rows.
+- **[S-1175]** Ping settings: Host, Name, then the shared meter rows.
 
-Not ported / different: several ping hosts (the original had one); the original's per-drive stacked
-blocks at every size (the first drive is the reading and the others are the drives list, which needs
-a tile Expanded in height — the shared ladder has one reading); a last-answer age line (it would
-re-lay the tile every second); keyboard navigation of the drives list (waits for the shell's
-keyboard lease, WP11); a coloured latency number (S-432: pressure never colours the reading).
+Not ported / different: several ping hosts (the original had one); several drives in one tile, the
+drives list, IOPS, the volume line and ping's jitter / loss / range ([S-1762]); a coloured latency
+number (S-432: pressure never colours the reading).
 
 ## Keyboard lease (WP11)
 
@@ -2671,106 +2604,49 @@ pass, before a `ScrollViewer` can take them ([S-860]).
 ## Battery and network
 
 Package SYS-P3. Both meters live in their own files (`Widgets/Meters/BatteryMeter.cs`,
-`NetworkMeter.cs`, `WidgetSettings.Battery.cs` / `.Network.cs`); the rules are Core
-(`BatteryRules`, `NetworkRules`, tests in `BatteryNetworkTests`).
+`NetworkMeter.cs`); the rules are Core (`BatteryRules`, `NetworkRules`, tests in
+`BatteryNetworkTests`). Like every meter they show the label, the reading and the history only
+([S-1762]).
 
-- **[S-1180]** Battery status line, the original's rules in order: "Charging" (the `BatteryFlag`
-  charging bit, not the plug); "Fully charged" on mains at ≥ 99 %; "{h}h {m}m remaining" from
-  Windows' estimate (Time remaining on); "Plugged in"; "On battery". The no-battery decision is
-  `PowerRules.Read`'s, so the meter and the power tile agree.
-- **[S-1181]** Device figures come from the battery class driver's IOCTLs (`SetupDi` →
-  `IOCTL_BATTERY_QUERY_TAG` / `_INFORMATION` / `_STATUS`), not WMI (not AOT-safe; the WMI classes
-  wrap these IOCTLs). The structures are parsed from bytes, bounds-checked, with every sentinel
-  (0xFFFFFFFF capacity/voltage, 0x80000000 rate, 0 cycles) as "not reported"; a temperature outside
-  −40..120 °C is not reported. Several batteries sum (capacities, rate); the rest is the first
-  battery's that reports it. Read at most every 2 s, the device list re-enumerated each minute.
-- **[S-1182]** Health = full-charge ÷ design capacity (both > 0; may pass 100 %); time to full =
-  (full − remaining) ÷ charge rate, time to empty = remaining ÷ drain, only in mWh terms and ≤ 48 h;
-  rate in W; voltage in V.
-- **[S-1183]** Battery detail lines, ladder order: Health ("91% · 51.9 of 57.0 Wh"), Full in /
-  Empty in (own estimate only when Windows has none), Charging at / Draining at, Cycles, Change,
-  Voltage, Temperature, Power (source), Power plan, Battery saver. A figure the battery does not
-  report hides; Temperature (off by default) says "N/A" once turned on. Toggles: Time remaining,
-  Health, Charge rate, Cycle count, Voltage, Temperature, Power source and plan — all on except
-  Temperature. The plan is read only while a detail line can show it.
-- **[S-1184]** On a tile with room for a list (Tall/L stacked, XL right panel) the battery lists its
-  capacity: full charge (bar = share of design), remaining (bar = share of full), design,
-  chemistry, maker, battery count.
-- **[S-1185]** "Change" line: the charge's move over the chart's span ("−12% in 5m", "No change in
-  2m"); hidden under a minute of history.
-- **[S-1186]** The gallery's `Battery+fixture` is a discharging laptop battery reporting every figure
+- **[S-1180]** Battery: charge from `GetSystemPowerStatus`; charging is the `BatteryFlag` charging bit,
+  not the plug. The no-battery decision is `PowerRules.Read`'s, so the meter and the power tile
+  agree; a machine with no battery shows an empty state.
+- **[S-1186]** The gallery's `Battery+fixture` is a discharging laptop battery
   (`Shell/Gallery/BatteryFixture.cs`, Debug only); a meter reads it only when its card is a preview
   (`MeterPart.Bind(preview)` via `IWidgetSurfaceAware`), never on the desktop.
 - **[S-1187]** The battery reading leads with the Segoe Fluent battery glyph filled to the nearest
   tenth, with a bolt while charging, in the pressure colour (`MeterPart.Badge`).
 - **[S-1190]** Network throughput is per adapter (`ThroughputTracker`): a counter that falls is that
   adapter's reset (reads 0 once, re-baselines) and no longer zeroes every other adapter's traffic;
-  a new adapter starts from a baseline. Session totals (since Themia started) add positive deltas
-  only. One shared reader; a second tile in the same tick reuses the sample.
-- **[S-1191]** Download is the reading, "↑ upload" the caption, and the chart's two series (upload
-  the thin line) share one top: the window's peak of both, floor 1 KB/s. The graph-off bar uses the
-  same window (`RateWindow`), so it is no longer scaled to the session's all-time peak. The scale
-  line's top counts the second series too.
+  a new adapter starts from a baseline. One shared reader; a second tile in the same tick reuses the
+  sample.
+- **[S-1191]** Download is the reading; the chart's two series (download filled, upload the thin
+  line) share one top: the window's peak of both, floor 1 KB/s (`RateWindow`), never the session's
+  all-time peak.
 - **[S-1192]** Counted adapters: up, not loopback/tunnel, not a packet-capture mirror (name or
   description contains "pcap packet driver"; the standalone Npcap Loopback Adapter is kept), and not
   an NDIS filter binding listed as its own adapter ("WiFi-QoS Packet Scheduler-0000": another
   adapter's name, "-", a filter, "-NNNN"), each of which re-reports its adapter's counters — on the
   dev machine seven of them multiplied the reading sevenfold, a bug the first port had too.
-- **[S-1193]** Network detail lines, ladder order: the connection (the busiest adapter with a
-  gateway: its name, then Wi-Fi network · signal · link speed — the SSID from `WlanQueryInterface`,
-  absent without location permission; packaged, a hint line follows, [S-1611]), IP address (IPv4, else global IPv6), Public IP, Session
-  (↓ ↑ totals), Peak (window's ↓ ↑). The list ("Adapters"): one row per counted adapter, busiest
-  first, total rate (a Tall row has no room for ↓ ↑ and a name), bar = share of traffic; the ↓ ↑
-  split, description, type, speed, address and session on hover.
-  Adapters are described only when a line or row can show it.
-- **[S-1194]** Public IP: opt-in; `https://api.ipify.org`, one request per 10 min, single-flight,
-  shared, asked only while a tile shows its details; the body must parse as one IP address
-  ("Checking…" until the first answer, "Unavailable" after a failure). The settings row names the
-  service.
-- **[S-1195]** Network toggles: Connection, IP address, Public IP address (off), Session totals,
-  Adapters (ceiling 8; the tile shows what fits).
-- Not ported / different: the original's per-metric order; its "top 3 active" interface cap (a
-  ceiling of 8, idle adapters listed after busy ones); RX green / TX accent colours (the chart's
-  two-series styling is the framework's: filled first series in the meter colour, thin second line).
-
+- Not ported / different: the battery's status line, health, rate, cycles, capacity list and the
+  network's connection, addresses, public IP, session totals and adapters list ([S-1762]); RX green /
+  TX accent colours (the chart's two-series styling is the framework's).
 
 ## GPU and screen time: the whole tile (SYS-P4)
 
-Code: `Widgets/GpuView.cs` + `GpuView.Panel.cs`, `Services/GpuSampler.cs`, Core `GpuEngines`, `GpuLayout`,
-`GpuRules`; `Widgets/ScreenTimeView*.cs` (+ `.Footer.cs`), Core `ScreenTimeRules`; settings
-`WidgetSettings.Gpu.cs`, `WidgetSettings.SystemWidgets.cs`. Tests `GpuEnginesTests`, `ScreenTimeRulesTests` (`S12xx_`).
+Code: `Widgets/GpuView.cs` + `GpuView.Panel.cs`, `Services/GpuSampler.cs`, Core `GpuLayout`, `GpuRules`,
+`MeterFace`; `Widgets/ScreenTimeView*.cs` (+ `.Footer.cs`), Core `ScreenTimeRules`; settings
+`WidgetSettings.Gpu.cs`, `WidgetSettings.SystemWidgets.cs`. Tests `GpuLayoutTests`, `ScreenTimeRulesTests` (`S12xx_`).
 
 - **[S-1200]** The GPU chart is the meters' `SparkBand` holding `GraphSpanSeconds / IntervalSeconds`
-  samples (`GaugeConfig.GraphCapacity`, default 60 s at 2 s); the page ends with the shared history
-  rows (show history, chart span, refresh). Supersedes the fixed 60-sample band of [S-430].
-- **[S-1201]** Each adapter panel climbs one ladder (`Disclosure`): the load (always) → the history
-  (min 24 px, 72 px on a large tile) → the busiest-engine caption (beside the number when it fits,
-  else under it from Regular height) → Dedicated, Shared, Temperature, Power, Clocks, Fan, each only
-  whole → the engine list and the process list (whole rows, at least two each) → the scale line
-  ("last 60 s · 100%") on a tile large both ways. What is left goes to the number (up to Display
-  when there is a chart) and then to the chart. Lines are Body from Expanded height, else Caption.
-- **[S-1202]** Arrangement (`GpuLayout.Arrange`): a Wide strip (width ≥ Expanded, height < Expanded)
-  puts the reading and its lines left and the chart right at full height; a tile Expanded both ways
-  keeps reading, lines and chart on the left and puts Engines and Top processes down the right half;
-  everything else is one column with the lists under the lines from Expanded height.
-- **[S-1203]** Engines: `\GPU Engine(*)` instances map onto `GpuEngineKind` (3D/Graphics_N/High
-  Priority 3D → 3D; Compute_N/Cuda → Compute; Copy; VideoDecode; VideoEncode; VideoProcessing;
-  others such as Security are not drawn). A kind's load is its busiest engine summed across
-  processes; a kind is listed (at 0%) once any instance of it exists. One row each with a share bar.
-- **[S-1204]** On NVIDIA cards the driver's encoder and decoder figures replace (or join) the
-  counters' Video encode / Video decode rows. This replaces the old "Enc / Dec" line.
-- **[S-1205]** Top processes: per pid (from `pid_N_...`), the busiest engine it uses, busiest first,
-  idle and pid 0 left out, at most 8 per adapter. Names from `ProcessNames` (description, else the
-  file name, else "Process N"), resolved on the sampler's pool thread, cached per pid and dropped
-  when the pid leaves the counters.
-- **[S-1206]** Caption: the busiest engine kind ("3D"); on a tile large both ways the load to one
-  decimal first ("12.4% · 3D"). Empty while every engine is idle (the precise figure alone on a
-  large tile). Laid out by its widest form so it does not hop.
+  samples (`GaugeConfig.GraphCapacity`, default 60 s at 2 s); the page is the adapter picker and the
+  shared history rows (show history, chart span, refresh). Supersedes the fixed 60-sample band of [S-430].
+- **[S-1201]** Each adapter panel is a meter face ([S-1762], `MeterFace.Plan`): the load alone on a
+  tiny panel, else the history under it (beside it on a strip) filling the panel. With several
+  adapters each panel keeps its name beside the load at Subtitle and gives the rest to its history.
 - **[S-1207]** Several adapters share the tile with no scrolling (`GpuLayout.Grid`): the column count
-  whose panels come closest to 200 × 120 in their tighter direction (ties: fewer columns), so a
-  strip puts two side by side and a column stacks them. Each panel runs its own ladder.
-- **[S-1208]** `GpuConfig`: Temperature, Power, Fan and Clocks default **on** (each hides itself when
-  the driver says nothing); `ShowEngines` and `ShowProcesses` (on) replace `ShowVideoEngines`.
+  whose panels come closest to 240 × 90 in their tighter direction (ties: fewer columns), so a
+  strip puts two side by side and a column stacks them.
 - **[S-1210]** The ring's total takes the largest step that fits its hole; when even Caption cannot
   hold `4h 37m` it shows the compact form (`4.6h`, `13h` from ten hours, `37m`, `<1m`). Never clipped.
 - **[S-1211]** `MaxApps` is a ceiling over what fits: 0 (the default) lists as many apps as the tile has
@@ -2895,24 +2771,19 @@ title and header placement); demo mode (gallery fixtures); single-click open of 
 (double-click, recorded); the original's IANA time-zone names in labels (offset + short name
 instead, see [S-1309]).
 
-## Web widgets: size ladder, overlay, guard and saved renders
+## Web widgets: size ladder and overlay
 
-Round 3 parity and layout for the video stream and web element widgets (package OFF-E). Owning
-files: `Widgets/VideoStreamView.cs` + `VideoStreamView.Overlay.cs`, `Widgets/WebElementView.cs`,
-`Services/Web/StreamSession.cs` (`FrameFacts`), `Services/Web/PageSnapshot.cs`,
-`Services/Web/NavigationGate.cs`, `Services/Web/ElementRenderCache.cs`,
-`Shell/Config/ElementPickerWindow.cs`, `Shell/Config/WidgetSettings.Web.cs`,
-`Shell/Gallery/WebElementFixture.cs`, `Themia.Core/Widgets/VideoStreamRules.cs`
-(`StreamChrome`, `StreamChromeRules`, `FrameRateMeter`), `Themia.Core/Widgets/WebElementRules.cs`
-(`ElementPlacement`, `ElementFitRules`), `Themia.Core/Storage/ElementRenderStore.cs`,
-`Themia.Core/Model/Configs/WebWidgetConfigs.cs`. Tests: `StreamChromeTests`,
-`ElementFitRulesTests`, `ElementRenderStoreTests`.
+Round 3 parity and layout for the video stream widget (package OFF-E). Owning files:
+`Widgets/VideoStreamView.cs` + `VideoStreamView.Overlay.cs`, `Services/Web/StreamSession.cs`
+(`FrameFacts`), `Shell/Config/WidgetSettings.Web.cs`, `Themia.Core/Widgets/VideoStreamRules.cs`
+(`StreamChrome`, `StreamChromeRules`, `FrameRateMeter`), `Themia.Core/Model/Configs/WebWidgetConfigs.cs`.
+Tests: `StreamChromeTests`.
 
 - **[S-1312]** Video stream chrome ladder (`StreamChromeRules.Chrome`, `IWidgetSizeAware`). The
   picture is the widget at every size; nothing else ever shows on XS, S or a Wide strip (height
   under Regular). From M (Regular × Regular, so Tall too), with the pointer on the picture, a
   bottom strip shows a state dot, the state and the frame's age. From L (Expanded × Expanded) the
-  strip adds Pause/Resume, Rotate and Refresh (the context menu's three actions, same handlers) and
+  strip adds Pause/Resume, Rotate and Refresh (the same handlers as the context menu's) and
   the camera's resolution and measured frame rate. At XL (Huge × Huge) a persistent top-left chip
   shows the state and transport. Two settings: `HoverControls` (default **on**: invisible until
   hovered, and never on the small sizes) gates every hover part; `ShowStatus` (default **off**,
@@ -2926,51 +2797,6 @@ files: `Widgets/VideoStreamView.cs` + `VideoStreamView.Overlay.cs`, `Widgets/Web
   last 5 s of arrivals (`FrameRateMeter`, monotonic timestamps, "12 fps" / "2.5 fps"), shown only
   for an open MJPEG stream; transport MJPEG / Snapshot / Video / HLS. The age ticks through the
   shared ticker at 1 s only while the strip is on screen and the stream is live.
-- **[S-1314]** Network guard on the web element, ported as the original had it (`check_url` on
-  render and picker; [S-08b]). Every render first asks `NetGuard.CheckAsync`: a page on loopback,
-  a private, link-local, CGNAT, reserved or documentation range is refused with its reason
-  ("… is on the local network. Turn on local network access in Settings › General …") unless the
-  app-wide "local network access" switch is on, and no browser starts. Inside the render every
-  main-frame navigation (redirects, script navigations) goes through a `NavigationGate`: a host
-  not yet cleared is cancelled, checked, and loaded again only if allowed (at most 5 hops); a
-  refused hop fails the render with the reason. The picker does the same on `NavigationStarting`
-  and says a refusal in its toolbar (caution colour) while the page stays where it was; a form
-  post re-sent after the check becomes a plain load. Only http/https documents load in the main
-  frame. Frames inside a page are not checked, as in the original. A refused render shows its
-  reason in place of the picture (`SnapshotStatus.Refused`). The video stream stays unguarded, as
-  the original (a LAN camera is its point).
-- **[S-1315]** Web element settings: the pick button reads "Pick element…" with nothing pinned and
-  "Pick again…" once something is; a Clear button beside "Pinned" empties the selector and label
-  (was the original's trash button).
-- **[S-1316]** Web element fit (`ElementFit` setting: **Whole** default, **Fill width**;
-  `ElementFitRules.Place`). Whole scales the element to fit both ways, up to 3×; Fill width scales
-  it to the width and cuts the bottom. Either way a scale under 0.45 (illegible) becomes 1:1 and
-  shows the top-left part instead. A cropped picture is anchored top-left with a soft fade on each
-  cut edge (24 DIPs, 12 copies of the one bitmap at falling opacity, so it works over any card fill, the
-  wallpaper included); a whole one is centred. Replaces [S-462]'s "never scaled up".
-- **[S-1317]** Captured at the size it is drawn (`ElementFitRules.CaptureZoom`): `PageSnapshot`
-  takes the widget's box, fit and the display scale, and captures with the DevTools clip `scale`
-  = the drawn scale clamped to 1..3 (× the display scale as before), never past 8192 px on a side.
-  When the widget grows past what the picture was captured for (drawn scale > 1.25 × captured
-  zoom, and the box larger than the last capture's box) a new render starts — from the card's size
-  event or the end of a render, never a timer. The first render waits until the area is measured.
-- **[S-1318]** Web element age: the header's trailing text is the render's age ("4m ago"), in the
-  caution colour while the picture is a saved one not yet re-rendered, after a failed refresh, or
-  past three intervals; its tooltip says which. At XL a footer line shows host · "Rendered 4m ago"
-  · a caution "Last refresh failed" badge (tooltip: the reason) when the last refresh failed.
-- **[S-1319]** Saved renders across restarts (`ElementRenderStore`, `ElementRenderCache`): the last
-  good PNG per page + selector, with its CSS size, capture zoom and time, in an `element_renders`
-  folder beside the app state (`index.json` + one `<hash>.png` each). Wired by the app only
-  (`AppHost`); the gallery never reads or writes it. Index schema-versioned and validated on load
-  (bad envelope → set aside as `.corrupt`, loud log, empty cache; bad entry → dropped; picture
-  missing or not the recorded size/PNG → not drawn). File names are derived from the page and
-  selector (SHA-256), never read from the index, so a hand-edited index cannot point outside the
-  folder. Every write is temp + rename, picture before index, one writer chain. Bounded: 48
-  pictures, 32 MB, 8 MB each, 30 days, newest kept, dropped files deleted. At launch the saved
-  picture is shown at once with its age (stale, caution colour) and a render follows; a render
-  that finds the element gone forgets the saved one. The gallery fixture is now a page served on
-  loopback (`WebElementFixture`), so the populated render is offline and deterministic; installing
-  it sets `NetGuard.AllowPrivate` to true for the rest of the (debug-only) gallery run.
 
 Not ported, on purpose: a compact header for the video stream — the original's
 `defaultHeaderMode: 'compact'` has no counterpart (this app has Top/Bottom/Hidden only; see the
@@ -3019,9 +2845,18 @@ card is re-created, no tick restarts. Pure rules live in Core (`DesignLook`, `De
   system font. Applied to the card content through a presenter, so text inherits it; icon glyphs
   name their own font and are untouched. Text boxes keep the control font.
 - **[S-827]** The font picker lists every installed family (GDI `EnumFontFamiliesExW`, off the UI
-  thread, once per process): vertical `@` faces dropped, duplicates folded, sorted.
-- **[S-828]** Header background (empty = shares the widget's fill) and header opacity (0..1, applies to
-  a header colour of its own); the strip reaches the card's edges and follows its corners.
+  thread, once per process): vertical `@` faces dropped, duplicates folded, sorted. Each entry is
+  drawn in its own font ([S-1723]).
+- **[S-828]** Header background (empty = shares the widget's fill) and header opacity (0..1,
+  [S-1761]); the strip reaches the card's edges and follows its corners.
+- **[S-1761]** The header opacity always fades the header strip (it did nothing while the header had
+  no colour of its own, which is the default — the widget's fill was painted under the header too, so
+  a header sharing it could not look any different). The card's fill now paints the body only, in
+  the content grid beside the header (`WidgetCard.ApplyBodyFill`), and the strip has its own fill:
+  a header colour at the header opacity, or the widget's fill and Fluent lift at the widget's opacity
+  times the header opacity (`DesignLook.HeaderFillOpacity`). 100 % looks as before; 0 % leaves the
+  strip clear over the desktop. The body's base reaches 1 DIP under the strip, so no anti-aliased seam
+  opens between the two where their edge falls between pixels (widget scale, an intro, fractional DPI).
 - **[S-829]** Debug: the gallery renders with `THEMIA_GALLERY_DESIGN` (a `DesignState` as JSON, the
   state file's shape); its backdrop follows the theme. Opened from the app, it shows the app's own
   design and applies nothing.
@@ -3035,18 +2870,20 @@ card is re-created, no tick restarts. Pure rules live in Core (`DesignLook`, `De
   case-insensitively, numbers within 0.001.
 - **[S-834]** Appearance page: Style (presets + Custom), theme, accent, widget background + opacity,
   header background + opacity, corner radius, border group, font (presets + installed), text size,
-  widget scale. Picking a preset rebuilds the page's rows in place; no other row rebuilds anything.
+  widget scale, then Layout ([S-1722]: gap between widgets, snap to grid). Picking a preset rebuilds
+  the page's rows in place; no other row of the page rebuilds anything (a change made elsewhere
+  is caught up by the window, [S-1720]).
 
 Not ported, on purpose: the original's preset preview tiles (a drop-down lists them, through the
 shared `FluentLayout` row like every setting); the blur that tracked opacity (there is no blur layer
 behind a card here); the eyedropper (optional in the audit). Motion settings are WP9's.
 
-## Logging and developer mode (WP7)
+## Logging (WP7)
 
-Ported from the original's logging pipeline (`src-tauri/SPEC.md` [LOG-01..09]) and its Developer
-section. Pure rules in Core (`Diagnostics/LogFileRules`, `LogPolicy`, `LogRedactor`, `LogFormat`,
-`LogBuffer`), tested in `LoggingTests`; the sinks in `Services/LogFiles.cs` and
-`Services/EventLogSink.cs`; the page in `Shell/Config/ConfigPages.Logs.cs`.
+Ported from the original's logging pipeline (`src-tauri/SPEC.md` [LOG-01..09]). Pure rules in Core
+(`Diagnostics/LogFileRules`, `LogPolicy`, `LogRedactor`, `LogFormat`), tested in `LoggingTests`; the
+sinks in `Services/LogFiles.cs` and `Services/EventLogSink.cs`. There is no settings page and no
+switch for it ([S-1724]).
 
 - **[S-980]** Bounded, rotating log folder: `%LOCALAPPDATA%\Themia\logs` (machine-local, not
   roaming; covered by the uninstall's data purge). The current file is `themia.log`; before a write
@@ -3057,16 +2894,12 @@ section. Pure rules in Core (`Diagnostics/LogFileRules`, `LogPolicy`, `LogRedact
   on every record. Only the real app writes files: the gallery and the settings render get the
   debugger and session-buffer sinks only, and a second copy that hands its request to the running
   one never opens the file.
-- **[S-981]** Level policy: warnings and errors are always recorded; info and debug only with
-  verbose logging on, or in a debug build. A record under the floor is dropped in `Log` before it
-  is redacted or formatted. The original kept only errors by default; warnings are kept here too
-  because they are rare in this app and are what explains most "it stopped updating" reports.
-- **[S-982]** Verbose logging is a developer setting: it counts only while developer mode is on, it
-  sits on the Logs page, and turning developer mode off also clears it. It takes effect on the next
-  record, no restart (`AppHost.StateChanged` → `LogFiles.Apply`). Switching it writes one WARN line
-  ("verbose logging on/off") so a reader of the file can see where the detail starts and stops.
+- **[S-981]** Level policy: warnings and errors are always recorded; info and debug only in a debug
+  build. A record under the floor is dropped in `Log` before it is redacted or formatted. The
+  original kept only errors by default; warnings are kept here too because they are rare in this app
+  and are what explains most "it stopped updating" reports.
 - **[S-983]** Redaction, central: `Log` passes every message and every exception's full text
-  through `LogRedactor` before any sink sees it, so no sink — file, event log, Logs page, clipboard
+  through `LogRedactor` before any sink sees it, so no sink — file, event log, debugger
   — can carry a secret. Removed: `Bearer`/`Basic` credentials; secret-named parameters
   (`access_token`, `refresh_token`, `id_token`, `client_secret`, `password`, `api_key`, `cookie`,
   `authorization`, …) in `=`, `:` and JSON form; OAuth query parameters (`code`, `state`, `token`,
@@ -3089,33 +2922,13 @@ section. Pure rules in Core (`Diagnostics/LogFileRules`, `LogPolicy`, `LogRedact
   characters without splitting a surrogate pair. The source is registered by the installer (HKLM,
   later package); without it Windows still files the event, wrapped in its "description cannot be
   found" preamble. A failure to register or report is silent: the caller is the logging pipeline.
-- **[S-987]** Session buffer: the last 500 records of this session (the same floor as the file),
-  in memory, what the Logs page lists. Older sessions are in the files.
-- **[S-988]** Logs page list: newest first, filtered by minimum level (all / info+ / warnings and
-  errors / errors only) and by source (all, or one scope seen this session), at most 200 rows drawn
-  with "Newest 200 of N". Live while on screen (subscribes on Loaded, unsubscribes on Unloaded;
-  bursts coalesce into one render; a record logged by its own render does not trigger another).
-  Copy puts the rows shown on the clipboard in the file format; Clear empties the list, not the
-  files. Empty states say whether only warnings and errors are being recorded.
-- **[S-989]** Logs page rows: verbose logging; log files (count, size, folder, limits) with Open
-  folder (creates the folder first, so Explorer is not sent elsewhere); a note on the event log
-  mirror and on redaction.
-- **[S-990]** Developer mode: a switch at the end of General › Developer. It adds the Logs page to
-  the settings menu (footer, above About) and to search; turning it off removes the page, and the
-  window leaves it if it was open (`AppPageEntry.Available`).
-- **[S-991]** While developer mode is on, a banner (`InfoBar`, informational, not closable) spans the
-  full width of the settings window between the title bar and the navigation, so it shows on every
-  page: "Developer Mode unlocks experimental features that may not be fully tested. Use them at your
-  own risk." (`settings.devBanner.text`, all nine languages). Hidden when it is off; the text follows
-  a language switch (`ConfigWindow.ApplyDevBanner`, `ConfigWindow.Chrome.cs`). Debug render: `--settings-png <page> out.png --dev`.
 
-Not ported, on purpose: DevTools (no web view), demo mode and dev views (the widget gallery plays
-that role), the per-window webview log forwarding gate and console-noise filter ([LOG-02],
-[LOG-03]; no webview), the dependency DEBUG cap ([LOG-06]; .NET libraries do not log into `Log`).
-Not done here, pending other lanes: the widget gallery in release behind developer mode (its entry
-is in `DesktopWindow.Toolbar.cs` and its fixtures are debug-only), the Web element widget hidden
-from the picker outside developer mode (`DesktopWindow.Picker.cs`), and the original's pre-release gate on the Google
-and GitHub sign-in providers (a launch decision, not a developer feature).
+Not ported, on purpose: the original's Developer section and Logs page — developer mode, verbose
+logging, the session list of records ([S-1724]); DevTools (no web view), demo mode and dev views (the
+widget gallery plays that role), the per-window webview log forwarding gate and console-noise
+filter ([LOG-02], [LOG-03]; no webview), the dependency DEBUG cap ([LOG-06]; .NET libraries do not
+log into `Log`). Not done here: the original's pre-release gate on the Google and GitHub sign-in
+providers (a launch decision, not a developer feature).
 
 ## Mixer and Volume (SYS-P5)
 
@@ -3203,9 +3016,6 @@ Keyboard lease in the remaining lists, Accounts links, and four layout gaps.
   not its keys. An item that left the list marks no row.
 - **[S-1566]** Processes: Up/Down/Home/End move a ring over the processes shown; it follows its
   process through re-rankings. Rows carry the inset ring; the column headings step in by as much.
-- **[S-1567]** Meter breakdown lists (CPU and memory top processes, drives): same cursor; Enter does
-  what a click on the row does (a drive opens in Explorer). Only a meter whose list is on screen
-  takes the keyboard (`WantsKeys`).
 - **[S-1568]** RSS: the Menu key opens the focused item's menu.
 - **[S-1569]** Bluetooth detail panel: on a tile Regular+ wide and Expanded+ tall with one column of
   rows that leaves at least 128 DIPs (`BluetoothLayout.DetailMinHeight`), the height under the rows
@@ -3231,25 +3041,6 @@ Keyboard lease in the remaining lists, Accounts links, and four layout gaps.
 - **[S-1571]** Habits one height class down (Regular, e.g. M): the height no whole row can use
   carries the summary's line ("3 of 5 done today · 71%") without its bar; the full strip with bar
   stays at Expanded height.
-- **[S-1572]** Meters, Stacked at Expanded height with a list (CPU at Tall/L): the list's first 3
-  rows are promised right after the chart's floor, before details, stats and the per-core strip;
-  the list grows into what is left at its own rung. Trade-off: at Tall and L the per-core strip
-  sheds (it is shown at M, Wide and XL); the original's L put cores and processes side by side,
-  which the stacked arrangement cannot.
-
-Settings: the "Accounts" link on the Developer (GitHub/Claude) and Tasks pages is a `NavRow`
-(chevron, in-window), like OneDrive's.
-
-## Shortcuts A: display and items (PC)
-
-Code: `Widgets/ShortcutsView.cs` (lifecycle, ladder, widget menu) + `.Cells.cs` (tiles, rows,
-icons, painting) + `.Input.cs` (selection, band, keys, item menu, rename, search),
-`Shell/Config/WidgetSettings.Shortcuts.cs`, `Services/AppIcons.cs`, `Services/RecycleBinStatus.cs`,
-Core `Model/Configs/ShortcutsConfig.cs`, `Widgets/LaunchTarget.cs`, `Widgets/ShortcutRules.cs`,
-`Widgets/ShortcutLayout.cs`, `Widgets/ShortcutSelection.cs`. Tests: `ShortcutsTests` (S1380..S1393),
-`LaunchTargetTests`, `LauncherPersistenceTests`. Ports the original `widgets/others/shortcut/SPEC.md`
-except drop, cross-widget drag and app layouts (package PD).
-
 - **[S-1380]** Config (original S-21..S-23, S-33, S-46..S-48, S-71): `View` Grid (default) / List /
   Details, `GridSize` and `ListSize` Small / Medium / Large, `GridStretchHeight`, `GridIconOnly`,
   `ShowFileExtension`, `ClickMode` (shared `ItemClickMode`, Double by default). Enums are written as
@@ -3304,9 +3095,8 @@ except drop, cross-widget drag and app layouts (package PD).
   Enter opens the selection, Delete removes it, F2 renames, the Menu key opens the item menu,
   Escape cancels rename, then closes search, then clears the selection. Ctrl+A is "Select all" on the
   card menu (the lease never maps Ctrl chords, [S-803]).
-- **[S-1391]** Card menu (original S-27, S-49): Search, the two other views, Larger / Smaller tiles
-  or rows, Icons only / Show names and Stretch (grid), Show / Hide file extensions, Open on single /
-  double click, Select all, Undo remove.
+- **[S-1391]** Card menu (original S-27, S-49): Search, Open on single / double click, Select all,
+  Undo remove. The view, sizes, icons only, stretch and file extensions are settings only ([S-1746]).
 - **[S-1392]** Items enter the widget's own surface through one method (`AddItems`); every
   target-specific choice (icon, menu, open, health) switches on `LaunchKind`. The seams PD builds on.
 - **[S-1393]** A new Shortcuts widget starts with the Recycle Bin and This PC (original S-20); the
@@ -3336,8 +3126,7 @@ client factory, connect callback, per-request check), `src/Themia.App/Services/N
   `NetRefusedException` carrying the sentence ("x is on the local network. Turn on local network
   access in Settings › General to reach it"): `FetchStatus.Refused` in a widget,
   `AccountError.Refused` for an account. Not guarded, as in the original: the camera stream (a LAN
-  camera is its point). WebView2 (web element) cannot be connected for; it keeps the per-navigation
-  `NetGuard.CheckAsync` of [S-1314].
+  camera is its point).
 - **[S-961]** Address classes (NG-01), one table for the whole app (`NetworkGuard.IsBlocked`):
   [S-1301]'s list plus site-local fec0::/10, and an IPv6 address carrying an IPv4 one — mapped
   ::ffff:a.b.c.d, IPv4-compatible ::a.b.c.d, NAT64 64:ff9b::/96 — is judged as that IPv4 address.
@@ -3410,8 +3199,6 @@ the picker body is `Shell/WidgetPicker.cs`, opened from `DesktopWindow.Picker.cs
   highlight through what is shown (the columns in reading order, or the results); a search starts on
   the best match so Enter takes it; Enter picks; Escape closes. The highlight is drawn, not focused,
   so the caret stays in the box.
-- **[S-950]** The Web element widget is listed only in developer mode (web-element S-33). Discovery
-  only: existing web elements keep rendering, and copy, paste and duplicate still work.
 - **[S-951]** A widget can be created directly inside a container: the target must exist on this
   display's view, be a container, and leave room under `WidgetTree.MaxDepth`. The rule is the same
   for every kind, containers included (the original allowed no nesting; this app allows it to the
@@ -3427,10 +3214,9 @@ the picker body is `Shell/WidgetPicker.cs`, opened from `DesktopWindow.Picker.cs
 - **[S-956]** Picking with Desktop starts click-to-place ([S-421]); picking with a container adds the
   widget at once and selects it. The settings window is not opened (the original opened it; [S-421]
   keeps adding and configuring as two decisions).
-- **[S-957]** The widget gallery stays debug-only rather than "release behind developer mode": its
-  sample data and PNG command line are debug-only and share its files, and a release gallery without
-  them would show only empty states. Debug builds also render the open picker:
-  `Themia.exe --picker-png <out.png> [--search text] [--into] [--dev]`.
+- **[S-957]** The widget gallery stays debug-only: its sample data and PNG command line are
+  debug-only and share its files, and a release gallery without them would show only empty states.
+  Debug builds also render the open picker: `Themia.exe --picker-png <out.png> [--search text] [--into]`.
 
 Not ported: picker row previews (`WidgetRowPreview`) and the group-by choice (`pickerGroups.ts`) — the
 columns are the grouping; the pro lock (licensing is out of scope). Pending other lanes: an "Add
@@ -3526,8 +3312,8 @@ Settings does (System, Bluetooth, Personalization, Accounts...). Code: `Shell/Co
 - **[S-1600]** The icons are Microsoft's Fluent UI System Icons "Color" set (the family Windows uses),
   bundled unmodified as SVG in `src/Themia.App/Assets/NavIcons/` (content files, no package). One
   per entry, echoing the Windows Settings equivalent where there is one: General = gear (`settings`),
-  Appearance = Personalization's brush (`paint_brush`), Layout = tiles (`apps`), Accounts =
-  Accounts' person (`person`), Logs = `document_text`, About = `question_circle` (the set has no
+  Appearance = Personalization's brush (`paint_brush`), Accounts = Accounts' person (`person`),
+  About = `question_circle` (the set has no
   info icon), every view = `content_view`, every display = System's screen (`laptop`; the set has
   no desktop monitor). A new app page names its icon in its `AppPages` line.
 - **[S-1601]** Each icon is drawn by `SvgImageSource` in a 20-DIP icon box (NavigationView's default
@@ -3648,8 +3434,9 @@ installer). Release steps and the manual sideload test: `docs/STORE.md`.
   compiled XAML, no managed Themia assembly and no signature. No certificate is made, imported or
   trusted by any script. Logos are drawn at every requested size from the Themia mark by
   `scripts/package-logos.py` into `Assets/Package/`.
-- **[S-1061]** Capabilities: `runFullTrust`, plus `radios` and `bluetooth` for the Bluetooth widget,
-  and `location` for the network tile's Wi-Fi name ([S-1610]). Not declared: `internetClient` (not enforced for full trust), and every broad capability.
+- **[S-1061]** Capabilities: `runFullTrust`, plus `radios` and `bluetooth` for the Bluetooth widget.
+  Not declared: `location` (nothing reads the Wi-Fi name since [S-1762]), `internetClient` (not
+  enforced for full trust), and every broad capability.
 - **[S-1062]** The manifest declares the `windows.startupTask` `ThemiaStartup` (disabled by default)
   that the packaged autostart ([S-937]) asks for. No event-log source is declared: MSIX can only
   register one with a message file, and Themia ships none; `EventLogSink` already writes under the
@@ -3666,8 +3453,7 @@ installer). Release steps and the manual sideload test: `docs/STORE.md`.
 - **[S-1065]** Free tier: every widget type, at most **10 widgets** (all views, containers and their
   members each count) and **2 views**, as the original. Gates at every create: placement start and
   landing, paste (net of a cut's original; a group pastes whole or not at all), duplicate, add into a
-  container (picker), new view, and the view a newly seen display would get (it shares the active
-  view at the cap). A refusal creates nothing and says why in a notice ([S-881]) whose "See plans"
+  container (picker) and new view. A newly seen display creates nothing ([S-1705]), so it needs no gate. A refusal creates nothing and says why in a notice ([S-881]) whose "See plans"
   opens Settings › License, which repeats it once. Nothing
   is ever deleted or hidden for being over the limit; moving, editing and deleting are never gated.
   Import is a replacement, not a create, and is not gated.
@@ -3990,8 +3776,8 @@ Tests: `tests/Themia.Core.Tests/DeskParityTests.cs`. Gallery fixtures: `Shell/Ga
   (+change), moon, solar noon, dawn, dusk, next full/new moon. One row = the next event. Rows stand
   beside the graphic on a strip, and go two to a line on E×E with the graphic keeping 45% of the
   height. XS and S stay graphic (+strip): a 32 px row does not fit under the 46 px floor there.
-- **[S-1493]** Widget menu: sun path's three modes (current checked) and the event rows toggle,
-  written to the config and saved (original's context menu).
+- **[S-1493]** *(Retired by [S-1746].)* The sun path's modes and the event rows are settings only;
+  the widget has no menu entries of its own.
 - **[S-1494]** The place is picked by city name through the shared `PlaceSearch` (Open-Meteo
   geocoder, resolved once at the pick); exact name/latitude/longitude stay editable and validated
   (S-171's refusal rule unchanged). This supersedes S-171's "no geocoding service" reason.
@@ -4010,25 +3796,11 @@ Tests: `tests/Themia.Core.Tests/DeskParityTests.cs`. Gallery fixtures: `Shell/Ga
 
 ## Device and location (DEVICE-AND-LOCATION)
 
-`Package.appxmanifest`, `Themia.App/Services/{LocationConsent,CoreAudio.Default}.cs`, `WlanInfo.cs`,
-`Widgets/Meters/NetworkMeter.cs`, `Widgets/{AudioFeed,VolumeView,MixerView,MixerView.Panel}.cs`,
-`Shell/Gallery/NetworkFixture.cs`; Core `Widgets/{WifiNameRules,AudioDefaultRules}.cs`; tests
-`DeviceAndLocationTests`.
+`Themia.App/Services/CoreAudio.Default.cs`, `Widgets/{AudioFeed,VolumeView,MixerView,MixerView.Panel}.cs`;
+Core `Widgets/AudioDefaultRules.cs`; tests `DeviceAndLocationTests`. The location half ([S-1610]..[S-1613],
+[S-1619]: the Wi-Fi name, its consent prompt and the `location` capability) is removed with the
+network meter's connection line ([S-1762]).
 
-- **[S-1610]** The package declares the `location` device capability ([S-1061]); Windows treats the
-  Wi-Fi network name as location data, and only the network tile's Wi-Fi line uses it.
-- **[S-1611]** Packaged, a Wi-Fi connection line without a name gets a hint line under it. Windows'
-  consent prompt (`AppCapability("location").RequestAccessAsync`) is shown only when the user clicks
-  that hint while Windows still wants to ask, at most once per run — never by itself, never at
-  startup. The permission is read lazily (`CheckAccess`, first time a Wi-Fi line is drawn) and kept
-  current by `AccessChanged`, which also makes `WlanInfo` ask again at once instead of waiting out its
-  30 s cache. Nothing is polled. `WlanInfo` reports ERROR_ACCESS_DENIED as `Refused`.
-- **[S-1612]** Unpackaged builds are unchanged: no capability API call, no prompt, no hint.
-- **[S-1613]** The hint reads "Allow location to show the network name" and is a link: it asks Windows
-  (first time) or opens `ms-settings:privacy-location` (refused, prompt already shown, or allowed yet
-  still refused, e.g. location off for the PC). The line itself keeps signal and link speed. A meter
-  detail line can be a link (`MeterFact.Open`); `ShellLauncher.OpenWindowsSettings` opens only
-  `ms-settings:` URIs.
 - **[S-1614]** In the Volume and Mixer widgets (device menu, XL mixer panel), picking a device makes it
   Windows' default output and the widget keeps following the default. "Follow the default output" and
   the device that already is the default change nothing in Windows (a bound widget just unbinds).
@@ -4047,11 +3819,8 @@ Tests: `tests/Themia.Core.Tests/DeskParityTests.cs`. Gallery fixtures: `Shell/Ga
   test, preview or gallery page ever switches a device: previews never reach the seam ([S-1233]).
 - **[S-1618]** Device tooltips: "(Windows default)" on the default, "Make … the default output" on
   the others.
-- **[S-1619]** `Network+fixture` (Debug) shows the packaged, location-refused Wi-Fi line (no name,
-  72 %, the hint) on any machine, with live throughput; the hint's link is inert in a preview.
 
-Needs live verification: the packaged consent prompt and `AccessChanged` (sideloaded MSIX); the
-default switch on real hardware (all three roles in Sound settings; refusal path on a locked-down
+Needs live verification: the default switch on real hardware (all three roles in Sound settings; refusal path on a locked-down
 account).
 
 ## Views and the view bar (WP8)
@@ -4067,11 +3836,11 @@ toolbar's snap switch. Rules in Core `ViewOps` and `ViewBarRules` (tests `ViewsT
   open child / a tab strip's selected tab name the copy. Data a widget only refers to (a note, an
   account) stays shared, as in the original. The copy is shown on the display asked from; it counts
   against the licence as one view plus its widgets.
-- **[S-901]** Reorder views by dragging a chip on the view bar (edit mode) or Move up / Move down on
-  the View page. By id, never by bar index, so a bar showing a filtered subset moves the right view.
+- **[S-901]** Reorder views by dragging a chip on the view bar (edit mode), by dragging a view in the
+  settings side menu ([S-1703]), or Move up / Move down in a view's menu (side menu, switcher). By id, never by bar index, so a bar showing a filtered subset moves the right view.
   The order is the bar's, the switchers', the settings pane's and Ctrl+n's.
 - **[S-902]** Deleting a view (never the last) repairs everything naming it in the same change:
-  display assignments (the display then gets a view again, [S-18]), the active view, the view for
+  display assignments (the display then gets an existing view again, [S-1705]), the active view, the view for
   new displays (back to null) and every bar whitelist (one left empty means all views again).
 - **[S-903]** A view's icon is picked on its page from the shared glyph grid (`IconChoice`), whose
   default cell shows the view's initials — what a view without an icon shows. The icon is drawn by
@@ -4116,12 +3885,53 @@ toolbar's snap switch. Rules in Core `ViewOps` and `ViewBarRules` (tests `ViewsT
 - **[S-916]** The display page has a View bar section: show, position (8 anchors), size, show names,
   and "Views on the bar" (one switch per view). Its view drop-down assigns through `ShowViewOn`.
 
-Not ported: the original's chip "drag-over" highlight (the chip itself moves instead); a drag in
-the settings pane's view list (Move up/down on the View page instead); the free-tier view-limit
+Not ported: the original's chip "drag-over" highlight (the chip itself moves instead); the free-tier view-limit
 tooltip on the bar (licensing refuses through `AllowCreate`). The help guide now describes the bar
 ([S-1532]). Debug render:
 `Themia.exe --viewbar-png <outDir>` draws the real bar, placed by the real rule, at nine
 anchor/size/mode combinations on a stand-in display with a taskbar strip.
+
+## Settings side menu and display views (R4-NAV)
+
+The settings window's side menu as a place to manage views, the View and Display pages, and how a
+display is given a view. Owning files: `Shell/Config/ConfigWindow.SideMenu.cs` (+ `.Navigation.cs`),
+`ConfigPages.View.cs`, `ConfigPages.Display.cs`, `AppHost.Displays.cs` (`SettingsSurface`, `EditView`);
+rules in Core `DisplayPlan.AssignViews` and `ViewOps.Rename` (tests `DisplayPlanTests`,
+`ViewPerDisplayTests`, `ViewsTests`).
+
+- **[S-1700]** The View page: Name, Icon, the view's widgets (each drilling into its page), Add widget
+  (Edit layout, [S-1701]), then under **Danger** Duplicate this view and Delete this view. No "Active
+  view" row (which display shows a view is chosen on the display's page or from the side menu) and no
+  order row (drag in the side menu, [S-1703], or Move up/down in its menu).
+- **[S-1701]** Edit layout from Settings (the View page's Add widget row, a view's or a widget's side
+  menu entry) first shows that view on the settings display ([S-1702]), then enters edit mode; from a
+  widget's entry, that widget is selected. Edit mode alone left the user arranging whatever view that
+  screen happened to show.
+- **[S-1702]** "This display", for a command given in Settings (Show on this display, Edit layout,
+  Duplicate), is the display holding the centre of the settings window; when the window is hidden,
+  minimised or off every display, the one under the pointer; else the first surface.
+- **[S-1703]** A view's side menu entry can be dragged onto another view's entry: it takes that view's
+  place in the order through `AppHost.ReorderView` (the view bar's own path, one undo step), so the
+  pane, the bar, the switchers and Ctrl+n follow. Only a drag that began in the side menu is accepted;
+  the move runs after the drop has finished, since it rebuilds the menu.
+- **[S-1704]** Right-click menus on side menu entries, through the shared `ItemMenu` (so they follow
+  the app's menu style): a **view** has Show on this display (off when it already shows there), Edit
+  layout; Rename (a box beside the entry: Enter or leaving commits, Escape cancels), Change icon (the
+  View page's icon grid); Move up, Move down (off at the ends); Duplicate view (shown on this display,
+  [S-900]), Delete view (danger, off for the last view; the undo notice is the way back). A **display**
+  has Shows (a submenu of the existing views, the shown one checked) and Show Themia on this display
+  (checked when on; off for the last display on, [S-845]). A **widget** has Edit layout and Delete
+  widget (danger). App pages have none. A right-click never navigates.
+- **[S-1705]** A display is never given a new view. The display pass (and import, delete and undo,
+  which re-run it) gives every display without a valid assignment an **existing** view: the one
+  chosen for new displays ([S-847]), else the active view. It is stored, so switching another display
+  later does not drag this one along. A display that has a view keeps it. Views are only ever made by
+  the user (New view, Duplicate). Was: each new display got an empty "Display n" view of its own.
+- **[S-1706]** The Display page's "Shows" drop-down lists the existing views and nothing else: no "new
+  view", no "follow the active view" (every display holds an assignment, so that choice lasted only
+  until the next display pass). It shows the display's assignment, or the active view before it has one.
+- **[S-1707]** Renaming a view (its page or the side menu) goes through `ViewOps.Rename`: the name is
+  trimmed; blank, unchanged or an unknown view changes nothing.
 
 ## Apps, Search, Help and Themia: parity and the whole tile (PI-A)
 
@@ -4168,7 +3978,7 @@ Tests: `AppWidgetsTests` (S1520..S1533), `HelpGuideTests`, `LauncherPersistenceT
   narrows while its box is on screen.
 - **[S-1528]** Item menu (right-click, or the Menu key): Open, Open file location, Copy path, Hide
   from list, Hide the folder (original S-15/S-24). Card menu: Refresh (reads the Start menu now,
-  S-13), the two other views (S-14), group / don't group, open on single / double click.
+  S-13) and open on single / double click; the view and grouping are settings only ([S-1746]).
 - **[S-1529]** Search ladder (`WebSearchLayout`): the box always (one ramp step larger at XL);
   engine chips (Google … Ecosia, Custom only when its template is usable) from an Expanded width —
   a click switches this widget's engine and saves it; the "Enter to search with …" hint when a line
@@ -4250,10 +4060,11 @@ filter, the Help/Themia buttons entering edit mode and opening Settings, the lin
   survives keeps its current config (text typed after a move is not taken back) and its instance
   (its card stays). A widget brought back gets the config it had (held by reference, never copied).
   A view brought back returns to the displays that showed it; every reference to a view that goes is
-  repaired as a delete repairs it ([S-902]); a display left without a view gets one (not a step).
+  repaired as a delete repairs it ([S-902]); a display left without a view is given an existing one
+  ([S-1705]; not a step).
 - **[S-887]** Drift (a layout change made without a commit) is folded into the next step, or recorded
-  as its own Change before an undo; never lost under a restore. Views the system creates for a new
-  display are adopted without becoming a step. Import and reset clear the history.
+  as its own Change before an undo; never lost under a restore. The view the system assigns to a new
+  display ([S-1705]) is adopted without becoming a step. Import and reset clear the history.
 - **[S-888]** Not undone: widget content and settings-page config, appearance, preferences, display
   switches and scales, view-bar settings, which view a display shows, and a view bar's visible-view
   list after a view delete is undone (the view returns hidden from bars that listed it).
@@ -4303,15 +4114,8 @@ the original had is ported, what it never had is recorded here and not built.
   `MoveHabit` through the pool (a drag that comes home writes nothing); capture lost, a rebuild under
   the drag or Detach puts the rows back. Rows are only translated while captured, never reparented.
   In edit mode the card takes the press and the widget moves instead.
-- **[S-1622]** CPU at Tall and L keeps its **per-core strip and the three promised process rows**.
-  The strip is offered in forms, richest first (`MeterCellForms.Ladder`): the full strip (tall bars,
-  figures on a tile Expanded in height), short 16-px bars with the caption, short bars alone. When the
-  full strip does not fit under the stats and the stat tiles sit under the reading (L), the short
-  captioned strip goes **beside the tiles**, the same height as a tile, costing no height; otherwise
-  the richest form that still fits goes under the stats (`Disclosure.Fits`, `Disclosure.TakeFirst`:
-  a rung offered in several sizes, only a total miss closes the ladder). Tall gets the bare
-  strip, L the captioned one beside the tiles, the Wide strip a bare one under its stats; M and XL
-  are unchanged.
+- **[S-1622]** `Disclosure.Fits` / `Disclosure.TakeFirst`: a rung offered in several sizes takes the
+  richest that fits, and only a total miss closes the ladder.
 - **[S-1623]** Power at XL fills its side panel: on a tile Huge in height the panel rows are the
   standard 40-px list height, the facts end with **"Up for 6d 11h"** (the CPU meter's uptime form),
   and after the power plans a **"Screen and sleep"** section lists the active plan's
@@ -4359,7 +4163,7 @@ Selection,Gesture,Layout,History,Badges}.cs` and `Files/{FileDrops,DropFiles,Fil
 - **[S-1322]** Details columns: Size, Modified, Type (shell type name, `SHGetFileInfo`, cached per extension), Cloud, Git,
   Items (folder entry count, counted off-thread up to 1000, shown "999+"). Shown in the user's order while each fits beside
   a 120 DIP name; the first that does not fit ends the row. Header click sorts Name/Size/Modified (again = reverse, saved);
-  header right-click toggles columns.
+  the columns are chosen in the settings only ([S-1746]; the header has no menu of its own).
 - **[S-1323]** Ladder (`FolderLayout.Plan`): one row / one tile row always; an open search box; the details column header;
   list view adds unlabelled Modified (W >= Regular), Size (>= Expanded), Type (>= Huge); at Expanded x Expanded a breadcrumb
   (tail first, clickable) and an Explorer-style footer ("24 items · 2 selected · 3.1 MB"); Huge width: grid tiles one size
@@ -4407,8 +4211,8 @@ Selection,Gesture,Layout,History,Badges}.cs` and `Files/{FileDrops,DropFiles,Fil
   reload (no timers); a reload in flight is marked dirty and followed by exactly one more. No watcher (some shares): 5 s
   timer, else the 30 s backstop. Disposed exactly once (orig. S-63).
 - **[S-1334]** Every rowless state says which it is (status messages; "Nothing here matches." under a filter).
-- **[S-1335]** Card menu: Open in Explorer, Refresh, the four views, row or tile sizes, hidden items, file extensions
-  (current choice checked).
+- **[S-1335]** Card menu: Open in Explorer, Refresh. The views, row or tile sizes, hidden items and file extensions
+  are settings only ([S-1746]).
 - **[S-1336]** Tests use made-up paths and byte buffers only; no test touches a real file.
 - **[S-1339]** `Folder+fixture` (Debug): a made-up project in `%TEMP%\Themia.Gallery\Folder` (pictures, a git repository when
   git exists, fixed dates); `THEMIA_GALLERY_FOLDER_VIEW` picks the view.
@@ -4464,10 +4268,10 @@ Owning files: `Widgets/ViewSwitcherView.cs`, Core `Widgets/ViewSwitcherLayout.cs
   `ViewSwitcher+fixture` has twelve, so XS shows the overflow and XL a 4×3 grid of cards. The pretend
   display's commands change nothing.
 
-## Motion: intros, hyperspace, hacker, startup sound (WP9-MOTION)
+## Motion: intros, hyperspace, hacker (WP9-MOTION)
 
 Ported from the original's `src/SPEC.md` [S-15], [S-16], [S-23], [S-24], [S-26], [S-27], [S-28]
-(`introSheets.ts`, `hyperspace.ts`, `hacker.ts`, `startupSound.ts`, `WidgetGrid.css`). Rules in
+(`introSheets.ts`, `hyperspace.ts`, `hacker.ts`, `WidgetGrid.css`). Rules in
 `Themia.Core/Motion/*`, tests in `MotionTests` and `ShellSettingsTests`; the surface side is
 `Shell/DesktopWindow.Motion.cs` and `Shell/Motion/*`.
 
@@ -4476,13 +4280,23 @@ Ported from the original's `src/SPEC.md` [S-15], [S-16], [S-23], [S-24], [S-26],
   (`UnlockAnimation`/`…Ms`); default Scale / 500 ms each. One resolver (`IntroMotion.StyleFor`/`MsFor`)
   maps a moment to its pair. Styles: None, Fade, Scale, Slide, Sides, Top and bottom, Flip, Blur,
   Hyperspace, Hacker. Lengths are 100..5000 ms (the original's stepper); load clamps out-of-range
-  values into it and a non-finite one to 500.
+  values into it and a non-finite one to 500. A length is the **whole** show's ([S-1760]).
+- **[S-1760]** **The length is the animation's whole wall time** (user requirement: it used to run far
+  longer): the overlay, the wait for its jump, the cascade across every widget and the last widget's
+  own animation all fit inside it, and the last widget comes to rest exactly on it
+  (`IntroSchedule.For`, tested for every style, moment, length and 1..200 widgets). The cascade keeps
+  its 45 ms step and 540 ms cap while there is room, but takes at most 40 % of the widgets' time; each
+  widget animates for what the cascade leaves. Hyperspace's overlay timeline (static, accel, cruise,
+  jump, decel, fade; 4.5 s natural) is played faster or slower as one piece to the length, so the
+  widgets wait for the scaled jump, the shake and the veil follow the same clock, and the overlay's
+  fade ends with the show. Before, each widget took the whole length after its cascade (20 widgets
+  at 500 ms took 1040 ms) and hyperspace added 4.1 s to whatever was set.
 - **[S-1001]** Intros are **armed one-shots** per display (`IntroArming`): a surface's first layout
   that the user can see (loaded, usable size) plays Startup; a layout of a different view than the last
   plays View change. Every other rebuild is silent: a rename, a widget placed, pasted, restored or
   synced in, a settings change, a game-mode resume. A widget added to a live desktop never animates.
 - **[S-1002]** Widgets cascade in the view's widget order: widget *i* starts `min(i·45, 540)` ms after
-  the first. Only grid-placed widgets animate; a stack's or tab strip's children move with their
+  the first, squeezed when the length has no room for that ([S-1760]). Only grid-placed widgets animate; a stack's or tab strip's children move with their
   container, a collapsed group's members draw nothing.
 - **[S-1003]** The keyframe styles are the original's keyframes as data (`IntroTracks`), with its
   curve `cubic-bezier(0.22, 1, 0.36, 1)`: Fade (opacity), Scale (opacity, 0.94→1, 16 DIP rise), Slide
@@ -4498,8 +4312,8 @@ Ported from the original's `src/SPEC.md` [S-15], [S-16], [S-23], [S-24], [S-26],
   overlay under the widgets: a black veil and a 100-star field around a core at 68% of the height.
   The warp (`Hyperspace.Warp`): static 900 ms, a tease to 0.06 over 1220 ms, a 280-ms smoothstep snap
   to full warp, cruise to the **jump at 3300 ms**, a cubic drop over 900 ms. The veil holds black to
-  the jump and lifts across the deceleration; the overlay fades out over 300 ms at
-  `jump + 540 + length + 300`. Stars are compositor sprites bound by expressions to two animated
+  the jump and lifts across the deceleration; the overlay fades out over the last 300 ms. These are
+  the natural times, scaled to the length ([S-1760]). Stars are compositor sprites bound by expressions to two animated
   numbers, the warp level and its travel (closed form `Hyperspace.Distance`/`Angle`: speed grows with
   depth; past the edge a star is reborn at the core on its next ray, turned by the golden angle);
   streaks are cut at the core. While it plays the surface's hit region is the work area, so the veil is
@@ -4513,18 +4327,9 @@ Ported from the original's `src/SPEC.md` [S-15], [S-16], [S-23], [S-24], [S-26],
   `WidgetCard.SetMotionCover`): opaque green phosphor from the first frame, one of five panels by
   index (console log, molecule, CCTV, hex dump, radar, oscilloscope; neighbours never repeat), then a
   fade that reveals the widget. Cover 65% of the length, fade the rest, the cascade added to the
-  reveal, so the first widget is done at exactly the length. Panels move by compositor loops, not a
+  reveal, all inside the length: the last tile is gone exactly at it ([S-1760]). Panels move by compositor loops, not a
   redrawn canvas. The palette is the style's own, deliberately not the accent.
-- **[S-1008]** The optional **startup sound** (`StartupSound.Plan`, synthesised, no assets) matches
-  the style: a warp cue timed from the same `Hyperspace` constants (sawtooth whine, band-passed wind,
-  sub drone, a boom at the jump); a hacker blip churn (5..28 blips by length) with a two-note confirm; a
-  soft two-partial swell for the others, one base note per style, rising a fifth for Scale and Slide.
-  A plan that would clip is scaled to full scale; quieter plans keep their level.
-- **[S-1009]** The sound plays with the **Startup** intro only, once per launch however many displays
-  there are (the first surface to reach its startup moment spends it), and with a Startup replay;
-  never on unlock or a view change, never when the intro does not play. Single-flight through
-  `CuePlayer`: a new cue stops the one still sounding. Rendered off the UI thread.
-- **[S-1010]** Nothing plays — no intro, no overlay, no sound — while Windows' **Animation effects**
+- **[S-1010]** Nothing plays — no intro, no overlay — while Windows' **Animation effects**
   is off (`UISettings.AnimationsEnabled`, read when an intro would start), the desktop's
   `prefers-reduced-motion`. The Motion settings say so when it is off.
 - **[S-1011]** Unlocking the session (`WTS_SESSION_UNLOCK` only, heard by the command window)
@@ -4535,13 +4340,13 @@ Ported from the original's `src/SPEC.md` [S-15], [S-16], [S-23], [S-24], [S-26],
   hit region, drag geometry and saved rects never see a half-animated box, and every widget takes clicks
   from the first frame. The show ends on its animations' completion (one scoped batch), not a timer.
 - **[S-1014]** Settings › Appearance › Motion: one expander per moment (Startup, Unlock, View change)
-  with the style, the length (100..5000 ms) and a ▶ replay; Startup also has **Startup sound**. Any
-  change replays that moment on the desktop; turning the sound on replays Startup with it.
+  with the style, the length of the whole animation (100..5000 ms) and a ▶ replay. Any change replays
+  that moment on the desktop. The startup sound ([S-1008], [S-1009]) is removed.
 - **[S-1015]** Every intro runs on the compositor (`MotionKit`): keyframe and expression animations,
   no per-frame managed timer, no layout pass, no redraw of a widget.
 - **[S-1016]** Debug: `Themia.exe --motion-png <outDir>` freezes the intros mid-flight on a stand-in
-  screen, posed from the same Core data (keyframe styles at 250 ms, Sides at 60 ms, Hyperspace at
-  600/2300/2900/3450/3800 ms, Hacker tiles through the real hook). It proves the choreography, not the
+  screen, posed from the same Core data (keyframe styles at 250 ms of 500, Sides at 60 ms, Hyperspace
+  at 600/2300/2900/3450/3800 ms of its natural 4.5 s, Hacker tiles through the real hook). It proves the choreography, not the
   compositor's playback.
 
 ## Desktop surface drops (WP10-SURFACE)
@@ -4662,3 +4467,110 @@ of web, Windows-location and layout items (no file to hand over); Ctrl+Z op log 
 verification: drops from Explorer / Edge / Chrome / the Start menu, pointer reorder and drag-out on the
 real surface, layout launch with Word/Outlook/Code/browser/Explorer windows on multiple monitors and
 mixed DPI, the editor's divider drag, pickers and app search.
+
+## Context menus (R4-MENUS)
+
+Every right-click menu in the app — a widget's card, an item inside a widget, empty surface in edit
+mode, a view chip, the settings window — and how a click on a card in edit mode reaches the settings.
+Owning files: `Themia.Core/Shell/ContextMenus.cs` (`ContextMenuLayout`, `ShellMenus`, `CardGestures`);
+`Widgets/ItemMenu.cs` (the one builder), `WidgetCard.cs` (card menu, click), `DesktopWindow.Menu.cs`
+(surface menu), `Gallery/MenuRender.cs`. Tests: `ContextMenuTests`.
+
+- **[S-1740]** One menu, Windows 11 File Explorer style: a `CommandBarFlyout`, always expanded, with
+  the common commands as a **row of icons** on top and the labelled list below. The row's commands
+  and order: Cut, Copy, Paste, Rename, Duplicate, Settings, Delete. Each icon has its label as tooltip
+  (with the shortcut, "Copy (Ctrl+C)") and as its accessible name. A disabled command stays in its
+  place, greyed, so the row never shifts. A second entry claiming the same command, a toggle and a
+  submenu stay in the list. `ItemMenu` is the only code that builds a context menu; no view builds a
+  `MenuFlyout` for one by hand.
+- **[S-1741]** With fewer than two row commands there is no row: a lone icon reads as a stray button,
+  so it stays a labelled line in the list, and the menu is the list alone (a `MenuFlyout`: a command
+  bar flyout with no row still draws an empty bar above its list).
+- **[S-1742]** The list keeps its callers' order; separators collapse (none leading, trailing or
+  doubled), including where moving commands to the row emptied a group.
+- **[S-1743]** A widget card's menu: the row is Cut, Copy, Paste (disabled with nothing to paste),
+  Duplicate, Settings and Delete, acting on the selection ([S-1592]); the list is Add widget inside
+  (containers), the view's own commands, Move into (submenu, when there is a target), Bring to front /
+  Send to back (grid-placed widgets only), Move, and Edit layout / Done editing.
+- **[S-1744]** In edit mode a right-click on **empty surface** (not a card, the toolbar or the view
+  bar) opens the surface menu: Paste and Settings in the row; Add widget (opens the picker at the
+  click, whose choice then follows the pointer to be placed, [S-1587]), Select all ([S-1582], off
+  with no widget), Snap to grid (checked when on, [S-06]) and Done editing in the list. Outside edit
+  mode empty surface is click-through; while placing, the right-click cancels the placement and opens
+  nothing.
+- **[S-1745]** In edit mode a plain click on a card — pressed and released on it, not on a resize
+  handle, without Ctrl, travelling less than 3 DIPs — shows that widget's page in the settings window
+  **if the window is already open**, without bringing it to the front (the desktop keeps the
+  keyboard) and leaving it alone when it already shows that page. A closed window is never opened by a
+  click; a drag, a resize, Ctrl+click and a gesture lost to capture are not clicks.
+- **[S-1746]** A widget's menus never change how it looks: no view, layout, sort, size, label,
+  column, format or "show X" switches on the card menu or an item menu. Those are settings and live on
+  the widget's settings page only (each one already has a row there). The menus keep commands the user
+  runs while looking at the widget: refresh, pause, open, which folder, the click mode, search.
+- **[S-1747]** Debug: `--menu-png <outDir>` opens the card menu (edit mode, one
+  widget; desktop, three widgets), the surface menu and two sample item menus for real, off-screen,
+  and writes each open popup to a PNG.
+
+Needs a live pass (pointer and focus on the real desktop): the surface menu opening only on empty
+surface and at the pointer, Add widget's picker at the click then placing, the right-click that
+cancels a placement opening no menu, keyboard use of the menus (arrows across the icon row and into
+the list, Menu key / Shift+F10 on rows), submenus opening beside their line, a click on a card
+following an open settings window (and a double-click still leaving edit mode), and both menus on a
+second display with another DPI.
+
+## Icon picker and showcase views (R4-ICONS)
+
+The icon a view or a group is given, chosen from the whole Segoe Fluent Icons set, and a Debug tool
+that puts every widget on the real desktop at every gallery size. Owning files: Core
+`Icons/FluentIcons.cs` (+ the generated `FluentIconData.g.cs`, from `scripts/fluent-icons.py`),
+`Icons/IconSearch.cs`, `Widgets/WidgetTiers.cs`, `Model/ShowcaseViews.cs`; App `Shell/IconChoice.cs`,
+`Shell/IconPicker.cs`, `Shell/Gallery/IconPickerRender.cs`, `Shell/Gallery/ShowcaseCommand.cs`. Tests
+`IconSearchTests`, `ShowcaseViewsTests`.
+
+- **[S-1800]** The picker offers every glyph of the WinUI Gallery's icon list (about 1,500: name, code
+  point, tags; MIT, `THIRD-PARTY-NOTICES.md`), compiled into a C# table: no file and no JSON is read
+  at run time. A choice is stored as the glyph itself, as before ([S-703]); a tooltip names a glyph
+  by its Gallery name with the words spaced ("Global Nav Button").
+- **[S-1801]** Thirty-two suggested icons (home, work, games, music, …: the former curated set) come
+  first when nothing is typed, carry a name in every language, are found by that name and by the
+  English one ("Zuhause", "home"), and win a tie in the ranking.
+- **[S-1802]** Search (`IconSearch`): case- and accent-insensitive; every word of the query must
+  match the name, a tag, a suggested icon's names, or the four-digit code point ("e80f"). Best
+  first: code or whole name, name prefix, a whole word of the name, a word prefix of the name, a whole
+  tag, a word of a tag, a tag prefix, then a substring of the name, then of a tag; ties go to a
+  suggested icon, the shorter name, the lower code point. An empty query lists every icon. A query of
+  punctuation only ("$") is matched whole against the tags.
+- **[S-1803]** The picker (a flyout from the icon button, also opened by the side menu's Change icon,
+  [S-1704]) is built when it opens: the default cell (initials for a view, [S-903]) beside a search
+  box, over a virtualised grid of 8 columns of 40-DIP cells, 8 rows high, scrolling. Typing filters at
+  once; Enter in the box takes the best match, Down moves into the grid; arrows, Home/End and Page
+  keys move in the grid and Enter or Space picks. The current icon is selected and scrolled to. No
+  match says so in the grid's place, which keeps its size. Debug render:
+  `Themia.exe --iconpicker-png <out.png> [--search text] [--theme light|dark] [--initials]`.
+- **[S-1810]** Showcase views: one view per widget kind in catalogue order, named after the widget
+  and with its glyph as the view icon, holding seven default instances of it, one per gallery tier
+  (`WidgetTiers`: XS 120×120, S 200×150, M 320×240, Wide 480×160, Tall 200×400, L 560×420, XL 800×560
+  DIPs; the gallery render reads the same table). Each cell is the tier times the display's content
+  scale ([S-850]) plus the widget gap, so the content lays out at exactly the tier, as in the gallery.
+  The cells are packed tallest first, lowest-then-leftmost, inside the work area less 16 DIP, without
+  overlap, on whole DIPs. Containers are empty instances.
+- **[S-1811]** Ids are derived, not random: `showcase-<kind>` for a view, `showcase-<kind>-<tier>` for
+  a widget, so a rerun produces the same ids.
+- **[S-1812]** When the seven do not fit one work area (1920×1080 at 125 %, for one), the rest go on
+  further views of the same kind ("Clock (1)", "Clock (2)", ids `showcase-clock`, `showcase-clock-2`).
+  A tier larger than the whole work area is shrunk to it.
+- **[S-1813]** A rerun replaces the showcase rather than adding a second: the fresh views go to the
+  end, an old one whose id comes back is replaced (a display showing it keeps it), one that does not is
+  deleted with its references repaired ([S-902]). Widgets the user added to a showcase view go with it.
+- **[S-1814]** Only through a Debug-build flag, never the app's UI:
+  `Themia.exe --add-showcase-views [<statePath>]` (default: the app's own state file) lays the views out
+  for the primary display, writes the file atomically through the store and exits. Exit 0 written,
+  2 no display, 3 refused because a copy of Themia is running and the target is the app's own state
+  file (that copy owns it and would overwrite the change), 4 the file is not a state document (left
+  untouched), 5 the write did not land. A missing file starts from the default layout. The free tier's
+  limits ([S-1065]) are not involved: they gate creating in the running app, a loose build is
+  unrestricted ([S-1064]), and nothing over a limit is ever hidden or deleted.
+
+Needs a manual pass: the picker's keyboard path inside the real flyout (Down from the box, Enter,
+Escape), the side menu's Change icon, and the showcase views on a real desktop (each tier's size at
+the display's scale, the second page on a small or scaled display, the refusal while the app runs).

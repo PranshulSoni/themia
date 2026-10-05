@@ -4,14 +4,12 @@ using Themia.Core.Widgets;
 
 namespace Themia.App.Services;
 
-/// <summary>[S-1162] [S-1164] One collection of the disk counters: rates per drive letter, and operations across every disk.</summary>
+/// <summary>[S-1162] One collection of the disk counters: rates per drive letter.</summary>
 /// <param name="Rates">Read and write bytes per second, keyed by <c>\LogicalDisk</c> instance (<c>C:</c>).</param>
-/// <param name="Reads">Read operations per second across every physical disk; null when the counter did not answer.</param>
-/// <param name="Writes">Write operations per second across every physical disk; null when the counter did not answer.</param>
-internal readonly record struct DiskActivity(IReadOnlyDictionary<string, DiskRates> Rates, double? Reads, double? Writes);
+internal readonly record struct DiskActivity(IReadOnlyDictionary<string, DiskRates> Rates);
 
 /// <summary>
-/// [S-1160]..[S-1166] The disk meter's data. Space comes from <c>GetDiskFreeSpaceEx</c> on every
+/// [S-1160]..[S-1163] The disk meter's data. Space comes from <c>GetDiskFreeSpaceEx</c> on every
 /// read (microseconds, and the figure a user copying a large file wants to see move); which volumes
 /// exist, and their labels, from a walk of the drives at most every
 /// <see cref="VolumeRefreshMs"/>, because that walk asks every drive — a sleeping removable one
@@ -40,8 +38,6 @@ internal static class DiskMetrics
     private static bool _queryFailed;
     private static PdhCounter? _readBytes;
     private static PdhCounter? _writeBytes;
-    private static PdhCounter? _readOps;
-    private static PdhCounter? _writeOps;
 
     /// <summary>The system drive's root, what a widget naming no drive reports on.</summary>
     public static string SystemRoot => Path.GetPathRoot(Environment.SystemDirectory) ?? "C:\\";
@@ -117,10 +113,7 @@ internal static class DiskMetrics
             ? DiskRules.Pair(query.Doubles(r), query.Doubles(w))
             : new Dictionary<string, DiskRates>();
 
-        var activity = new DiskActivity(
-            rates,
-            _readOps is { } ro ? query.Double(ro) : null,
-            _writeOps is { } wo ? query.Double(wo) : null);
+        var activity = new DiskActivity(rates);
 
         Cache.Store(now, activity);
         return activity;
@@ -202,8 +195,6 @@ internal static class DiskMetrics
         // Each is optional: a counter this machine lacks leaves its figure out rather than guessed.
         _readBytes = _query.Add(@"\LogicalDisk(*)\Disk Read Bytes/sec");
         _writeBytes = _query.Add(@"\LogicalDisk(*)\Disk Write Bytes/sec");
-        _readOps = _query.Add(@"\PhysicalDisk(_Total)\Disk Reads/sec");
-        _writeOps = _query.Add(@"\PhysicalDisk(_Total)\Disk Writes/sec");
         return _query;
     }
 
@@ -219,7 +210,7 @@ internal static class DiskMetrics
         _query?.Dispose();
         _query = null;
         _queryFailed = false;
-        _readBytes = _writeBytes = _readOps = _writeOps = null;
+        _readBytes = _writeBytes = null;
         Cache.Clear();
     }
 

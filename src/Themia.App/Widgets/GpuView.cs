@@ -13,17 +13,16 @@ using Themia.Core.Widgets;
 namespace Themia.App.Widgets;
 
 /// <summary>
-/// [S-430] Graphics load, as the CPU and memory tiles show theirs: the reading, lines of detail
-/// under it, and the history as a full-bleed chart.
+/// [S-430] Graphics load, as the CPU and memory tiles show theirs: the reading and the history as a
+/// full-bleed chart, nothing else ([S-1762]).
 /// <para>
 /// One adapter fills the tile and names the card after itself. Two or more share the tile as panels,
 /// each with its own name, reading and history ([S-433], [S-1207]) — a laptop's integrated and
 /// discrete GPUs are two different stories, and one averaged number would tell neither.
 /// </para>
 /// <para>
-/// [S-1201] Each panel climbs a ladder as it grows: the load, then the history, the memory lines, the
-/// driver's lines, the engines and the busiest processes, with the load to one decimal and the
-/// chart's span on a tile large both ways. Nothing is shown that the room cannot hold whole.
+/// [S-1201] Each panel climbs the meters' ladder (<see cref="MeterFace"/>): the load alone on a tiny
+/// panel, else the history under it (beside it on a strip) growing to fill the panel.
 /// </para>
 /// </summary>
 internal sealed partial class GpuView : Grid, IWidgetView, IWidgetSurfaceAware, IWidgetSizeAware
@@ -228,7 +227,7 @@ internal sealed partial class GpuView : Grid, IWidgetView, IWidgetSurfaceAware, 
         {
             SetColumn(_shown[i].Root, i % columns);
             SetRow(_shown[i].Root, i / columns);
-            _shown[i].Lay(cell, _config.TickInterval);
+            _shown[i].Lay(cell);
         }
     }
 

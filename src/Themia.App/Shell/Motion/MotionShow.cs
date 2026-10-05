@@ -59,7 +59,8 @@ internal sealed class MotionShow
     public HyperspaceOverlay? Overlay { get; private set; }
 
     /// <summary>
-    /// Start a show. <paramref name="mountOverlay"/> puts the overlay's element under the widgets
+    /// Start a show <paramref name="ms"/> long in all ([S-1760]): the overlay, the cascade and every
+    /// widget's own animation fit inside it. <paramref name="mountOverlay"/> puts the overlay's element under the widgets
     /// before anything starts, so its first frame is already black. <paramref name="ended"/> runs once,
     /// on the UI thread, when the last finite animation has finished — or at once if nothing played.
     /// </summary>
@@ -75,10 +76,11 @@ internal sealed class MotionShow
         var compositor = ElementCompositionPreview.GetElementVisual(stage.Layer).Compositor;
         var kit = new MotionKit(compositor);
         var loops = new List<HackerTile.Built>();
+        var schedule = IntroSchedule.For(style, mode, ms, stage.Actors.Count);
 
-        if (IntroMotion.PlaysOverlay(style, mode))
+        if (schedule.Overlay)
         {
-            show.Overlay = new HyperspaceOverlay(stage.Width, stage.Height, Hyperspace.OverlayTotalMs(ms));
+            show.Overlay = new HyperspaceOverlay(stage.Width, stage.Height, schedule);
             mountOverlay(show.Overlay.Element);
         }
 
@@ -91,16 +93,16 @@ internal sealed class MotionShow
 
             if (show.Overlay is not null)
             {
-                Shake(kit, stage);
+                Shake(kit, stage, schedule);
             }
 
             if (IntroMotion.UsesTiles(style))
             {
-                loops.AddRange(show.CoverAll(kit, stage, ms));
+                loops.AddRange(show.CoverAll(kit, stage, schedule));
             }
             else if (IntroTracks.For(style) is { } tracks)
             {
-                show.AnimateAll(kit, stage, tracks, mode, style, ms);
+                show.AnimateAll(kit, stage, tracks, style, schedule);
             }
         }
         finally
@@ -117,7 +119,7 @@ internal sealed class MotionShow
             built.StartLoops(kit);
         }
 
-        Log.Debug(Scope, $"intro {mode}/{style} {ms:0} ms over {stage.Actors.Count} widget(s){(show.Overlay is null ? string.Empty : ", with the overlay")}");
+        Log.Debug(Scope, $"intro {mode}/{style} {schedule.TotalMs:0} ms over {stage.Actors.Count} widget(s){(show.Overlay is null ? string.Empty : ", with the overlay")}");
         return show;
     }
 
@@ -128,9 +130,8 @@ internal sealed class MotionShow
     /// </summary>
     public void Stop() => Finish();
 
-    private void AnimateAll(MotionKit kit, MotionStage stage, IntroTracks tracks, IntroMode mode, IntroAnimation style, double ms)
+    private void AnimateAll(MotionKit kit, MotionStage stage, IntroTracks tracks, IntroAnimation style, IntroSchedule schedule)
     {
-        var baseDelay = IntroMotion.BaseDelayMs(style, mode);
         SheetOffsets? sheets = IntroSheets.AxisFor(style) is { } axis
             ? IntroSheets.Offsets(stage.Actors.Select(a => a.Rect), axis, axis == SheetAxis.X ? stage.Width : stage.Height)
             : null;
@@ -145,7 +146,7 @@ internal sealed class MotionShow
                 _ => (0.0, 0.0),
             };
 
-            Animate(kit, card, tracks, start, ms, baseDelay + IntroMotion.StaggerMs(style, i), stage.GapPx);
+            Animate(kit, card, tracks, start, schedule.WidgetMs, schedule.DelayMs(i), stage.GapPx);
         }
     }
 
@@ -203,7 +204,7 @@ internal sealed class MotionShow
     }
 
     /// <summary>[S-1007] Every card gets its tile, opaque at once, fading out on its own timing.</summary>
-    private List<HackerTile.Built> CoverAll(MotionKit kit, MotionStage stage, double ms)
+    private List<HackerTile.Built> CoverAll(MotionKit kit, MotionStage stage, IntroSchedule schedule)
     {
         var built = new List<HackerTile.Built>(stage.Actors.Count);
         var inset = Math.Max(0, stage.GapPx);
@@ -216,7 +217,7 @@ internal sealed class MotionShow
             card.SetMotionCover(tile.Tile);
             _covered.Add(card);
 
-            var timing = HackerIntro.TimingFor(ms, i);
+            var timing = schedule.Tile(i);
             ElementCompositionPreview.GetElementVisual(tile.Tile).StartAnimation("Opacity", kit.FadeOut(timing.RevealMs, timing.FadeMs));
             built.Add(tile);
         }
@@ -234,8 +235,8 @@ internal sealed class MotionShow
         return (Pick(card.ActualWidth, card.Width), Pick(card.ActualHeight, card.Height));
     }
 
-    /// <summary>[S-1006] The widget layer takes the warp's hits; the stars stay steady.</summary>
-    private static void Shake(MotionKit kit, MotionStage stage)
+    /// <summary>[S-1006] The widget layer takes the warp's hits, on the overlay's scaled clock; the stars stay steady.</summary>
+    private static void Shake(MotionKit kit, MotionStage stage, IntroSchedule schedule)
     {
         var visual = ElementCompositionPreview.GetElementVisual(stage.Layer);
         visual.CenterPoint = new Vector3((float)(stage.Width / 2), (float)(stage.Height / 2), 0);
@@ -244,8 +245,10 @@ internal sealed class MotionShow
 
         var move = Hyperspace.Shake.Select(k => new MoveKey(k.At, 0, k.X, k.Y, MotionEase.Linear)).ToArray();
         var roll = Hyperspace.Shake.Select(k => new MotionKey(k.At, k.Degrees, MotionEase.Linear)).ToArray();
-        visual.StartAnimation("Translation", kit.Move(move, (0, 0), Hyperspace.ShakeMs, Hyperspace.StaticMs));
-        visual.StartAnimation("RotationAngleInDegrees", kit.Scalar(roll, Hyperspace.ShakeMs, Hyperspace.StaticMs));
+        var duration = schedule.Scaled(Hyperspace.ShakeMs);
+        var delay = schedule.Scaled(Hyperspace.StaticMs);
+        visual.StartAnimation("Translation", kit.Move(move, (0, 0), duration, delay));
+        visual.StartAnimation("RotationAngleInDegrees", kit.Scalar(roll, duration, delay));
     }
 
     private void Finish()

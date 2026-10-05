@@ -63,19 +63,6 @@ public static class HackerIntro
         return Variants[((index % n) + n) % n];
     }
 
-    /// <summary>
-    /// [S-1007] A tile's timing for an intro of <paramref name="introMs"/>: it covers for 65% and fades
-    /// over the rest, so cover + fade is the configured length exactly, and the cascade is added to the
-    /// reveal — the first widget is done at exactly <paramref name="introMs"/>.
-    /// </summary>
-    public static HackerTiming TimingFor(double introMs, int index)
-    {
-        var d = double.IsFinite(introMs) ? Math.Max(1, introMs) : IntroMotion.DefaultMs;
-        var cover = Math.Round(d * CoverFraction);
-        var stagger = Math.Min(Math.Max(0, index) * IntroMotion.StaggerStepMs, IntroMotion.StaggerCapMs);
-        return new HackerTiming(cover + stagger, d - cover);
-    }
-
     private static readonly string[] Verbs =
     [
         "SYN", "ACK", "probe", "inject", "handshake", "decrypt", "bypass", "escalate", "sniff", "route",

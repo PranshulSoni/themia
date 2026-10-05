@@ -121,8 +121,8 @@ internal sealed partial class AppHost
             SettingsTransfer.Apply(state, incoming);
 
             // Displays named in the file that are not connected keep their assignment ([S-18]);
-            // the ones that are connected and unnamed get a view of their own, as at startup.
-            state.EnsureViewPerDisplay(DisplayViewKeys(), ViewCap);
+            // the ones that are connected and unnamed get an existing view, as at startup ([S-1705]).
+            DisplayPlan.AssignViews(state, DisplayViewKeys());
         });
 
         // The imported file carries its own per-display switches ([S-845]).
@@ -151,6 +151,15 @@ internal sealed partial class AppHost
 
     public void ShowSettings() => ShowConfig(new ConfigTarget.App());
 
+    /// <summary>[S-1745] Whether the settings window is open.</summary>
+    public bool ConfigOpen => _config is not null;
+
+    /// <summary>
+    /// [S-1745] Show <paramref name="target"/> in the settings window if it is open, without bringing
+    /// it to the front; when it is closed nothing happens (a click never opens it).
+    /// </summary>
+    public void FollowConfig(ConfigTarget target) => _config?.Follow(target);
+
     /// <summary>Delete a view and everything in it, repairing anything that pointed at it.</summary>
     public void DeleteView(string viewId)
     {
@@ -160,14 +169,14 @@ internal sealed partial class AppHost
         }
 
         // [S-902] One change: the view goes, and every reference to it is repaired with it. A display
-        // left without an assignment gets a view again rather than silently falling back to
-        // whatever view happens to be active.
+        // left without an assignment is given an existing view again ([S-1705]) rather than
+        // following whatever view happens to be active from then on.
         var name = State.FindView(viewId)?.Name;
         Mutate(state =>
         {
             if (ViewOps.Delete(state, viewId))
             {
-                state.EnsureViewPerDisplay(DisplayViewKeys(), ViewCap);
+                DisplayPlan.AssignViews(state, DisplayViewKeys());
             }
         }, undo: UndoAction.DeleteView);
 

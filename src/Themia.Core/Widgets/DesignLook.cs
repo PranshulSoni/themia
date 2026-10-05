@@ -135,6 +135,18 @@ public static class DesignLook
     }
 
     /// <summary>
+    /// [S-1761] How opaque the header strip's fill is. A header colour of its own is drawn at the
+    /// header opacity. One that shares the widget's fill is that fill faded once more by the header
+    /// opacity, so 100% matches the body and 0% leaves the strip clear over the desktop — the header
+    /// opacity always does something, not only once a header colour has been picked.
+    /// </summary>
+    public static double HeaderFillOpacity(WidgetSurface surface, double surfaceOpacity, double headerOpacity, bool ownColour)
+    {
+        var header = Math.Clamp(double.IsFinite(headerOpacity) ? headerOpacity : 1, 0, 1);
+        return ownColour ? header : FillOpacity(surface, surfaceOpacity) * header;
+    }
+
+    /// <summary>
     /// [S-824] The border for a design. None, a zero width or a transparent widget draws nothing;
     /// dashed is 3-on-2 and dotted is round dots two widths apart, both in stroke widths so the
     /// pattern keeps its proportions at any thickness.

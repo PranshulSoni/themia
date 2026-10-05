@@ -363,29 +363,11 @@ internal sealed partial class MixerView
                 return;
             }
 
-            var menu = new MenuFlyout();
-
-            var mute = new MenuFlyoutItem
-            {
-                Text = row.Muted ? Str.Mixer_Unmute.Text() : Str.Mixer_Mute.Text(),
-                Icon = new FontIcon { Glyph = row.Muted ? Glyphs.Volume3 : Glyphs.Mute },
-            };
-            mute.Click += (_, _) => _owner.OnMute(row);
-
-            var reset = new MenuFlyoutItem { Text = Str.Mixer_Reset.Text(), Icon = new FontIcon { Glyph = Glyphs.Reset } };
-            reset.Click += (_, _) => _owner.OnReset(row);
-
-            menu.Items.Add(mute);
-            menu.Items.Add(reset);
-
-            if (at is { } point)
-            {
-                menu.ShowAt(Host, point);
-            }
-            else
-            {
-                menu.ShowAt(Host);
-            }
+            ItemMenu.ShowAt(Host, at,
+            [
+                new(row.Muted ? Glyphs.Volume3 : Glyphs.Mute, row.Muted ? Str.Mixer_Unmute.Text() : Str.Mixer_Mute.Text(), () => _owner.OnMute(row)),
+                new(Glyphs.Reset, Str.Mixer_Reset.Text(), () => _owner.OnReset(row)),
+            ]);
         }
 
         public void Detach()

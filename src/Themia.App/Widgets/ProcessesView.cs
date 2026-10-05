@@ -29,7 +29,7 @@ namespace Themia.App.Widgets;
 /// blinked twice a second even when nothing about it had changed.
 /// </para>
 /// </summary>
-internal sealed partial class ProcessesView : Grid, IWidgetView, IWidgetHeaderContent, IWidgetSizeAware, IWidgetSurfaceAware, IWidgetContextActions, IWidgetKeys
+internal sealed partial class ProcessesView : Grid, IWidgetView, IWidgetHeaderContent, IWidgetSizeAware, IWidgetSurfaceAware, IWidgetKeys
 {
     private const string Scope = "processes-widget";
 
@@ -119,14 +119,6 @@ internal sealed partial class ProcessesView : Grid, IWidgetView, IWidgetHeaderCo
 
     /// <inheritdoc />
     public FrameworkElement? HeaderTrailing => _caption;
-
-    /// <summary>[S-1154] Re-rank without opening settings: the list's one state worth flipping in place.</summary>
-    public IReadOnlyList<WidgetAction> ContextActions =>
-    [
-        _config.Sort == ProcessSort.Cpu
-            ? new WidgetAction(Glyphs.Memory, Str.WidgetsC_Processes_RankByMemory.Text(), () => SetSort(ProcessSort.Memory))
-            : new WidgetAction(Glyphs.Cpu, Str.WidgetsC_Processes_RankByCpu.Text(), () => SetSort(ProcessSort.Cpu)),
-    ];
 
     public void Bind(IWidgetSurface surface) => _surface = surface;
 
@@ -295,7 +287,7 @@ internal sealed partial class ProcessesView : Grid, IWidgetView, IWidgetHeaderCo
         var top = _latest.Top(_rowCount, _config.Sort);
         _shownKeys.Clear();
         var narrow = _area.IsMeasured && _area.Width - (Fluent.Space4 * 2) < NarrowBelow;
-        var physical = _bars && _config.Sort == ProcessSort.Memory && MemoryCounters.Read(detailed: false) is { } memory ? (double)memory.Total : 0;
+        var physical = _bars && _config.Sort == ProcessSort.Memory && MemoryCounters.Read() is { } memory ? (double)memory.Total : 0;
 
         for (var i = 0; i < _rows.Count; i++)
         {

@@ -37,15 +37,18 @@ internal sealed class HyperspaceOverlay : IDisposable
     private readonly double _width;
     private readonly double _height;
     private readonly double _totalMs;
+    private readonly IntroSchedule _schedule;
     private ContainerVisual? _container;
     private CompositionPropertySet? _warp;
     private readonly List<CompositionObject> _owned = [];
 
-    public HyperspaceOverlay(double width, double height, double totalMs)
+    /// <summary>[S-1760] The overlay plays the warp's natural timeline at the schedule's scale, ending with the show.</summary>
+    public HyperspaceOverlay(double width, double height, IntroSchedule schedule)
     {
         _width = Math.Max(1, width);
         _height = Math.Max(1, height);
-        _totalMs = Math.Max(1, totalMs);
+        _schedule = schedule;
+        _totalMs = Math.Max(1, schedule.TotalMs);
 
         // Pure black space, the style's identity rather than a theme colour: the warp blacks the
         // desktop out completely and the widgets crash into it as it lifts.
@@ -69,7 +72,9 @@ internal sealed class HyperspaceOverlay : IDisposable
     public void StartTimeline(MotionKit kit)
     {
         var compositor = kit.Compositor;
-        var samples = Hyperspace.Samples(SampleMs, _totalMs);
+        // Sampled on the warp's own clock, every SampleMs of real time, then laid onto the real one.
+        var scale = Math.Max(1e-6, _schedule.TimeScale);
+        var samples = Hyperspace.Samples(SampleMs / scale, _totalMs / scale);
 
         _warp = compositor.CreatePropertySet();
         _warp.InsertScalar("W", 0);
@@ -77,12 +82,13 @@ internal sealed class HyperspaceOverlay : IDisposable
         _warp.InsertScalar("T", 0);
         _owned.Add(_warp);
 
-        _warp.StartAnimation("W", kit.Sampled([.. samples.Select(s => (s.Ms, s.Level))], _totalMs));
-        _warp.StartAnimation("D", kit.Sampled([.. samples.Select(s => (s.Ms, s.Travel))], _totalMs));
+        _warp.StartAnimation("W", kit.Sampled([.. samples.Select(s => (s.Ms * scale, s.Level))], _totalMs));
+        _warp.StartAnimation("D", kit.Sampled([.. samples.Select(s => (s.Ms * scale, s.Travel))], _totalMs));
         _warp.StartAnimation("T", kit.Sampled([(0, 0), (_totalMs, _totalMs)], _totalMs));
 
-        ElementCompositionPreview.GetElementVisual(_veil).StartAnimation("Opacity", kit.FadeOut(Hyperspace.JumpMs, Hyperspace.DecelMs));
-        ElementCompositionPreview.GetElementVisual(_root).StartAnimation("Opacity", kit.FadeOut(_totalMs - Hyperspace.FadeMs, Hyperspace.FadeMs));
+        ElementCompositionPreview.GetElementVisual(_veil).StartAnimation("Opacity", kit.FadeOut(_schedule.Scaled(Hyperspace.JumpMs), _schedule.Scaled(Hyperspace.DecelMs)));
+        var fade = _schedule.Scaled(Hyperspace.FadeMs);
+        ElementCompositionPreview.GetElementVisual(_root).StartAnimation("Opacity", kit.FadeOut(_totalMs - fade, fade));
     }
 
     /// <summary>

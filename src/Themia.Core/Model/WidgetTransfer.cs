@@ -1,5 +1,4 @@
 using Themia.Core.Geometry;
-using Themia.Core.Localization;
 
 namespace Themia.Core.Model;
 
@@ -103,87 +102,5 @@ public static class WidgetTransfer
         }
 
         return ids;
-    }
-
-    /// <summary>
-    /// Give each display a view of its own, once.
-    /// <para>
-    /// Without this every display falls back to the <i>active</i> view, so the same widgets are
-    /// drawn on all of them — and dragging one to another screen is then a no-op by definition
-    /// ([S-76]), because it is already there. Per-display views are also what makes "show a
-    /// different layout on the second monitor" possible at all.
-    /// </para>
-    /// <para>
-    /// Idempotent and stable: a display keeps whatever it was assigned, existing views are handed
-    /// out before new ones are made, and a view already claimed by another display is never taken.
-    /// Returns the number of views it had to create.
-    /// </para>
-    /// <para>
-    /// [S-847] When the user chose a view for new displays (<see cref="AppState.DefaultViewForNewDisplays"/>),
-    /// a display seen for the first time shows that view instead — shared, not claimed, because
-    /// choosing it is asking for the same widgets on every new screen.
-    /// </para>
-    /// <para>
-    /// [S-1065] <paramref name="maxViews"/> is the licence's view cap: once the profile holds that
-    /// many views, a display that would need a new one shows the active view instead (shared, not
-    /// claimed), so plugging in a monitor is never a way past the free limit.
-    /// </para>
-    /// </summary>
-    public static int EnsureViewPerDisplay(this AppState state, IReadOnlyList<string> displayIds, int maxViews = int.MaxValue)
-    {
-        ArgumentNullException.ThrowIfNull(state);
-        ArgumentNullException.ThrowIfNull(displayIds);
-
-        if (displayIds.Count == 0)
-        {
-            return 0;
-        }
-
-        // Only assignments naming a view that still exists count as taken; a dangling one is free
-        // to be replaced.
-        var taken = new HashSet<string>(StringComparer.Ordinal);
-        foreach (var (display, viewId) in state.MonitorViews)
-        {
-            if (displayIds.Contains(display) && state.FindView(viewId) is not null)
-            {
-                taken.Add(viewId);
-            }
-        }
-
-        var created = 0;
-
-        foreach (var display in displayIds)
-        {
-            if (state.MonitorViews.TryGetValue(display, out var existing) && state.FindView(existing) is not null)
-            {
-                continue;
-            }
-
-            if (state.FindView(state.DefaultViewForNewDisplays) is { } chosen)
-            {
-                state.MonitorViews[display] = chosen.Id;
-                continue;
-            }
-
-            var free = state.Views.FirstOrDefault(v => !taken.Contains(v.Id));
-
-            if (free is null && state.Views.Count >= maxViews)
-            {
-                state.MonitorViews[display] = state.ActiveView().Id;
-                continue;
-            }
-
-            if (free is null)
-            {
-                free = ViewState.Create(Str.App_MonitorLabel.Format(("n", state.Views.Count + 1)));
-                state.Views.Add(free);
-                created++;
-            }
-
-            state.MonitorViews[display] = free.Id;
-            taken.Add(free.Id);
-        }
-
-        return created;
     }
 }

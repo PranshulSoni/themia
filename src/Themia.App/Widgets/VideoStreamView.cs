@@ -152,13 +152,15 @@ internal sealed partial class VideoStreamView : Grid, IWidgetView, IWidgetSurfac
 
     // ---- context menu ----------------------------------------------------------------------------
 
-    /// <summary>[S-469] Pause is a state flipped while looking at the camera, so it lives on the widget, not in settings.</summary>
+    /// <summary>
+    /// [S-469] Pause is a state flipped while looking at the camera, so it lives on the widget, not in settings.
+    /// [S-1746] Rotation is how the picture looks: it is in the settings (and the overlay), not on the menu.
+    /// </summary>
     public IReadOnlyList<WidgetAction> ContextActions =>
     [
         _config.Paused
             ? new WidgetAction(Glyphs.Play, Str.VideoStream_Resume.Text(), () => SetPaused(false))
             : new WidgetAction(Glyphs.Pause, Str.VideoStream_Pause.Text(), () => SetPaused(true)),
-        new WidgetAction(Glyphs.Rotate, Str.VideoStream_Rotate.Text(), Rotate),
         new WidgetAction(Glyphs.Refresh, Str.Common_Refresh.Text(), RefreshNow),
     ];
 

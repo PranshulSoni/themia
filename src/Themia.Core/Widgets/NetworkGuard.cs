@@ -32,7 +32,7 @@ public enum NetReach
 /// feed) supplies: the classic <c>netguard::check_url</c>, ported rule for rule.
 /// <para>
 /// A feed or a web page is somebody else's text, and the address it makes this app fetch is the
-/// thing an attacker controls. Without a guard, a hostile feed link, favicon or pinned page can make
+/// thing an attacker controls. Without a guard, a hostile feed link or favicon can make
 /// the app request <c>http://127.0.0.1/…</c>, a router's admin page or the cloud metadata endpoint
 /// at <c>169.254.169.254</c>. So by default an address that resolves to loopback, a private range,
 /// link-local, carrier-grade NAT, a documentation range or anything reserved is refused — every

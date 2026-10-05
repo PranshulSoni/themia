@@ -27,17 +27,6 @@ public enum StreamRotation
     ThreeQuarter = 270,
 }
 
-/// <summary>[S-1316] How a pinned element fills the widget.</summary>
-[JsonConverter(typeof(JsonStringEnumConverter<ElementFit>))]
-public enum ElementFit
-{
-    /// <summary>The whole element, scaled to fit (up to 3×) — or, when that would make it illegible, its top-left part at 1:1. The default.</summary>
-    Whole = 0,
-
-    /// <summary>Scaled to the widget's width; whatever runs past the bottom is cut off under a fade.</summary>
-    FillWidth = 1,
-}
-
 /// <summary>
 /// A live camera picture: an MJPEG stream, a snapshot endpoint polled on an interval, or a video
 /// stream Windows can play itself.
@@ -101,57 +90,5 @@ public sealed class VideoStreamConfig : WidgetConfig
         RefreshSeconds = RefreshSeconds,
         ShowStatus = ShowStatus,
         HoverControls = HoverControls,
-    };
-}
-
-/// <summary>
-/// One element of a web page, pinned by a CSS selector and re-rendered on an interval.
-/// <para>
-/// The page is rendered by an isolated, off-screen WebView2 and only a <i>picture</i> of the element
-/// comes back into the app, so no remote markup is ever parsed or shown here. The address and the
-/// selector are still a trust boundary — they decide what that browser loads and runs — and are
-/// checked on every read.
-/// </para>
-/// </summary>
-public sealed class WebElementConfig : WidgetConfig
-{
-    [JsonIgnore]
-    public override WidgetKind Kind => WidgetKind.WebElement;
-
-    /// <summary>[S-473] The page to render.</summary>
-    public string Url { get; set; } = string.Empty;
-
-    /// <summary>[S-474] CSS selector of the pinned element, normally produced by the picker.</summary>
-    public string Selector { get; set; } = string.Empty;
-
-    /// <summary>A friendly description of what was picked, for the settings page only. The widget never reads it.</summary>
-    public string PickedLabel { get; set; } = string.Empty;
-
-    /// <summary>[S-475] Minutes between renders, clamped to 5..120.</summary>
-    public int RefreshMinutes { get; set; } = WebElementRules.DefaultRefreshMinutes;
-
-    /// <summary>[S-1316] Whole element (default) or fill the width.</summary>
-    public ElementFit Fit { get; set; } = ElementFit.Whole;
-
-    [JsonIgnore]
-    public ElementFit EffectiveFit => Enum.IsDefined(Fit) ? Fit : ElementFit.Whole;
-
-    [JsonIgnore]
-    public WebUrlResult ResolvedUrl => WebInput.Url(Url);
-
-    /// <summary>The selector if it is one this widget will hand to the browser, else empty.</summary>
-    [JsonIgnore]
-    public string EffectiveSelector => WebElementRules.IsPlausibleSelector(Selector) ? Selector.Trim() : string.Empty;
-
-    [JsonIgnore]
-    public TimeSpan RefreshInterval => TimeSpan.FromMinutes(WebElementRules.ClampRefreshMinutes(RefreshMinutes));
-
-    public override WidgetConfig Clone() => new WebElementConfig
-    {
-        Url = Url,
-        Selector = Selector,
-        PickedLabel = PickedLabel,
-        RefreshMinutes = RefreshMinutes,
-        Fit = Fit,
     };
 }

@@ -63,13 +63,7 @@ internal sealed partial class DesktopWindow
     private bool Play(IntroMode mode, ViewState view)
     {
         var style = IntroMotion.StyleFor(Design, mode);
-        var playing = IntroMotion.Plays(style, SystemMotion.AnimationsEnabled);
-
-        // [S-1009] The host hears every armed moment, played or not, so the startup sound is spent
-        // exactly once and only sounds with an intro that actually plays.
-        _host.OnIntro(mode, playing);
-
-        if (!playing)
+        if (!IntroMotion.Plays(style, SystemMotion.AnimationsEnabled))
         {
             return false;
         }

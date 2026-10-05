@@ -596,36 +596,16 @@ internal sealed partial class AppsView : Grid, IWidgetView, IWidgetSurfaceAware,
     // -----------------------------------------------------------------------------------------
 
     /// <summary>
-    /// [S-1528] The card's menu (original S-13 / S-14): Refresh, the other two views, grouping and
-    /// the click. Each names the state it switches to.
+    /// [S-1528] The card's menu: Refresh and the click. [S-1746] The view and the grouping change how
+    /// the widget looks, so they are in its settings only.
     /// </summary>
-    public IReadOnlyList<WidgetAction> ContextActions
-    {
-        get
-        {
-            var actions = new List<WidgetAction> { new(Glyphs.Refresh, Str.Common_Refresh.Text(), Reload) };
-
-            foreach (var mode in (AppsViewMode[])[AppsViewMode.Grid, AppsViewMode.List, AppsViewMode.Compact])
-            {
-                if (mode != _config.View)
-                {
-                    actions.Add(new WidgetAction(ModeGlyph(mode), ModeAction(mode), () => SetConfig(c => c.View = mode)));
-                }
-            }
-
-            if (_config.View != AppsViewMode.Compact)
-            {
-                actions.Add(new WidgetAction(Glyphs.Folder, (_config.GroupByFolder ? Str.WidgetsA_Apps_Ungroup : Str.WidgetsA_Apps_Group).Text(),
-                    () => SetConfig(c => c.GroupByFolder = !c.GroupByFolder)));
-            }
-
-            actions.Add(new WidgetAction(Glyphs.Open,
-                (_config.ClickMode == ItemClickMode.Double ? Str.WidgetsA_Apps_OpenSingle : Str.WidgetsA_Apps_OpenDouble).Text(),
-                () => SetConfig(c => c.ClickMode = c.ClickMode == ItemClickMode.Double ? ItemClickMode.Single : ItemClickMode.Double)));
-
-            return actions;
-        }
-    }
+    public IReadOnlyList<WidgetAction> ContextActions =>
+    [
+        new(Glyphs.Refresh, Str.Common_Refresh.Text(), Reload),
+        new(Glyphs.Open,
+            (_config.ClickMode == ItemClickMode.Double ? Str.WidgetsA_Apps_OpenSingle : Str.WidgetsA_Apps_OpenDouble).Text(),
+            () => SetConfig(c => c.ClickMode = c.ClickMode == ItemClickMode.Double ? ItemClickMode.Single : ItemClickMode.Double)),
+    ];
 
     private void SetConfig(Action<AppsConfig> change)
     {
@@ -635,21 +615,6 @@ internal sealed partial class AppsView : Grid, IWidgetView, IWidgetSurfaceAware,
         _dirty = true;
         Lay();
     }
-
-    /// <summary>"Show as list": one key per mode, since a mode name glued into a sentence does not translate.</summary>
-    private static string ModeAction(AppsViewMode mode) => (mode switch
-    {
-        AppsViewMode.List => Str.WidgetsA_Apps_ShowAsList,
-        AppsViewMode.Compact => Str.WidgetsA_Apps_ShowAsCompact,
-        _ => Str.WidgetsA_Apps_ShowAsTiles,
-    }).Text();
-
-    private static string ModeGlyph(AppsViewMode mode) => mode switch
-    {
-        AppsViewMode.List => Glyphs.ListLayout,
-        AppsViewMode.Compact => Glyphs.ColumnsLayout,
-        _ => Glyphs.GridLayout,
-    };
 
     public void Detach()
     {

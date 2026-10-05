@@ -9,6 +9,7 @@ using Themia.Core.Tasks;
 using Themia.Core.Widgets;
 using Windows.System;
 using Windows.UI.Core;
+using Themia.Core.Shell;
 
 namespace Themia.App.Widgets;
 
@@ -384,34 +385,19 @@ internal sealed partial class TasksView
             return;
         }
 
-        var menu = new MenuFlyout();
         var index = IndexOf(task.Id);
 
-        menu.Items.Add(MenuItem(task.Completed ? Glyphs.Undo : Glyphs.Done, (task.Completed ? Str.WidgetsC_Tasks_MarkNotDone : Str.WidgetsC_Tasks_MarkDone).Text(),
-            () => SetCompleted(task, !task.Completed)));
-        menu.Items.Add(MenuItem(Glyphs.Rename, Str.Common_Rename.Text(), () => BeginRename(row, task)));
-        menu.Items.Add(new MenuFlyoutSeparator());
-
-        var up = MenuItem(Glyphs.MoveUp, Str.WidgetsC_Tasks_MoveUp.Text(), () => Move(task, -1));
-        up.IsEnabled = index > 0;
-        menu.Items.Add(up);
-
-        var down = MenuItem(Glyphs.MoveDown, Str.WidgetsC_Tasks_MoveDown.Text(), () => Move(task, +1));
-        down.IsEnabled = index >= 0 && index < _displayed.Count - 1;
-        menu.Items.Add(down);
-
-        menu.Items.Add(new MenuFlyoutSeparator());
-        menu.Items.Add(MenuItem(Glyphs.Delete, Str.Common_Delete.Text(), () => Delete(task)));
-
-        menu.ShowAt(row, args.GetPosition(row));
-        args.Handled = true;
-    }
-
-    private static MenuFlyoutItem MenuItem(string glyph, string text, Action action)
-    {
-        var item = new MenuFlyoutItem { Text = text, Icon = new FontIcon { Glyph = glyph } };
-        item.Click += (_, _) => action();
-        return item;
+        ItemMenu.Show(row, args,
+        [
+            new(task.Completed ? Glyphs.Undo : Glyphs.Done, (task.Completed ? Str.WidgetsC_Tasks_MarkNotDone : Str.WidgetsC_Tasks_MarkDone).Text(),
+                () => SetCompleted(task, !task.Completed)),
+            new(Glyphs.Rename, Str.Common_Rename.Text(), () => BeginRename(row, task), Quick: QuickCommand.Rename),
+            ItemMenuEntry.Separator,
+            new(Glyphs.MoveUp, Str.WidgetsC_Tasks_MoveUp.Text(), () => Move(task, -1), Disabled: index <= 0),
+            new(Glyphs.MoveDown, Str.WidgetsC_Tasks_MoveDown.Text(), () => Move(task, +1), Disabled: index < 0 || index >= _displayed.Count - 1),
+            ItemMenuEntry.Separator,
+            new(Glyphs.Delete, Str.Common_Delete.Text(), () => Delete(task), Danger: true, Quick: QuickCommand.Delete),
+        ]);
     }
 
     private int IndexOf(string id)

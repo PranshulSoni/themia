@@ -18,7 +18,8 @@ public partial class App : Application
 #if DEBUG
         // The settings render's --theme: the application theme can only be chosen before the
         // resources load, and the pages' brushes come from it.
-        if (Shell.Gallery.SettingsRender.RequestedTheme(Environment.GetCommandLineArgs()) is { } theme)
+        if ((Shell.Gallery.SettingsRender.RequestedTheme(Environment.GetCommandLineArgs())
+            ?? Shell.Gallery.IconPickerRender.RequestedTheme(Environment.GetCommandLineArgs())) is { } theme)
         {
             RequestedTheme = theme;
         }
@@ -53,11 +54,19 @@ public partial class App : Application
             return;
         }
 
-        // The debugger and the session buffer only: the gallery and the settings render below must
+        // The debugger only: the gallery and the settings render below must
         // never write into the user's log folder while the user's own copy is running ([S-980]).
         LogFiles.InstallBasics();
 
 #if DEBUG
+        // [S-1814] Showcase views into a state file, then exit. Before the single-instance hand-off,
+        // which would toggle the running copy's edit mode instead.
+        if (Shell.Gallery.ShowcaseCommand.TryRun(Environment.GetCommandLineArgs()) is { } exitCode)
+        {
+            Environment.Exit(exitCode);
+            return;
+        }
+
         // [S-1109] --lang <code> draws any render below in that language.
         Shell.Gallery.RenderLanguage.Apply(Environment.GetCommandLineArgs());
 
@@ -80,6 +89,12 @@ public partial class App : Application
             return;
         }
 
+        // And for the open icon picker ([S-1803]).
+        if (Shell.Gallery.IconPickerRender.TryRunFromCommandLine(this, Environment.GetCommandLineArgs()))
+        {
+            return;
+        }
+
         // And for the desktop view bar ([S-906]) at its anchors and sizes.
         if (Shell.Gallery.ViewBarRender.TryRunFromCommandLine(this, Environment.GetCommandLineArgs()))
         {
@@ -94,6 +109,12 @@ public partial class App : Application
 
         // And for the app-layout editor ([S-1411]).
         if (Shell.Gallery.LayoutEditorRender.TryRunFromCommandLine(this, Environment.GetCommandLineArgs()))
+        {
+            return;
+        }
+
+        // And for the context menus ([S-1740]..[S-1744]).
+        if (Shell.Gallery.MenuRender.TryRunFromCommandLine(this, Environment.GetCommandLineArgs()))
         {
             return;
         }
@@ -132,7 +153,6 @@ public partial class App : Application
 
         var store = new AppStateStore(AppStateStore.DefaultPath());
         var load = store.Load();
-        LogFiles.Apply(load.State.Preferences);
 
         if (load.Outcome == LoadOutcome.Recovered)
         {
@@ -150,10 +170,6 @@ public partial class App : Application
         }
 
         _host = new AppHost(dispatcher, store, load.State);
-
-        // [S-982] The verbose switch takes effect on the next record, no restart.
-        var host = _host;
-        host.StateChanged += () => LogFiles.Apply(host.State.Preferences);
         _host.Start();
     }
 

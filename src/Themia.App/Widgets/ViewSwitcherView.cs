@@ -9,6 +9,7 @@ using Themia.Core.Diagnostics;
 using Themia.Core.Localization;
 using Themia.Core.Model;
 using Themia.Core.Widgets;
+using Themia.Core.Shell;
 
 namespace Themia.App.Widgets;
 
@@ -32,7 +33,7 @@ namespace Themia.App.Widgets;
 /// sit straight on the card, inset by one step so their corners nest inside the card's.
 /// </para>
 /// </summary>
-internal sealed partial class ViewSwitcherView : Grid, IWidgetView, IWidgetSurfaceAware, IWidgetContextActions, IWidgetSizeAware, IWidgetKeys
+internal sealed partial class ViewSwitcherView : Grid, IWidgetView, IWidgetSurfaceAware, IWidgetSizeAware, IWidgetKeys
 {
     private const string Scope = "view-switcher";
 
@@ -112,20 +113,6 @@ internal sealed partial class ViewSwitcherView : Grid, IWidgetView, IWidgetSurfa
         _area = area;
         Lay(force: false);
     }
-
-    /// <summary>[S-492] The card menu's one widget command: names on the buttons, or initials alone.</summary>
-    public IReadOnlyList<WidgetAction> ContextActions =>
-    [
-        new WidgetAction(
-            _config.IconOnly ? Glyphs.Rename : Glyphs.Hidden,
-            _config.IconOnly ? Str.CtxMenu_ShowLabels.Text() : Str.WidgetsC_ViewSwitcher_InitialsOnly.Text(),
-            () =>
-            {
-                _config.IconOnly = !_config.IconOnly;
-                _surface?.RequestSave();
-                Lay(force: true);
-            }),
-    ];
 
     private void Refresh()
     {
@@ -603,10 +590,10 @@ internal sealed partial class ViewSwitcherView : Grid, IWidgetView, IWidgetSurfa
             ItemMenuEntry.Separator,
             new ItemMenuEntry(Glyphs.MoveUp, Str.WidgetsC_ViewSwitcher_Menu_MoveEarlier.Text(), () => display.MoveView(viewId, -1), Disabled: index == 0),
             new ItemMenuEntry(Glyphs.MoveDown, Str.WidgetsC_ViewSwitcher_Menu_MoveLater.Text(), () => display.MoveView(viewId, +1), Disabled: index == views.Count - 1),
-            new ItemMenuEntry(Glyphs.Copy, Str.App_DuplicateView.Text(), () => display.DuplicateView(viewId)),
-            new ItemMenuEntry(Glyphs.Settings, Str.App_ViewSettingsBtn.Text(), () => display.OpenViewSettings(viewId)),
+            new ItemMenuEntry(Glyphs.Duplicate, Str.App_DuplicateView.Text(), () => display.DuplicateView(viewId), Quick: QuickCommand.Duplicate),
+            new ItemMenuEntry(Glyphs.Settings, Str.App_ViewSettingsBtn.Text(), () => display.OpenViewSettings(viewId), Quick: QuickCommand.Settings),
             ItemMenuEntry.Separator,
-            new ItemMenuEntry(Glyphs.Delete, Str.App_DeleteView.Text(), () => display.DeleteView(viewId), Danger: true, Disabled: views.Count <= 1),
+            new ItemMenuEntry(Glyphs.Delete, Str.App_DeleteView.Text(), () => display.DeleteView(viewId), Danger: true, Disabled: views.Count <= 1, Quick: QuickCommand.Delete),
         ];
     }
 
@@ -628,7 +615,7 @@ internal sealed partial class ViewSwitcherView : Grid, IWidgetView, IWidgetSurfa
 
         try
         {
-            ItemMenu.Build(rest).ShowAt(anchor);
+            ItemMenu.Open(anchor, rest);
         }
         catch (Exception ex)
         {
@@ -675,7 +662,7 @@ internal sealed partial class ViewSwitcherView : Grid, IWidgetView, IWidgetSurfa
             case WidgetKey.Menu when cellKey != OverflowKey:
                 try
                 {
-                    ItemMenu.Build(MenuFor(cellKey)).ShowAt(button);
+                    ItemMenu.Open(button, MenuFor(cellKey));
                 }
                 catch (Exception ex)
                 {

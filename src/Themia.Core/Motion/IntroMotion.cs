@@ -34,7 +34,7 @@ public static class IntroMotion
     /// <summary>[S-1000] Each moment's default length.</summary>
     public const double DefaultMs = 500;
 
-    /// <summary>[S-1002] Delay added per widget, in paint order.</summary>
+    /// <summary>[S-1002] Delay added per widget, in paint order, while the length has room for it ([S-1760]).</summary>
     public const double StaggerStepMs = 45;
 
     /// <summary>[S-1002] The cascade's cap, so a dense view does not trail in for seconds.</summary>
@@ -52,7 +52,7 @@ public static class IntroMotion
         };
     }
 
-    /// <summary>[S-1000] A moment's per-widget length, clamped to the offered range.</summary>
+    /// <summary>[S-1000] [S-1760] A moment's whole length, every widget and the overlay included, clamped to the offered range.</summary>
     public static double MsFor(DesignState design, IntroMode mode)
     {
         ArgumentNullException.ThrowIfNull(design);
@@ -71,25 +71,10 @@ public static class IntroMotion
 
     /// <summary>
     /// [S-1010] Whether anything plays at all: never for <see cref="IntroAnimation.None"/>, and never
-    /// while Windows' "Animation effects" is off — no animation, and so nothing for a sound to match.
+    /// while Windows' "Animation effects" is off.
     /// </summary>
     public static bool Plays(IntroAnimation style, bool animationsEnabled)
         => animationsEnabled && style != IntroAnimation.None && Enum.IsDefined(style);
-
-    /// <summary>
-    /// [S-1002] Widget <paramref name="index"/>'s delay within the cascade: <c>min(i·45, 540)</c>.
-    /// The sheet styles take none ([S-1004]): a sheet moves as one block, and a staggered sheet
-    /// would slide its own members across each other.
-    /// </summary>
-    public static double StaggerMs(IntroAnimation style, int index)
-    {
-        if (IntroSheets.AxisFor(style) is not null)
-        {
-            return 0;
-        }
-
-        return Math.Min(Math.Max(0, index) * StaggerStepMs, StaggerCapMs);
-    }
 
     /// <summary>
     /// [S-1005] Whether the moment brings the full-screen hyperspace overlay: hyperspace at startup or
@@ -97,13 +82,6 @@ public static class IntroMotion
     /// </summary>
     public static bool PlaysOverlay(IntroAnimation style, IntroMode mode)
         => style == IntroAnimation.Hyperspace && mode != IntroMode.Transition;
-
-    /// <summary>
-    /// [S-1006] How long every widget holds hidden before its own intro starts: until the warp's jump
-    /// point when the overlay plays, otherwise not at all.
-    /// </summary>
-    public static double BaseDelayMs(IntroAnimation style, IntroMode mode)
-        => PlaysOverlay(style, mode) ? Hyperspace.JumpMs : 0;
 
     /// <summary>
     /// [S-1007] Whether widgets get a cover tile instead of a keyframe of their own. Hacker is the

@@ -4,71 +4,12 @@ using Xunit;
 namespace Themia.Core.Tests;
 
 /// <summary>
-/// [S-1610]..[S-1619] The Wi-Fi name's location consent and the audio widgets' default-output switch.
-/// Neither can run in CI for real (no package identity, and switching the machine's audio device is
-/// never done by a test), so the decisions are pinned here and the one COM call sits behind
-/// <see cref="IDefaultOutputSwitch"/>, faked below.
+/// [S-1614]..[S-1618] The audio widgets' default-output switch. It cannot run in CI for real
+/// (switching the machine's audio device is never done by a test), so the decisions are pinned here
+/// and the one COM call sits behind <see cref="IDefaultOutputSwitch"/>, faked below.
 /// </summary>
 public class DeviceAndLocationTests
 {
-    // ---- [S-1611]..[S-1613] Wi-Fi name and location consent -------------------------------------
-
-    [Fact]
-    public void S1612_unpackaged_never_asks_and_never_hints()
-    {
-        foreach (var permission in Enum.GetValues<LocationPermission>())
-        {
-            Assert.Equal(WifiNameDecision.None, WifiNameRules.Decide(false, permission, lineShown: true, asked: false, hasName: false, nameRefused: true));
-        }
-    }
-
-    private static readonly WifiNameDecision Ask = new(WifiHintAction.AskWindows);
-    private static readonly WifiNameDecision Settings = new(WifiHintAction.OpenSettings);
-
-    [Fact]
-    public void S1611_the_hint_asks_windows_once_and_only_from_a_line_on_screen()
-    {
-        Assert.Equal(Ask, WifiNameRules.Decide(true, LocationPermission.PromptRequired, lineShown: true, asked: false, hasName: false, nameRefused: true));
-        Assert.Equal(WifiNameDecision.None, WifiNameRules.Decide(true, LocationPermission.PromptRequired, lineShown: false, asked: false, hasName: false, nameRefused: true));
-    }
-
-    [Fact]
-    public void S1611_a_closed_prompt_is_not_shown_again_the_hint_opens_settings()
-        => Assert.Equal(Settings, WifiNameRules.Decide(true, LocationPermission.PromptRequired, lineShown: true, asked: true, hasName: false, nameRefused: true));
-
-    [Fact]
-    public void S1613_denied_hints_with_a_link_to_settings_and_never_asks()
-        => Assert.Equal(Settings, WifiNameRules.Decide(true, LocationPermission.Denied, lineShown: true, asked: false, hasName: false, nameRefused: true));
-
-    [Fact]
-    public void S1613_no_hint_is_not_a_hint()
-    {
-        Assert.False(WifiNameDecision.None.Hint);
-        Assert.True(Ask.Hint);
-        Assert.True(Settings.Hint);
-    }
-
-    [Fact]
-    public void S1611_a_name_needs_nothing_more()
-    {
-        foreach (var permission in Enum.GetValues<LocationPermission>())
-        {
-            Assert.Equal(WifiNameDecision.None, WifiNameRules.Decide(true, permission, lineShown: true, asked: false, hasName: true, nameRefused: false));
-        }
-    }
-
-    [Fact]
-    public void S1613_allowed_but_still_refused_hints()
-        => Assert.Equal(Settings, WifiNameRules.Decide(true, LocationPermission.Allowed, lineShown: true, asked: true, hasName: false, nameRefused: true));
-
-    [Fact]
-    public void S1613_allowed_and_not_connected_or_hidden_shows_no_hint()
-        => Assert.Equal(WifiNameDecision.None, WifiNameRules.Decide(true, LocationPermission.Allowed, lineShown: true, asked: false, hasName: false, nameRefused: false));
-
-    [Fact]
-    public void S1613_the_hint_opens_the_location_privacy_page()
-        => Assert.Equal("ms-settings:privacy-location", WifiNameRules.PrivacyPage.OriginalString);
-
     // ---- [S-1614] what a pick means ------------------------------------------------------------
 
     private static readonly AudioDevice Speakers = new("{a}", "Speakers");

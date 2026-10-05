@@ -56,7 +56,6 @@ namespace Themia.Core.Storage;
 [JsonSerializable(typeof(StackConfig))]
 [JsonSerializable(typeof(TabsConfig))]
 [JsonSerializable(typeof(VideoStreamConfig))]
-[JsonSerializable(typeof(WebElementConfig))]
 [JsonSerializable(typeof(GpuConfig))]
 [JsonSerializable(typeof(MixerConfig))]
 [JsonSerializable(typeof(ScreenTimeConfig))]

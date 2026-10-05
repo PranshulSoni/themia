@@ -149,33 +149,6 @@ public sealed class LicensingTests
         var huge = new LicenseUsage(500, 50);
         Assert.False(LicenseRules.WouldExceed(LicenseTier.Pro, huge, 10, 10));
         Assert.False(LicenseRules.WouldExceed(LicenseTier.Unrestricted, huge, 10, 10));
-        Assert.Equal(int.MaxValue, LicenseRules.ViewCap(LicenseTier.Pro));
-        Assert.Equal(LicenseRules.FreeViewLimit, LicenseRules.ViewCap(LicenseTier.Free));
-    }
-
-    [Fact]
-    public void S1065_a_new_display_shares_the_active_view_at_the_view_cap()
-    {
-        var state = StateWith(widgets: 0, views: 2);
-        state.MonitorViews["A"] = state.Views[0].Id;
-        state.MonitorViews["B"] = state.Views[1].Id;
-
-        var created = state.EnsureViewPerDisplay(["A", "B", "C"], LicenseRules.FreeViewLimit);
-
-        Assert.Equal(0, created);
-        Assert.Equal(2, state.Views.Count);
-        Assert.Equal(state.ActiveViewId, state.MonitorViews["C"]);
-    }
-
-    [Fact]
-    public void S1065_uncapped_display_assignment_still_creates_a_view()
-    {
-        var state = StateWith(widgets: 0, views: 2);
-        state.MonitorViews["A"] = state.Views[0].Id;
-        state.MonitorViews["B"] = state.Views[1].Id;
-
-        Assert.Equal(1, state.EnsureViewPerDisplay(["A", "B", "C"]));
-        Assert.Equal(3, state.Views.Count);
     }
 
     [Fact]

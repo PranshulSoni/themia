@@ -29,7 +29,7 @@ internal sealed class RowCursor
     public void Clear() => _rows.Clear();
 
     /// <summary>Take a row, in reading order. A row with no link is focusable but opens nothing.</summary>
-    public void Add(Border row, string? url, Func<MenuFlyout>? menu)
+    public void Add(Border row, string? url, Func<List<ItemMenuEntry>>? menu)
     {
         var id = url ?? "#" + _rows.Count.ToString(CultureInfo.InvariantCulture);
 
@@ -73,7 +73,7 @@ internal sealed class RowCursor
                 return true;
 
             case WidgetKey.Menu when index is { } at && _rows[at].Menu is { } menu:
-                menu().ShowAt(_rows[at].Row);
+                ItemMenu.Open(_rows[at].Row, menu());
                 return true;
 
             case WidgetKey.Up or WidgetKey.Down or WidgetKey.Home or WidgetKey.End:
@@ -108,5 +108,5 @@ internal sealed class RowCursor
         return index >= 0 ? index : null;
     }
 
-    private sealed record Entry(Border Row, string Id, string? Url, Func<MenuFlyout>? Menu);
+    private sealed record Entry(Border Row, string Id, string? Url, Func<List<ItemMenuEntry>>? Menu);
 }

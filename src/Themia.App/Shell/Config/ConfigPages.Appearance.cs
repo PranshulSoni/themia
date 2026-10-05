@@ -15,8 +15,8 @@ using Themia.Core.Widgets;
 namespace Themia.App.Shell.Config;
 
 /// <summary>
-/// The Appearance page: a style preset, theme, colours, shape, border, type, scale and the intro
-/// animation. Every setting here takes effect live through the appearance engine
+/// The Appearance page: a style preset, theme, colours, shape, border, type, scale, the layout
+/// of the widgets on the desktop (gap, snap to grid) and the motion. Every setting here takes effect live through the appearance engine
 /// (<see cref="DesignApplier"/>, <see cref="WidgetCard.ApplyDesign"/>). [S-820]..[S-834]
 /// </summary>
 internal static partial class ConfigPages
@@ -74,7 +74,7 @@ internal static partial class ConfigPages
                 design.HeaderBackgroundColor, value => host.Mutate(s => s.Design.HeaderBackgroundColor = value),
                 new ColorChoiceOptions { DefaultLabel = Str.Shell_Appearance_SameAsWidget.Text(), Presets = ColorPresets.Surfaces }),
 
-            FluentLayout.Row(Glyphs.Opacity, Str.Settings_Style_HeaderOpacity_Label.Text(), Str.Shell_Appearance_HeaderOpacityDesc.Text(),
+            FluentLayout.Row(Glyphs.Opacity, Str.Settings_Style_HeaderOpacity_Label.Text(), Str.Shell_Appearance_HeaderFade.Text(),
                 FluentLayout.Slider(design.HeaderOpacity * 100, 0, 100, 5, "%",
                     value => host.Mutate(s => s.Design.HeaderOpacity = value / 100))),
 
@@ -113,7 +113,8 @@ internal static partial class ConfigPages
             FluentLayout.Header(Str.Shell_Appearance_Text.Text()),
 
             FluentLayout.Row(Glyphs.Font, Str.Settings_Font_FamilyLabel.Text(), Str.Shell_Appearance_FontDesc.Text(),
-                FontChoice(host, design.FontFamily)),
+                FontChoice.Create(design.FontFamily, family => host.Mutate(s => s.Design.FontFamily = family)),
+                "typeface", "font"),
 
             FluentLayout.Row(Glyphs.TextSize, Str.Shell_Appearance_TextSize.Text(), Str.Shell_Appearance_TextSizeDesc.Text(),
                 FluentLayout.Slider(design.FontScale * 100, FluentType.MinTextScale * 100, FluentType.MaxTextScale * 100, 5, "%",
@@ -122,9 +123,21 @@ internal static partial class ConfigPages
             FluentLayout.Row(Glyphs.Scale, Str.Display_WidgetScale_Label.Text(), Str.Shell_Appearance_WidgetScaleDesc.Text(),
                 FluentLayout.Slider(design.UiScale * 100, 50, 300, 5, "%",
                     value => host.Mutate(s => s.Design.UiScale = value / 100))),
+
+            // [S-1722] Where the widgets sit on the desktop: the gap between them and snapping to the grid.
+            FluentLayout.Header(Str.Shell_Appearance_Layout.Text()),
+
+            FluentLayout.Row(Glyphs.Grid, Str.Shell_Layout_Gap.Text(), null,
+                FluentLayout.Slider(design.WidgetGapPx, 0, 48, 2, "px",
+                    value => host.Mutate(s => s.Design.WidgetGapPx = value)),
+                "spacing", "margin"),
+
+            FluentLayout.Row(Glyphs.Grid, Str.Settings_Style_GridSnap_Label.Text(), Str.Shell_Layout_SnapDesc.Text(),
+                FluentLayout.Toggle(design.GridSnap, value => host.Mutate(s => s.Design.GridSnap = value)),
+                "grid", "snap", "align"),
         };
 
-        // [S-1014] The intros and the startup sound.
+        // [S-1014] The intros.
         rows.AddRange(MotionRows(host));
 
         page.With(rows);
@@ -165,95 +178,5 @@ internal static partial class ConfigPages
                 Log.Warn(Scope, "could not refresh the Appearance page after a preset; reopen it to see the values");
             }
         });
-    }
-
-    /// <summary>
-    /// [S-827] The font picker: the four presets, then every installed family. The installed list
-    /// arrives off the UI thread; until it does the current family is listed on its own so the
-    /// choice shows what is set.
-    /// </summary>
-    private static ComboBox FontChoice(AppHost host, string current)
-    {
-        var combo = new ComboBox { MinWidth = FluentLayout.ChoiceMinWidth, MaxDropDownHeight = 420 };
-        var filling = true;
-
-        void Add(string family, string label) => combo.Items.Add(new ComboBoxItem { Content = label, Tag = family });
-
-        Add(DesignLook.SystemFont, Str.Shell_Appearance_SystemFont.Text());
-        Add(DesignLook.SansFont, Str.Shell_Appearance_SansFont.Text());
-        Add(DesignLook.SerifFont, Str.Settings_Font_Serif.Text());
-        Add(DesignLook.MonoFont, Str.Settings_Font_Mono.Text());
-
-        var listedOwn = !DesignLook.FontPresets.Contains(current, StringComparer.OrdinalIgnoreCase) && DesignLook.IsFamilyName(current);
-        if (listedOwn)
-        {
-            Add(current, current);
-        }
-
-        void Select()
-        {
-            for (var i = 0; i < combo.Items.Count; i++)
-            {
-                if (combo.Items[i] is ComboBoxItem { Tag: string family } && family.Equals(current, StringComparison.OrdinalIgnoreCase))
-                {
-                    combo.SelectedIndex = i;
-                    return;
-                }
-            }
-
-            combo.SelectedIndex = 0;
-        }
-
-        Select();
-        filling = false;
-
-        combo.SelectionChanged += (_, _) =>
-        {
-            if (!filling && combo.SelectedItem is ComboBoxItem { Tag: string family })
-            {
-                current = family;
-                host.Mutate(s => s.Design.FontFamily = family);
-            }
-        };
-
-        var queue = DispatcherQueue.GetForCurrentThread();
-        var own = current;
-        _ = SystemFonts.LoadAsync().ContinueWith(
-            task =>
-            {
-                if (!task.IsCompletedSuccessfully)
-                {
-                    Log.Warn(Scope, "the installed font list could not be read; only the presets are offered", task.Exception);
-                    return;
-                }
-
-                if (queue is null || !queue.TryEnqueue(() =>
-                {
-                    filling = true;
-                    try
-                    {
-                        foreach (var family in task.Result)
-                        {
-                            // The family already listed on its own is not listed twice.
-                            if (!(listedOwn && family.Equals(own, StringComparison.OrdinalIgnoreCase)))
-                            {
-                                Add(family, family);
-                            }
-                        }
-
-                        Select();
-                    }
-                    finally
-                    {
-                        filling = false;
-                    }
-                }))
-                {
-                    Log.Warn(Scope, "could not list the installed fonts on the settings thread");
-                }
-            },
-            TaskScheduler.Default);
-
-        return combo;
     }
 }

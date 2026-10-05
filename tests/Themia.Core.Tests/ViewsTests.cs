@@ -400,4 +400,34 @@ public sealed class ViewsTests
         Assert.Equal(2, ViewBarRules.NearestSlot(centres, 500));
         Assert.Equal(-1, ViewBarRules.NearestSlot([], 10));
     }
+
+    [Fact]
+    public void S1707_rename_trims_the_name()
+    {
+        var state = ThreeViews();
+
+        Assert.True(ViewOps.Rename(state, "b", "  Work  "));
+        Assert.Equal("Work", state.FindView("b")!.Name);
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("   ")]
+    [InlineData(null)]
+    public void S1707_a_blank_name_is_refused_and_the_old_one_kept(string? name)
+    {
+        var state = ThreeViews();
+
+        Assert.False(ViewOps.Rename(state, "b", name));
+        Assert.Equal("B", state.FindView("b")!.Name);
+    }
+
+    [Fact]
+    public void S1707_the_same_name_or_an_unknown_view_changes_nothing()
+    {
+        var state = ThreeViews();
+
+        Assert.False(ViewOps.Rename(state, "b", " B "));
+        Assert.False(ViewOps.Rename(state, "missing", "New"));
+    }
 }

@@ -10,8 +10,7 @@ namespace Themia.App.Shell.Config;
 
 /// <summary>
 /// [S-1014] The Motion section of the Appearance page: the startup, unlock and view-change intros,
-/// each with the same controls — a style, a length and a ▶ replay — and the startup sound under
-/// Startup. Any change replays that moment on the desktop, so the user sees what they picked.
+/// each with the same controls — a style, a length and a ▶ replay. Any change replays that moment on the desktop, so the user sees what they picked.
 /// Deliberately not part of a design preset: motion is the user's accessibility choice.
 /// </summary>
 internal static partial class ConfigPages
@@ -36,22 +35,22 @@ internal static partial class ConfigPages
         yield return FluentLayout.Header(Str.Shell_Motion_Header.Text());
 
         yield return MotionMoment(host, IntroMode.Startup, Glyphs.Startup, Str.Shell_Motion_Startup.Text(),
-            Str.Shell_Motion_StartupDesc.Text(), withSound: true);
+            Str.Shell_Motion_StartupDesc.Text());
 
         yield return MotionMoment(host, IntroMode.Unlock, Glyphs.Lock, Str.Shell_Motion_Unlock.Text(),
-            Str.Shell_Motion_UnlockDesc.Text(), withSound: false);
+            Str.Shell_Motion_UnlockDesc.Text());
 
         yield return MotionMoment(host, IntroMode.Transition, Glyphs.View, Str.Shell_Motion_Transition.Text(),
-            Str.Shell_Motion_TransitionDesc.Text(), withSound: false);
+            Str.Shell_Motion_TransitionDesc.Text());
 
         // [S-1010] Said, not hidden: with Windows' animation effects off nothing here plays.
         if (!Motion.SystemMotion.AnimationsEnabled)
         {
-            yield return Note(Str.Shell_Motion_SystemOff.Text());
+            yield return Note(Str.Shell_Motion_AnimationsOff.Text());
         }
     }
 
-    private static Border MotionMoment(AppHost host, IntroMode mode, string glyph, string title, string description, bool withSound)
+    private static Border MotionMoment(AppHost host, IntroMode mode, string glyph, string title, string description)
     {
         var design = host.State.Design;
 
@@ -95,22 +94,8 @@ internal static partial class ConfigPages
 
         var rows = new List<Border>
         {
-            FluentLayout.Row(Glyphs.Timer, Str.Shell_Motion_Length.Text(), Str.Shell_Motion_LengthDesc.Text(), length),
+            FluentLayout.Row(Glyphs.Timer, Str.Shell_Motion_Length.Text(), Str.Shell_Motion_WholeLengthDesc.Text(), length),
         };
-
-        if (withSound)
-        {
-            rows.Add(FluentLayout.Row(Glyphs.Sound, Str.Settings_Style_StartupSound_Label.Text(), Str.Shell_Motion_SoundDesc.Text(), FluentLayout.Toggle(design.StartupSound, on =>
-            {
-                host.Mutate(s => s.Design.StartupSound = on);
-
-                // Turning it on plays it, with the animation it belongs to.
-                if (on)
-                {
-                    host.ReplayIntro(IntroMode.Startup);
-                }
-            })));
-        }
 
         return FluentLayout.Expander(glyph, title, description, style, rows);
     }

@@ -26,6 +26,11 @@ internal static class Glyphs
     public static readonly string Paste = From(0xE77F);
     public static readonly string Reset = From(0xE777);
     public static readonly string Rename = From(0xE8AC);
+
+    /// <summary>[S-1740] Distinct from <see cref="Copy"/>: both sit side by side in a menu's icon row.</summary>
+    public static readonly string Duplicate = From(0xF413);
+    public static readonly string Move = From(0xE7C2);
+    public static readonly string SelectAll = From(0xE8B3);
     public static readonly string Theme = From(0xE793);
     public static readonly string Opacity = From(0xE7E6);
     public static readonly string Surface = From(0xE8B9);
@@ -155,12 +160,11 @@ internal static class Glyphs
     public static readonly string Bell = From(0xEA8F);
     public static readonly string Hide = From(0xED1A);
 
-    // The web widgets.
+    // The camera widget, and a web address wherever one is shown.
     public static readonly string Video = From(0xE714);
-    public static readonly string WebElement = From(0xE774);
+    public static readonly string Globe = From(0xE774);
     public static readonly string Rotate = From(0xE7AD);
     public static readonly string Refresh = From(0xE72C);
-    public static readonly string Pick = From(0xE7C9);
     public static readonly string Fit = From(0xE9A6);
 
     // The License page ([S-1068]).

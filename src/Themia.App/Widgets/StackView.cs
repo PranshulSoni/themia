@@ -316,7 +316,7 @@ internal sealed partial class StackView : Grid, IWidgetView, IWidgetContainerVie
                 Toggle(_cursor);
                 return true;
             case WidgetKey.Menu when _cursor >= 0 && _cursor < _rows.Count:
-                ItemMenu.Build(Menu(_cursor)).ShowAt(_rows[_cursor]);
+                ItemMenu.Open(_rows[_cursor], Menu(_cursor));
                 return true;
             case WidgetKey.Escape:
                 _cursor = -1;

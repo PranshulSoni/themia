@@ -48,7 +48,6 @@ namespace Themia.Core.Model;
 [JsonDerivedType(typeof(StackConfig), typeDiscriminator: "stack")]
 [JsonDerivedType(typeof(TabsConfig), typeDiscriminator: "tabs")]
 [JsonDerivedType(typeof(VideoStreamConfig), typeDiscriminator: "videoStream")]
-[JsonDerivedType(typeof(WebElementConfig), typeDiscriminator: "webElement")]
 [JsonDerivedType(typeof(GpuConfig), typeDiscriminator: "gpu")]
 [JsonDerivedType(typeof(MixerConfig), typeDiscriminator: "mixer")]
 [JsonDerivedType(typeof(ScreenTimeConfig), typeDiscriminator: "screenTime")]
@@ -110,7 +109,6 @@ public abstract class WidgetConfig
         WidgetKind.Stack => new StackConfig(),
         WidgetKind.Tabs => new TabsConfig(),
         WidgetKind.VideoStream => new VideoStreamConfig(),
-        WidgetKind.WebElement => new WebElementConfig(),
         WidgetKind.Gpu => new GpuConfig(),
         WidgetKind.Mixer => new MixerConfig(),
         WidgetKind.ScreenTime => new ScreenTimeConfig(),

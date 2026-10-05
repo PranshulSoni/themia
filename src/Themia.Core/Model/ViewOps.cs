@@ -83,6 +83,25 @@ public static class ViewOps
         return true;
     }
 
+    /// <summary>
+    /// [S-1707] Rename a view, from its page or the settings pane's menu. The name is trimmed; a
+    /// blank one is refused and the old name kept, since a view with no name cannot be told apart
+    /// in the pane, the bar or a switcher. False when nothing changed.
+    /// </summary>
+    public static bool Rename(AppState state, string viewId, string? name)
+    {
+        ArgumentNullException.ThrowIfNull(state);
+
+        var trimmed = name?.Trim();
+        if (string.IsNullOrEmpty(trimmed) || state.FindView(viewId) is not { } view || view.Name == trimmed)
+        {
+            return false;
+        }
+
+        view.Name = trimmed;
+        return true;
+    }
+
     /// <summary>[S-901] Move a view one place up (-1) or down (+1). False at either end.</summary>
     public static bool MoveBy(List<ViewState> views, string viewId, int delta)
     {

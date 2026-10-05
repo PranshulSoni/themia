@@ -206,45 +206,6 @@ public class ResponsiveLayoutTests
     // The chart's window now comes from the span setting: see MeterFrameworkTests (S-1121).
 
     [Fact]
-    public void S664_the_summary_ignores_gaps_and_is_null_when_empty()
-    {
-        Assert.Null(MeterHistory.Summarise([]));
-        Assert.Null(MeterHistory.Summarise([double.NaN]));
-
-        var summary = MeterHistory.Summarise([0.1, double.NaN, 0.3, 0.2]);
-
-        Assert.Equal(new MeterSummary(0.1, 0.2, 0.3), summary!.Value with { Average = Math.Round(summary.Value.Average, 6) });
-    }
-
-    [Fact]
-    public void S664_the_summary_line_reads_in_the_meters_own_unit()
-    {
-        var summary = new MeterSummary(0.03, 0.12, 0.4);
-
-        Assert.Equal("min 3% · avg 12% · max 40%", MeterHistory.SummaryLine(MeterUnit.Percent, summary));
-        Assert.Equal("avg 12% · max 40%", MeterHistory.SummaryLine(MeterUnit.Percent, summary, compact: true));
-        Assert.Equal("avg 20 ms · max 31 ms", MeterHistory.SummaryLine(MeterUnit.Latency, new MeterSummary(9, 20, 31), compact: true));
-        Assert.Equal(string.Empty, MeterHistory.SummaryLine(MeterUnit.Rate, null));
-    }
-
-    [Fact]
-    public void S664_the_layout_length_is_the_widest_the_line_can_be()
-    {
-        var live = MeterHistory.SummaryLine(MeterUnit.Rate, new MeterSummary(0, 1500, 900_000)).Length;
-
-        Assert.True(MeterHistory.SummaryCharacters(MeterUnit.Rate, compact: false) >= live);
-        Assert.True(MeterHistory.SummaryCharacters(MeterUnit.Percent, compact: true) < MeterHistory.SummaryCharacters(MeterUnit.Percent, compact: false));
-    }
-
-    [Theory]
-    [InlineData(45, 1, "last 45 s")]
-    [InlineData(133, 1, "last 2 min")]
-    [InlineData(60, 300, "last 5 h")]
-    [InlineData(0, 1, "")]
-    public void S664_the_span_names_what_the_chart_covers(int samples, int seconds, string expected)
-        => Assert.Equal(expected, MeterHistory.Span(samples, TimeSpan.FromSeconds(seconds)));
-
-    [Fact]
     public void S665_a_larger_clock_adds_the_week_and_the_zone()
     {
         var config = new ClockConfig { TimeZoneId = "Etc/UTC" };

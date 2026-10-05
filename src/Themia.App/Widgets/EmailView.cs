@@ -10,6 +10,7 @@ using Themia.Core.Localization;
 using Themia.Core.Mail;
 using Themia.Core.Model;
 using Themia.Core.Widgets;
+using Themia.Core.Shell;
 
 namespace Themia.App.Widgets;
 
@@ -496,11 +497,11 @@ internal sealed partial class EmailView : Grid, IWidgetView, IWidgetHeaderConten
     /// <param name="args">The right-click, for the menu to open at the pointer; null for the Menu key, which opens it at the row.</param>
     private void ShowMessageMenu(FrameworkElement anchor, MailMessage message, RightTappedRoutedEventArgs? args)
     {
-        var menu = new MenuFlyout();
+        var menu = new List<ItemMenuEntry>();
         var canChange = CanChange(message);
 
-        menu.Items.Add(Item(Glyphs.Open, Str.CtxMenu_Open.Text(), () => OpenMessage(message)));
-        menu.Items.Add(Item(Glyphs.MailReply, Str.CtxMenu_Reply.Text(), () =>
+        menu.Add(Item(Glyphs.Open, Str.CtxMenu_Open.Text(), () => OpenMessage(message)));
+        menu.Add(Item(Glyphs.MailReply, Str.CtxMenu_Reply.Text(), () =>
         {
             if (_source?.Reply(message) == false)
             {
@@ -510,18 +511,18 @@ internal sealed partial class EmailView : Grid, IWidgetView, IWidgetHeaderConten
 
         if (canChange)
         {
-            menu.Items.Add(message.IsRead
+            menu.Add(message.IsRead
                 ? Item(Glyphs.Unread, Str.WidgetsB_Email_MarkUnread.Text(), () => Change(message, MailChange.MarkUnread))
                 : Item(Glyphs.MailRead, Str.WidgetsB_Email_MarkRead.Text(), () => Change(message, MailChange.MarkRead)));
 
             if (message.Folder != MailFolder.Junk)
             {
-                menu.Items.Add(Item(Glyphs.Archive, Str.CtxMenu_Archive.Text(), () => Change(message, MailChange.Archive)));
-                menu.Items.Add(Item(Glyphs.Junk, Str.WidgetsB_Email_MoveToJunk.Text(), () => Change(message, MailChange.Junk)));
+                menu.Add(Item(Glyphs.Archive, Str.CtxMenu_Archive.Text(), () => Change(message, MailChange.Archive)));
+                menu.Add(Item(Glyphs.Junk, Str.WidgetsB_Email_MoveToJunk.Text(), () => Change(message, MailChange.Junk)));
             }
         }
 
-        menu.Items.Add(Item(Glyphs.Copy, Str.CtxMenu_CopySubject.Text(), () =>
+        menu.Add(Item(Glyphs.Copy, Str.CtxMenu_CopySubject.Text(), () =>
         {
             if (!ClipboardWatcher.SetText(message.SubjectLine))
             {
@@ -531,28 +532,16 @@ internal sealed partial class EmailView : Grid, IWidgetView, IWidgetHeaderConten
 
         if (canChange)
         {
-            menu.Items.Add(new MenuFlyoutSeparator());
-            menu.Items.Add(Item(Glyphs.Delete, DeleteLabel(message), () => Change(message, MailChange.Delete)));
+            menu.Add(ItemMenuEntry.Separator);
+            menu.Add(new ItemMenuEntry(Glyphs.Delete, DeleteLabel(message), () => Change(message, MailChange.Delete), Danger: true, Quick: QuickCommand.Delete));
         }
 
-        if (args is null)
-        {
-            menu.ShowAt(anchor);
-        }
-        else
-        {
-            menu.ShowAt(anchor, args.GetPosition(anchor));
-        }
+        ItemMenu.ShowAt(anchor, args?.GetPosition(anchor), menu);
     }
 
     private static string DeleteLabel(MailMessage message) => message.Folder == MailFolder.Deleted ? Str.WidgetsB_Email_DeletePermanently.Text() : Str.Common_Delete.Text();
 
-    private static MenuFlyoutItem Item(string glyph, string text, Action action)
-    {
-        var item = new MenuFlyoutItem { Text = text, Icon = new FontIcon { Glyph = glyph } };
-        item.Click += (_, _) => action();
-        return item;
-    }
+    private static ItemMenuEntry Item(string glyph, string text, Action action) => new(glyph, text, action);
 
     private async void Change(MailMessage message, MailChange change)
     {
@@ -625,31 +614,17 @@ internal sealed partial class EmailView : Grid, IWidgetView, IWidgetHeaderConten
     {
         get
         {
-            // [S-542] The classic menu: refresh, the view, the folder, the order. The current choice
-            // carries a check, the others their own icon.
+            // [S-542] Refresh and the folder (which mail, not how it looks), the current one checked.
+            // [S-1746] The view and the order are how the widget looks: they are in its settings only.
             var actions = new List<WidgetAction>
             {
                 new(Glyphs.Refresh, Str.Common_Refresh.Text(), Refresh),
             };
 
-            foreach (var (mode, label, glyph) in new[]
-            {
-                (MailViewMode.List, Str.WidgetsB_Email_ListView.Text(), Glyphs.Preview),
-                (MailViewMode.Compact, Str.WidgetsB_Email_CompactView.Text(), Glyphs.Count),
-                (MailViewMode.Row, Str.WidgetsB_Email_RowView.Text(), Glyphs.Grid),
-            })
-            {
-                actions.Add(new(_config.ViewMode == mode ? Glyphs.Done : glyph, label, () => Edit(c => c.ViewMode = mode)));
-            }
-
             foreach (var folder in MailFolders.Listable)
             {
                 actions.Add(new(_config.Folder == folder ? Glyphs.Done : FolderGlyph(folder), folder.Label(), () => Edit(c => c.Folder = folder)));
             }
-
-            actions.Add(_config.SortOrder == MailSortOrder.NewestFirst
-                ? new(Glyphs.Sort, Str.WidgetsB_Email_ShowOldestFirst.Text(), () => Edit(c => c.SortOrder = MailSortOrder.OldestFirst))
-                : new(Glyphs.Sort, Str.WidgetsB_Email_ShowNewestFirst.Text(), () => Edit(c => c.SortOrder = MailSortOrder.NewestFirst)));
 
             return actions;
         }

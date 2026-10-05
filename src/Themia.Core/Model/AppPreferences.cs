@@ -26,7 +26,7 @@ public enum AppLanguage
 /// [S-702] How the app behaves, as opposed to how widgets look (<see cref="DesignState"/>).
 /// <para>
 /// Kept apart from the design so an appearance preset or a design reset can never switch off, say,
-/// the network guard or developer mode by accident.
+/// the network guard by accident.
 /// </para>
 /// </summary>
 public sealed class AppPreferences
@@ -45,19 +45,11 @@ public sealed class AppPreferences
     /// </summary>
     public bool AllowPrivateNetwork { get; set; }
 
-    /// <summary>Developer tools in a release build (the widget gallery, diagnostics).</summary>
-    public bool DevMode { get; set; }
-
-    /// <summary>Write debug-level records to the log file, not just warnings and errors.</summary>
-    public bool VerboseLogging { get; set; }
-
     public AppPreferences Clone() => new()
     {
         Language = Language,
         GameModeSuspend = GameModeSuspend,
         DesktopIconsVisible = DesktopIconsVisible,
         AllowPrivateNetwork = AllowPrivateNetwork,
-        DevMode = DevMode,
-        VerboseLogging = VerboseLogging,
     };
 }

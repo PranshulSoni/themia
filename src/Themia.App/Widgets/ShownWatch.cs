@@ -9,8 +9,7 @@ namespace Themia.App.Widgets;
 /// A closed stack row, an unselected tab and a folded group all hide a widget by collapsing its
 /// <i>card</i>, not the view, so a view that wants to stop working while hidden has to watch its
 /// ancestors. Most views do not care — a hidden clock costs nothing — but a video stream holds a
-/// socket and decodes every frame, and a web element starts a browser, so for those two "not
-/// visible" has to mean "not running".
+/// socket and decodes every frame, so for it "not visible" has to mean "not running".
 /// </para>
 /// <para>
 /// The ancestor chain is captured on <c>Loaded</c> and released on <c>Unloaded</c> and on

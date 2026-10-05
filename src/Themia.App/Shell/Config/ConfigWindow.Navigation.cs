@@ -25,7 +25,7 @@ internal sealed partial class ConfigWindow
             _nav.MenuItems.Clear();
 
             _nav.MenuItems.Add(Header("Themia"));
-            AddAppPages(_nav.MenuItems, AppPageSlot.Main, _host.State);
+            AddAppPages(_nav.MenuItems, AppPageSlot.Main);
 
             _nav.MenuItems.Add(new NavigationViewItemSeparator());
             _nav.MenuItems.Add(Header(Str.App_Views.Text()));
@@ -40,13 +40,18 @@ internal sealed partial class ConfigWindow
                     ? Item(view.Name, NavIcons.Create(NavIcon.ContentView), new ConfigTarget.View(view.Id))
                     : Item(view.Name, new FontIcon { Glyph = view.Icon, FontSize = NavIcons.Size - 2 }, new ConfigTarget.View(view.Id), wideBox: true);
 
+                // [S-1703]/[S-1704] A view is dragged to reorder and has a menu of its own.
+                AttachViewItem(node, view.Id);
+
                 foreach (var widget in view.Widgets)
                 {
                     var definition = Widgets.WidgetCatalog.Definition(widget.Kind);
-                    node.MenuItems.Add(Item(
+                    var leaf = Item(
                         string.IsNullOrWhiteSpace(widget.Label) ? definition.Label : widget.Label!,
                         new FontIcon { Glyph = definition.Glyph },
-                        new ConfigTarget.Widget(widget.Id)));
+                        new ConfigTarget.Widget(widget.Id));
+                    AttachWidgetItem(leaf, view.Id, widget.Id);
+                    node.MenuItems.Add(leaf);
                 }
 
                 node.IsExpanded = _target is ConfigTarget.Widget w && view.Widgets.Any(x => x.Id == w.WidgetId);
@@ -62,10 +67,12 @@ internal sealed partial class ConfigWindow
 
                 foreach (var display in _host.Displays)
                 {
-                    _nav.MenuItems.Add(Item(
+                    var entry = Item(
                         display.ShortName,
                         NavIcons.Create(NavIcon.Laptop),
-                        new ConfigTarget.Display(display.Id)));
+                        new ConfigTarget.Display(display.Id));
+                    AttachDisplayItem(entry, display.Id);
+                    _nav.MenuItems.Add(entry);
                 }
             }
 
@@ -74,7 +81,7 @@ internal sealed partial class ConfigWindow
             // [S-493] About is the very last entry, pinned to the foot of the menu under everything
             // else, as in karpo and Windows Settings. Anything else that wants the footer goes
             // ABOVE it in ConfigPages.AppPages, never after it.
-            AddAppPages(_nav.FooterMenuItems, AppPageSlot.Footer, _host.State);
+            AddAppPages(_nav.FooterMenuItems, AppPageSlot.Footer);
 
             SelectForTarget();
         }
@@ -84,12 +91,12 @@ internal sealed partial class ConfigWindow
         }
     }
 
-    /// <summary>The registered app pages of one slot that are available now, in their registered order.</summary>
-    private static void AddAppPages(IList<object> items, AppPageSlot slot, AppState state)
+    /// <summary>The registered app pages of one slot, in their registered order.</summary>
+    private static void AddAppPages(IList<object> items, AppPageSlot slot)
     {
         foreach (var page in ConfigPages.AppPages)
         {
-            if (page.Slot == slot && page.IsAvailable(state))
+            if (page.Slot == slot)
             {
                 items.Add(Item(page.Title, NavIcons.Create(page.Icon), new ConfigTarget.App(page.Page)));
             }

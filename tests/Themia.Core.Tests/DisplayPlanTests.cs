@@ -203,12 +203,13 @@ public class DisplayPlanTests
     public void S847_a_new_display_shows_the_chosen_view_shared_not_a_new_one()
     {
         var state = AppState.CreateDefault();
-        var chosen = state.Views[0];
+        var chosen = ViewState.Create("Chosen");
+        state.Views.Add(chosen);
         state.DefaultViewForNewDisplays = chosen.Id;
 
-        var created = state.EnsureViewPerDisplay([PathA, PathB]);
+        var assigned = DisplayPlan.AssignViews(state, [PathA, PathB]);
 
-        Assert.Equal(0, created);
+        Assert.Equal(2, assigned);
         Assert.Equal(chosen.Id, state.MonitorViews[PathA]);
         Assert.Equal(chosen.Id, state.MonitorViews[PathB]);
     }
@@ -222,21 +223,61 @@ public class DisplayPlanTests
         state.MonitorViews[PathB] = other.Id;
         state.DefaultViewForNewDisplays = state.Views[0].Id;
 
-        state.EnsureViewPerDisplay([PathA, PathB]);
+        var assigned = DisplayPlan.AssignViews(state, [PathA, PathB]);
 
+        Assert.Equal(1, assigned);
         Assert.Equal(other.Id, state.MonitorViews[PathB]);
     }
 
     [Fact]
-    public void S847_without_a_choice_each_new_display_gets_a_view_of_its_own()
+    public void S1705_without_a_choice_a_new_display_shows_the_last_view_chosen()
     {
         var state = AppState.CreateDefault();
+        var second = ViewState.Create("Second");
+        state.Views.Add(second);
+        state.MonitorViews[PathA] = state.Views[0].Id;
+        state.ActiveViewId = second.Id;
 
-        var created = state.EnsureViewPerDisplay([PathA, PathB]);
+        DisplayPlan.AssignViews(state, [PathA, PathB]);
 
-        Assert.Equal(1, created);
-        Assert.NotEqual(state.MonitorViews[PathA], state.MonitorViews[PathB]);
+        Assert.Equal(state.Views[0].Id, state.MonitorViews[PathA]);
+        Assert.Equal(second.Id, state.MonitorViews[PathB]);
     }
+
+    [Fact]
+    public void S1705_a_new_display_never_creates_a_view()
+    {
+        var state = AppState.CreateDefault();
+        var only = state.Views[0].Id;
+
+        var assigned = DisplayPlan.AssignViews(state, [PathA, PathB, "third-display"]);
+
+        Assert.Equal(3, assigned);
+        Assert.Single(state.Views);
+        Assert.All(state.MonitorViews.Values, id => Assert.Equal(only, id));
+    }
+
+    [Fact]
+    public void S1705_an_assignment_to_a_deleted_view_is_replaced_by_an_existing_view()
+    {
+        var state = AppState.CreateDefault();
+        state.MonitorViews[PathA] = "gone";
+
+        DisplayPlan.AssignViews(state, [PathA]);
+
+        Assert.Equal(state.Views[0].Id, state.MonitorViews[PathA]);
+        Assert.Single(state.Views);
+    }
+
+    [Fact]
+    public void S1705_assigning_twice_changes_nothing_the_second_time()
+    {
+        var state = AppState.CreateDefault();
+        DisplayPlan.AssignViews(state, [PathA, PathB]);
+
+        Assert.Equal(0, DisplayPlan.AssignViews(state, [PathA, PathB]));
+    }
+
     // ---- ordinal fallback re-keyed when the path appears ([S-843]) ------------------------------
 
     private const string Ordinal1 = @"\\.\DISPLAY1";

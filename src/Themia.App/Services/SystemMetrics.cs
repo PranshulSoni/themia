@@ -58,7 +58,7 @@ internal static class SystemMetrics
         if (!_haveCpuBaseline)
         {
             (_lastIdle, _lastKernel, _lastUser, _haveCpuBaseline) = (idleTicks, kernelTicks, userTicks, true);
-            return new MeterReading(0, Themia.Core.Widgets.Formatting.Percent(0), null, true);
+            return new MeterReading(0, Themia.Core.Widgets.Formatting.Percent(0), true);
         }
 
         // GetSystemTimes' kernel total already includes idle, so busy = (kernel+user) - idle.
@@ -69,11 +69,11 @@ internal static class SystemMetrics
 
         if (totalDelta == 0)
         {
-            return new MeterReading(0, Themia.Core.Widgets.Formatting.Percent(0), null, true);
+            return new MeterReading(0, Themia.Core.Widgets.Formatting.Percent(0), true);
         }
 
         var busy = Math.Clamp(1.0 - ((double)idleDelta / totalDelta), 0, 1);
-        return new MeterReading(busy, Themia.Core.Widgets.Formatting.Percent(busy), null, true);
+        return new MeterReading(busy, Themia.Core.Widgets.Formatting.Percent(busy), true);
     }
 
     /// <summary>

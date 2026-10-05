@@ -10,6 +10,7 @@ using Themia.Core.Diagnostics;
 using Themia.Core.Localization;
 using Themia.Core.Model;
 using Themia.Core.Widgets;
+using Themia.Core.Shell;
 
 namespace Themia.App.Widgets;
 
@@ -485,9 +486,9 @@ internal sealed partial class WebSearchView : Grid, IWidgetView, IWidgetSurfaceA
             ItemMenu.Show(row, args,
             [
                 new ItemMenuEntry(Glyphs.Search, Str.WidgetsC_WebSearch_SearchAgain.Text(), () => Submit(query)),
-                new ItemMenuEntry(Glyphs.Copy, Str.Common_Copy.Text(), () => Copy(query)),
+                new ItemMenuEntry(Glyphs.Copy, Str.Common_Copy.Text(), () => Copy(query), Quick: QuickCommand.Copy),
                 ItemMenuEntry.Separator,
-                new ItemMenuEntry(Glyphs.Delete, Str.WidgetsC_WebSearch_RemoveRecent.Text(), () => History.Remove(query)),
+                new ItemMenuEntry(Glyphs.Delete, Str.WidgetsC_WebSearch_RemoveRecent.Text(), () => History.Remove(query), Quick: QuickCommand.Delete),
             ]);
         }
     }

@@ -8,9 +8,9 @@ namespace Themia.Core.Tests;
 
 /// <summary>
 /// The intro animations ([S-1000..S-1012]): the per-moment resolver, arming, the cascade, every
-/// style's keyframes, the sheets, the hyperspace warp and star field, the hacker tiles and the
-/// startup sound. Ports of the original's <c>introSheets.test.ts</c>, <c>hyperspace.test.ts</c>,
-/// <c>hacker.test.ts</c> and <c>startupSound.test.ts</c> where they pinned a rule that still applies.
+/// style's keyframes, the sheets, the hyperspace warp and star field, and the hacker tiles. Ports
+/// of the original's <c>introSheets.test.ts</c>, <c>hyperspace.test.ts</c> and <c>hacker.test.ts</c>
+/// where they pinned a rule that still applies.
 /// </summary>
 public sealed class MotionTests
 {
@@ -89,13 +89,16 @@ public sealed class MotionTests
     // -----------------------------------------------------------------------------------------
 
     [Fact]
-    public void S1002_the_cascade_steps_45ms_and_caps_at_540ms()
+    public void S1002_the_cascade_steps_45ms_and_caps_at_540ms_when_the_length_has_room()
     {
-        Assert.Equal(0, IntroMotion.StaggerMs(IntroAnimation.Scale, 0));
-        Assert.Equal(45, IntroMotion.StaggerMs(IntroAnimation.Scale, 1));
-        Assert.Equal(540, IntroMotion.StaggerMs(IntroAnimation.Scale, 12));
-        Assert.Equal(540, IntroMotion.StaggerMs(IntroAnimation.Hyperspace, 400));
-        Assert.Equal(0, IntroMotion.StaggerMs(IntroAnimation.Fade, -3));
+        var few = IntroSchedule.For(IntroAnimation.Scale, IntroMode.Startup, 3000, 5);
+        Assert.Equal(0, few.DelayMs(0));
+        Assert.Equal(45, few.DelayMs(1), 6);
+        Assert.Equal(180, few.DelayMs(4), 6);
+
+        var many = IntroSchedule.For(IntroAnimation.Scale, IntroMode.Startup, 3000, 40);
+        Assert.Equal(540, many.DelayMs(39), 6);
+        Assert.Equal(0, many.DelayMs(-3));
     }
 
     [Theory]
@@ -103,10 +106,101 @@ public sealed class MotionTests
     [InlineData(IntroAnimation.TopBottom)]
     public void S1004_sheets_take_no_cascade(IntroAnimation style)
     {
+        var schedule = IntroSchedule.For(style, IntroMode.Startup, 500, 20);
         for (var i = 0; i < 20; i++)
         {
-            Assert.Equal(0, IntroMotion.StaggerMs(style, i));
+            Assert.Equal(0, schedule.DelayMs(i));
         }
+
+        Assert.Equal(500, schedule.WidgetMs);
+    }
+
+    // -----------------------------------------------------------------------------------------
+    // S-1760 the configured length is the whole show
+    // -----------------------------------------------------------------------------------------
+
+    public static TheoryData<IntroAnimation, IntroMode> EveryShow()
+    {
+        var data = new TheoryData<IntroAnimation, IntroMode>();
+        foreach (var style in Styles.Where(s => s != IntroAnimation.None))
+        {
+            foreach (var mode in Enum.GetValues<IntroMode>())
+            {
+                data.Add(style, mode);
+            }
+        }
+
+        return data;
+    }
+
+    [Theory]
+    [MemberData(nameof(EveryShow))]
+    public void S1760_the_whole_show_ends_exactly_at_the_configured_length_for_any_number_of_widgets(IntroAnimation style, IntroMode mode)
+    {
+        foreach (var ms in new[] { 100.0, 250, 500, 1000, 3000, 5000 })
+        {
+            foreach (var widgets in new[] { 1, 2, 3, 12, 40, 200 })
+            {
+                var schedule = IntroSchedule.For(style, mode, ms, widgets);
+
+                for (var i = 0; i < widgets; i++)
+                {
+                    Assert.True(schedule.EndMs(i) <= ms + 1e-6, $"{style}/{mode} {ms} ms, widget {i} of {widgets} ends at {schedule.EndMs(i)}");
+                    Assert.True(schedule.Tile(i).EndMs <= ms + 1e-6, $"{style}/{mode} {ms} ms, tile {i} of {widgets} ends at {schedule.Tile(i).EndMs}");
+                    Assert.True(schedule.DelayMs(i) >= 0);
+                }
+
+                // Not shorter either: the last widget comes to rest on the length, not before it.
+                Assert.Equal(ms, schedule.EndMs(widgets - 1), 6);
+                Assert.Equal(ms, schedule.LastEndMs, 6);
+
+                // The cascade never eats more than its share of the widgets' time.
+                Assert.True(schedule.WidgetMs >= ((ms - schedule.BaseDelayMs) * (1 - IntroSchedule.CascadeShare)) - 1e-6);
+            }
+        }
+    }
+
+    [Fact]
+    public void S1760_twenty_widgets_at_500ms_take_500ms_not_over_a_second()
+    {
+        // Regression: each widget used to take the whole 500 ms after a cascade of up to 540 ms, so
+        // twenty widgets took 1040 ms; under the hyperspace overlay the show took 4640 ms.
+        var cascade = IntroSchedule.For(IntroAnimation.Scale, IntroMode.Startup, 500, 20);
+        Assert.Equal(500, cascade.EndMs(19), 6);
+        Assert.Equal(200, cascade.DelayMs(19), 6);
+        Assert.Equal(300, cascade.WidgetMs, 6);
+
+        var warp = IntroSchedule.For(IntroAnimation.Hyperspace, IntroMode.Startup, 500, 20);
+        Assert.Equal(500, warp.TotalMs);
+        Assert.Equal(500, warp.EndMs(19), 6);
+    }
+
+    [Fact]
+    public void S1760_the_overlay_timeline_is_scaled_as_one_piece()
+    {
+        var schedule = IntroSchedule.For(IntroAnimation.Hyperspace, IntroMode.Unlock, 900, 4);
+        Assert.True(schedule.Overlay);
+        Assert.Equal(900 / Hyperspace.NaturalMs, schedule.TimeScale, 9);
+        Assert.Equal(schedule.Scaled(Hyperspace.JumpMs), schedule.BaseDelayMs, 9);
+        Assert.Equal(900, schedule.Scaled(Hyperspace.NaturalMs), 9);
+
+        // The shake and the veil end inside the show.
+        Assert.True(schedule.Scaled(Hyperspace.StaticMs + Hyperspace.ShakeMs) <= 900 + 1e-6);
+        Assert.True(schedule.Scaled(Hyperspace.JumpMs + Hyperspace.DecelMs) <= 900 + 1e-6);
+
+        // No overlay on a view change, and no scaling without one.
+        var change = IntroSchedule.For(IntroAnimation.Hyperspace, IntroMode.Transition, 900, 4);
+        Assert.False(change.Overlay);
+        Assert.Equal(1, change.TimeScale);
+        Assert.Equal(0, change.BaseDelayMs);
+    }
+
+    [Fact]
+    public void S1760_an_unplayable_length_is_clamped_first()
+    {
+        Assert.Equal(IntroMotion.MaxMs, IntroSchedule.For(IntroAnimation.Fade, IntroMode.Startup, 99_999, 3).TotalMs);
+        Assert.Equal(IntroMotion.DefaultMs, IntroSchedule.For(IntroAnimation.Fade, IntroMode.Startup, double.NaN, 3).TotalMs);
+        Assert.Equal(0, IntroSchedule.For(IntroAnimation.Fade, IntroMode.Startup, 500, 0).LastEndMs);
     }
 
     [Fact]
@@ -308,7 +402,7 @@ public sealed class MotionTests
     {
         Assert.Equal(3300, Hyperspace.JumpMs);
         Assert.Equal(3300, Hyperspace.ShakeMs);
-        Assert.Equal(3300 + 540 + 500 + 300, Hyperspace.OverlayTotalMs(500));
+        Assert.Equal(3300 + 900 + 300, Hyperspace.NaturalMs);
     }
 
     [Fact]
@@ -458,7 +552,10 @@ public sealed class MotionTests
     public void S1005_only_hyperspace_brings_the_overlay_and_never_on_a_view_change(IntroAnimation style, IntroMode mode, bool overlay)
     {
         Assert.Equal(overlay, IntroMotion.PlaysOverlay(style, mode));
-        Assert.Equal(overlay ? Hyperspace.JumpMs : 0, IntroMotion.BaseDelayMs(style, mode));
+
+        // Under the overlay every widget waits for the jump, on the overlay's own (scaled) clock.
+        var schedule = IntroSchedule.For(style, mode, Hyperspace.NaturalMs, 3);
+        Assert.Equal(overlay ? Hyperspace.JumpMs : 0, schedule.BaseDelayMs, 6);
     }
 
     // -----------------------------------------------------------------------------------------
@@ -469,17 +566,17 @@ public sealed class MotionTests
     [InlineData(500)]
     [InlineData(1000)]
     [InlineData(3333)]
-    public void S1007_a_tile_lives_exactly_the_configured_length_plus_its_cascade(double ms)
+    public void S1007_a_tile_covers_65_percent_of_its_widget_time_and_the_last_ends_on_the_length(double ms)
     {
-        var first = HackerIntro.TimingFor(ms, 0);
-        Assert.Equal(ms, first.EndMs, 6);
-        Assert.Equal(Math.Round(ms * 0.65), first.RevealMs);
+        var schedule = IntroSchedule.For(IntroAnimation.Hacker, IntroMode.Startup, ms, 3);
+        var first = schedule.Tile(0);
+        Assert.Equal(Math.Round(schedule.WidgetMs * 0.65), first.RevealMs);
+        Assert.Equal(schedule.WidgetMs, first.EndMs, 6);
 
-        var third = HackerIntro.TimingFor(ms, 2);
-        Assert.Equal(first.RevealMs + 90, third.RevealMs);
+        var third = schedule.Tile(2);
+        Assert.Equal(first.RevealMs + (2 * schedule.StepMs), third.RevealMs, 6);
         Assert.Equal(first.FadeMs, third.FadeMs);
-
-        Assert.Equal(first.RevealMs + 540, HackerIntro.TimingFor(ms, 100).RevealMs);
+        Assert.Equal(ms, third.EndMs, 6);
     }
 
     [Fact]
@@ -502,74 +599,5 @@ public sealed class MotionTests
         Assert.Equal(HackerIntro.ConsoleLines(3, 12, hex: false), HackerIntro.ConsoleLines(3, 12, hex: false));
         Assert.Equal(12, HackerIntro.ConsoleLines(3, 12, hex: true).Count);
         Assert.Matches("^[0-9A-F]{8}  ([0-9A-F]{2} ){8} .{8}$", HackerIntro.ConsoleLines(9, 1, hex: true)[0]);
-    }
-
-    // -----------------------------------------------------------------------------------------
-    // S-1008 startup sound (port of startupSound.test.ts)
-    // -----------------------------------------------------------------------------------------
-
-    [Fact]
-    public void S1008_none_is_silent_and_every_other_style_has_a_cue()
-    {
-        Assert.True(StartupSound.Plan(IntroAnimation.None, 500).IsEmpty);
-        Assert.True(StartupSound.Plan((IntroAnimation)42, 500).IsEmpty);
-
-        foreach (var style in Styles.Where(s => s != IntroAnimation.None))
-        {
-            var plan = StartupSound.Plan(style, 500);
-            Assert.False(plan.IsEmpty);
-            Assert.True(plan.PeakBound() <= 1 + 1e-9, $"{style} would clip");
-        }
-    }
-
-    [Fact]
-    public void S1008_the_warp_cue_is_timed_from_the_same_profile_as_the_picture()
-    {
-        var plan = StartupSound.Plan(IntroAnimation.Hyperspace, 500);
-
-        // Silent through the static hold; the boom lands on the jump; it ends with the deceleration.
-        Assert.All(plan.Voices, v => Assert.True(v.StartMs >= Hyperspace.StaticMs));
-        Assert.Contains(plan.Voices, v => v.StartMs == Hyperspace.JumpMs && v.Shape == VoiceShape.Sine);
-        Assert.Equal(Hyperspace.JumpMs + Hyperspace.DecelMs + SoundPlan.TailMs, plan.TotalMs);
-
-        // The warp ignores the per-widget length.
-        Assert.Equal(plan.TotalMs, StartupSound.Plan(IntroAnimation.Hyperspace, 4000).TotalMs);
-    }
-
-    [Fact]
-    public void S1008_the_hacker_churn_scales_with_the_length_and_ends_on_a_confirm()
-    {
-        var short_ = StartupSound.Plan(IntroAnimation.Hacker, 300);
-        var long_ = StartupSound.Plan(IntroAnimation.Hacker, 3000);
-
-        Assert.Equal(5 + 2, short_.Voices.Count);   // at least five blips
-        Assert.Equal(27 + 2, long_.Voices.Count);   // floor(3000 / 110)
-        Assert.Equal(28 + 2, StartupSound.Plan(IntroAnimation.Hacker, 5000).Voices.Count);
-        Assert.Equal(3000 + 90, long_.Voices[^1].StartMs);
-    }
-
-    [Fact]
-    public void S1008_simple_swells_follow_the_length_within_bounds_and_each_style_has_its_own_note()
-    {
-        Assert.Equal(180 + SoundPlan.TailMs, StartupSound.Plan(IntroAnimation.Fade, 100).TotalMs);
-        Assert.Equal(1100 + SoundPlan.TailMs, StartupSound.Plan(IntroAnimation.Fade, 4000).TotalMs);
-        Assert.Equal(600 + SoundPlan.TailMs, StartupSound.Plan(IntroAnimation.Fade, 600).TotalMs);
-
-        var notes = new[] { IntroAnimation.Fade, IntroAnimation.Scale, IntroAnimation.Slide, IntroAnimation.Sides, IntroAnimation.TopBottom, IntroAnimation.Flip, IntroAnimation.Blur }
-            .Select(StartupSound.BaseHz).ToList();
-        Assert.Equal(notes.Count, notes.Distinct().Count());
-
-        // Upward styles lift a fifth.
-        var slide = StartupSound.Plan(IntroAnimation.Slide, 500).Voices[0];
-        Assert.Equal(440 * 1.5, slide.Pitch[^1].Value);
-        Assert.Equal(392, StartupSound.Plan(IntroAnimation.Fade, 500).Voices[0].Pitch[^1].Value);
-    }
-
-    [Fact]
-    public void S1008_a_cue_renders_to_a_wave_image()
-    {
-        var wave = StartupSound.Plan(IntroAnimation.Scale, 500).RenderWave(1);
-        Assert.True(wave.Length > 44);
-        Assert.Equal((byte)'R', wave[0]);
     }
 }

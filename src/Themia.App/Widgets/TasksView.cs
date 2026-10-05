@@ -257,35 +257,12 @@ internal sealed partial class TasksView : Grid, IWidgetView, IWidgetHeaderConten
             => new(config.Source, config.AccountId, config.ListId, config.LocalListId, config.ShowCompleted);
     }
 
-    /// <summary>The card's menu: refresh, the layout, and completed tasks shown or hidden.</summary>
-    public IReadOnlyList<WidgetAction> ContextActions
-    {
-        get
-        {
-            var actions = new List<WidgetAction>();
-
-            if (!IsLocal && _feed is not null)
-            {
-                actions.Add(new WidgetAction(Glyphs.Refresh, Str.Common_Refresh.Text(), Refresh));
-            }
-
-            actions.Add(_config.ViewMode == TaskViewMode.Compact
-                ? new WidgetAction(Glyphs.Preview, Str.WidgetsC_Tasks_ListView.Text(), () => SetViewMode(TaskViewMode.List))
-                : new WidgetAction(Glyphs.Count, Str.WidgetsC_Tasks_CompactView.Text(), () => SetViewMode(TaskViewMode.Compact)));
-
-            actions.Add(new WidgetAction(
-                Glyphs.Done,
-                (_config.ShowCompleted ? Str.Todo_HideCompleted : Str.Todo_ShowCompletedCtx).Text(),
-                () =>
-                {
-                    _config.ShowCompleted = !_config.ShowCompleted;
-                    _surface?.RequestSave();
-                    Rebind();
-                }));
-
-            return actions;
-        }
-    }
+    /// <summary>
+    /// The card's menu: refresh. [S-1746] The layout and completed tasks shown or hidden are how the
+    /// widget looks: they are in its settings only.
+    /// </summary>
+    public IReadOnlyList<WidgetAction> ContextActions =>
+        !IsLocal && _feed is not null ? [new WidgetAction(Glyphs.Refresh, Str.Common_Refresh.Text(), Refresh)] : [];
 
     // ---- which list --------------------------------------------------------------------------------
 
@@ -521,13 +498,6 @@ internal sealed partial class TasksView : Grid, IWidgetView, IWidgetHeaderConten
             PublishTitle();
             Render();
         }
-    }
-
-    private void SetViewMode(TaskViewMode mode)
-    {
-        _config.ViewMode = mode;
-        _surface?.RequestSave();
-        Render();
     }
 
     /// <summary>[S-403] The list's name as the title; the user's own label still wins in the card.</summary>

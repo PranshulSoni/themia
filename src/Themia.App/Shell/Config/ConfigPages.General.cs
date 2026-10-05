@@ -12,7 +12,7 @@ using Themia.Core.Widgets;
 
 namespace Themia.App.Shell.Config;
 
-/// <summary>The General page: start with Windows, edit mode, and where the data lives.</summary>
+/// <summary>The General page: language, start with Windows, the desktop, edit mode and the network guard.</summary>
 internal static partial class ConfigPages
 {
     private static FrameworkElement BuildGeneral(AppHost host)
@@ -38,8 +38,8 @@ internal static partial class ConfigPages
         rows.Add(FluentLayout.Row(Glyphs.Edit, Str.Shell_Card_EditLayout.Text(),
             Str.Shell_Settings_General_EditLayoutDesc.Text(), editToggle));
 
-        // [S-847] A display Themia has not seen before shows this view instead of an empty one of its own.
-        var newDisplayOptions = new List<(string Value, string Label)> { (string.Empty, Str.Shell_Settings_General_NewDisplayOwnView.Text()) };
+        // [S-847] A display Themia has not seen before shows this view, or the last view shown ([S-1705]).
+        var newDisplayOptions = new List<(string Value, string Label)> { (string.Empty, Str.Shell_Settings_General_NewDisplayLastView.Text()) };
         newDisplayOptions.AddRange(host.State.Views.Select(v => (v.Id, v.Name)));
         var newDisplayView = new ComboBox { MinWidth = 220 };
         foreach (var (value, label) in newDisplayOptions)
@@ -60,36 +60,13 @@ internal static partial class ConfigPages
             Str.Shell_Settings_General_NewDisplaysDesc.Text(), newDisplayView, "monitor", "default view"));
 
         // [S-1301]/[S-965] The network guard's one switch, as in the original: off, a feed, a
-        // favicon, a pinned page or an account server may not make Themia reach loopback, the LAN
+        // favicon or an account server may not make Themia reach loopback, the LAN
         // or a cloud metadata address.
         rows.Add(FluentLayout.Row(Glyphs.Network, Str.Shell_Settings_General_LocalNetwork.Text(),
             Str.Shell_Settings_General_LocalNetworkDesc.Text(),
             FluentLayout.Toggle(host.State.Preferences.AllowPrivateNetwork,
                 value => host.Mutate(s => s.Preferences.AllowPrivateNetwork = value, relayout: false)),
             "private network", "LAN", "SSRF"));
-
-        rows.Add(FluentLayout.Header(Str.Settings_Section_Data.Text()));
-
-        var openFolder = new Button { Content = Str.Shell_Settings_General_OpenDataFolder.Text() };
-        openFolder.Click += (_, _) => OpenDataFolder();
-
-        rows.Add(FluentLayout.Row(Glyphs.Info, Str.Common_Settings.Text(),
-            Str.Shell_Settings_General_DataDesc.Text(), openFolder));
-
-        // [S-990] Kept last, as in the original. Developer mode adds the Logs page to the menu and,
-        // with it, the verbose switch; leaving it turns verbose logging off too ([S-982]).
-        rows.Add(FluentLayout.Header(Str.Settings_Section_Developer.Text()));
-        rows.Add(FluentLayout.Row(Glyphs.Code, Str.Shell_Settings_General_DevMode.Text(),
-            Str.Shell_Settings_General_DevModeDesc.Text(),
-            FluentLayout.Toggle(host.State.Preferences.DevMode, value => host.Mutate(s =>
-            {
-                s.Preferences.DevMode = value;
-                if (!value)
-                {
-                    s.Preferences.VerboseLogging = false;
-                }
-            }, relayout: false)),
-            "developer", "dev mode", "logs", "debug"));
 
         return Page(Str.Settings_Nav_General.Text(), rows);
     }
@@ -118,28 +95,5 @@ internal static partial class ConfigPages
         return FluentLayout.Row(Glyphs.Language, Str.Settings_Language_Label.Text(), Str.Settings_Language_Desc.Text(),
             FluentLayout.Choice(options, host.State.Preferences.Language, host.SetLanguage),
             "language", "locale", "translation");
-    }
-
-    private static void OpenDataFolder()
-    {
-        var folder = Path.GetDirectoryName(Themia.Core.Storage.AppStateStore.DefaultPath());
-        if (string.IsNullOrEmpty(folder))
-        {
-            return;
-        }
-
-        try
-        {
-            Directory.CreateDirectory(folder);
-            using var process = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
-            {
-                FileName = folder,
-                UseShellExecute = true,
-            });
-        }
-        catch (Exception ex)
-        {
-            Log.Error(Scope, "could not open the data folder", ex);
-        }
     }
 }

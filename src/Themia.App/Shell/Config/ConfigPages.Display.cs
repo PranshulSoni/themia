@@ -172,40 +172,30 @@ internal static partial class ConfigPages
         return rows;
     }
 
-    /// <summary>The view drop-down: an explicit view, or the active view.</summary>
+    /// <summary>
+    /// [S-1706] The view drop-down: one of the existing views, nothing else. A display is never
+    /// given a view of its own ([S-1705]), and there is no "follow the active view": every display
+    /// holds an assignment, so that choice would only last until the next display pass.
+    /// </summary>
     private static ComboBox ViewChoice(AppHost host, string monitorId)
     {
-        var options = new List<(string Value, string Label)> { (string.Empty, Str.Shell_Display_FollowActive.Text()) };
-        options.AddRange(host.State.Views.Select(v => (v.Id, v.Name)));
-
-        var selected = host.State.MonitorViews.TryGetValue(monitorId, out var assigned) ? assigned : string.Empty;
+        var views = host.State.Views.Select(v => (v.Id, v.Name)).ToList();
+        var shown = ShownViewId(host.State, monitorId);
 
         var combo = new ComboBox { MinWidth = 220 };
-        foreach (var (value, label) in options)
+        foreach (var (id, name) in views)
         {
-            combo.Items.Add(new ComboBoxItem { Content = label, Tag = value });
+            combo.Items.Add(new ComboBoxItem { Content = name, Tag = id });
         }
 
-        combo.SelectedIndex = Math.Max(0, options.FindIndex(o => o.Value == selected));
+        combo.SelectedIndex = Math.Max(0, views.FindIndex(v => v.Id == shown));
         combo.SelectionChanged += (_, _) =>
         {
-            if (combo.SelectedItem is not ComboBoxItem { Tag: string id })
+            if (combo.SelectedItem is ComboBoxItem { Tag: string id })
             {
-                return;
+                // [S-19] The one way a display is given a view.
+                host.ShowView(monitorId, id);
             }
-
-            host.Mutate(s =>
-            {
-                if (string.IsNullOrEmpty(id))
-                {
-                    s.MonitorViews.Remove(monitorId);
-                }
-                else
-                {
-                    // [S-19] The one way a display is given a view.
-                    s.ShowViewOn(monitorId, id);
-                }
-            });
         };
 
         return combo;

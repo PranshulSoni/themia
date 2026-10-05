@@ -32,14 +32,7 @@ internal static class GalleryFixtures
 
     private static MjpegFixtureServer? _camera;
 
-    /// <summary>
-    /// Isolate what the gallery's widgets write. The renderer's browser profile goes to a throwaway
-    /// folder, so a gallery run never touches the profile the real app's picker and renderer share.
-    /// </summary>
-    public static void Prepare()
-        => WebViewHost.UserDataFolder = Path.Combine(Path.GetTempPath(), "Themia.Gallery", "WebView2");
-
-    public static bool Has(WidgetKind kind) => kind is WidgetKind.VideoStream or WidgetKind.WebElement or WidgetKind.ScreenTime
+    public static bool Has(WidgetKind kind) => kind is WidgetKind.VideoStream or WidgetKind.ScreenTime
         or WidgetKind.Email
         or WidgetKind.Tasks or WidgetKind.OneDrive
         or WidgetKind.Calendar or WidgetKind.Contacts
@@ -86,9 +79,6 @@ internal static class GalleryFixtures
         DiskPingFixture.InstallDisk(populated: false);
         DiskPingFixture.InstallPing(populated: false);
 
-        // [S-1619] Network: the plain page reads this machine's Wi-Fi as it is.
-        NetworkFixture.Install(populated: false);
-
         // [S-1420] Habits read the device's list pool; the plain page starts with none.
         HabitsFixture.Install(populated: false);
 
@@ -124,10 +114,6 @@ internal static class GalleryFixtures
                 _camera ??= MjpegFixtureServer.Start();
                 // [S-1312] With the status chip on, so the XL page shows it.
                 return _camera is null ? null : new VideoStreamConfig { Url = _camera.Url, ShowStatus = true };
-
-            case WidgetKind.WebElement:
-                // [S-1319] A page on loopback, rendered offline; see WebElementFixture.
-                return WebElementFixture.Config();
 
             case WidgetKind.ScreenTime:
                 // [S-459] The history is not in the config, so the fixture is a data source.
@@ -199,9 +185,8 @@ internal static class GalleryFixtures
                 return DiskPingFixture.PingConfig();
 
             case WidgetKind.Network:
-                // [S-1619] The packaged Wi-Fi line with location refused: no name, the hint under it.
-                NetworkFixture.Install(populated: true);
-                return NetworkFixture.Config();
+                // [S-1762] This machine's traffic, sampled every second over 30 s, so a short wait draws a chart.
+                return new Themia.Core.Model.NetworkConfig { IntervalSeconds = 1, GraphSpanSeconds = 30 };
 
             case WidgetKind.Mixer:
                 // [S-1233] Three devices, a microphone and seven apps; previews never write.

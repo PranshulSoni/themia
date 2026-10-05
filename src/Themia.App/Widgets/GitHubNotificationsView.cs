@@ -304,14 +304,14 @@ internal sealed partial class GitHubNotificationsView : Grid, IWidgetView, IWidg
     }
 
     /// <summary>[S-621][S-749] A thread's own menu: open it, copy its link, open its repository, mark it or its repository read.</summary>
-    private MenuFlyout Menu(NotificationItem item)
+    private List<ItemMenuEntry> Menu(NotificationItem item)
     {
         var menu = DevRows.LinkMenu(item.HtmlUrl, item.RepoHtmlUrl);
-        menu.Items.Add(new MenuFlyoutSeparator());
+        menu.Add(ItemMenuEntry.Separator);
 
-        menu.Items.Add(DevRows.Item(Glyphs.MailRead, Str.Github_MarkAsRead.Text(), () => _ = ChangeAsync([item], s => s.MarkReadAsync(item)), item.Unread));
+        menu.Add(new(Glyphs.MailRead, Str.Github_MarkAsRead.Text(), () => _ = ChangeAsync([item], s => s.MarkReadAsync(item)), Disabled: !item.Unread));
 
-        menu.Items.Add(DevRows.Item(Glyphs.Done, Str.WidgetsA_Github_MarkRepoRead.Format(("repo", item.Repo)), () => _ = ChangeAsync(
+        menu.Add(new(Glyphs.Done, Str.WidgetsA_Github_MarkRepoRead.Format(("repo", item.Repo)), () => _ = ChangeAsync(
             [.. Items().Where(i => i.AccountId == item.AccountId && string.Equals(i.RepoHtmlUrl, item.RepoHtmlUrl, StringComparison.OrdinalIgnoreCase))],
             s => s.MarkRepositoryReadAsync(item))));
 

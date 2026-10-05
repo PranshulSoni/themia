@@ -107,6 +107,12 @@ internal sealed unsafe class CommandWindow : IDisposable
         return true;
     }
 
+    /// <summary>
+    /// Whether a copy of Themia is running, without telling it anything: for the Debug state tools
+    /// ([S-1814]) that must not write a state file the running copy owns.
+    /// </summary>
+    public static bool IsAnotherInstanceRunning() => Win32.FindWindow(ClassName, null) != 0;
+
     private static uint ActivateMessage()
     {
         if (_activateMessage == 0)

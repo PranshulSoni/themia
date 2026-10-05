@@ -30,10 +30,14 @@ Render flags draw off-screen to PNG and exit. Look at the PNGs; they are how UI 
 
 ```
 Themia.exe --gallery-png <Kind|Kind1,Kind2|Kind+fixture|all> <outDir> [waitMs]   # 7 sizes: XS S M Wide Tall L XL
-Themia.exe --settings-png <Page|Widget:<Kind>|View|Display> <out.png> [waitMs] [--theme light|dark] [--search t] [--dev]
+Themia.exe --settings-png <Page|Widget:<Kind>|View|Display> <out.png> [waitMs] [--theme light|dark] [--search t]
 Themia.exe --picker-png <out.png> [--search t] [--into]      Themia.exe --viewbar-png <outDir>
 Themia.exe --notices-png <outDir>                            Themia.exe --gallery <Kind>   (interactive)
+Themia.exe --menu-png <outDir>                               Themia.exe --iconpicker-png <out.png> [--search t]
+Themia.exe --add-showcase-views [<statePath>]   # one view per widget kind at the 7 sizes; quit Themia first
 ```
+
+Build output (`artifacts/`, `bin/`, `obj/`) cannot be read by agents; write render PNGs outside it.
 
 **Never start `Themia.exe` without a render flag as the first argument.** A bare start hands off to
 the copy that is already running and toggles its edit mode. Do not drive the user's running

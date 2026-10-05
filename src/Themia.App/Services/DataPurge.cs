@@ -9,11 +9,10 @@ namespace Themia.App.Services;
 /// Deleting the user's data after Themia has quit, for "Uninstall Themia" with "also delete my
 /// widgets, settings and accounts" ticked. [S-1553]
 /// <para>
-/// The running app cannot delete its own folders: it writes the state and the log on the way out,
-/// and the browser processes behind the web widgets hold files in %LOCALAPPDATA% until they have
-/// exited. So a second copy of the executable is started with <see cref="Flag"/> and the app's
-/// process id; it waits — on the process handles, not on a clock — for the app and its direct
-/// children (the WebView2 browser) to exit, then deletes the folders.
+/// The running app cannot delete its own folders: it writes the state and the log on the way out.
+/// So a second copy of the executable is started with <see cref="Flag"/> and the app's process id;
+/// it waits — on the process handles, not on a clock — for the app and its direct children to
+/// exit, then deletes the folders.
 /// </para>
 /// <para>
 /// The helper trusts nothing on its command line but the id it waits on. The folders are worked

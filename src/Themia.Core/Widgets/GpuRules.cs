@@ -10,52 +10,22 @@ public enum GpuPressure
     Critical = 2,
 }
 
-/// <summary>One adapter's figures for one sample. Every optional field is null when nothing answered it.</summary>
+/// <summary>One adapter's load for one sample.</summary>
 /// <param name="Name">What the driver calls the adapter.</param>
 /// <param name="Utilization">0..100: the busiest engine.</param>
-/// <param name="DedicatedUsed">Bytes of dedicated video memory in use.</param>
-/// <param name="DedicatedTotal">Bytes of dedicated video memory, or 0 when unknown.</param>
-/// <param name="SharedUsed">Bytes of shared system memory the adapter is using.</param>
-/// <param name="SharedTotal">The shared budget Windows gives the adapter, in bytes.</param>
-public sealed record GpuReading(
-    string Name,
-    double Utilization,
-    ulong DedicatedUsed,
-    ulong DedicatedTotal,
-    ulong SharedUsed,
-    ulong SharedTotal)
+public sealed record GpuReading(string Name, double Utilization)
 {
     /// <summary>
     /// False while the load is not yet a real figure: the counters are a rate and need a second
     /// reading. The driver's own figure is real at once.
     /// </summary>
     public bool HasLoad { get; init; } = true;
-
-    public double? TemperatureC { get; init; }
-
-    public double? PowerWatts { get; init; }
-
-    public int? FanPercent { get; init; }
-
-    public int? CoreClockMhz { get; init; }
-
-    public int? MemoryClockMhz { get; init; }
-
-    public double? EncoderPercent { get; init; }
-
-    public double? DecoderPercent { get; init; }
-
-    /// <summary>[S-1203] One load per engine kind the adapter has, in <see cref="GpuEngineKind"/> order.</summary>
-    public IReadOnlyList<GpuEngineLoad> Engines { get; init; } = [];
-
-    /// <summary>[S-1205] The busiest processes on the adapter, busiest first.</summary>
-    public IReadOnlyList<GpuProcessLoad> Processes { get; init; } = [];
 }
 
 /// <summary>
 /// The decisions behind the GPU meter that do not need a GPU to test: which adapters a config
 /// means, how a performance-counter instance name maps onto an adapter, how one load figure is
-/// made out of a few hundred engine counters, and which memory rows are honest enough to draw.
+/// made out of a few hundred engine counters.
 /// </summary>
 public static class GpuRules
 {
@@ -196,25 +166,6 @@ public static class GpuRules
         return Math.Clamp(busiest, 0, 100);
     }
 
-    /// <summary>[S-434] Bytes an adapter's memory counter instances add up to. Negative readings are dropped.</summary>
-    public static ulong Bytes(IEnumerable<(string Instance, long Bytes)> items, string luid)
-    {
-        ArgumentNullException.ThrowIfNull(items);
-
-        ulong total = 0;
-        foreach (var (instance, bytes) in items)
-        {
-            if (bytes <= 0 || !string.Equals(LuidOf(instance), luid, StringComparison.OrdinalIgnoreCase))
-            {
-                continue;
-            }
-
-            total += (ulong)bytes;
-        }
-
-        return total;
-    }
-
     /// <summary>
     /// [S-435] The load the meter reports: the driver's own figure when the driver gives one, the
     /// counters otherwise, clamped to 0..100.
@@ -236,24 +187,6 @@ public static class GpuRules
         >= 70 => GpuPressure.High,
         _ => GpuPressure.Normal,
     };
-
-    /// <summary>[S-437] Memory pressure: high from 80% full, critical from 90%.</summary>
-    public static GpuPressure MemoryPressure(double fraction) => fraction switch
-    {
-        >= 0.9 => GpuPressure.Critical,
-        >= 0.8 => GpuPressure.High,
-        _ => GpuPressure.Normal,
-    };
-
-    /// <summary>
-    /// [S-437] Whether the dedicated-memory row says something true. An integrated adapter reports a
-    /// small carve-out as its total and then "uses" far more than it; a row claiming 3 GB of 128 MB
-    /// is worse than no row, so it is dropped. Unknown total with real use still shows the use.
-    /// </summary>
-    public static bool ShowsDedicated(ulong used, ulong total) => used > 0 && (total == 0 || used <= total);
-
-    /// <summary>[S-437] The shared row needs both a figure and a budget to be a bar.</summary>
-    public static bool ShowsShared(ulong used, ulong total) => used > 0 && total > 0;
 
     /// <summary>
     /// [S-430] The adapter's name as a card title: the model, without the vendor and trademark noise
@@ -280,7 +213,4 @@ public static class GpuRules
 
         return words.Length == 0 ? name.Trim() : string.Join(' ', words);
     }
-
-    /// <summary>Used as a 0..1 share of the total, clamped; 0 when the total is unknown.</summary>
-    public static double Fraction(ulong used, ulong total) => total == 0 ? 0 : Math.Clamp((double)used / total, 0, 1);
 }

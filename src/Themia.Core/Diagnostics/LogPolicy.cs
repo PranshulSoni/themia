@@ -1,5 +1,3 @@
-using Themia.Core.Model;
-
 namespace Themia.Core.Diagnostics;
 
 /// <summary>What the Application event log mirror does with one error record ([S-986]).</summary>
@@ -19,7 +17,7 @@ public enum EventLogEmit
 }
 
 /// <summary>
-/// The level policy ([S-981], [S-982]) and the event log mirror's limits ([S-986]): which records
+/// The level policy ([S-981]) and the event log mirror's limits ([S-986]): which records
 /// are kept at all, and how many of the errors reach the machine-wide event log.
 /// </summary>
 public static class LogPolicy
@@ -40,23 +38,12 @@ public static class LogPolicy
     /// <summary>
     /// [S-981] The lowest level that is recorded at all. Warnings and errors always are — they are
     /// rare, and the one that preceded a "it just stopped working" report has to be on disk already.
-    /// Info and debug only with verbose logging on, or in a debug build, where the developer is the
-    /// reader. A record under the floor is dropped in <see cref="Log"/> before it is redacted or
-    /// formatted, so a quiet app pays nothing for its debug lines.
+    /// Info and debug only in a debug build, where the developer is the reader. A record under the
+    /// floor is dropped in <see cref="Log"/> before it is redacted or formatted, so a quiet app pays
+    /// nothing for its debug lines.
     /// </summary>
-    public static LogLevel Floor(bool verbose, bool debugBuild)
-        => verbose || debugBuild ? LogLevel.Debug : LogLevel.Warn;
-
-    /// <summary>
-    /// [S-982] Verbose logging counts only while developer mode is on: it is a developer setting
-    /// and lives under it, so turning developer mode off turns it off with it — a user who leaves
-    /// developer mode does not leave a megabyte-a-minute log running behind.
-    /// </summary>
-    public static bool Verbose(AppPreferences preferences)
-    {
-        ArgumentNullException.ThrowIfNull(preferences);
-        return preferences.DevMode && preferences.VerboseLogging;
-    }
+    public static LogLevel Floor(bool debugBuild)
+        => debugBuild ? LogLevel.Debug : LogLevel.Warn;
 
     /// <summary>[S-986] What to do with an error when <paramref name="seenBefore"/> were mirrored before it.</summary>
     public static EventLogEmit EventDecision(int seenBefore) => seenBefore switch

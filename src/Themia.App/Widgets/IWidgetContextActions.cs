@@ -9,10 +9,11 @@ internal readonly record struct WidgetAction(string Glyph, string Text, Action I
 /// <summary>
 /// A view with commands that belong on the widget itself rather than in its settings: pausing a
 /// camera, refreshing a page now. A <i>state</i> the user flips while looking at the widget, not a
-/// setting they configure once.
+/// setting they configure once. [S-1746] Never anything that changes how the widget looks (its view,
+/// layout, sort, sizes, what it shows): those are settings, and live on its settings page only.
 /// <para>
 /// Read each time the menu opens, so the text can follow the state. The card puts these at the top
-/// of the menu, under Configure, and owns everything else on it.
+/// of the menu's list, under the icon row ([S-1743]), and owns everything else on it.
 /// </para>
 /// </summary>
 internal interface IWidgetContextActions

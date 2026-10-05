@@ -228,13 +228,13 @@ internal sealed partial class GitHubSearchView : Grid, IWidgetView, IWidgetHeade
     }
 
     /// <summary>[S-749] The item's page, its link, its repository, and for a pull request the changed files.</summary>
-    private MenuFlyout Menu(SearchItem item)
+    private List<ItemMenuEntry> Menu(SearchItem item)
     {
         var menu = DevRows.LinkMenu(item.HtmlUrl, GitHubRules.RepoPageOf(item.HtmlUrl));
 
         if (Reviews)
         {
-            menu.Items.Add(DevRows.Item(Glyphs.PullRequest, Str.WidgetsA_Github_OpenFiles.Text(), () => DevRows.Open(item.HtmlUrl.TrimEnd('/') + "/files")));
+            menu.Add(new(Glyphs.PullRequest, Str.WidgetsA_Github_OpenFiles.Text(), () => DevRows.Open(item.HtmlUrl.TrimEnd('/') + "/files")));
         }
 
         return menu;

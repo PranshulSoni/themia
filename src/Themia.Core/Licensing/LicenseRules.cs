@@ -192,12 +192,6 @@ public static class LicenseRules
     }
 
     /// <summary>
-    /// [S-1065] The most views automatic per-display assignment may create: unbounded unless limited,
-    /// where a display past the limit shares a view instead of getting a new one.
-    /// </summary>
-    public static int ViewCap(LicenseTier tier) => tier == LicenseTier.Free ? FreeViewLimit : int.MaxValue;
-
-    /// <summary>
     /// [S-1067] Whether the Store's add-on licences include an active licence for the product. The
     /// keys are SKU Store ids (<c>9ABCDEFGHIJK/0010</c>), so the product id is matched as the prefix
     /// before the slash, as Microsoft's own samples do.

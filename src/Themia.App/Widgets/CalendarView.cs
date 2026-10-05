@@ -40,9 +40,6 @@ internal sealed partial class CalendarView : Grid, IWidgetView, IWidgetHeaderCon
     private static readonly string ChevronLeft = char.ConvertFromUtf32(0xE76B);
     private static readonly string ChevronRight = char.ConvertFromUtf32(0xE76C);
     private static readonly string GiftGlyph = char.ConvertFromUtf32(0xF133);
-    private static readonly string WeekGlyph = char.ConvertFromUtf32(0xE8C0);
-    private static readonly string DayGlyph = char.ConvertFromUtf32(0xE8BF);
-    private static readonly string AgendaGlyph = char.ConvertFromUtf32(0xE8FD);
 
     private readonly Grid _content = new();
     private readonly OfficeStatePanel _state = new(Glyphs.Calendar);
@@ -175,28 +172,8 @@ internal sealed partial class CalendarView : Grid, IWidgetView, IWidgetHeaderCon
         Render();
     }
 
-    /// <inheritdoc />
-    public IReadOnlyList<WidgetAction> ContextActions
-    {
-        get
-        {
-            // [S-561] The classic menu: refresh, then the four views with the current one checked.
-            var actions = new List<WidgetAction> { new(Glyphs.Refresh, Str.Common_Refresh.Text(), () => _ = RefreshAsync(force: true)) };
-
-            foreach (var (mode, label, glyph) in new[]
-            {
-                (CalendarViewMode.Month, Str.CtxMenu_Month.Text(), Glyphs.Calendar),
-                (CalendarViewMode.Week, Str.CtxMenu_Week.Text(), WeekGlyph),
-                (CalendarViewMode.Day, Str.CtxMenu_Day.Text(), DayGlyph),
-                (CalendarViewMode.Agenda, Str.CtxMenu_Agenda.Text(), AgendaGlyph),
-            })
-            {
-                actions.Add(new(_config.EffectiveView == mode ? Glyphs.Done : glyph, label, () => SetView(mode)));
-            }
-
-            return actions;
-        }
-    }
+    /// <summary>[S-561] Refresh. [S-1746] The view is how the widget looks: it is chosen in its settings only.</summary>
+    public IReadOnlyList<WidgetAction> ContextActions => [new(Glyphs.Refresh, Str.Common_Refresh.Text(), () => _ = RefreshAsync(force: true))];
 
     public void Detach()
     {
@@ -503,15 +480,6 @@ internal sealed partial class CalendarView : Grid, IWidgetView, IWidgetHeaderCon
     {
         _anchor = Today;
         _followToday = true;
-        Render();
-        _ = RefreshAsync(force: false);
-    }
-
-    /// <summary>[S-561] Switch the view from the context menu; it is the config, so it is saved.</summary>
-    private void SetView(CalendarViewMode mode)
-    {
-        _config.View = mode;
-        _surface?.RequestSave();
         Render();
         _ = RefreshAsync(force: false);
     }

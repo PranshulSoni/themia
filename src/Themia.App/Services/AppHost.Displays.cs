@@ -48,6 +48,48 @@ internal sealed partial class AppHost
         => Win32.GetCursorPos(out var cursor) ? SurfaceAt(cursor.X, cursor.Y) : null;
 
     /// <summary>
+    /// [S-1702] The display a command given in Settings acts on: the one the settings window is on,
+    /// else the one under the pointer, else the first. "This display" from Settings means the screen
+    /// the user is looking at, which is where the window is, not wherever the pointer was left.
+    /// </summary>
+    public DesktopWindow? SettingsSurface()
+    {
+        if (_config?.Centre() is { } centre && SurfaceAt(centre.X, centre.Y) is { } under)
+        {
+            return under;
+        }
+
+        return SurfaceUnderCursor() ?? _windows.FirstOrDefault();
+    }
+
+    /// <summary>
+    /// [S-1701] Edit a view's layout from Settings: show it on the settings display ([S-1702]), then
+    /// enter edit mode, with <paramref name="widgetId"/> selected when given. Edit mode alone would
+    /// leave the user arranging whatever view that display happened to show.
+    /// </summary>
+    public void EditView(string viewId, string? widgetId = null)
+    {
+        ArgumentNullException.ThrowIfNull(viewId);
+
+        if (State.FindView(viewId) is null)
+        {
+            return;
+        }
+
+        if (SettingsSurface() is { } surface)
+        {
+            ShowView(surface.Monitor.Id, viewId);
+        }
+
+        SetEditMode(true);
+
+        if (widgetId is not null && Find(widgetId) is not null)
+        {
+            Select(widgetId);
+        }
+    }
+
+    /// <summary>
     /// Read the connected displays without touching any surface. The display pass does this as part
     /// of its work; the settings renderer does it alone, to draw a display page with no surface up.
     /// </summary>
@@ -138,13 +180,12 @@ internal sealed partial class AppHost
 
         var plan = DisplayPlan.Reconcile(surfaces, [.. monitors.Select(m => m.Info)], State.DisabledMonitors);
 
-        // Views before surfaces, so a new surface finds its own view on its first layout. Without a
-        // view per display every display falls back to the active view, the same widgets are drawn
-        // on all of them, and dragging one to another screen is a no-op by definition.
-        var created = State.EnsureViewPerDisplay(DisplayPlan.ViewKeys(plan.Enabled, State.MonitorViews), ViewCap);
-        if (created > 0)
+        // [S-1705] Assignments before surfaces, so a new surface finds its view on its first layout.
+        // An existing view, never a new one: views are the user's to make.
+        var assigned = DisplayPlan.AssignViews(State, DisplayPlan.ViewKeys(plan.Enabled, State.MonitorViews));
+        if (assigned > 0)
         {
-            Log.Info(Scope, $"created {created} view(s) so every display has one of its own");
+            Log.Info(Scope, $"gave {assigned} display(s) an existing view");
             _store.SaveSoon(State);
 
             // [S-887] The system's doing, not the user's: not something Ctrl+Z should take away.
@@ -202,7 +243,7 @@ internal sealed partial class AppHost
             window.EnsurePlacement();
         }
 
-        if (!plan.IsEmpty || created > 0 || rekeyed)
+        if (!plan.IsEmpty || assigned > 0 || rekeyed)
         {
             Log.Info(Scope, $"display pass: {_windows.Count} surface(s) on {monitors.Count} display(s) " +
                 $"(+{plan.Create.Count} -{plan.Close.Count} ~{plan.Update.Count})");
@@ -304,7 +345,7 @@ internal sealed partial class AppHost
         });
     }
 
-    /// <summary>The displays that may hold a view of their own ([S-843]), for mutations that re-run [S-18].</summary>
+    /// <summary>The displays that may hold a view assignment ([S-843]), for mutations that re-run [S-1705].</summary>
     private List<string> DisplayViewKeys()
         => DisplayPlan.ViewKeys(
             DisplayPlan.Enabled([.. _displays.Select(d => d.Info)], State.DisabledMonitors),

@@ -39,19 +39,6 @@ internal sealed partial class ConfigWindow
     private readonly AutoSuggestBox _search = new();
 
     /// <summary>
-    /// [S-991] The developer-mode disclaimer: full width under the title bar, above the navigation
-    /// and the page, so it is on every settings page. Open only while developer mode is on.
-    /// </summary>
-    private readonly InfoBar _devBanner = new()
-    {
-        Severity = InfoBarSeverity.Informational,
-        IsClosable = false,
-        IsOpen = false,
-        CornerRadius = new CornerRadius(0),
-        BorderThickness = new Thickness(0, 0, 0, 1),
-    };
-
-    /// <summary>
     /// Title bar, then the navigation with the page under its breadcrumb.
     /// <para>
     /// A plain <see cref="Grid"/> handed to <c>SetTitleBar</c>, not the SDK's <c>TitleBar</c>
@@ -117,21 +104,17 @@ internal sealed partial class ConfigWindow
         };
 
         Grid.SetRow(_titleBar, 0);
-        Grid.SetRow(_devBanner, 1);
-        Grid.SetRow(_nav, 2);
+        Grid.SetRow(_nav, 1);
 
         var root = new Grid
         {
             RowDefinitions =
             {
                 new RowDefinition { Height = new GridLength(TitleBarHeight) },
-                new RowDefinition { Height = GridLength.Auto },
                 new RowDefinition { Height = new GridLength(1, GridUnitType.Star) },
             },
-            Children = { _titleBar, _devBanner, _nav },
+            Children = { _titleBar, _nav },
         };
-
-        ApplyDevBanner();
 
         AttachHistoryKeys(root);
         return root;
@@ -393,16 +376,6 @@ internal sealed partial class ConfigWindow
         }
     }
 
-    /// <summary>
-    /// [S-991] Show or hide the developer-mode banner, and (re)read its text in the current language.
-    /// Cheap and idempotent, so state changes and language switches simply call it.
-    /// </summary>
-    private void ApplyDevBanner()
-    {
-        _devBanner.Message = Themia.Core.Localization.Strings.Get(Themia.Core.Localization.Strings.Current, Themia.Core.Localization.Str.Settings_DevBanner_Text);
-        _devBanner.IsOpen = _host.State.Preferences.DevMode;
-    }
-
     public void Activate() => _window.Activate();
 
     public void Close() => _window.Close();
@@ -413,6 +386,19 @@ internal sealed partial class ConfigWindow
         _window.Activate();
         Win32.SetForegroundWindow(_hwnd);
         Show(target, record: true);
+    }
+
+    /// <summary>
+    /// [S-1745] Show <paramref name="target"/> without taking the foreground: a click on a widget in
+    /// edit mode follows it here, and the desktop must keep the keyboard for the next shortcut. The
+    /// page already shown is left as it is (its scroll position, a half-typed value).
+    /// </summary>
+    public void Follow(ConfigTarget target)
+    {
+        if (target != _target)
+        {
+            Show(target, record: true);
+        }
     }
 
     /// <summary>Make a target the current page. Only the user's own steps are recorded for back.</summary>

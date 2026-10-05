@@ -86,53 +86,10 @@ internal sealed partial class WeatherForecastView : Grid, IWidgetView, IWidgetHe
     public FrameworkElement? HeaderTrailing => _freshness;
 
     /// <summary>
-    /// [S-730] Refresh, and [S-724] the layouts other than the one on screen — a flat list, as the
-    /// menu has no submenus: picking one pins it, and Str.WidgetsC_Weather_Action_Auto.Text() hands it back to the tile.
+    /// [S-730] Refresh. [S-1746] The layout is how the widget looks: it is chosen in its settings only.
     /// </summary>
-    public IReadOnlyList<WidgetAction> ContextActions
-    {
-        get
-        {
-            var actions = new List<WidgetAction>();
-
-            if (_config.HasLocation)
-            {
-                actions.Add(new WidgetAction(Glyphs.Refresh, Str.Common_Refresh.Text(), () => { _schedule.Reset(); Reload(force: true); }));
-            }
-
-            var shown = WeatherForecastLayout.Resolve(_config.Layout, _area);
-
-            if (shown != ForecastLayout.Rows)
-            {
-                actions.Add(new WidgetAction(Glyphs.ListLayout, Str.WidgetsC_Weather_Action_Rows.Text(), () => SetLayout(ForecastLayout.Rows)));
-            }
-
-            if (shown != ForecastLayout.Columns)
-            {
-                actions.Add(new WidgetAction(Glyphs.ColumnsLayout, Str.WidgetsC_Weather_Action_Columns.Text(), () => SetLayout(ForecastLayout.Columns)));
-            }
-
-            if (shown != ForecastLayout.Grid)
-            {
-                actions.Add(new WidgetAction(Glyphs.GridLayout, Str.WidgetsC_Weather_Action_Grid.Text(), () => SetLayout(ForecastLayout.Grid)));
-            }
-
-            if (_config.Layout != ForecastLayout.Auto)
-            {
-                actions.Add(new WidgetAction(Glyphs.Grid, Str.WidgetsC_Weather_Action_Auto.Text(), () => SetLayout(ForecastLayout.Auto)));
-            }
-
-            return actions;
-        }
-    }
-
-    private void SetLayout(ForecastLayout layout)
-    {
-        _config.Layout = layout;
-        _applied.Layout = layout;
-        _surface?.RequestSave();
-        Lay();
-    }
+    public IReadOnlyList<WidgetAction> ContextActions =>
+        _config.HasLocation ? [new WidgetAction(Glyphs.Refresh, Str.Common_Refresh.Text(), () => { _schedule.Reset(); Reload(force: true); })] : [];
 
     public void Attach(Ticker ticker, WidgetConfig config)
     {

@@ -3,97 +3,84 @@ using Xunit;
 
 namespace Themia.Core.Tests;
 
+/// <summary>[S-18]/[S-19]/[S-1705] Which view each display shows, and how a display is given one.</summary>
 public class ViewPerDisplayTests
 {
     private static readonly string[] TwoDisplays = ["\\\\.\\DISPLAY1", "\\\\.\\DISPLAY2"];
 
-    [Fact]
-    public void Each_display_ends_up_on_a_different_view()
+    /// <summary>Two displays on two different views, as the user would set them up.</summary>
+    private static AppState TwoViewsOnTwoDisplays()
     {
-        // This is what makes dragging a widget between displays mean anything: while both showed
-        // the active view, the widget was already on both and there was nothing to move.
         var state = AppState.CreateDefault();
-
-        state.EnsureViewPerDisplay(TwoDisplays);
-
-        var first = state.ViewForMonitor(TwoDisplays[0]);
-        var second = state.ViewForMonitor(TwoDisplays[1]);
-        Assert.NotEqual(first.Id, second.Id);
+        var second = ViewState.Create("Second");
+        state.Views.Add(second);
+        state.MonitorViews[TwoDisplays[0]] = state.Views[0].Id;
+        state.MonitorViews[TwoDisplays[1]] = second.Id;
+        return state;
     }
 
     [Fact]
-    public void The_existing_view_is_reused_before_a_new_one_is_made()
+    public void S1705_displays_share_the_one_view_rather_than_get_new_ones()
     {
         var state = AppState.CreateDefault();
         var original = state.ActiveView();
 
-        var created = state.EnsureViewPerDisplay(TwoDisplays);
+        DisplayPlan.AssignViews(state, TwoDisplays);
 
-        Assert.Equal(1, created);
-        Assert.Equal(2, state.Views.Count);
-        Assert.Contains(state.Views, v => v.Id == original.Id);
+        Assert.Single(state.Views);
+        Assert.Equal(original.Id, state.ViewForMonitor(TwoDisplays[0]).Id);
+        Assert.Equal(original.Id, state.ViewForMonitor(TwoDisplays[1]).Id);
     }
 
     [Fact]
-    public void The_seeded_widgets_are_not_duplicated_or_lost()
+    public void S1705_the_seeded_widgets_are_not_duplicated_or_lost()
     {
         var state = AppState.CreateDefault();
         var seeded = state.ActiveView().Widgets.Count;
 
-        state.EnsureViewPerDisplay(TwoDisplays);
+        DisplayPlan.AssignViews(state, TwoDisplays);
 
         Assert.Equal(seeded, state.Views.Sum(v => v.Widgets.Count));
     }
 
     [Fact]
-    public void Running_it_again_changes_nothing()
+    public void S1705_running_it_again_changes_nothing()
     {
         var state = AppState.CreateDefault();
-        state.EnsureViewPerDisplay(TwoDisplays);
+        DisplayPlan.AssignViews(state, TwoDisplays);
         var before = state.MonitorViews.ToDictionary(kv => kv.Key, kv => kv.Value);
 
-        var created = state.EnsureViewPerDisplay(TwoDisplays);
+        var assigned = DisplayPlan.AssignViews(state, TwoDisplays);
 
-        Assert.Equal(0, created);
+        Assert.Equal(0, assigned);
         Assert.Equal(before, state.MonitorViews);
     }
 
     [Fact]
-    public void An_existing_assignment_is_never_taken_from_its_display()
+    public void S1705_an_existing_assignment_is_never_taken_from_its_display()
     {
         var state = AppState.CreateDefault();
         var chosen = ViewState.Create("Work");
         state.Views.Add(chosen);
         state.MonitorViews[TwoDisplays[1]] = chosen.Id;
 
-        state.EnsureViewPerDisplay(TwoDisplays);
+        DisplayPlan.AssignViews(state, TwoDisplays);
 
         Assert.Equal(chosen.Id, state.ViewForMonitor(TwoDisplays[1]).Id);
-        Assert.NotEqual(chosen.Id, state.ViewForMonitor(TwoDisplays[0]).Id);
+        Assert.Equal(state.Views[0].Id, state.ViewForMonitor(TwoDisplays[0]).Id);
     }
 
     [Fact]
-    public void A_dangling_assignment_is_replaced_rather_than_honoured()
+    public void S1705_adding_a_third_display_leaves_the_first_two_alone()
     {
-        var state = AppState.CreateDefault();
-        state.MonitorViews[TwoDisplays[0]] = "view-that-was-deleted";
-
-        state.EnsureViewPerDisplay(TwoDisplays);
-
-        Assert.NotNull(state.FindView(state.MonitorViews[TwoDisplays[0]]));
-    }
-
-    [Fact]
-    public void Adding_a_third_display_leaves_the_first_two_alone()
-    {
-        var state = AppState.CreateDefault();
-        state.EnsureViewPerDisplay(TwoDisplays);
+        var state = TwoViewsOnTwoDisplays();
         var before = state.MonitorViews.ToDictionary(kv => kv.Key, kv => kv.Value);
 
         string[] three = [.. TwoDisplays, "\\\\.\\DISPLAY3"];
-        var created = state.EnsureViewPerDisplay(three);
+        var assigned = DisplayPlan.AssignViews(state, three);
 
-        Assert.Equal(1, created);
+        Assert.Equal(1, assigned);
+        Assert.Equal(2, state.Views.Count);
         foreach (var (display, viewId) in before)
         {
             Assert.Equal(viewId, state.MonitorViews[display]);
@@ -101,33 +88,21 @@ public class ViewPerDisplayTests
     }
 
     [Fact]
-    public void Spare_views_are_handed_out_before_any_are_created()
-    {
-        var state = AppState.CreateDefault();
-        state.Views.Add(ViewState.Create("Spare"));
-
-        var created = state.EnsureViewPerDisplay(TwoDisplays);
-
-        Assert.Equal(0, created);
-        Assert.Equal(2, state.Views.Count);
-    }
-
-    [Fact]
-    public void No_displays_is_a_no_op_rather_than_a_reset()
+    public void S1705_no_displays_is_a_no_op_rather_than_a_reset()
     {
         var state = AppState.CreateDefault();
 
-        var created = state.EnsureViewPerDisplay([]);
+        var assigned = DisplayPlan.AssignViews(state, []);
 
-        Assert.Equal(0, created);
+        Assert.Equal(0, assigned);
         Assert.Empty(state.MonitorViews);
     }
 
     [Fact]
-    public void The_result_still_passes_validation()
+    public void S1705_the_result_still_passes_validation()
     {
         var state = AppState.CreateDefault();
-        state.EnsureViewPerDisplay(TwoDisplays);
+        DisplayPlan.AssignViews(state, TwoDisplays);
 
         Assert.Empty(Themia.Core.Storage.AppStateStore.Validate(state));
     }
@@ -139,8 +114,7 @@ public class ViewPerDisplayTests
     [Fact]
     public void S19_SwitchingOnlyTheActiveViewChangesNoAssignedDisplay()
     {
-        var state = AppState.CreateDefault();
-        state.EnsureViewPerDisplay(TwoDisplays);
+        var state = TwoViewsOnTwoDisplays();
         var before = state.ViewForMonitor(TwoDisplays[0]).Id;
         var other = state.ViewForMonitor(TwoDisplays[1]).Id;
 
@@ -152,8 +126,7 @@ public class ViewPerDisplayTests
     [Fact]
     public void S19_ShowingAViewOnADisplayPutsItThere()
     {
-        var state = AppState.CreateDefault();
-        state.EnsureViewPerDisplay(TwoDisplays);
+        var state = TwoViewsOnTwoDisplays();
         var other = state.ViewForMonitor(TwoDisplays[1]).Id;
 
         Assert.True(state.ShowViewOn(TwoDisplays[0], other));
@@ -164,8 +137,7 @@ public class ViewPerDisplayTests
     [Fact]
     public void S19_ShowingAViewOnOneDisplayLeavesTheOtherAlone()
     {
-        var state = AppState.CreateDefault();
-        state.EnsureViewPerDisplay(TwoDisplays);
+        var state = TwoViewsOnTwoDisplays();
         var second = state.ViewForMonitor(TwoDisplays[1]).Id;
         var third = ViewState.Create("Third");
         state.Views.Add(third);
@@ -179,11 +151,11 @@ public class ViewPerDisplayTests
     [Fact]
     public void S19_AnUnassignedDisplayFollowsTheLastViewShown()
     {
-        var state = AppState.CreateDefault();
-        state.EnsureViewPerDisplay(TwoDisplays);
+        var state = TwoViewsOnTwoDisplays();
         var other = state.ViewForMonitor(TwoDisplays[1]).Id;
 
         state.ShowViewOn(TwoDisplays[0], other);
+        DisplayPlan.AssignViews(state, ["\\\\.\\DISPLAY3"]);
 
         Assert.Equal(other, state.ViewForMonitor("\\\\.\\DISPLAY3").Id);
     }
@@ -191,8 +163,7 @@ public class ViewPerDisplayTests
     [Fact]
     public void S19_AViewThatDoesNotExistChangesNothing()
     {
-        var state = AppState.CreateDefault();
-        state.EnsureViewPerDisplay(TwoDisplays);
+        var state = TwoViewsOnTwoDisplays();
         var before = state.ViewForMonitor(TwoDisplays[0]).Id;
         var activeBefore = state.ActiveViewId;
 

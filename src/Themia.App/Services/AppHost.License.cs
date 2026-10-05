@@ -20,9 +20,6 @@ internal sealed partial class AppHost
     /// <summary>The Store licence. A developer build (no package identity) is unrestricted.</summary>
     public LicenseService License { get; } = new(PackageIdentity.IsPackaged);
 
-    /// <summary>The most views automatic per-display assignment may create under the current licence.</summary>
-    private int ViewCap => LicenseRules.ViewCap(License.Status.Tier);
-
     /// <summary>
     /// Whether creating <paramref name="widgets"/> widgets and <paramref name="views"/> views is within
     /// the licence. When it is not, logs it, says why in a notice, and returns false.

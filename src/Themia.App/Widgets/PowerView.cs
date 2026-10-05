@@ -30,7 +30,7 @@ namespace Themia.App.Widgets;
 /// wide strip, or as a panel of facts and power plans on the largest tiles.
 /// </para>
 /// </summary>
-internal sealed partial class PowerView : Grid, IWidgetView, IWidgetSizeAware, IWidgetSurfaceAware, IWidgetContextActions
+internal sealed partial class PowerView : Grid, IWidgetView, IWidgetSizeAware, IWidgetSurfaceAware
 {
     private const string Scope = "power";
 
@@ -116,20 +116,6 @@ internal sealed partial class PowerView : Grid, IWidgetView, IWidgetSizeAware, I
         _surface = surface;
         _preview = surface.IsPreview;
         _actions = _preview ? InertPowerActions.Instance : Win32PowerActions.Instance;
-    }
-
-    /// <inheritdoc />
-    public IReadOnlyList<WidgetAction> ContextActions =>
-    [
-        // [S-1244] The original's one context toggle.
-        new WidgetAction(Glyphs.Tag, (_config.ShowLabels ? Str.WidgetsC_Power_HideLabels : Str.Power_LabelsLabel).Text(), ToggleLabels),
-    ];
-
-    private void ToggleLabels()
-    {
-        _config.ShowLabels = !_config.ShowLabels;
-        _surface?.RequestSave();
-        Lay();
     }
 
     public void Attach(Ticker ticker, WidgetConfig config)

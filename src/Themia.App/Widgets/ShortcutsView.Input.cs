@@ -10,6 +10,7 @@ using Themia.Core.Model;
 using Themia.Core.Widgets;
 using Windows.Foundation;
 using Windows.System;
+using Themia.Core.Shell;
 
 namespace Themia.App.Widgets;
 
@@ -380,7 +381,7 @@ internal sealed partial class ShortcutsView
     {
         try
         {
-            ItemMenu.Build(MenuFor(cell)).ShowAt(cell.Root);
+            ItemMenu.Open(cell.Root, MenuFor(cell));
         }
         catch (Exception ex)
         {
@@ -416,7 +417,7 @@ internal sealed partial class ShortcutsView
                 ShortcutCommand.MoveToStart => new(Glyphs.MoveUp, Str.WidgetsC_Shortcuts_Menu_MoveToStart.Text(), () => Move(cell, command), Disabled: entry.Disabled),
                 ShortcutCommand.MoveUp => new(Glyphs.MoveUp, Str.ChildList_MoveUp.Text(), () => Move(cell, command), Disabled: entry.Disabled),
                 ShortcutCommand.MoveDown => new(Glyphs.MoveDown, Str.ChildList_MoveDown.Text(), () => Move(cell, command), Disabled: entry.Disabled),
-                ShortcutCommand.Rename => new(Glyphs.Rename, Str.Common_Rename.Text(), () => BeginRename(cell), Disabled: entry.Disabled),
+                ShortcutCommand.Rename => new(Glyphs.Rename, Str.Common_Rename.Text(), () => BeginRename(cell), Disabled: entry.Disabled, Quick: QuickCommand.Rename),
                 _ => new(Glyphs.Delete,
                     many ? Str.WidgetsC_Shortcuts_Menu_RemoveMany.Plural(selected.Count) : Str.Common_Remove.Text(),
                     () => Remove(many ? selected : [cell]), Danger: true),

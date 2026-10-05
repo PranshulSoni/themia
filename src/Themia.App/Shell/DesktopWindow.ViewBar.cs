@@ -7,6 +7,7 @@ using Themia.Core.Geometry;
 using Themia.Core.Localization;
 using Themia.Core.Model;
 using Windows.Foundation;
+using Themia.Core.Shell;
 
 namespace Themia.App.Shell;
 
@@ -131,8 +132,8 @@ internal sealed partial class DesktopWindow : IViewBarOwner
         var monitorId = _monitor.Id;
         ItemMenu.Show(chip, args,
         [
-            new ItemMenuEntry(Glyphs.Copy, Str.App_DuplicateView.Text(), () => _host.DuplicateView(viewId, monitorId)),
-            new ItemMenuEntry(Glyphs.Settings, Str.App_ViewSettingsBtn.Text(), () => _host.ShowConfig(new ConfigTarget.View(viewId))),
+            new ItemMenuEntry(Glyphs.Duplicate, Str.App_DuplicateView.Text(), () => _host.DuplicateView(viewId, monitorId), Quick: QuickCommand.Duplicate),
+            new ItemMenuEntry(Glyphs.Settings, Str.App_ViewSettingsBtn.Text(), () => _host.ShowConfig(new ConfigTarget.View(viewId)), Quick: QuickCommand.Settings),
         ]);
     }
 

@@ -5,8 +5,8 @@ Thanks for helping make Themia better.
 ## Issues
 
 Use the issue forms for bug reports, feature requests and widget ideas. Include your Themia and
-Windows versions and what you did right before the problem. For a bug, the **Logs** page (Settings,
-General, Developer mode) is the best attachment; read it before you paste it.
+Windows versions and what you did right before the problem. For a bug, the log file
+(`%LOCALAPPDATA%\Themia\logs\themia.log`) is the best attachment; read it before you paste it.
 
 Report security problems privately to themia@nathaniel-walser.com, not in a public issue.
 

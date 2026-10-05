@@ -164,7 +164,7 @@ public sealed class RateWindow
     private static double Finite(double value) => double.IsFinite(value) && value > 0 ? value : 0;
 }
 
-/// <summary>[S-1190]..[S-1196] The network meter's rules as pure functions.</summary>
+/// <summary>[S-1190]..[S-1192] The network meter's rules as pure functions.</summary>
 public static class NetworkRules
 {
     /// <summary>
@@ -213,111 +213,6 @@ public static class NetworkRules
             .ThenByDescending(r => r.SessionDown + r.SessionUp)
             .ThenBy(r => r.Name, StringComparer.OrdinalIgnoreCase)
             .ToList();
-
-    /// <summary>"↓ 1.2 MB/s  ↑ 80 KB/s".</summary>
-    public static string Pair(double down, double up) => $"↓ {Formatting.Rate(down)}  ↑ {Formatting.Rate(up)}";
-
-    /// <summary>"↓ 1.4 GB  ↑ 80 MB".</summary>
-    public static string Totals(long down, long up) => $"↓ {Formatting.Bytes(down)}  ↑ {Formatting.Bytes(up)}";
-
-    /// <summary>
-    /// [S-1193] A negotiated link speed as Windows Settings prints it: "1 Gbps", "2.5 Gbps",
-    /// "866 Mbps". Null for an adapter that reports none (0, or the −1 some virtual adapters use).
-    /// </summary>
-    public static string? LinkSpeed(long bitsPerSecond) => LinkSpeed(Strings.Current, bitsPerSecond);
-
-    /// <summary><see cref="LinkSpeed(long)"/> in <paramref name="locale"/>.</summary>
-    public static string? LinkSpeed(Locale locale, long bitsPerSecond)
-    {
-        if (bitsPerSecond <= 0)
-        {
-            return null;
-        }
-
-        if (bitsPerSecond >= 1_000_000_000)
-        {
-            var g = bitsPerSecond / 1e9;
-            return Strings.Format(locale, Str.WidgetsB_Units_Gbps, ("value", LocaleFormat.Number(locale, g, Math.Round(g, 1) % 1 == 0 ? 0 : 1)));
-        }
-
-        if (bitsPerSecond >= 1_000_000)
-        {
-            return Strings.Format(locale, Str.WidgetsB_Units_Mbps, ("value", LocaleFormat.Number(locale, Math.Round(bitsPerSecond / 1e6), 0)));
-        }
-
-        return Strings.Format(locale, Str.WidgetsB_Units_Kbps, ("value", LocaleFormat.Number(locale, Math.Max(1, Math.Round(bitsPerSecond / 1e3)), 0)));
-    }
-
-    /// <summary>
-    /// [S-1193] The SSID bytes of a Wi-Fi connection as text: UTF-8, 1..32 bytes, nothing that is
-    /// not printable. A hidden network, or a name in another encoding, is null rather than mojibake.
-    /// </summary>
-    public static string? Ssid(ReadOnlySpan<byte> bytes)
-    {
-        if (bytes.Length is 0 or > 32)
-        {
-            return null;
-        }
-
-        string text;
-
-        try
-        {
-            text = new UTF8Encoding(false, throwOnInvalidBytes: true).GetString(bytes);
-        }
-        catch (DecoderFallbackException)
-        {
-            return null;
-        }
-
-        return text.Any(char.IsControl) || string.IsNullOrWhiteSpace(text) ? null : text;
-    }
-
-    /// <summary>
-    /// [S-1194] The body of the public-address service, validated: one IPv4 or IPv6 address and
-    /// nothing else, normalised. Anything else (an error page, a captive portal) is null — this
-    /// text is somebody else's, and it is shown on the desktop.
-    /// </summary>
-    public static string? PublicAddress(string? body)
-    {
-        var text = body?.Trim();
-
-        if (string.IsNullOrEmpty(text) || text.Length > 45 || !text.All(c => char.IsAsciiHexDigit(c) || c is '.' or ':'))
-        {
-            return null;
-        }
-
-        return IPAddress.TryParse(text, out var address) ? address.ToString() : null;
-    }
-
-    /// <summary>[S-1194] How long a public address is trusted before it is asked for again.</summary>
-    public static readonly TimeSpan PublicAddressLifetime = TimeSpan.FromMinutes(10);
-
-    /// <summary>
-    /// [S-1193] The connection line's value: "HomeNet · 82% · 866 Mbps" for Wi-Fi, "1 Gbps" for a
-    /// cable; null when there is nothing to say.
-    /// </summary>
-    public static string? ConnectionText(string? ssid, int? signalPercent, string? linkSpeed)
-    {
-        var parts = new List<string>(3);
-
-        if (ssid is not null)
-        {
-            parts.Add(ssid);
-        }
-
-        if (signalPercent is >= 0 and <= 100)
-        {
-            parts.Add(LocaleFormat.Percent(Strings.Current, signalPercent.Value));
-        }
-
-        if (linkSpeed is not null)
-        {
-            parts.Add(linkSpeed);
-        }
-
-        return parts.Count == 0 ? null : string.Join(" · ", parts);
-    }
 
     private static bool Contains(string? text, string what)
         => text is not null && text.Contains(what, StringComparison.OrdinalIgnoreCase);

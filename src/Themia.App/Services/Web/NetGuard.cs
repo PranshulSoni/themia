@@ -64,9 +64,8 @@ internal sealed class NetRefusedException : IOException
 /// <para>
 /// Every HTTP client the app makes comes from <c>GuardedHttp</c> (web, feeds, favicons, weather,
 /// quotes, accounts, Graph, Google, GitHub, Claude, DAV, OneDrive), and every raw mail connection
-/// from <c>GuardedTcp</c>; both connect through <see cref="OpenSocketAsync"/>. A WebView2 page cannot
-/// be connected for, so the web element asks <see cref="CheckAsync"/> before each navigation. Not
-/// guarded, as in the original: the camera stream (a LAN camera is its point).
+/// from <c>GuardedTcp</c>; both connect through <see cref="OpenSocketAsync"/>. Not guarded, as in
+/// the original: the camera stream (a LAN camera is its point).
 /// </para>
 /// </summary>
 internal static class NetGuard
@@ -80,19 +79,9 @@ internal static class NetGuard
     public static Func<bool> AllowPrivate { get; set; } = static () => false;
 
     /// <summary>
-    /// Check one absolute http(s) address before something this app does not connect for itself
-    /// (a WebView2 navigation) goes there. Never throws for a network reason.
-    /// </summary>
-    public static Task<GuardResult> CheckAsync(Uri uri, CancellationToken token)
-    {
-        ArgumentNullException.ThrowIfNull(uri);
-        return CheckDestinationAsync(uri, ProxyFor(uri) is not null, token);
-    }
-
-    /// <summary>
     /// [S-963] The destination check for a request whose connection the app does not make to the
     /// destination itself: through a proxy (classic NG-07 — an IP literal, or a name that resolves
-    /// here, is checked; a name only the proxy can resolve is the proxy's call), or in a browser.
+    /// here, is checked; a name only the proxy can resolve is the proxy's call).
     /// </summary>
     public static async Task<GuardResult> CheckDestinationAsync(Uri uri, bool proxied, CancellationToken token)
     {

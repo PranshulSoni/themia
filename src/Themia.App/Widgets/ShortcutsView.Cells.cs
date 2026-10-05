@@ -724,7 +724,7 @@ internal sealed partial class ShortcutsView
     /// <summary>The glyph that stands for an item until its real icon arrives, or for good when it has none.</summary>
     private static string GlyphFor(LaunchKind kind) => kind switch
     {
-        LaunchKind.Web => Glyphs.WebElement,
+        LaunchKind.Web => Glyphs.Globe,
         LaunchKind.LocalPath => Glyphs.File,
         LaunchKind.ShellNamespace => Glyphs.Folder,
         _ => Glyphs.Warning,

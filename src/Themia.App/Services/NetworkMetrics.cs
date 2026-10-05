@@ -83,7 +83,7 @@ internal static class NetworkMetrics
             var ms = reply.RoundtripTime;
 
             return new PingOutcome(
-                new MeterReading(Math.Clamp(ms / LatencyCeilingMs, 0, 1), Formatting.Latency(ms), target, true, Value: ms),
+                new MeterReading(Math.Clamp(ms / LatencyCeilingMs, 0, 1), Formatting.Latency(ms), true, Value: ms),
                 null);
         }
         catch (OperationCanceledException)
@@ -102,14 +102,7 @@ internal static class NetworkMetrics
         }
     }
 
-    /// <summary>
-    /// A failed probe, still captioned with the host.
-    /// <para>
-    /// <see cref="MeterReading.Unavailable"/> puts the reason in the caption, which for this widget
-    /// is where the host lives — and a tile reading "--" over "timed out" does not say *what* timed
-    /// out. Both go in the caption instead.
-    /// </para>
-    /// </summary>
+    /// <summary>A failed probe, its reason naming the host: "--" over nothing does not say *what* timed out.</summary>
     private static MeterReading Unreachable(string target, string reason)
-        => new(null, "--", $"{target} · {reason}", false);
+        => MeterReading.Unavailable($"{target} · {reason}");
 }

@@ -35,10 +35,8 @@ internal static partial class ConfigPages
     [
         new(AppPage.General, Str.Settings_Nav_General, Glyphs.Settings, NavIcon.Settings, AppPageSlot.Main, BuildGeneral),
         new(AppPage.Appearance, Str.Settings_Section_Appearance, Glyphs.Palette, NavIcon.PaintBrush, AppPageSlot.Main, BuildAppearance),
-        new(AppPage.Layout, Str.Shell_Settings_Nav_Layout, Glyphs.Grid, NavIcon.Apps, AppPageSlot.Main, BuildLayout),
         new(AppPage.Accounts, Str.Shell_Settings_Nav_Accounts, Glyphs.Contact, NavIcon.Person, AppPageSlot.Main, _ => AccountsPage.Build()),
         new(AppPage.License, Str.Settings_Nav_License, Glyphs.Certificate, NavIcon.Premium, AppPageSlot.Footer, BuildLicense),
-        new(AppPage.Logs, Str.Settings_Nav_Logs, Glyphs.Document, NavIcon.DocumentText, AppPageSlot.Footer, BuildLogs, s => s.Preferences.DevMode),
         new(AppPage.About, Str.Settings_Section_About, Glyphs.Info, NavIcon.QuestionCircle, AppPageSlot.Footer, BuildAbout),
     ];
 

@@ -200,10 +200,6 @@ internal static partial class ConfigPages
                 WidgetSettings.VideoStream(rows, videoStream, Save);
                 break;
 
-            case WebElementConfig webElement:
-                WidgetSettings.WebElement(rows, webElement, Save);
-                break;
-
             case AppsConfig apps:
                 WidgetSettings.Apps(rows, apps, Save);
                 break;

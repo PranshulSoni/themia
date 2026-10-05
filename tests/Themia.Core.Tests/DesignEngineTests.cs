@@ -92,6 +92,26 @@ public sealed class DesignEngineTests
     public void S823_fill_opacity_follows_the_surface(WidgetSurface surface, double setting, double expected)
         => Assert.Equal(expected, DesignLook.FillOpacity(surface, setting), 3);
 
+    [Theory]
+    [InlineData(WidgetSurface.Card, 1.0, 1.0, 1.0)]
+    [InlineData(WidgetSurface.Card, 1.0, 0.5, 0.5)]
+    [InlineData(WidgetSurface.Card, 1.0, 0.0, 0.0)]
+    [InlineData(WidgetSurface.Card, 0.8, 0.5, 0.4)]
+    [InlineData(WidgetSurface.Translucent, 1.0, 0.5, 0.3)]
+    [InlineData(WidgetSurface.Transparent, 1.0, 1.0, 0.0)]
+    public void S1761_header_opacity_fades_a_header_that_shares_the_widget_fill(WidgetSurface surface, double fill, double header, double expected)
+        => Assert.Equal(expected, DesignLook.HeaderFillOpacity(surface, fill, header, ownColour: false), 3);
+
+    [Theory]
+    [InlineData(WidgetSurface.Card, 0.3)]
+    [InlineData(WidgetSurface.Transparent, 0.7)]
+    public void S1761_a_header_colour_of_its_own_takes_the_header_opacity_alone(WidgetSurface surface, double header)
+    {
+        Assert.Equal(header, DesignLook.HeaderFillOpacity(surface, 0.5, header, ownColour: true), 3);
+        Assert.Equal(1, DesignLook.HeaderFillOpacity(surface, 0.5, double.NaN, ownColour: true), 3);
+        Assert.Equal(0, DesignLook.HeaderFillOpacity(surface, 0.5, -2, ownColour: true), 3);
+    }
+
     [Fact]
     public void S824_border_styles()
     {

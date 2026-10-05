@@ -156,9 +156,9 @@ internal sealed partial class AppHost
             return;
         }
 
-        // A view taken away by the undo leaves its display without one: give it one, as at startup,
-        // without making that an undo step of its own.
-        State.EnsureViewPerDisplay(DisplayViewKeys(), ViewCap);
+        // A view taken away by the undo leaves its display without one: give it an existing one, as
+        // at startup ([S-1705]), without making that an undo step of its own.
+        DisplayPlan.AssignViews(State, DisplayViewKeys());
         _history.Rebase(State);
 
         _store.SaveSoon(State);

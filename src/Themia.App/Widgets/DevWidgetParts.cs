@@ -249,7 +249,7 @@ internal static class DevRows
     /// compact, one line (lead, title, meta, chips, detail where they fit, time). Edge to edge with
     /// the text inset; double-click opens it, right-click opens <paramref name="menu"/> when given.
     /// </summary>
-    public static Border Build(DevRowText text, DevRowLayout layout, List<IDisposable> hovers, Func<MenuFlyout>? menu = null)
+    public static Border Build(DevRowText text, DevRowLayout layout, List<IDisposable> hovers, Func<List<ItemMenuEntry>>? menu = null)
     {
         ArgumentNullException.ThrowIfNull(text);
         ArgumentNullException.ThrowIfNull(hovers);
@@ -405,11 +405,7 @@ internal static class DevRows
 
         if (menu is not null)
         {
-            row.RightTapped += (_, args) =>
-            {
-                menu().ShowAt(row, args.GetPosition(row));
-                args.Handled = true;
-            };
+            row.RightTapped += (_, args) => ItemMenu.Show(row, args, menu());
         }
 
         return row;
@@ -525,27 +521,21 @@ internal static class DevRows
         }
     }
 
-    /// <summary>[S-749] A menu item.</summary>
-    public static MenuFlyoutItem Item(string glyph, string text, Action click, bool enabled = true)
-    {
-        var item = new MenuFlyoutItem { Text = text, Icon = new FontIcon { Glyph = glyph }, IsEnabled = enabled };
-        item.Click += (_, _) => click();
-        return item;
-    }
-
     /// <summary>
     /// [S-749] The menu every linked row shares: open it, copy its address, and open the repository
     /// it lives in (when that is a different page). The caller adds its own items after these.
     /// </summary>
-    public static MenuFlyout LinkMenu(string url, string? repoUrl)
+    public static List<ItemMenuEntry> LinkMenu(string url, string? repoUrl)
     {
-        var menu = new MenuFlyout();
-        menu.Items.Add(Item(Glyphs.OpenExternal, Str.Github_OpenInBrowser.Text(), () => Open(url)));
-        menu.Items.Add(Item(Glyphs.Copy, Str.WidgetsA_Github_CopyLink.Text(), () => CopyLink(url)));
+        var menu = new List<ItemMenuEntry>
+        {
+            new(Glyphs.OpenExternal, Str.Github_OpenInBrowser.Text(), () => Open(url)),
+            new(Glyphs.Copy, Str.WidgetsA_Github_CopyLink.Text(), () => CopyLink(url)),
+        };
 
         if (repoUrl is not null && !string.Equals(repoUrl, url, StringComparison.OrdinalIgnoreCase))
         {
-            menu.Items.Add(Item(Glyphs.Code, Str.WidgetsA_Github_OpenRepository.Text(), () => Open(repoUrl)));
+            menu.Add(new(Glyphs.Code, Str.WidgetsA_Github_OpenRepository.Text(), () => Open(repoUrl)));
         }
 
         return menu;

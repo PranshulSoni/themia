@@ -483,15 +483,7 @@ internal sealed partial class ScreenTimeView : Grid, IWidgetView, IWidgetSurface
         }
 
         element.RightTapped += (_, args) =>
-        {
-            var hide = new MenuFlyoutItem { Text = Str.Screentime_HideApp.Text(), Icon = new FontIcon { Glyph = Glyphs.Hide } };
-            hide.Click += (_, _) => Hide(segment.Key);
-
-            var menu = new MenuFlyout();
-            menu.Items.Add(hide);
-            menu.ShowAt(element, args.GetPosition(element));
-            args.Handled = true;
-        };
+            ItemMenu.Show(element, args, [new ItemMenuEntry(Glyphs.Hide, Str.Screentime_HideApp.Text(), () => Hide(segment.Key))]);
     }
 
     private void Hoverable(UIElement element, string key)

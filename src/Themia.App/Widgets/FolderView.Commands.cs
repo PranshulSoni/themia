@@ -9,6 +9,7 @@ using Themia.Core.Files;
 using Themia.Core.Localization;
 using Themia.Core.Model;
 using Themia.Core.Widgets;
+using Themia.Core.Shell;
 
 namespace Themia.App.Widgets;
 
@@ -458,13 +459,11 @@ internal sealed partial class FolderView
     private void ShowMenuFromKeyboard()
     {
         var focus = _selection.FocusIndex;
-        var menu = focus >= 0 && focus < _visuals.Count && !_selection.IsEmpty
-            ? ItemMenu.Build(ItemEntries())
-            : ItemMenu.Build(BackgroundEntries());
+        var entries = focus >= 0 && focus < _visuals.Count && !_selection.IsEmpty ? ItemEntries() : BackgroundEntries();
 
         FrameworkElement anchor = focus >= 0 && focus < _visuals.Count ? _visuals[focus].Root : this;
         RememberMenuPoint(anchor, new Windows.Foundation.Point(anchor.ActualWidth / 2, anchor.ActualHeight / 2));
-        menu.ShowAt(anchor);
+        ItemMenu.Open(anchor, entries);
     }
 
     /// <summary>[S-1330] The item menu: Explorer's, in Explorer's order.</summary>
@@ -489,21 +488,21 @@ internal sealed partial class FolderView
 
         entries.Add(new(Glyphs.Folder, Str.WidgetsB_Folder_ShowInExplorer.Text(), () => ShellFileOps.ShowInExplorer(paths)));
         entries.Add(ItemMenuEntry.Separator);
-        entries.Add(new(Glyphs.Cut, several ? Str.WidgetsB_Folder_CutCount.Format(("count", count)) : Str.CtxMenu_Cut.Text(), () => CopySelection(cut: true)));
-        entries.Add(new(Glyphs.Copy, several ? Str.WidgetsB_Folder_CopyCount.Format(("count", count)) : Str.CtxMenu_Copy.Text(), () => CopySelection(cut: false)));
+        entries.Add(new(Glyphs.Cut, several ? Str.WidgetsB_Folder_CutCount.Format(("count", count)) : Str.CtxMenu_Cut.Text(), () => CopySelection(cut: true), Quick: QuickCommand.Cut));
+        entries.Add(new(Glyphs.Copy, several ? Str.WidgetsB_Folder_CopyCount.Format(("count", count)) : Str.CtxMenu_Copy.Text(), () => CopySelection(cut: false), Quick: QuickCommand.Copy));
 
         // Paste into the folder that was right-clicked, as Explorer's "Paste" on a folder does.
         var pasteTarget = single is { IsDirectory: true } folder ? folder.FullPath : CurrentPath;
-        entries.Add(new(Glyphs.Paste, Str.CtxMenu_Paste.Text(), () => _ = PasteAsync(pasteTarget), Disabled: !FileClipboard.HasFiles || pasteTarget.Length == 0));
+        entries.Add(new(Glyphs.Paste, Str.CtxMenu_Paste.Text(), () => _ = PasteAsync(pasteTarget), Disabled: !FileClipboard.HasFiles || pasteTarget.Length == 0, Quick: QuickCommand.Paste));
         entries.Add(new(Glyphs.Link, Str.Folder_CopyPath.Text(), () => CopyPaths(paths)));
         entries.Add(ItemMenuEntry.Separator);
 
         if (single is { } one && _visuals.FirstOrDefault(v => v.Entry.FullPath == one.FullPath) is { } visual)
         {
-            entries.Add(new(Glyphs.Rename, Str.WidgetsB_Folder_Rename.Text(), () => BeginRename(visual)));
+            entries.Add(new(Glyphs.Rename, Str.WidgetsB_Folder_Rename.Text(), () => BeginRename(visual), Quick: QuickCommand.Rename));
         }
 
-        entries.Add(new(Glyphs.Delete, several ? Str.WidgetsB_Folder_DeleteCount.Format(("count", count)) : Str.Common_Delete.Text(), () => _ = DeleteSelectionAsync(), Danger: true));
+        entries.Add(new(Glyphs.Delete, several ? Str.WidgetsB_Folder_DeleteCount.Format(("count", count)) : Str.Common_Delete.Text(), () => _ = DeleteSelectionAsync(), Danger: true, Quick: QuickCommand.Delete));
 
         if (hasCloud)
         {
@@ -535,7 +534,7 @@ internal sealed partial class FolderView
 
         var entries = new List<ItemMenuEntry>
         {
-            new(Glyphs.Paste, Str.CtxMenu_Paste.Text(), () => _ = PasteAsync(here), Disabled: !available || !FileClipboard.HasFiles),
+            new(Glyphs.Paste, Str.CtxMenu_Paste.Text(), () => _ = PasteAsync(here), Disabled: !available || !FileClipboard.HasFiles, Quick: QuickCommand.Paste),
             new(Glyphs.Done, Str.WidgetsB_Folder_SelectAll.Text(), () =>
             {
                 _selection.SelectAll();
@@ -559,72 +558,16 @@ internal sealed partial class FolderView
         return entries;
     }
 
-    /// <summary>[S-1322] The column header's menu: every column, checked when it is on.</summary>
-    private void OnColumnHeaderRightTapped(object sender, RightTappedRoutedEventArgs e)
-    {
-        var entries = FolderColumns.All
-            .Select(column => new ItemMenuEntry(null, FolderColumns.Title(column),
-                () => Edit(c => c.Columns = FolderColumns.Toggle(c.Columns, column)),
-                Checked: _config.Columns.Contains(column)))
-            .ToList();
-
-        ItemMenu.Show(_columnHeader, e, entries);
-    }
-
     /// <summary>
-    /// [S-1330] The card's own menu (right-click on the header): Explorer, refresh, the view, the size,
-    /// hidden items and extensions, each a one-click switch whose current choice carries a check.
+    /// [S-1330] The card's own menu (right-click on the header): open the folder in Explorer, refresh.
+    /// [S-1746] The view, the size, the columns, hidden items and extensions are how the widget looks:
+    /// they are in its settings only.
     /// </summary>
-    public IReadOnlyList<WidgetAction> ContextActions
-    {
-        get
-        {
-            var actions = new List<WidgetAction>
-            {
-                new(Glyphs.OpenExternal, Str.Folder_OpenInExplorer.Text(), () => ShellFileOps.Open(CurrentPath)),
-                new(Glyphs.Refresh, Str.Common_Refresh.Text(), () => Reload(force: false)),
-            };
-
-            foreach (var (mode, label, glyph) in new[]
-            {
-                (FolderViewMode.List, Str.WidgetsB_Folder_ListView.Text(), Glyphs.ListLayout),
-                (FolderViewMode.Details, Str.WidgetsB_Folder_DetailsView.Text(), Glyphs.ColumnsLayout),
-                (FolderViewMode.Grid, Str.WidgetsB_Folder_GridView.Text(), Glyphs.GridLayout),
-                (FolderViewMode.Icons, Str.WidgetsB_Folder_IconsView.Text(), Glyphs.Apps),
-            })
-            {
-                actions.Add(new(_config.View == mode ? Glyphs.Done : glyph, label, () => Edit(c => c.View = mode)));
-            }
-
-            if (_config.View is FolderViewMode.Grid or FolderViewMode.Icons)
-            {
-                foreach (var (size, label) in new[]
-                {
-                    (FolderTileSize.Small, Str.WidgetsB_Folder_SmallTiles.Text()),
-                    (FolderTileSize.Medium, Str.WidgetsB_Folder_MediumTiles.Text()),
-                    (FolderTileSize.Large, Str.WidgetsB_Folder_LargeTiles.Text()),
-                })
-                {
-                    actions.Add(new(_config.TileSize == size ? Glyphs.Done : Glyphs.Scale, label, () => Edit(c => c.TileSize = size)));
-                }
-            }
-            else
-            {
-                foreach (var (size, label) in new[]
-                {
-                    (FolderItemSize.ExtraSmall, Str.WidgetsB_Folder_ExtraSmallRows.Text()), (FolderItemSize.Small, Str.WidgetsB_Folder_SmallRows.Text()),
-                    (FolderItemSize.Medium, Str.WidgetsB_Folder_MediumRows.Text()), (FolderItemSize.Large, Str.WidgetsB_Folder_LargeRows.Text()),
-                })
-                {
-                    actions.Add(new(_config.ItemSize == size ? Glyphs.Done : Glyphs.TextSize, label, () => Edit(c => c.ItemSize = size)));
-                }
-            }
-
-            actions.Add(new(_config.ShowHidden ? Glyphs.Done : Glyphs.Hidden, Str.WidgetsB_Folder_ShowHiddenItems.Text(), () => Edit(c => c.ShowHidden = !c.ShowHidden)));
-            actions.Add(new(_config.ShowExtensions ? Glyphs.Done : Glyphs.File, Str.Folder_ShowExtMenu.Text(), () => Edit(c => c.ShowExtensions = !c.ShowExtensions)));
-            return actions;
-        }
-    }
+    public IReadOnlyList<WidgetAction> ContextActions =>
+    [
+        new(Glyphs.OpenExternal, Str.Folder_OpenInExplorer.Text(), () => ShellFileOps.Open(CurrentPath)),
+        new(Glyphs.Refresh, Str.Common_Refresh.Text(), () => Reload(force: false)),
+    ];
 
     // ---- search ---------------------------------------------------------------------------------
 

@@ -267,6 +267,39 @@ internal sealed partial class ConfigWindow
 
         foreach (var (row, _) in SettingsIndex.Collect(page))
         {
+            // [S-1723] A drop-down list's popup cannot be captured, so its items are drawn the way the
+            // list draws them — each in its own font — in a card under the row, following the list
+            // as it fills.
+            if (row.Title == title && row.Control is ComboBox combo && page is Panel listHost && row.Card?.Parent is UIElement rowFrame)
+            {
+                var list = new StackPanel { Spacing = 2 };
+
+                void Fill()
+                {
+                    list.Children.Clear();
+                    foreach (var item in combo.Items.OfType<ComboBoxItem>().Take(16))
+                    {
+                        list.Children.Add(new TextBlock { Text = item.Content as string, FontFamily = item.FontFamily, Margin = new Thickness(12, 6, 12, 6) });
+                    }
+                }
+
+                Fill();
+                combo.Items.VectorChanged += (_, _) => Fill();
+
+                listHost.Children.Insert(listHost.Children.IndexOf(rowFrame) + 1, new Border
+                {
+                    Child = list,
+                    Padding = new Thickness(4),
+                    HorizontalAlignment = HorizontalAlignment.Right,
+                    MinWidth = FluentLayout.ChoiceMinWidth,
+                    CornerRadius = new CornerRadius(8),
+                    Background = FluentLayout.Themed("AcrylicInAppFillColorDefaultBrush", Colors.Gray),
+                    BorderBrush = FluentLayout.Themed("SurfaceStrokeColorFlyoutBrush", Colors.Gray),
+                    BorderThickness = new Thickness(1),
+                });
+                return true;
+            }
+
             if (row.Title == title && row.Control is DropDownButton button && ColorChoice.DebugPanel(button) is { } panel
                 && page is Panel host && SettingRow.Of(row.Card?.Parent as FrameworkElement) is not null)
             {

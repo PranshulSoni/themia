@@ -128,9 +128,6 @@ public enum WidgetKind
     /// <summary>A live camera picture: MJPEG, a polled snapshot, or a stream Windows can play.</summary>
     VideoStream = 42,
 
-    /// <summary>One element of a web page, pinned by selector and re-rendered on an interval.</summary>
-    WebElement = 43,
-
     /// <summary>Graphics load and video memory, per adapter.</summary>
     Gpu = 39,
 

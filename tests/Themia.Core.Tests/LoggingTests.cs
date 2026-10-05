@@ -1,12 +1,11 @@
 using Themia.Core.Diagnostics;
-using Themia.Core.Model;
 using Xunit;
 
 namespace Themia.Core.Tests;
 
 /// <summary>
-/// Logging and developer mode (WP7, [S-980..S-990]): rotation and retention, the level policy,
-/// redaction, the record format, the event log mirror's limits and the session buffer.
+/// Logging (WP7, [S-980..S-986]): rotation and retention, the level policy, redaction, the record
+/// format and the event log mirror's limits.
 /// </summary>
 public sealed class LoggingTests
 {
@@ -96,26 +95,14 @@ public sealed class LoggingTests
     private static LogSegment Archive(DateTimeOffset at) => new(LogFileRules.ArchiveName(at), 1024, at);
 
     // ---------------------------------------------------------------------------------------
-    // [S-981] [S-982] Level policy
+    // [S-981] Level policy
     // ---------------------------------------------------------------------------------------
 
     [Fact]
-    public void S981_a_release_build_records_warnings_and_errors_until_verbose_is_on()
+    public void S981_a_release_build_records_warnings_and_errors_a_debug_build_everything()
     {
-        Assert.Equal(LogLevel.Warn, LogPolicy.Floor(verbose: false, debugBuild: false));
-        Assert.Equal(LogLevel.Debug, LogPolicy.Floor(verbose: true, debugBuild: false));
-        Assert.Equal(LogLevel.Debug, LogPolicy.Floor(verbose: false, debugBuild: true));
-    }
-
-    [Theory]
-    [InlineData(false, false, false)]
-    [InlineData(false, true, false)]
-    [InlineData(true, false, false)]
-    [InlineData(true, true, true)]
-    public void S982_verbose_counts_only_in_developer_mode(bool devMode, bool verbose, bool expected)
-    {
-        var preferences = new AppPreferences { DevMode = devMode, VerboseLogging = verbose };
-        Assert.Equal(expected, LogPolicy.Verbose(preferences));
+        Assert.Equal(LogLevel.Warn, LogPolicy.Floor(debugBuild: false));
+        Assert.Equal(LogLevel.Debug, LogPolicy.Floor(debugBuild: true));
     }
 
     // ---------------------------------------------------------------------------------------
@@ -262,56 +249,4 @@ public sealed class LoggingTests
         Assert.StartsWith(new string('a', LogPolicy.EventLogMaxChars - 1) + "…", cut, StringComparison.Ordinal);
         Assert.Equal("short", LogPolicy.ForEventLog("short"));
     }
-
-    // ---------------------------------------------------------------------------------------
-    // [S-987] [S-988] Session buffer and the Logs page filter
-    // ---------------------------------------------------------------------------------------
-
-    [Fact]
-    public void S987_the_buffer_keeps_the_newest_records_oldest_first()
-    {
-        var buffer = new LogBuffer(capacity: 3);
-        for (var i = 0; i < 5; i++)
-        {
-            buffer.Add(Record(LogLevel.Info, "s", $"m{i}"));
-        }
-
-        Assert.Equal(["m2", "m3", "m4"], buffer.Snapshot().Select(r => r.Message));
-        Assert.Equal(5, buffer.Total);
-    }
-
-    [Fact]
-    public void S987_clear_empties_the_list_and_says_so()
-    {
-        var buffer = new LogBuffer(capacity: 3);
-        var changes = 0;
-        buffer.Changed += () => changes++;
-
-        buffer.Add(Record(LogLevel.Info, "s", "m"));
-        buffer.Clear();
-        buffer.Add(Record(LogLevel.Info, "s", "after"));
-
-        Assert.Equal(3, changes);
-        Assert.Equal(["after"], buffer.Snapshot().Select(r => r.Message));
-    }
-
-    [Fact]
-    public void S988_the_filter_is_by_level_and_source_newest_first_and_limited()
-    {
-        IReadOnlyList<LogRecord> records =
-        [
-            Record(LogLevel.Debug, "mail", "d1"),
-            Record(LogLevel.Warn, "mail", "w1"),
-            Record(LogLevel.Error, "rss", "e1"),
-            Record(LogLevel.Error, "mail", "e2"),
-            Record(LogLevel.Info, "mail", "i1"),
-        ];
-
-        Assert.Equal(["e2", "e1", "w1"], LogBuffer.Filter(records, LogLevel.Warn, null, 10).Select(r => r.Message));
-        Assert.Equal(["i1", "e2", "w1", "d1"], LogBuffer.Filter(records, LogLevel.Debug, "mail", 10).Select(r => r.Message));
-        Assert.Equal(["i1", "e2"], LogBuffer.Filter(records, LogLevel.Debug, "mail", 2).Select(r => r.Message));
-        Assert.Empty(LogBuffer.Filter(records, LogLevel.Error, "weather", 10));
-    }
-
-    private static LogRecord Record(LogLevel level, string scope, string message) => new(Now, level, scope, message, null);
 }

@@ -59,9 +59,7 @@ never do it, because it means trusting a certificate on the machine.
      usage of 10 widgets and 2 views, and the 11th widget (place, paste, duplicate, add to group)
      or the 3rd view is refused and opens the License page. Nothing already there is removed.
    - The Bluetooth widget lists devices (radios/bluetooth capabilities).
-   - Network tile on Wi-Fi: the line says "Allow location to show the network name"; clicking it shows
-     Windows' location prompt once; allowed, the network name appears; refused, the link opens
-     Settings > Privacy > Location. Volume/Mixer device picks switch the Windows default output.
+   - Volume/Mixer device picks switch the Windows default output.
    - Errors still reach Event Viewer › Application (source *Themia*, with the "description cannot
      be found" preamble: the package registers no event message file).
    - About › Uninstall: the dialog has no "keep data" choice. Themia closes, the package is removed,

@@ -506,7 +506,7 @@ internal sealed partial class GitHubView : Grid, IWidgetView, IWidgetHeaderConte
 
             foreach (var row in sections[i].Rows.Take(quota[i]))
             {
-                Func<MenuFlyout>? menu = row.Url is { } url ? () => DevRows.LinkMenu(url, null) : null;
+                Func<List<ItemMenuEntry>>? menu = row.Url is { } url ? () => DevRows.LinkMenu(url, null) : null;
                 var built = DevRows.Build(row, layout, _hovers, menu);
                 list.Children.Add(built);
                 _cursor.Add(built, row.Url, menu);

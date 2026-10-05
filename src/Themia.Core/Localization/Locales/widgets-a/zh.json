@@ -5,7 +5,6 @@
   "widgetsA.apps.count": {
     "other": "{count} 个应用"
   },
-  "widgetsA.apps.group": "按文件夹分组",
   "widgetsA.apps.hiddenCount": {
     "other": "已隐藏 {count} 个"
   },
@@ -32,11 +31,7 @@
   "widgetsA.apps.settings.view.compact": "紧凑列表",
   "widgetsA.apps.settings.view.desc": "图标下方带名称的磁贴、行，或仅显示名称的紧凑行",
   "widgetsA.apps.settings.view.tiles": "磁贴",
-  "widgetsA.apps.showAsCompact": "以紧凑列表显示",
-  "widgetsA.apps.showAsList": "以列表显示",
-  "widgetsA.apps.showAsTiles": "以磁贴显示",
   "widgetsA.apps.shownOf": "{shown} / {total}",
-  "widgetsA.apps.ungroup": "不按文件夹分组",
   "widgetsA.audio.followDefault": "跟随默认输出",
   "widgetsA.audio.isDefault": "{name}（Windows 默认）",
   "widgetsA.audio.makeDefault": "将 {name} 设为默认输出",
@@ -134,7 +129,6 @@
   "widgetsA.calendar.weekdayDay": "{day}日 {weekday}",
   "widgetsA.calendar.weekdayInitials": "日,一,二,三,四,五,六",
   "widgetsA.catalog.apps.description": "启动已安装的应用",
-  "widgetsA.catalog.battery.description": "电量和剩余时间",
   "widgetsA.catalog.bluetooth.description": "已配对设备及其电量",
   "widgetsA.catalog.calculator.description": "算术草稿本",
   "widgetsA.catalog.calendar.description": "你的 Microsoft、Google 和 CalDAV 日历，含生日",
@@ -171,7 +165,6 @@
   "widgetsA.catalog.githubNotifications.label": "通知",
   "widgetsA.catalog.githubReviews.description": "等待你审查的拉取请求",
   "widgetsA.catalog.githubReviews.label": "审查请求",
-  "widgetsA.catalog.gpu.description": "图形负载和显存",
   "widgetsA.catalog.gpu.label": "GPU",
   "widgetsA.catalog.group.description": "容纳其他小组件的区域",
   "widgetsA.catalog.habits.description": "每日打卡和连续记录",
@@ -219,8 +212,6 @@
   "widgetsA.catalog.viewSwitcher.label": "视图切换器",
   "widgetsA.catalog.volume.description": "主音量和静音",
   "widgetsA.catalog.weather.description": "你所在地的天气",
-  "widgetsA.catalog.webElement.description": "网页的某一部分，保持最新",
-  "widgetsA.catalog.webElement.label": "网页元素",
   "widgetsA.claude.bar.session": "会话（5 小时）",
   "widgetsA.claude.bar.sessionMini": "5小时",
   "widgetsA.claude.bar.sessionShort": "会话",

@@ -38,8 +38,8 @@ internal sealed partial class DesktopWindow
     /// window covers the desktop.
     /// <para>
     /// [S-955] Its content is rebuilt every time it opens, because what it offers depends on things
-    /// that change while it is closed: which containers this display shows, which widget is
-    /// selected, and whether developer mode is on.
+    /// that change while it is closed: which containers this display shows and which widget is
+    /// selected.
     /// </para>
     /// </summary>
     private Flyout BuildAddFlyout()
@@ -64,7 +64,6 @@ internal sealed partial class DesktopWindow
         {
             var (targets, initial) = PickerTargets();
             flyout.Content = new WidgetPicker(
-                _host.State.Preferences.DevMode,
                 targets,
                 initial,
                 (definition, target) => OnPicked(flyout, definition, target),
@@ -431,6 +430,7 @@ internal sealed partial class DesktopWindow
         }
 
         var point = e.GetCurrentPoint(_root);
+        _rightPressCancelledPlacement = false;
 
         if (_host.Placing is not null)
         {
@@ -444,6 +444,7 @@ internal sealed partial class DesktopWindow
             else
             {
                 _host.CancelPlacement();
+                _rightPressCancelledPlacement = true; // [S-1744] and opens no menu
             }
 
             _root.Focus(FocusState.Pointer);

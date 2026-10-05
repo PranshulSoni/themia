@@ -46,7 +46,7 @@ namespace Themia.App.Widgets;
 /// so this file only turns numbers into shapes.
 /// </para>
 /// </summary>
-internal sealed partial class SunMoonView : Grid, IWidgetView, IWidgetSurfaceAware, IWidgetSizeAware, IWidgetContextActions
+internal sealed partial class SunMoonView : Grid, IWidgetView, IWidgetSurfaceAware, IWidgetSizeAware
 {
     /// <summary>[S-170] The graphic is never dropped; below this it is simply drawn smaller.</summary>
     private const double GraphicFloor = 46;
@@ -332,49 +332,6 @@ internal sealed partial class SunMoonView : Grid, IWidgetView, IWidgetSurfaceAwa
     {
         _area = area;
         Lay();
-    }
-
-    /// <summary>
-    /// [S-1493] The original's widget menu: the sun path's three modes (the current one checked) and
-    /// the event rows on or off. Written straight to the config and saved, like a setting.
-    /// </summary>
-    public IReadOnlyList<WidgetAction> ContextActions
-    {
-        get
-        {
-            var actions = new List<WidgetAction>();
-
-            foreach (var (mode, label) in new[]
-            {
-                (SunPathMode.Numbers, Str.WidgetsC_SunMoon_Menu_PathNumbers.Text()),
-                (SunPathMode.Plain, Str.WidgetsC_SunMoon_Menu_PathPlain.Text()),
-                (SunPathMode.Hidden, Str.WidgetsC_SunMoon_Menu_PathHidden.Text()),
-            })
-            {
-                actions.Add(new(_config.PathMode == mode ? Glyphs.Done : Glyphs.Sun, label, () =>
-                {
-                    _config.PathMode = mode;
-                    Changed();
-                }));
-            }
-
-            actions.Add(new(
-                _config.ShowEvents ? Glyphs.Done : Glyphs.View,
-                Str.WidgetsC_SunMoon_EventRows.Text(),
-                () =>
-                {
-                    _config.ShowEvents = !_config.ShowEvents;
-                    Changed();
-                }));
-
-            return actions;
-        }
-    }
-
-    private void Changed()
-    {
-        Lay();
-        _surface?.RequestSave();
     }
 
     private void Resubscribe()

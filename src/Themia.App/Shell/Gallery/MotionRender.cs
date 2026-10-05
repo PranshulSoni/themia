@@ -194,10 +194,15 @@ internal static class MotionRender
         return true;
     }
 
-    /// <summary>Every card as it is <paramref name="ms"/> into the intro, after its own share of the cascade.</summary>
+    /// <summary>
+    /// Every card as it is <paramref name="ms"/> into the intro, after its own share of the cascade
+    /// ([S-1760]). Hyperspace is posed on its natural clock (a show <see cref="Hyperspace.NaturalMs"/>
+    /// long), so the moments below are the warp's own.
+    /// </summary>
     private static void PoseCards(List<WidgetCard> cards, IntroAnimation style, IntroMode mode, double ms)
     {
         var tracks = IntroTracks.For(style)!;
+        var schedule = IntroSchedule.For(style, mode, style == IntroAnimation.Hyperspace ? Hyperspace.NaturalMs : IntroMs, cards.Count);
         SheetOffsets? sheets = IntroSheets.AxisFor(style) is { } axis
             ? IntroSheets.Offsets(Scene.Select(s => s.Rect), axis, axis == SheetAxis.X ? ScreenWidth : ScreenHeight)
             : null;
@@ -212,8 +217,7 @@ internal static class MotionRender
                 _ => (0.0, 0.0),
             };
 
-            var delay = IntroMotion.BaseDelayMs(style, mode) + IntroMotion.StaggerMs(style, i);
-            var pose = tracks.At((ms - delay) / IntroMs, start);
+            var pose = tracks.At((ms - schedule.DelayMs(i)) / schedule.WidgetMs, start);
             Pose(cards[i], tracks, pose);
         }
     }

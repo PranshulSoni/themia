@@ -44,21 +44,11 @@ internal sealed class WidgetGallery : IDisposable
     private const double LabelHeight = 22;
 
     /// <summary>
-    /// The sizes every widget is drawn at, in DIPs of the painted card. Chosen to cover what people
-    /// actually make: a tile barely bigger than an icon, the default-ish small and medium, a wide
-    /// strip, a tall column, a large panel and an extra-large one — the size at which a widget that
-    /// only scales, rather than shows more, is plainly mostly empty.
+    /// The sizes every widget is drawn at, in DIPs of the painted card: <see cref="WidgetTiers"/>,
+    /// the same ones the showcase views lay out ([S-1810]).
     /// </summary>
     public static readonly IReadOnlyList<(string Name, double Width, double Height)> Sizes =
-    [
-        ("XS", 120, 120),
-        ("S", 200, 150),
-        ("M", 320, 240),
-        ("Wide", 480, 160),
-        ("Tall", 200, 400),
-        ("L", 560, 420),
-        ("XL", 800, 560),
-    ];
+        [.. WidgetTiers.All.Select(t => (t.Name, t.Width, t.Height))];
 
     /// <summary>
     /// Which row each size sits on: four across the top, the tall and large ones underneath, and the
@@ -102,7 +92,6 @@ internal sealed class WidgetGallery : IDisposable
         }
 
         _host = new GalleryCardHost(_ticker, design);
-        GalleryFixtures.Prepare();
 
         foreach (var definition in WidgetCatalog.All)
         {

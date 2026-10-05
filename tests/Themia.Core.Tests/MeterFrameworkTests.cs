@@ -86,19 +86,11 @@ public sealed class MeterFrameworkTests
     [Fact]
     public void S1120_clone_carries_the_shared_settings()
     {
-        var memory = new MemoryConfig { IntervalSeconds = 5, GraphSpanSeconds = 600, ShowGraph = false, ShowSwap = false, TopProcessCount = 4 };
+        var memory = new MemoryConfig { IntervalSeconds = 5, GraphSpanSeconds = 600, ShowGraph = false };
         var copy = (MemoryConfig)memory.Clone();
 
-        Assert.Equal((5, 600, false, false, 4), (copy.IntervalSeconds, copy.GraphSpanSeconds, copy.ShowGraph, copy.ShowSwap, copy.TopProcessCount));
+        Assert.Equal((5, 600, false), (copy.IntervalSeconds, copy.GraphSpanSeconds, copy.ShowGraph));
         Assert.Equal(120, copy.GraphCapacity);
-    }
-
-    [Fact]
-    public void S1133_repair_clamps_the_top_process_ceiling()
-    {
-        var memory = new MemoryConfig { TopProcessCount = 50 };
-        Assert.Single(memory.Repair());
-        Assert.Equal(MemoryConfig.MaxTopProcesses, memory.TopProcessCount);
     }
 
     // ---- S-1123: pressure ------------------------------------------------------------------------
@@ -163,66 +155,14 @@ public sealed class MeterFrameworkTests
         Assert.Equal(0, ChartScale.Fraction(5, 0));
     }
 
-    // ---- S-1130..S-1132: memory figures ----------------------------------------------------------
-
-    private static MemorySnapshot Snapshot(ulong? standby = 4 * GiB, ulong? modified = 1 * GiB, double? pagefile = 0.25)
-        => new(Total: 16 * GiB, Available: 6 * GiB, CommitTotal: 18 * GiB, CommitLimit: 24 * GiB, standby, modified, pagefile);
+    // ---- S-1130: memory figures ----------------------------------------------------------
 
     [Fact]
     public void S1130_used_is_the_total_less_what_is_available()
     {
-        var s = Snapshot();
+        var s = new MemorySnapshot(16 * GiB, 6 * GiB);
         Assert.Equal(10 * GiB, MemoryFigures.Used(s));
         Assert.Equal(0.625, MemoryFigures.UsedFraction(s));
         Assert.Null(MemoryFigures.UsedFraction(s with { Total = 0 }));
     }
-
-    [Fact]
-    public void S1132_the_page_file_is_the_commit_limit_less_physical_memory()
-    {
-        var pagefile = MemoryFigures.Pagefile(Snapshot());
-
-        Assert.NotNull(pagefile);
-        Assert.Equal(8 * GiB, pagefile.Value.Total);
-        Assert.Equal(2 * GiB, pagefile.Value.Used);
-        Assert.Equal("2.0 GB of 8.0 GB · 25%", MemoryFigures.PagefileLine(pagefile.Value));
-    }
-
-    [Fact]
-    public void S1132_no_page_file_or_no_counter_hides_the_swap_line()
-    {
-        Assert.Null(MemoryFigures.Pagefile(Snapshot() with { CommitLimit = 16 * GiB }));
-        Assert.Null(MemoryFigures.Pagefile(Snapshot(pagefile: null)));
-    }
-
-    [Fact]
-    public void S1131_the_composition_adds_up_to_the_total()
-    {
-        var c = MemoryFigures.Composition(Snapshot());
-
-        Assert.NotNull(c);
-        Assert.Equal(2 * GiB, c.Value.Free);
-        Assert.Equal(5 * GiB, c.Value.Cached);
-        Assert.Equal(9 * GiB, c.Value.InUse);
-        Assert.Equal(16 * GiB, c.Value.InUse + c.Value.Cached + c.Value.Free);
-    }
-
-    [Fact]
-    public void S1131_counters_read_a_moment_apart_never_overflow_the_total()
-    {
-        // Standby larger than what is available: the two were read at different instants.
-        var c = MemoryFigures.Composition(Snapshot(standby: 20 * GiB));
-
-        Assert.NotNull(c);
-        Assert.Equal(0UL, c.Value.Free);
-        Assert.Equal(16 * GiB, c.Value.InUse + c.Value.Cached + c.Value.Free);
-    }
-
-    [Fact]
-    public void S1131_without_the_cache_counters_there_is_no_composition()
-        => Assert.Null(MemoryFigures.Composition(Snapshot(standby: null)));
-
-    [Fact]
-    public void S1132_the_commit_line_reads_committed_of_limit()
-        => Assert.Equal("18 GB of 24 GB", MemoryFigures.CommittedLine(Snapshot()));
 }

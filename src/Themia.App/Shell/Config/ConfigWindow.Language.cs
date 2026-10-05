@@ -31,7 +31,6 @@ internal sealed partial class ConfigWindow
                 return;
             }
 
-            ApplyDevBanner();
             ApplyChromeText();
             RebuildNavigation();
             _index.Invalidate();

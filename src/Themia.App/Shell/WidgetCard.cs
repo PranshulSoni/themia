@@ -12,6 +12,7 @@ using Themia.Core.Diagnostics;
 using Themia.Core.Geometry;
 using Themia.Core.Localization;
 using Themia.Core.Model;
+using Themia.Core.Shell;
 using Themia.Core.Widgets;
 using Windows.Foundation;
 
@@ -118,6 +119,15 @@ internal interface IWidgetCardHost
     /// <summary>[S-1580] Ctrl+click: add the card to the selection, or take it out.</summary>
     void RequestToggleSelect(WidgetCard card) => RequestSelect(card);
 
+    /// <summary>[S-1745] Whether the settings window is open; a click on a card only ever follows an open one.</summary>
+    bool SettingsOpen => false;
+
+    /// <summary>[S-1745] A plain click on the card in edit mode: show its page in the open settings window.</summary>
+    void RequestFollowInSettings(WidgetCard card)
+    {
+        // ignore: a host with no settings window (the gallery) has nothing to follow
+    }
+
     /// <summary>How many widgets are selected, so the card menu can say what its commands act on.</summary>
     int SelectionCount => 1;
 
@@ -214,11 +224,12 @@ internal sealed partial class WidgetCard : Grid, IWidgetSurface, IContainerSurfa
     /// <summary>[S-1593] The press landed on a card of a multi-selection: a click without a drag narrows the selection to it.</summary>
     private bool _narrowOnRelease;
 
-    /// <summary>Whether the pointer has travelled far enough since the press to count as a drag.</summary>
+    /// <summary>Whether the pointer has travelled far enough since the press to count as a drag ([S-1745]).</summary>
     private bool _moved;
 
-    /// <summary>DIPs the pointer must travel before a press on a selected card is a drag rather than a click.</summary>
-    private const double DragThreshold = 3;
+    /// <summary>[S-1745] What the current press started; a plain click is told apart on release.</summary>
+    private CardPress _press;
+
     private bool _dragging;
 
     public WidgetCard(IWidgetCardHost host, WidgetInstance model)
@@ -309,6 +320,13 @@ internal sealed partial class WidgetCard : Grid, IWidgetSurface, IContainerSurfa
 
         Grid.SetRow(_view, 1);
         Grid.SetColumn(_view, 1);
+
+        // [S-1761] The widget's fill paints the body only, under the view; the header strip has a
+        // fill of its own (_headerBase/_headerTint), so the header opacity can fade it alone. Painted
+        // across the whole card, the body fill sat under the header too, and a header that shares the
+        // widget's fill could never look any different, whatever its opacity.
+        content.Children.Add(_fill);
+        content.Children.Add(_tint);
         content.Children.Add(_headerTurn);
         content.Children.Add(_view);
 
@@ -343,8 +361,6 @@ internal sealed partial class WidgetCard : Grid, IWidgetSurface, IContainerSurfa
 
         _handles = BuildHandles();
 
-        Children.Add(_fill);
-        Children.Add(_tint);
         Children.Add(_surface);
         Children.Add(_stroke);
         Children.Add(_editOutline);
@@ -421,6 +437,7 @@ internal sealed partial class WidgetCard : Grid, IWidgetSurface, IContainerSurfa
         var hidden = placement == HeaderPlacement.Hidden || tooShort || _headerSuppressed;
 
         _headerTurn.Visibility = hidden ? Visibility.Collapsed : Visibility.Visible;
+        ApplyBodyFill();
 
         if (hidden)
         {
@@ -492,8 +509,7 @@ internal sealed partial class WidgetCard : Grid, IWidgetSurface, IContainerSurfa
         var radiusPx = DesignLook.CornerRadius(design.CornerRadiusPx);
         var radius = new CornerRadius(radiusPx);
 
-        _fill.CornerRadius = radius;
-        _tint.CornerRadius = radius;
+        ApplyBodyFill();
 
         // The content border is rounded too, so anything drawn edge to edge inside it - a meter's
         // graph reaches the bottom and both sides - is clipped to the card's corners instead of
@@ -565,10 +581,10 @@ internal sealed partial class WidgetCard : Grid, IWidgetSurface, IContainerSurfa
     }
 
     /// <summary>
-    /// [S-828] A header of its own colour; none means it shares the widget's fill. The corners on
-    /// the card's edge follow the card's so the strip does not square them — all four when the card
-    /// is collapsed to the bar. [S-863] Behind a group's bar the card's own surface, since the group
-    /// paints its area itself.
+    /// [S-828] [S-1761] The header strip's own fill: a colour of its own at the header opacity, or
+    /// else the widget's fill at the widget's opacity times the header opacity. The corners on the
+    /// card's edge follow the card's so the strip does not square them — all four when the card is
+    /// collapsed to the bar. [S-863] A group paints its own area, and its bar gets the same strip.
     /// </summary>
     private void ApplyHeaderFill()
     {
@@ -580,23 +596,72 @@ internal sealed partial class WidgetCard : Grid, IWidgetSurface, IContainerSurfa
             : HeaderEdge is HeaderPlacement.Bottom or HeaderPlacement.Right ? new CornerRadius(0, 0, r, r)
             : new CornerRadius(r, r, 0, 0);
 
-        _headerHost.Background = DesignApplier.UserBrush(design.HeaderBackgroundColor, design.HeaderOpacity);
-        _headerHost.CornerRadius = radius;
-
-        var ownArea = _view is IWidgetArea;
-        var opacity = DesignLook.FillOpacity(Model.Surface, design.SurfaceOpacity);
+        var own = DesignApplier.UserBrush(design.HeaderBackgroundColor);
+        var surface = DesignLook.FillOpacity(Model.Surface, design.SurfaceOpacity);
+        var opacity = DesignLook.HeaderFillOpacity(Model.Surface, design.SurfaceOpacity, design.HeaderOpacity, own is not null);
         var custom = DesignApplier.UserBrush(design.WidgetBackgroundColor);
 
-        _headerBase.Background = ownArea && opacity > 0
+        _headerHost.Background = own is null ? null : DesignApplier.UserBrush(design.HeaderBackgroundColor, opacity);
+        _headerHost.CornerRadius = radius;
+
+        // Shared with the widget: the same base and Fluent lift as the body, faded on their own.
+        _headerBase.Background = own is null && surface > 0
             ? custom ?? FluentLayout.Themed("SolidBackgroundFillColorBaseBrush", Colors.Black)
             : null;
         _headerBase.Opacity = opacity;
-        _headerTint.Background = ownArea && custom is null && opacity > 0
+        _headerTint.Background = own is null && custom is null && surface > 0
             ? FluentLayout.Themed("CardBackgroundFillColorDefaultBrush", Colors.Transparent)
             : null;
         _headerTint.Opacity = opacity;
         _headerBase.CornerRadius = radius;
         _headerTint.CornerRadius = radius;
+    }
+
+    /// <summary>
+    /// [S-1761] The body fill covers what the header leaves: the whole card without a header, else
+    /// the rows or columns beside it, with the card's corners only on the edges it reaches.
+    /// </summary>
+    private void ApplyBodyFill()
+    {
+        // A view that names itself while it is attached reaches here through ApplyHeader before the
+        // constructor has built the fill; the constructor's own ApplyHeader places it after.
+        if (_fill is null || _tint is null)
+        {
+            return;
+        }
+
+        var r = DesignLook.CornerRadius(_host.Design.CornerRadiusPx);
+        var edge = _headerTurn.Visibility == Visibility.Visible ? HeaderEdge : HeaderPlacement.Hidden;
+
+        var (row, rowSpan, column, columnSpan, radius) = edge switch
+        {
+            HeaderPlacement.Top => (1, 2, 0, 3, new CornerRadius(0, 0, r, r)),
+            HeaderPlacement.Bottom => (0, 2, 0, 3, new CornerRadius(r, r, 0, 0)),
+            HeaderPlacement.Left => (0, 3, 1, 2, new CornerRadius(0, r, r, 0)),
+            HeaderPlacement.Right => (0, 3, 0, 2, new CornerRadius(r, 0, 0, r)),
+            _ => (0, 3, 0, 3, new CornerRadius(r)),
+        };
+
+        foreach (var layer in new[] { _fill, _tint })
+        {
+            Grid.SetRow(layer, row);
+            Grid.SetRowSpan(layer, rowSpan);
+            Grid.SetColumn(layer, column);
+            Grid.SetColumnSpan(layer, columnSpan);
+            layer.CornerRadius = radius;
+        }
+
+        // The base reaches one DIP under the header strip, which is painted over it: two fills that
+        // only meet at an edge leave an anti-aliased seam of desktop between them wherever that edge
+        // falls between pixels (a widget scale, an intro's scale, a fractional DPI).
+        _fill.Margin = edge switch
+        {
+            HeaderPlacement.Top => new Thickness(0, -1, 0, 0),
+            HeaderPlacement.Bottom => new Thickness(0, 0, 0, -1),
+            HeaderPlacement.Left => new Thickness(-1, 0, 0, 0),
+            HeaderPlacement.Right => new Thickness(0, 0, -1, 0),
+            _ => new Thickness(0),
+        };
     }
 
     /// <summary>
@@ -776,12 +841,8 @@ internal sealed partial class WidgetCard : Grid, IWidgetSurface, IContainerSurfa
         var half = double.IsFinite(gapPx) && gapPx > 0 ? gapPx / 2 : 0;
         var inset = new Thickness(half);
 
-        _fill.Margin = inset;
+        // The fill and the tint live inside the surface ([S-1761]), so they take its inset with it.
         _surface.Margin = inset;
-
-        // The tint and the border paint the same rounded box as the fill. The tint used to cover the
-        // whole cell, gap included, so the Fluent lift spilled half a gap past every card.
-        _tint.Margin = inset;
         _stroke.Margin = inset;
 
         if (_motionCover is not null)
@@ -890,29 +951,31 @@ internal sealed partial class WidgetCard : Grid, IWidgetSurface, IContainerSurfa
             return;
         }
 
-        var point = e.GetCurrentPoint(this);
-        if (!point.Properties.IsLeftButtonPressed)
+        // [S-1745] What the press starts. A widget a stack or tab strip lays out has no place of its
+        // own on the grid to drag: the press goes on to the container's card, which moves the whole
+        // container.
+        var handle = HitHandle(e.OriginalSource);
+        _press = CardGestures.Press(
+            editMode: true,
+            leftButton: e.GetCurrentPoint(this).Properties.IsLeftButtonPressed,
+            laidOutByContainer: _host.ViewForCards is { } cards && DrawnByContainer(cards),
+            ctrl: IsKeyDown(Windows.System.VirtualKey.Control),
+            onHandle: handle is not null);
+
+        switch (_press)
         {
-            return;
+            case CardPress.None:
+                return;
+
+            case CardPress.ToggleSelect:
+                // [S-1580] Ctrl+click picks the widget in or out of the selection and does nothing else.
+                _host.RequestToggleSelect(this);
+                Focus(FocusState.Pointer);
+                e.Handled = true;
+                return;
         }
 
-        // A widget a stack or tab strip lays out has no place of its own on the grid to drag: the
-        // press goes on to the container's card, which moves the whole container.
-        if (_host.ViewForCards is { } cards && DrawnByContainer(cards))
-        {
-            return;
-        }
-
-        // [S-1580] Ctrl+click picks the widget in or out of the selection and does nothing else.
-        if (IsKeyDown(Windows.System.VirtualKey.Control))
-        {
-            _host.RequestToggleSelect(this);
-            Focus(FocusState.Pointer);
-            e.Handled = true;
-            return;
-        }
-
-        _activeHandle = HitHandle(e.OriginalSource);
+        _activeHandle = handle;
 
         // [S-1593] A press on a widget already in a multi-selection keeps the selection, so the drag
         // that may follow carries all of it. A resize is about this one widget only.
@@ -950,7 +1013,7 @@ internal sealed partial class WidgetCard : Grid, IWidgetSurface, IContainerSurfa
         }
 
         var now = e.GetCurrentPoint(ParentSurface()).Position;
-        _moved |= Math.Abs(now.X - _dragStartPoint.X) >= DragThreshold || Math.Abs(now.Y - _dragStartPoint.Y) >= DragThreshold;
+        _moved |= CardGestures.Travelled(now.X - _dragStartPoint.X, now.Y - _dragStartPoint.Y);
 
         var dxFrac = (now.X - _dragStartPoint.X) / metrics.Width;
         var dyFrac = (now.Y - _dragStartPoint.Y) / metrics.Height;
@@ -982,9 +1045,18 @@ internal sealed partial class WidgetCard : Grid, IWidgetSurface, IContainerSurfa
             return;
         }
 
+        // [S-1745] Read before the drag ends: a plain click, released here rather than lost to
+        // capture, shows this widget in a settings window that is already open.
+        var follow = CardGestures.FollowsInSettings(_press, _moved, released: true, _host.SettingsOpen);
+
         ReleasePointerCapture(e.Pointer);
         EndDrag();
         e.Handled = true;
+
+        if (follow)
+        {
+            _host.RequestFollowInSettings(this);
+        }
     }
 
     private void OnPointerCaptureLost(object sender, PointerRoutedEventArgs e)
@@ -1004,6 +1076,7 @@ internal sealed partial class WidgetCard : Grid, IWidgetSurface, IContainerSurfa
         _dragging = false;
         _activeHandle = null;
         _narrowOnRelease = false;
+        _press = CardPress.None;
 
         // Only a move may hand widgets to another display: a resize that happens to end with the
         // pointer over another screen is still a resize.
@@ -1043,29 +1116,26 @@ internal sealed partial class WidgetCard : Grid, IWidgetSurface, IContainerSurfa
     }
 
     /// <summary>
-    /// The "Move into" submenu, or null when there is nowhere to move to.
+    /// The "Move into" submenu's entries, empty when there is nowhere to move to.
     /// <para>
     /// Built from what the tree will actually accept rather than from every container on the
     /// desktop, so a container that would make a cycle or nest too deep is simply not offered. An
     /// option that refuses itself when clicked is worse than no option.
     /// </para>
     /// </summary>
-    private MenuFlyoutSubItem? BuildMoveMenu()
+    private List<ItemMenuEntry> MoveTargets()
     {
+        var entries = new List<ItemMenuEntry>();
         var view = _host.ViewForCards;
         if (view is null)
         {
-            return null;
+            return entries;
         }
-
-        var submenu = new MenuFlyoutSubItem { Text = Str.Shell_Card_MoveInto.Text() };
 
         if (Model.ParentId is not null)
         {
-            var out_ = new MenuFlyoutItem { Text = Str.Shell_Card_MoveToDesktop.Text() };
-            out_.Click += (_, _) => _host.RequestReparent(this, null);
-            submenu.Items.Add(out_);
-            submenu.Items.Add(new MenuFlyoutSeparator());
+            entries.Add(new ItemMenuEntry(Glyphs.Home, Str.Shell_Card_MoveToDesktop.Text(), () => _host.RequestReparent(this, null)));
+            entries.Add(ItemMenuEntry.Separator);
         }
 
         foreach (var candidate in view.Widgets)
@@ -1080,19 +1150,20 @@ internal sealed partial class WidgetCard : Grid, IWidgetSurface, IContainerSurfa
                 continue;
             }
 
-            var label = string.IsNullOrWhiteSpace(candidate.Label)
-                ? WidgetCatalog.Definition(candidate.Kind).Label
-                : candidate.Label;
-
+            var definition = WidgetCatalog.Definition(candidate.Kind);
+            var label = string.IsNullOrWhiteSpace(candidate.Label) ? definition.Label : candidate.Label;
             var id = candidate.Id;
-            var item = new MenuFlyoutItem { Text = label };
-            item.Click += (_, _) => _host.RequestReparent(this, id);
-            submenu.Items.Add(item);
+            entries.Add(new ItemMenuEntry(definition.Glyph, label, () => _host.RequestReparent(this, id)));
         }
 
-        return submenu.Items.Count > 0 ? submenu : null;
+        return entries;
     }
 
+    /// <summary>
+    /// [S-1743] The card's menu, Windows 11 style: Cut, Copy, Paste, Duplicate, Settings and Delete
+    /// as a row of icons, the rest as a list. Which commands apply is <see cref="ShellMenus.ForCard"/>'s;
+    /// this only words them and wires them up.
+    /// </summary>
     private void OnRightTapped(object sender, RightTappedRoutedEventArgs e)
     {
         try
@@ -1104,105 +1175,82 @@ internal sealed partial class WidgetCard : Grid, IWidgetSurface, IContainerSurfa
                 _host.RequestSelect(this);
             }
 
-            // [S-1592] One widget reads "Copy"; a selection reads "Copy 3 widgets", one sentence per
-            // language rather than a verb with a count glued on.
-            var count = _host.SelectionCount;
-            string Verb(Str one, Str many) => count > 1 ? many.Plural(count) : one.Text();
-
-            var menu = new MenuFlyout { Placement = FlyoutPlacementMode.BottomEdgeAlignedLeft };
-            var cards = _host.ViewForCards;
-
-            // [S-870] Holding widgets is what a container is for, so adding one inside comes first.
-            if (cards is not null && WidgetTree.IsContainer(Model.Kind) && cards.CanAddInto(Model.Id))
-            {
-                menu.Items.Add(Item(Glyphs.Add, Str.CtxMenu_AddToContainer.Text(), () => _host.RequestAddInside(this)));
-            }
-
-            menu.Items.Add(Item("", Str.CtxMenu_Configure.Text(), () => _host.RequestConfigure(this)));
-            // The view's own commands — pause a camera, refresh a page — sit under Configure,
-            // read fresh each time so their text can follow the state they toggle.
-            if (_view is IWidgetContextActions { ContextActions: { Count: > 0 } actions })
-            {
-                foreach (var action in actions)
-                {
-                    menu.Items.Add(Item(action.Glyph, action.Text, action.Invoke));
-                }
-            }
-
-            menu.Items.Add(new MenuFlyoutSeparator());
-
-            var move = BuildMoveMenu();
-            if (move is not null)
-            {
-                menu.Items.Add(move);
-            }
-
-            // [S-874] Layering, for a widget the grid places (a stack or tab strip lays its own out).
-            if (cards is not null && !DrawnByContainer(cards))
-            {
-                var front = Item(Glyphs.MoveUp, Str.Shell_Card_BringToFront.Text(), () => _host.RequestZOrder(this, front: true));
-                front.IsEnabled = count > 1 || cards.CanBringToFront(Model.Id);
-                menu.Items.Add(front);
-
-                var back = Item(Glyphs.MoveDown, Str.Shell_Card_SendToBack.Text(), () => _host.RequestZOrder(this, front: false));
-                back.IsEnabled = count > 1 || cards.CanSendToBack(Model.Id);
-                menu.Items.Add(back);
-            }
-
-            if (menu.Items.Count > 0 && menu.Items[^1] is not MenuFlyoutSeparator)
-            {
-                menu.Items.Add(new MenuFlyoutSeparator());
-            }
-
-            menu.Items.Add(Item("", Verb(Str.CtxMenu_Copy, Str.Shell_Card_CopyMany), () => _host.RequestCopy(this), Ctrl("C")));
-            menu.Items.Add(Item("", Verb(Str.CtxMenu_Cut, Str.Shell_Card_CutMany), () => _host.RequestCut(this), Ctrl("X")));
-
-            var paste = Item("", Str.CtxMenu_Paste.Text(), _host.RequestPaste, Ctrl("V"));
-            paste.IsEnabled = _host.CanPaste;
-            menu.Items.Add(paste);
-
-            menu.Items.Add(Item("", Verb(Str.CtxMenu_Duplicate, Str.Shell_Card_DuplicateMany), () => _host.RequestDuplicate(this), Ctrl("D")));
-
-            menu.Items.Add(Item("", Verb(Str.Common_Move, Str.Shell_Card_MoveMany), () => _host.RequestMove(this)));
-            menu.Items.Add(new MenuFlyoutSeparator());
-
-            menu.Items.Add(Item(
-                _host.EditMode ? "" : "",
-                _host.EditMode ? Str.Shell_Card_DoneEditing.Text() : Str.Shell_Card_EditLayout.Text(),
-                () => _host.RequestEditMode(!_host.EditMode)));
-
-            menu.Items.Add(new MenuFlyoutSeparator());
-            menu.Items.Add(Item("", Verb(Str.Common_Delete, Str.Shell_Card_DeleteMany), () => _host.RequestDelete(this), Str.Shell_Key_Delete.Text()));
-
-            menu.ShowAt(this, e.GetPosition(this));
+            ItemMenu.Show(this, e, CardMenu());
             e.Handled = true;
         }
         catch (Exception ex)
         {
             Log.Error(Scope, "could not open the widget context menu", ex);
         }
+    }
+
+    /// <summary>[S-1743] The card menu's entries, read when it opens.</summary>
+    internal List<ItemMenuEntry> CardMenu()
+    {
+        var cards = _host.ViewForCards;
+        var moveTargets = MoveTargets();
+        var facts = new CardMenuFacts(
+            EditMode: _host.EditMode,
+            CanAddInside: cards is not null && WidgetTree.IsContainer(Model.Kind) && cards.CanAddInto(Model.Id),
+            HasMoveTargets: moveTargets.Exists(entry => !entry.IsSeparator),
+            PlacedByGrid: cards is not null && !DrawnByContainer(cards),
+            CanBringToFront: cards?.CanBringToFront(Model.Id) == true,
+            CanSendToBack: cards?.CanSendToBack(Model.Id) == true,
+            SelectionCount: _host.SelectionCount,
+            CanPaste: _host.CanPaste);
+
+        var entries = new List<ItemMenuEntry>();
+        foreach (var item in ShellMenus.ForCard(facts))
+        {
+            if (item.Command == ShellCommand.WidgetActions)
+            {
+                // The view's own commands — pause a camera, refresh a page — read fresh each time so
+                // their text can follow the state they toggle. [S-1746] None of them changes how the
+                // widget looks: that is its settings' job.
+                if (_view is IWidgetContextActions { ContextActions: { Count: > 0 } actions })
+                {
+                    entries.AddRange(actions.Select(action => new ItemMenuEntry(action.Glyph, action.Text, action.Invoke)));
+                }
+
+                continue;
+            }
+
+            entries.Add(item.Command == ShellCommand.MoveInto
+                ? new ItemMenuEntry(Glyphs.Stack, Str.Shell_Card_MoveInto.Text(), null, Children: moveTargets)
+                : CardEntry(item, facts.SelectionCount));
+        }
+
+        return entries;
+    }
+
+    /// <summary>One of the card's own commands, worded and wired.</summary>
+    private ItemMenuEntry CardEntry(ShellMenuItem item, int count)
+    {
+        // [S-1592] One widget reads "Copy"; a selection reads "Copy 3 widgets", one sentence per
+        // language rather than a verb with a count glued on.
+        string Verb(Str one, Str many) => count > 1 ? many.Plural(count) : one.Text();
 
         // Key names as Windows prints them in the language's menus: "Strg+C" in German.
         static string Ctrl(string key) => Str.Shell_Key_CtrlPlus.Format(("key", key));
 
-        static MenuFlyoutItem Item(string glyph, string text, Action action, string? shortcut = null)
+        var disabled = !item.Enabled;
+        return item.Command switch
         {
-            var item = new MenuFlyoutItem
-            {
-                Text = text,
-                Icon = new FontIcon { Glyph = glyph },
-            };
-
-            if (shortcut is not null)
-            {
-                // Text only: the accelerators are handled on the surface, so registering real
-                // KeyboardAccelerators here would double-fire them.
-                item.KeyboardAcceleratorTextOverride = shortcut;
-            }
-
-            item.Click += (_, _) => action();
-            return item;
-        }
+            ShellCommand.Cut => new(Glyphs.Cut, Verb(Str.CtxMenu_Cut, Str.Shell_Card_CutMany), () => _host.RequestCut(this), Quick: item.Quick, Shortcut: Ctrl("X")),
+            ShellCommand.Copy => new(Glyphs.Copy, Verb(Str.CtxMenu_Copy, Str.Shell_Card_CopyMany), () => _host.RequestCopy(this), Quick: item.Quick, Shortcut: Ctrl("C")),
+            ShellCommand.Paste => new(Glyphs.Paste, Str.CtxMenu_Paste.Text(), _host.RequestPaste, Disabled: disabled, Quick: item.Quick, Shortcut: Ctrl("V")),
+            ShellCommand.Duplicate => new(Glyphs.Duplicate, Verb(Str.CtxMenu_Duplicate, Str.Shell_Card_DuplicateMany), () => _host.RequestDuplicate(this), Quick: item.Quick, Shortcut: Ctrl("D")),
+            ShellCommand.Configure => new(Glyphs.Settings, Str.CtxMenu_Configure.Text(), () => _host.RequestConfigure(this), Quick: item.Quick),
+            ShellCommand.Delete => new(Glyphs.Delete, Verb(Str.Common_Delete, Str.Shell_Card_DeleteMany), () => _host.RequestDelete(this), Danger: true, Quick: item.Quick, Shortcut: Str.Shell_Key_Delete.Text()),
+            ShellCommand.AddInside => new(Glyphs.Add, Str.CtxMenu_AddToContainer.Text(), () => _host.RequestAddInside(this)),
+            ShellCommand.BringToFront => new(Glyphs.MoveUp, Str.Shell_Card_BringToFront.Text(), () => _host.RequestZOrder(this, front: true), Disabled: disabled),
+            ShellCommand.SendToBack => new(Glyphs.MoveDown, Str.Shell_Card_SendToBack.Text(), () => _host.RequestZOrder(this, front: false), Disabled: disabled),
+            ShellCommand.Move => new(Glyphs.Move, Verb(Str.Common_Move, Str.Shell_Card_MoveMany), () => _host.RequestMove(this)),
+            ShellCommand.ToggleEditMode => _host.EditMode
+                ? new(Glyphs.Done, Str.Shell_Card_DoneEditing.Text(), () => _host.RequestEditMode(false))
+                : new(Glyphs.Edit, Str.Shell_Card_EditLayout.Text(), () => _host.RequestEditMode(true)),
+            _ => ItemMenuEntry.Separator,
+        };
     }
 
     // -----------------------------------------------------------------------------------------

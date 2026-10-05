@@ -122,13 +122,10 @@ public sealed class ShellSettingsTests : IDisposable
         state.Design.TransitionAnimationMs = 700;
         state.Design.UnlockAnimation = IntroAnimation.None;
         state.Design.UnlockAnimationMs = 900;
-        state.Design.StartupSound = true;
         state.Preferences.Language = AppLanguage.Japanese;
         state.Preferences.GameModeSuspend = true;
         state.Preferences.DesktopIconsVisible = false;
         state.Preferences.AllowPrivateNetwork = true;
-        state.Preferences.DevMode = true;
-        state.Preferences.VerboseLogging = true;
         state.DefaultViewForNewDisplays = view.Id;
         state.DisabledMonitors.Add(@"\\.\DISPLAY2");
         state.MonitorScales[@"\\.\DISPLAY1"] = 1.5;
@@ -151,13 +148,10 @@ public sealed class ShellSettingsTests : IDisposable
         Assert.Equal(700, back.Design.TransitionAnimationMs);
         Assert.Equal(IntroAnimation.None, back.Design.UnlockAnimation);
         Assert.Equal(900, back.Design.UnlockAnimationMs);
-        Assert.True(back.Design.StartupSound);
         Assert.Equal(AppLanguage.Japanese, back.Preferences.Language);
         Assert.True(back.Preferences.GameModeSuspend);
         Assert.False(back.Preferences.DesktopIconsVisible);
         Assert.True(back.Preferences.AllowPrivateNetwork);
-        Assert.True(back.Preferences.DevMode);
-        Assert.True(back.Preferences.VerboseLogging);
         Assert.Equal(view.Id, back.DefaultViewForNewDisplays);
         Assert.Equal([@"\\.\DISPLAY2"], back.DisabledMonitors);
         Assert.Equal(1.5, back.MonitorScales[@"\\.\DISPLAY1"]);
@@ -174,7 +168,6 @@ public sealed class ShellSettingsTests : IDisposable
             TransitionAnimationMs = 120,
             UnlockAnimation = IntroAnimation.Blur,
             UnlockAnimationMs = 240,
-            StartupSound = true,
         };
 
         var copy = design.Clone();
@@ -185,7 +178,6 @@ public sealed class ShellSettingsTests : IDisposable
         Assert.Equal(120, copy.TransitionAnimationMs);
         Assert.Equal(IntroAnimation.Blur, copy.UnlockAnimation);
         Assert.Equal(240, copy.UnlockAnimationMs);
-        Assert.True(copy.StartupSound);
     }
 
     // -----------------------------------------------------------------------------------------
@@ -216,13 +208,13 @@ public sealed class ShellSettingsTests : IDisposable
     {
         var json = StateFile.Replace(
             "\"monitorViews\": {},",
-            "\"monitorViews\": {}, \"preferences\": { \"language\": 99, \"devMode\": true },",
+            "\"monitorViews\": {}, \"preferences\": { \"language\": 99, \"gameModeSuspend\": true },",
             StringComparison.Ordinal);
 
         var result = AppStateStore.Parse(json);
 
         Assert.Equal(AppLanguage.System, result.State!.Preferences.Language);
-        Assert.True(result.State.Preferences.DevMode);
+        Assert.True(result.State.Preferences.GameModeSuspend);
         Assert.Contains(result.Repairs, r => r.Contains("language", StringComparison.Ordinal));
     }
 
@@ -275,20 +267,20 @@ public sealed class ShellSettingsTests : IDisposable
     {
         var current = AppState.CreateDefault();
         var incoming = AppState.CreateDefault();
-        incoming.Preferences.DevMode = true;
-        incoming.Design.StartupSound = true;
+        incoming.Preferences.AllowPrivateNetwork = true;
+        incoming.Design.UnlockAnimationMs = 900;
         incoming.DisabledMonitors.Add("X");
         incoming.MonitorScales["X"] = 0.75;
 
         var preview = SettingsTransfer.Compare(current, incoming, [], []);
 
-        Assert.Contains(preview.Changes, c => c.StartsWith("Developer mode", StringComparison.Ordinal));
-        Assert.Contains(preview.Changes, c => c.StartsWith("Startup sound", StringComparison.Ordinal));
+        Assert.Contains(preview.Changes, c => c.StartsWith("Local network access", StringComparison.Ordinal));
+        Assert.Contains(preview.Changes, c => c.StartsWith("Unlock animation length", StringComparison.Ordinal));
 
         SettingsTransfer.Apply(current, incoming);
 
-        Assert.True(current.Preferences.DevMode);
-        Assert.True(current.Design.StartupSound);
+        Assert.True(current.Preferences.AllowPrivateNetwork);
+        Assert.Equal(900, current.Design.UnlockAnimationMs);
         Assert.Equal(["X"], current.DisabledMonitors);
         Assert.Equal(0.75, current.MonitorScales["X"]);
     }

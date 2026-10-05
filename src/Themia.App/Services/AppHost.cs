@@ -215,11 +215,6 @@ internal sealed partial class AppHost : IDisposable
         Services.Web.WeatherService.Persist(
             Path.Combine(Path.GetDirectoryName(_store.Path) ?? string.Empty, Themia.Core.Storage.WeatherCacheStore.FileName));
 
-        // [S-1319] The web element widgets' last renders, drawn at once (marked stale) on a cold
-        // launch instead of "Rendering the page…". Before the windows, so the first layout finds them.
-        Services.Web.ElementRenderCache.Persist(
-            Path.Combine(Path.GetDirectoryName(_store.Path) ?? string.Empty, Themia.Core.Storage.ElementRenderStore.FolderName));
-
         // [S-890] Counted before the surfaces exist: a start that dies building them leaves its count.
         BeginStartGuard();
 

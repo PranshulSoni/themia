@@ -196,7 +196,7 @@ internal static class ShellLauncher
     }
 
     /// <summary>
-    /// [S-1613] Open a page of Windows Settings (<c>ms-settings:</c>). Its own allow list, like mail
+    /// Open a page of Windows Settings (<c>ms-settings:</c>). Its own allow list, like mail
     /// links: the pages are fixed URIs in code, and the scheme is checked on the literal string.
     /// </summary>
     public static LaunchOutcome OpenWindowsSettings(Uri page)

@@ -27,7 +27,7 @@ public readonly record struct Star(double Angle, double Log0, double Rate, doubl
 /// widgets warp in) and a deceleration back to dots while the black veil lifts.
 /// <para>
 /// Pure timing and geometry, the original's <c>hyperspace.ts</c>; the surface turns it into
-/// compositor animations, and the sound plan reads the same constants so audio cannot drift from it.
+/// compositor animations, scaled as one piece to the length the user set ([S-1760]).
 /// </para>
 /// </summary>
 public static class Hyperspace
@@ -249,11 +249,10 @@ public static class Hyperspace
     }
 
     /// <summary>
-    /// [S-1005] The overlay's whole life for a per-widget intro length: the jump, the longest cascade,
-    /// the last widget's intro and the fade. The veil and the stars are gone by then.
+    /// [S-1760] The overlay's natural timeline, end to end: the jump, the deceleration and the fade.
+    /// A show of any length plays this timeline scaled to fit (<see cref="IntroSchedule.TimeScale"/>).
     /// </summary>
-    public static double OverlayTotalMs(double widgetIntroMs)
-        => JumpMs + IntroMotion.StaggerCapMs + Math.Max(0, widgetIntroMs) + FadeMs;
+    public const double NaturalMs = JumpMs + DecelMs + FadeMs;
 
     /// <summary>
     /// [S-1006] The screen shake the widget layer takes over <see cref="ShakeMs"/>, after the static

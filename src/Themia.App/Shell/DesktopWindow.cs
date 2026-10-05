@@ -113,6 +113,7 @@ internal sealed partial class DesktopWindow : IWidgetCardHost
         _root.PointerExited += OnRootPointerExited;
         _root.PointerReleased += OnRootPointerReleased;
         _root.PointerCaptureLost += OnRootPointerCaptureLost;
+        _root.RightTapped += OnRootRightTapped;
 
         _window = new Window
         {
@@ -255,6 +256,13 @@ internal sealed partial class DesktopWindow : IWidgetCardHost
 
     public void RequestConfigure(WidgetCard card)
         => _host.ShowConfig(new ConfigTarget.Widget(card.Model.Id));
+
+    /// <inheritdoc />
+    public bool SettingsOpen => _host.ConfigOpen;
+
+    /// <inheritdoc />
+    public void RequestFollowInSettings(WidgetCard card)
+        => _host.FollowConfig(new ConfigTarget.Widget(card.Model.Id));
 
     /// <summary>[S-1589] Copies of the selection follow the pointer until a click drops them.</summary>
     public void RequestDuplicate(WidgetCard card) => _host.DuplicateSelected();

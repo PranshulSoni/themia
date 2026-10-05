@@ -18,7 +18,7 @@ changed. The original Tauri version is on the `main` branch.
 | Time | Clock, Countdown, Pomodoro, Sun & Moon |
 | System | CPU, Memory, Disk, GPU, Network, Ping, Battery, Processes, Volume, Mixer, Power, Bluetooth, Screen time |
 | Mail & calendar | Mail, Calendar, Tasks, Contacts (Microsoft, Google, IMAP, CalDAV/CardDAV, a local task list) |
-| Information | Weather, Forecast, Stocks, Feed (RSS/Atom), Web element |
+| Information | Weather, Forecast, Stocks, Feed (RSS/Atom) |
 | Media | Now playing, Gallery, Video stream |
 | Launch | Apps, Shortcuts, Folder, OneDrive, Search |
 | Desk | Notes, Calculator, Clipboard, Scratchpad, Colour, Quote |
@@ -70,8 +70,7 @@ document and can uninstall Themia, optionally deleting both folders. Packaged in
 the package's redirected AppData and remove them with the package.
 
 Warnings and errors are logged to `%LOCALAPPDATA%\Themia\logs\themia.log` (rotated, 14 days) and to the
-Windows Application event log; secrets are redacted before anything is written. Turn on **Developer
-mode** in General for the Logs page and verbose logging.
+Windows Application event log; secrets are redacted before anything is written.
 
 ## Distribution and licence tiers
 
@@ -131,9 +130,8 @@ Show Desktop is the one moment the surface is lifted, so the widgets do not vani
 - **Time zones use a mapping table.** The app runs without ICU (`InvariantGlobalization`), so IANA city
   names are mapped to Windows zones from a frozen table; a zone Windows lacks falls back to local time.
 - **Google sign-in** works only in builds made with Google's client secret (Microsoft, GitHub and Claude need none).
-- **Web element renders with WebView2**, the one place a browser engine is used; it is loaded only while
-  such a widget is visible and not at all otherwise. The Video stream widget plays MJPEG, snapshots, MP4
-  and HLS through Windows' own media stack.
+- **No browser engine.** The Video stream widget plays MJPEG, snapshots, MP4 and HLS through Windows'
+  own media stack.
 - **Out of scope on purpose:** a tray icon, an always-on-top pin, pop-out widget windows, an in-app
   updater (the Store updates it), telemetry, and importing data from the Tauri version.
 - **Desktop only.** Widgets exist on the desktop layer; there is no taskbar flyout or lock-screen widget.

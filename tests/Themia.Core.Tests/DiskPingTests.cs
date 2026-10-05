@@ -26,40 +26,40 @@ public sealed class DiskPingTests
         => Assert.Equal(expected, DiskRules.Root(drive));
 
     [Fact]
-    public void S1160_roots_keep_the_chosen_order_once_each_and_drop_junk()
-        => Assert.Equal(["D:\\", "C:\\"], DiskRules.Roots(["d", "nonsense", "C:\\", "D:\\"], "C:\\"));
-
-    [Fact]
-    public void S1160_nothing_usable_chosen_means_the_system_drive()
-    {
-        Assert.Equal(["C:\\"], DiskRules.Roots([], "C:\\"));
-        Assert.Equal(["E:\\"], DiskRules.Roots(["??"], "e:\\"));
-    }
-
-    [Fact]
-    public void S1160_repair_normalises_dedupes_and_reports_dropped_entries()
-    {
-        var config = new DiskConfig { Drives = ["c", "C:\\", "x/y", "d:"] };
-
-        var notes = config.Repair();
-
-        Assert.Equal(["C:\\", "D:\\"], config.Drives);
-        Assert.Single(notes);
-        Assert.Contains("x/y", notes[0], StringComparison.Ordinal);
-    }
-
-    [Fact]
     public void S1160_a_clean_config_repairs_to_nothing_and_clones_every_option()
     {
-        var config = new DiskConfig { Drives = ["C:\\", "D:\\"], IoScope = DiskIoScope.Drive, IoDrive = "D:\\", ShowIops = false, ShowVolume = false, ShowAllDrives = false };
+        var config = new DiskConfig { Drive = "D:\\", IoScope = DiskIoScope.Drive, IoDrive = "C:\\" };
 
         Assert.Empty(config.Repair());
 
         var copy = (DiskConfig)config.Clone();
-        Assert.Equal(config.Drives, copy.Drives);
-        Assert.NotSame(config.Drives, copy.Drives);
-        Assert.Equal((DiskIoScope.Drive, "D:\\"), (copy.IoScope, copy.IoDrive));
-        Assert.False(copy.ShowIops || copy.ShowVolume || copy.ShowAllDrives);
+        Assert.Equal("D:\\", copy.Drive);
+        Assert.Equal((DiskIoScope.Drive, "C:\\"), (copy.IoScope, copy.IoDrive));
+    }
+
+    [Theory]
+    [InlineData("d", "D:\\")]
+    [InlineData("D:", "D:\\")]
+    [InlineData("d:\\", "D:\\")]
+    [InlineData("", "")]
+    public void S1160_repair_normalises_the_drive_to_its_root(string drive, string expected)
+    {
+        var config = new DiskConfig { Drive = drive };
+
+        Assert.Empty(config.Repair());
+        Assert.Equal(expected, config.Drive);
+    }
+
+    [Theory]
+    [InlineData("not a drive")]
+    [InlineData("\\\\server\\share")]
+    [InlineData("1:")]
+    public void S1160_a_drive_that_is_not_a_drive_letter_is_dropped_loudly_for_the_system_drive(string drive)
+    {
+        var config = new DiskConfig { Drive = drive };
+
+        Assert.Single(config.Repair());
+        Assert.Equal(string.Empty, config.Drive);
     }
 
     [Fact]
@@ -158,118 +158,13 @@ public sealed class DiskPingTests
 
         Assert.Equal(75 * GiB, volume.Used);
         Assert.Equal(0.75, volume.UsedFraction);
-        Assert.Equal("25 GB free of 100 GB", DiskRules.FreeOfTotal(volume));
         Assert.Null(new DiskVolume("C:\\", "", "", false, 0, 0).UsedFraction);
         Assert.Equal(0UL, new DiskVolume("C:\\", "", "", false, 10, 20).Used);
     }
 
-    [Fact]
-    public void S1163_rates_use_adaptive_units()
-        => Assert.Equal("R 1.5 MB/s · W 0 B/s", DiskRules.RatesText(new DiskRates(1.5 * 1024 * 1024, 0)));
-
-    [Fact]
-    public void S1164_operations_are_whole_and_never_negative()
-        => Assert.Equal("R 121 · W 0 /s", DiskRules.OperationsText(120.6, -3));
-
-    [Fact]
-    public void S1165_the_volume_line_skips_what_windows_did_not_say()
-    {
-        Assert.Equal("System · NTFS · fixed", DiskRules.VolumeText(new DiskVolume("C:\\", "System", "NTFS", false, 0, 0)));
-        Assert.Equal("removable", DiskRules.VolumeText(new DiskVolume("E:\\", " ", "", true, 0, 0)));
-    }
-
-    [Fact]
-    public void S1166_a_row_shows_the_share_and_with_io_the_combined_activity()
-    {
-        var volume = new DiskVolume("C:\\", "", "", false, 100 * GiB, 58 * GiB);
-
-        Assert.Equal("42%", DiskRules.RowValue(volume, null));
-        Assert.Equal("42% · 20 KB/s", DiskRules.RowValue(volume, new DiskRates(10240, 10240)));
-        Assert.Equal("--", DiskRules.RowValue(volume with { Total = 0 }, null));
-    }
-
     // ---- S-1166: the drives list -------------------------------------------------------------------
 
-    [Fact]
-    public void S1166_one_drive_and_no_others_is_no_list()
-    {
-        Assert.Empty(DiskRules.Listed(true, ["C:\\"], ["C:\\"]));
-        Assert.Empty(DiskRules.Listed(false, ["C:\\"], ["C:\\", "D:\\"]));
-    }
-
-    [Fact]
-    public void S1166_chosen_drives_lead_and_all_drives_adds_the_rest_once()
-    {
-        Assert.Equal(["D:\\", "C:\\"], DiskRules.Listed(false, ["D:\\", "C:\\"], ["C:\\", "D:\\", "E:\\"]));
-        Assert.Equal(["D:\\", "C:\\", "E:\\"], DiskRules.Listed(true, ["D:\\"], ["c:\\", "d:\\", "E:\\"]).Select(r => r.ToUpperInvariant()));
-    }
-
     // ---- S-1171: ping statistics -------------------------------------------------------------------
-
-    [Fact]
-    public void S1171_an_empty_history_has_no_figures()
-        => Assert.Equal(new PingSummary(0, 0, null, null, null, null, null), PingStats.Summarise([]));
-
-    [Fact]
-    public void S1171_a_host_that_never_answered_is_full_loss_not_zero()
-    {
-        // Regression: the original short-circuited "no successful sample" to 0% loss.
-        var summary = PingStats.Summarise([null, null, null]);
-
-        Assert.Equal(1.0, summary.Loss);
-        Assert.Equal(0, summary.Answered);
-        Assert.Null(summary.Jitter);
-        Assert.Null(summary.Min);
-        Assert.Null(summary.Average);
-        Assert.Null(summary.Max);
-    }
-
-    [Fact]
-    public void S1171_one_answer_has_zero_jitter()
-    {
-        var summary = PingStats.Summarise([null, 20.0]);
-
-        Assert.Equal(0.0, summary.Jitter);
-        Assert.Equal(0.5, summary.Loss);
-        Assert.Equal(20.0, summary.Min);
-        Assert.Equal(20.0, summary.Max);
-    }
-
-    [Fact]
-    public void S1171_jitter_compares_consecutive_answers_across_gaps()
-    {
-        // 10 → 30 → 20 with a dropout between the first two: |30-10| + |20-30| over two pairs.
-        var summary = PingStats.Summarise([10.0, null, 30.0, 20.0]);
-
-        Assert.Equal(15.0, summary.Jitter);
-        Assert.Equal(0.25, summary.Loss);
-        Assert.Equal(10.0, summary.Min);
-        Assert.Equal(20.0, summary.Average);
-        Assert.Equal(30.0, summary.Max);
-        Assert.Equal(4, summary.Samples);
-        Assert.Equal(3, summary.Answered);
-    }
-
-    [Fact]
-    public void S1171_a_nonsense_latency_counts_as_unanswered()
-    {
-        var summary = PingStats.Summarise([double.NaN, -1.0, 5.0]);
-
-        Assert.Equal(1, summary.Answered);
-        Assert.Equal(2 / 3.0, summary.Loss!.Value, 6);
-    }
-
-    [Fact]
-    public void S1171_the_range_line_carries_one_unit_below_a_second()
-    {
-        Assert.Equal("12 · 15 · 18 ms", PingStats.RangeText(PingStats.Summarise([12.0, null, 18.0, 15.0])));
-        Assert.Equal("500 ms · 1.0 s · 1.5 s", PingStats.RangeText(PingStats.Summarise([500.0, 1500.0])));
-        Assert.Null(PingStats.RangeText(PingStats.Summarise([null])));
-    }
-
-    [Fact]
-    public void S1171_probes_line_counts_answers()
-        => Assert.Equal("3 of 4 answered", PingStats.AnsweredText(PingStats.Summarise([1.0, null, 2.0, 3.0])));
 
     [Fact]
     public void S1171_the_history_holds_the_span_and_forgets_the_oldest()
@@ -280,11 +175,12 @@ public sealed class DiskPingTests
         history.Add(3);
         history.Add(4);
 
-        Assert.Equal([null, 3.0, 4.0], history.Samples);
+        Assert.Equal(3, history.Count);
         Assert.Equal(4.0, history.Last);
 
         history.Capacity = 1;
-        Assert.Equal([4.0], history.Samples);
+        Assert.Equal(1, history.Count);
+        Assert.Equal(4.0, history.Last);
 
         history.Clear();
         Assert.False(history.Any);
@@ -299,12 +195,6 @@ public sealed class DiskPingTests
     [InlineData(true, false, PingStatus.Offline)]
     public void S1170_status_follows_the_last_probe(bool any, bool answered, PingStatus expected)
         => Assert.Equal(expected, PingStats.Status(any, answered));
-
-    [Fact]
-    public void S1170_the_caption_is_placed_for_the_longest_status_word()
-        => Assert.Equal(
-            PingStats.StatusCharacters,
-            Enum.GetValues<PingStatus>().Max(s => PingStats.StatusText(s).Length));
 
     [Fact]
     public void S1172_online_is_success_offline_is_critical()
@@ -328,11 +218,10 @@ public sealed class DiskPingTests
     }
 
     [Fact]
-    public void S1173_clone_keeps_the_label_and_the_metric_switches()
+    public void S1173_clone_keeps_the_host_and_its_label()
     {
-        var copy = (PingConfig)new PingConfig { Host = "8.8.8.8", HostLabel = "DNS", ShowJitter = false, ShowLoss = false, ShowMinAvgMax = false }.Clone();
+        var copy = (PingConfig)new PingConfig { Host = "8.8.8.8", HostLabel = "DNS" }.Clone();
 
         Assert.Equal(("8.8.8.8", "DNS"), (copy.Host, copy.HostLabel));
-        Assert.False(copy.ShowJitter || copy.ShowLoss || copy.ShowMinAvgMax);
     }
 }

@@ -8,7 +8,7 @@ namespace Themia.Core.Accounts;
 /// </summary>
 public enum AccountProvider
 {
-    /// <summary>A Microsoft account, personal or work: Graph, signed in by device code.</summary>
+    /// <summary>A Microsoft account, personal or work: Graph, signed in through the browser (PKCE).</summary>
     Microsoft,
 
     /// <summary>A Google account: Gmail, Calendar, Tasks and People, signed in through the browser.</summary>

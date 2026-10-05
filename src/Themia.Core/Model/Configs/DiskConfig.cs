@@ -16,10 +16,7 @@ public enum DiskIoScope
     Drive = 2,
 }
 
-/// <summary>
-/// [S-1160] Space used on one or more drives, and how busy they are. Each metric is a toggle saying
-/// whether it <i>may</i> appear; the size of the tile decides whether it fits.
-/// </summary>
+/// <summary>[S-1160] Space used on one drive, with its reads and writes as the history.</summary>
 public sealed class DiskConfig : GaugeConfig
 {
     /// <summary>
@@ -34,11 +31,8 @@ public sealed class DiskConfig : GaugeConfig
     [JsonIgnore]
     public override WidgetKind Kind => WidgetKind.Disk;
 
-    /// <summary>
-    /// [S-1160] The drives to report on, as roots (<c>C:\</c>), in the order chosen. The first is the
-    /// reading; several make a drives list. Empty means the system drive.
-    /// </summary>
-    public List<string> Drives { get; set; } = [];
+    /// <summary>[S-1160] The drive to report on, as a root (<c>C:\</c>). Empty means the system drive.</summary>
+    public string Drive { get; set; } = string.Empty;
 
     /// <summary>
     /// [S-1163] Whose reads and writes the chart plots: the reading's drive, every drive together, or
@@ -49,63 +43,36 @@ public sealed class DiskConfig : GaugeConfig
     /// <summary>[S-1163] The drive charted when <see cref="IoScope"/> is <see cref="DiskIoScope.Drive"/>, as a root.</summary>
     public string IoDrive { get; set; } = string.Empty;
 
-    /// <summary>[S-1164] Reads and writes per second, across every disk (the original's IOPS).</summary>
-    public bool ShowIops { get; set; } = true;
-
-    /// <summary>[S-1165] The volume line: label, file system, fixed or removable.</summary>
-    public bool ShowVolume { get; set; } = true;
-
-    /// <summary>[S-1166] List every drive on the machine where the tile has room, not only the chosen ones.</summary>
-    public bool ShowAllDrives { get; set; } = true;
-
     public override WidgetConfig Clone()
     {
         var copy = new DiskConfig
         {
-            Drives = [.. Drives],
+            Drive = Drive,
             IoScope = IoScope,
             IoDrive = IoDrive,
-            ShowIops = ShowIops,
-            ShowVolume = ShowVolume,
-            ShowAllDrives = ShowAllDrives,
         };
         CopyTo(copy);
         return copy;
     }
 
-    /// <summary>[S-1160] Keep only drive letters, each once, as roots; a corrupt entry is dropped loudly.</summary>
+    /// <summary>[S-1160] Keep the drive as a root; one that is not a drive letter is dropped loudly (the system drive).</summary>
     public override IReadOnlyList<string> Repair()
     {
         var notes = new List<string>(base.Repair());
 
-        Drives ??= [];
-        var clean = new List<string>(Drives.Count);
+        Drive ??= string.Empty;
 
-        foreach (var drive in Drives)
+        if (Drive.Length > 0)
         {
-            if (DiskRules.Root(drive) is not { } root)
+            if (DiskRules.Root(Drive) is { } root)
             {
-                notes.Add($"{Kind}: '{drive}' is not a drive letter; dropped");
-                continue;
+                Drive = root;
             }
-
-            if (clean.Contains(root, StringComparer.Ordinal))
+            else
             {
-                continue;
+                notes.Add($"{Kind}: '{Drive}' is not a drive letter; reporting on the system drive");
+                Drive = string.Empty;
             }
-
-            if (clean.Count == DiskRules.MaxDrives)
-            {
-                notes.Add($"{Kind}: more than {DiskRules.MaxDrives} drives named; the rest dropped");
-                break;
-            }
-
-            clean.Add(root);
-        }
-
-        if (!clean.SequenceEqual(Drives, StringComparer.Ordinal))
-        {
-            Drives = clean;
         }
 
         if (!Enum.IsDefined(IoScope))

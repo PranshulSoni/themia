@@ -9,6 +9,7 @@ using Themia.Core.Localization;
 using Themia.Core.Notes;
 using Themia.Core.Widgets;
 using Windows.System;
+using Themia.Core.Shell;
 
 namespace Themia.App.Widgets;
 
@@ -93,7 +94,7 @@ internal sealed partial class NotesView
             entries.Add(new ItemMenuEntry(Glyphs.Delete, Str.WidgetsC_Notes_DeleteNoteEllipsis.Text(), () => _ = DeleteAsync(shown), Danger: true));
         }
 
-        ItemMenu.Build(entries).ShowAt(_picker);
+        ItemMenu.Open(_picker, entries);
     }
 
     /// <summary>Rename the shown note in a small box under the picker: Enter or leaving it commits, Escape does not.</summary>
@@ -370,9 +371,9 @@ internal sealed partial class NotesView
     private IEnumerable<ItemMenuEntry> RowMenu(string id) =>
     [
         new ItemMenuEntry(Glyphs.Open, Str.Common_Open.Text(), () => Pick(id), Disabled: id == _shownId),
-        new ItemMenuEntry(Glyphs.Rename, Str.Common_Rename.Text(), () => BeginRename(id)),
+        new ItemMenuEntry(Glyphs.Rename, Str.Common_Rename.Text(), () => BeginRename(id), Quick: QuickCommand.Rename),
         ItemMenuEntry.Separator,
-        new ItemMenuEntry(Glyphs.Delete, Str.Common_DeleteEllipsis.Text(), () => _ = DeleteAsync(id), Danger: true),
+        new ItemMenuEntry(Glyphs.Delete, Str.Common_DeleteEllipsis.Text(), () => _ = DeleteAsync(id), Danger: true, Quick: QuickCommand.Delete),
     ];
 
     /// <summary>[S-1367] Rename in the row: Enter or leaving the box commits, Escape does not.</summary>
@@ -492,7 +493,7 @@ internal sealed partial class NotesView
                 return true;
 
             case ListCommand.Menu:
-                ItemMenu.Build(RowMenu(_rows[decision.Index].Id)).ShowAt(_rows[decision.Index].Row);
+                ItemMenu.Open(_rows[decision.Index].Row, RowMenu(_rows[decision.Index].Id));
                 return true;
 
             default:

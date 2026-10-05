@@ -148,6 +148,10 @@ internal static partial class Win32
     [LibraryImport("shcore.dll")]
     internal static partial int GetDpiForMonitor(nint hMonitor, int dpiType, out uint dpiX, out uint dpiY);
 
+    /// <summary>The display holding a screen point; <c>MONITOR_DEFAULTTOPRIMARY</c> (1) falls back to the primary one.</summary>
+    [LibraryImport("user32.dll")]
+    internal static partial nint MonitorFromPoint(Point pt, uint flags);
+
     // ---- message-only window ----------------------------------------------------------------
 
     internal const uint WmDestroy = 0x0002;

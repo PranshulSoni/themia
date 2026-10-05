@@ -76,19 +76,16 @@
 
   <!--
     [S-1061] Only what the app uses:
-    - runFullTrust: Themia is a Win32 desktop app (desktop windows, hooks, WASAPI, the Wi-Fi API).
+    - runFullTrust: Themia is a Win32 desktop app (desktop windows, hooks, WASAPI).
     - radios + bluetooth: the Bluetooth widget reads the radio state, paired devices and their
       battery over GATT; with package identity those WinRT calls are refused without them.
-    - location [S-1610]: Windows treats the Wi-Fi network name as location data. Only the network
-      tile's Wi-Fi line uses it, and it asks for consent only while that line is on screen
-      ([S-1611]); refused, the tile shows the link without a name and a link to the privacy page.
-    Deliberately NOT declared: internetClient (full-trust apps are not subject to it),
-    broadFileSystemAccess, and every other broad capability.
+    Deliberately NOT declared: location (nothing reads the Wi-Fi network name any more, [S-1762]),
+    internetClient (full-trust apps are not subject to it), broadFileSystemAccess, and every other
+    broad capability.
   -->
   <Capabilities>
     <rescap:Capability Name="runFullTrust" />
     <DeviceCapability Name="radios" />
     <DeviceCapability Name="bluetooth" />
-    <DeviceCapability Name="location" />
   </Capabilities>
 </Package>

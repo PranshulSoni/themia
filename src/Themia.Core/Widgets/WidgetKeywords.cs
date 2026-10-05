@@ -39,7 +39,6 @@ public static class WidgetKeywords
         [WidgetKind.WeatherForecast] = ["weather", "temperature", "rain", "week", "outlook", "climate", "degrees"],
         [WidgetKind.Rss] = ["rss", "feed", "news", "headlines", "atom", "blog", "reader"],
         [WidgetKind.Stocks] = ["shares", "ticker", "market", "finance", "crypto", "bitcoin", "forex", "currency", "portfolio", "price"],
-        [WidgetKind.WebElement] = ["website", "browser", "embed", "scrape", "clip", "page"],
         [WidgetKind.VideoStream] = ["camera", "webcam", "cctv", "mjpeg", "live view", "printer"],
         [WidgetKind.Music] = ["spotify", "player", "playback", "song", "track", "audio", "media controls", "now playing"],
         [WidgetKind.WebSearch] = ["google", "bing", "duckduckgo", "browser", "query", "find"],

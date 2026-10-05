@@ -542,9 +542,9 @@ internal sealed partial class ShortcutsView : Grid, IWidgetView, IWidgetSurfaceA
     private void Save() => _surfaceHost?.RequestSave();
 
     /// <summary>
-    /// [S-1391] The widget's own commands on the card's menu (original S-27 / S-49): the view, the
-    /// size, names and stretch in the grid, extensions, the click, search, select all and one step
-    /// of undo for the last remove. Each one names the state it switches to.
+    /// [S-1391] The widget's own commands on the card's menu (original S-27 / S-49): search, the
+    /// click, select all and one step of undo for the last remove. Each one names the state it
+    /// switches to. [S-1746] Nothing here changes how the widget looks.
     /// </summary>
     public IReadOnlyList<WidgetAction> ContextActions
     {
@@ -557,42 +557,6 @@ internal sealed partial class ShortcutsView : Grid, IWidgetView, IWidgetSurfaceA
                 actions.Add(new WidgetAction(Glyphs.Search,
                     _searchOpen ? Str.WidgetsC_Shortcuts_Menu_CloseSearch.Text() : Str.Common_Search.Text(), ToggleSearch));
             }
-
-            foreach (var mode in (ShortcutViewMode[])[ShortcutViewMode.Grid, ShortcutViewMode.List, ShortcutViewMode.Details])
-            {
-                if (mode != _config.View)
-                {
-                    actions.Add(new WidgetAction(ModeGlyph(mode), ShowAs(mode), () => SetConfig(c => c.View = mode)));
-                }
-            }
-
-            var grid = _config.View == ShortcutViewMode.Grid;
-            var size = grid ? _config.GridSize : _config.ListSize;
-            if (size < ShortcutItemSize.Large)
-            {
-                var larger = grid ? Str.WidgetsC_Shortcuts_Menu_LargerTiles : Str.WidgetsC_Shortcuts_Menu_LargerRows;
-                actions.Add(new WidgetAction(Glyphs.Add, larger.Text(), () => SetConfig(c => Resize(c, grid, size + 1))));
-            }
-
-            if (size > ShortcutItemSize.Small)
-            {
-                var smaller = grid ? Str.WidgetsC_Shortcuts_Menu_SmallerTiles : Str.WidgetsC_Shortcuts_Menu_SmallerRows;
-                actions.Add(new WidgetAction(Glyphs.Fit, smaller.Text(), () => SetConfig(c => Resize(c, grid, size - 1))));
-            }
-
-            if (grid)
-            {
-                actions.Add(new WidgetAction(Glyphs.Preview,
-                    _config.GridIconOnly ? Str.CtxMenu_ShowLabels.Text() : Str.CtxMenu_IconOnly.Text(),
-                    () => SetConfig(c => c.GridIconOnly = !c.GridIconOnly)));
-                actions.Add(new WidgetAction(Glyphs.Scale,
-                    _config.GridStretchHeight ? Str.WidgetsC_Shortcuts_Menu_KeepTileHeight.Text() : Str.WidgetsC_Shortcuts_Menu_StretchToFill.Text(),
-                    () => SetConfig(c => c.GridStretchHeight = !c.GridStretchHeight)));
-            }
-
-            actions.Add(new WidgetAction(Glyphs.File,
-                _config.ShowFileExtension ? Str.Folder_HideExt.Text() : Str.Folder_ShowExtMenu.Text(),
-                () => SetConfig(c => c.ShowFileExtension = !c.ShowFileExtension)));
 
             actions.Add(new WidgetAction(Glyphs.Open,
                 _config.ClickMode == ItemClickMode.Double ? Str.CtxMenu_OpenSingle.Text() : Str.CtxMenu_OpenDouble.Text(),
@@ -614,38 +578,12 @@ internal sealed partial class ShortcutsView : Grid, IWidgetView, IWidgetSurfaceA
         }
     }
 
-    private static void Resize(ShortcutsConfig config, bool grid, ShortcutItemSize size)
-    {
-        if (grid)
-        {
-            config.GridSize = size;
-        }
-        else
-        {
-            config.ListSize = size;
-        }
-    }
-
     private void SetConfig(Action<ShortcutsConfig> change)
     {
         change(_config);
         Save();
         Changed(rebuild: true);
     }
-
-    private static string ShowAs(ShortcutViewMode mode) => (mode switch
-    {
-        ShortcutViewMode.List => Str.WidgetsC_Shortcuts_Menu_ShowAsList,
-        ShortcutViewMode.Details => Str.WidgetsC_Shortcuts_Menu_ShowAsDetails,
-        _ => Str.WidgetsC_Shortcuts_Menu_ShowAsTiles,
-    }).Text();
-
-    private static string ModeGlyph(ShortcutViewMode mode) => mode switch
-    {
-        ShortcutViewMode.List => Glyphs.ListLayout,
-        ShortcutViewMode.Details => Glyphs.ColumnsLayout,
-        _ => Glyphs.GridLayout,
-    };
 
     public void Detach()
     {
