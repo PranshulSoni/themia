@@ -540,5 +540,22 @@
   "widgetsA.stack.takeOut": "Wyjmij ze stosu",
   "widgetsA.tabs.moveLeft": "W lewo",
   "widgetsA.tabs.moveRight": "W prawo",
-  "widgetsA.tabs.takeOut": "Wyjmij z kart"
+  "widgetsA.tabs.takeOut": "Wyjmij z kart",
+  "widgetsA.audio.unnamedDevice": "Urządzenie wyjściowe",
+  "widgetsA.audio.theDevice": "to urządzenie",
+  "widgetsA.audio.deviceGone": "Urządzenie {name} nie jest już połączone.",
+  "widgetsA.audio.deviceGoneUnnamed": "Urządzenie nie jest już połączone.",
+  "widgetsA.audio.switchNotSupported": "Ta wersja systemu Windows nie pozwala aplikacji Themia zmienić domyślnego wyjścia, więc ten widżet pokazuje teraz {name}.",
+  "widgetsA.audio.switchDenied": "System Windows nie zezwolił na zmianę domyślnego wyjścia, więc ten widżet pokazuje teraz {name}.",
+  "widgetsA.audio.switchFailed": "System Windows nie mógł zmienić domyślnego wyjścia, więc ten widżet pokazuje teraz {name}.",
+  "widgetsA.colorSwatch.default.ink": "Atrament",
+  "widgetsA.colorSwatch.default.slate": "Łupek",
+  "widgetsA.colorSwatch.default.sky": "Niebo",
+  "widgetsA.colorSwatch.default.blue": "Niebieski",
+  "widgetsA.colorSwatch.default.violet": "Fiolet",
+  "widgetsA.colorSwatch.default.rose": "Róż",
+  "widgetsA.colorSwatch.default.amber": "Bursztyn",
+  "widgetsA.colorSwatch.default.lime": "Limonka",
+  "widgetsA.colorSwatch.default.emerald": "Szmaragd",
+  "widgetsA.colorSwatch.default.stone": "Kamień"
 }

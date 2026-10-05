@@ -516,5 +516,22 @@
   "widgetsA.stack.takeOut": "Retirer de la pile",
   "widgetsA.tabs.moveLeft": "Déplacer à gauche",
   "widgetsA.tabs.moveRight": "Déplacer à droite",
-  "widgetsA.tabs.takeOut": "Retirer des onglets"
+  "widgetsA.tabs.takeOut": "Retirer des onglets",
+  "widgetsA.audio.unnamedDevice": "Périphérique de sortie",
+  "widgetsA.audio.theDevice": "le périphérique",
+  "widgetsA.audio.deviceGone": "{name} n’est plus connecté.",
+  "widgetsA.audio.deviceGoneUnnamed": "Le périphérique n’est plus connecté.",
+  "widgetsA.audio.switchNotSupported": "Cette version de Windows ne permet pas à Themia de changer la sortie par défaut ; ce widget affiche donc désormais {name}.",
+  "widgetsA.audio.switchDenied": "Windows n’a pas autorisé le changement de la sortie par défaut ; ce widget affiche donc désormais {name}.",
+  "widgetsA.audio.switchFailed": "Windows n’a pas pu changer la sortie par défaut ; ce widget affiche donc désormais {name}.",
+  "widgetsA.colorSwatch.default.ink": "Encre",
+  "widgetsA.colorSwatch.default.slate": "Ardoise",
+  "widgetsA.colorSwatch.default.sky": "Ciel",
+  "widgetsA.colorSwatch.default.blue": "Bleu",
+  "widgetsA.colorSwatch.default.violet": "Violet",
+  "widgetsA.colorSwatch.default.rose": "Rose",
+  "widgetsA.colorSwatch.default.amber": "Ambre",
+  "widgetsA.colorSwatch.default.lime": "Citron vert",
+  "widgetsA.colorSwatch.default.emerald": "Émeraude",
+  "widgetsA.colorSwatch.default.stone": "Pierre"
 }

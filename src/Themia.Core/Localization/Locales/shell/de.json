@@ -306,7 +306,7 @@
   "shell.widget.card": "Karte",
   "shell.widget.translucent": "Durchscheinend",
   "shell.widget.titleDesc": "Wird in Menüs angezeigt; leer lassen für den Standardnamen",
-  "shell.widget.deleteDesc": "Entfernt es aus {view}",
+  "shell.widget.deleteDesc": "Entfernt es aus der Ansicht „{view}“",
   "shell.license.limitReached": "Kostenlose Grenze erreicht",
   "shell.license.freeVersion": "Kostenlose Version",
   "shell.license.widgetsDesc": "Über alle Ansichten hinweg, einschließlich Gruppen und ihrer Inhalte",
@@ -742,5 +742,6 @@
   "shell.transfer.accent": "Akzentfarbe",
   "shell.transfer.startupLength": "Animationsdauer",
   "shell.transfer.transitionLength": "Dauer der Animation beim Ansichtswechsel",
-  "shell.transfer.unlockLength": "Dauer der Entsperranimation"
+  "shell.transfer.unlockLength": "Dauer der Entsperranimation",
+  "shell.adapter.wifi": "WLAN"
 }

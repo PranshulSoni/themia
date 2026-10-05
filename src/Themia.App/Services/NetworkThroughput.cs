@@ -167,7 +167,7 @@ internal static class NetworkThroughput
     /// <summary>The adapter kind, in Settings' words.</summary>
     private static string TypeLabel(NetworkInterfaceType type) => type switch
     {
-        NetworkInterfaceType.Wireless80211 => "Wi-Fi",
+        NetworkInterfaceType.Wireless80211 => Str.Shell_Adapter_Wifi.Text(),
         NetworkInterfaceType.Ethernet or NetworkInterfaceType.GigabitEthernet or NetworkInterfaceType.FastEthernetT or NetworkInterfaceType.FastEthernetFx => "Ethernet",
         NetworkInterfaceType.Ppp => Str.Shell_Adapter_DialUp.Text(),
         NetworkInterfaceType.Wwanpp or NetworkInterfaceType.Wwanpp2 => Str.Shell_Adapter_Cellular.Text(),

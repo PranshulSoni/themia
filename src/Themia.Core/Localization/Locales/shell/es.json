@@ -742,5 +742,6 @@
   "shell.transfer.accent": "Color de énfasis",
   "shell.transfer.startupLength": "Duración de la animación",
   "shell.transfer.transitionLength": "Duración de la animación al cambiar de vista",
-  "shell.transfer.unlockLength": "Duración de la animación al desbloquear"
+  "shell.transfer.unlockLength": "Duración de la animación al desbloquear",
+  "shell.adapter.wifi": "Wi-Fi"
 }

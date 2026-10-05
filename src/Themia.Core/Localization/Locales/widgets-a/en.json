@@ -515,5 +515,22 @@
   "widgetsA.stack.takeOut": "Take out of the stack",
   "widgetsA.tabs.moveLeft": "Move left",
   "widgetsA.tabs.moveRight": "Move right",
-  "widgetsA.tabs.takeOut": "Take out of the tabs"
+  "widgetsA.tabs.takeOut": "Take out of the tabs",
+  "widgetsA.audio.unnamedDevice": "Output device",
+  "widgetsA.audio.theDevice": "the device",
+  "widgetsA.audio.deviceGone": "{name} is no longer connected.",
+  "widgetsA.audio.deviceGoneUnnamed": "The device is no longer connected.",
+  "widgetsA.audio.switchNotSupported": "This version of Windows does not let Themia change the default output, so this widget now shows {name}.",
+  "widgetsA.audio.switchDenied": "Windows did not allow changing the default output, so this widget now shows {name}.",
+  "widgetsA.audio.switchFailed": "Windows could not change the default output, so this widget now shows {name}.",
+  "widgetsA.colorSwatch.default.ink": "Ink",
+  "widgetsA.colorSwatch.default.slate": "Slate",
+  "widgetsA.colorSwatch.default.sky": "Sky",
+  "widgetsA.colorSwatch.default.blue": "Blue",
+  "widgetsA.colorSwatch.default.violet": "Violet",
+  "widgetsA.colorSwatch.default.rose": "Rose",
+  "widgetsA.colorSwatch.default.amber": "Amber",
+  "widgetsA.colorSwatch.default.lime": "Lime",
+  "widgetsA.colorSwatch.default.emerald": "Emerald",
+  "widgetsA.colorSwatch.default.stone": "Stone"
 }

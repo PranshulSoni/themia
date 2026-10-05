@@ -786,5 +786,6 @@
   "shell.transfer.accent": "Kolor akcentu",
   "shell.transfer.startupLength": "Długość animacji",
   "shell.transfer.transitionLength": "Długość animacji zmiany widoku",
-  "shell.transfer.unlockLength": "Długość animacji odblokowania"
+  "shell.transfer.unlockLength": "Długość animacji odblokowania",
+  "shell.adapter.wifi": "Wi-Fi"
 }

@@ -25,8 +25,12 @@ public enum HelpArrangement
 /// </summary>
 public static class HelpLayout
 {
-    /// <summary>The page list's width in the two-pane arrangement.</summary>
-    public const double PaneWidth = 148;
+    /// <summary>
+    /// The page list's width in the two-pane arrangement. Wide enough for the longer translations of
+    /// the page names and of "Settings" ("Einstellungen", "Paramètres") on one line; "Edit widgets"
+    /// may still take two.
+    /// </summary>
+    public const double PaneWidth = 168;
 
     /// <summary>The keys card's width at XL.</summary>
     public const double KeysWidth = 232;

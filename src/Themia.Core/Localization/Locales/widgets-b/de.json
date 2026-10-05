@@ -803,5 +803,11 @@
   "widgetsB.settings.mixer.peaks.label": "Pegelanzeigen",
   "widgetsB.settings.mixer.peaks.desc": "Eine Live-Anzeige unter jedem Regler, wo Platz ist",
   "widgetsB.settings.mixer.microphone.desc": "Das Standardmikrofon im Seitenbereich der extragroßen Ansicht",
-  "widgetsB.settings.mixer.note": "Die Liste folgt Windows, wenn Apps die Wiedergabe starten und beenden. Klicke auf den Mixer, wähle dann mit ↑ und ↓ eine Zeile, ändere sie mit ← und → oder + und − und schalte sie mit M stumm."
+  "widgetsB.settings.mixer.note": "Die Liste folgt Windows, wenn Apps die Wiedergabe starten und beenden. Klicke auf den Mixer, wähle dann mit ↑ und ↓ eine Zeile, ändere sie mit ← und → oder + und − und schalte sie mit M stumm.",
+  "widgetsB.folder.nameProblem.empty": "Ein Name darf nicht leer sein",
+  "widgetsB.folder.nameProblem.dotSegment": "Ein Name darf nicht . oder .. sein",
+  "widgetsB.folder.nameProblem.invalidCharacter": "Ein Name darf diese Zeichen nicht enthalten: \\ / : * ? \" < > |",
+  "widgetsB.folder.nameProblem.reserved": "Dieser Name ist von Windows reserviert",
+  "widgetsB.folder.nameProblem.trailingDotOrSpace": "Ein Name darf nicht mit einem Punkt oder Leerzeichen enden",
+  "widgetsB.folder.nameProblem.tooLong": "Dieser Name ist zu lang"
 }

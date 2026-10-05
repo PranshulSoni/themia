@@ -742,5 +742,6 @@
   "shell.transfer.accent": "Accent colour",
   "shell.transfer.startupLength": "Animation length",
   "shell.transfer.transitionLength": "View change animation length",
-  "shell.transfer.unlockLength": "Unlock animation length"
+  "shell.transfer.unlockLength": "Unlock animation length",
+  "shell.adapter.wifi": "Wi-Fi"
 }

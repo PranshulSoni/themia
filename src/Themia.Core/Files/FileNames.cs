@@ -1,3 +1,5 @@
+using Themia.Core.Localization;
+
 namespace Themia.Core.Files;
 
 /// <summary>Why a name cannot be a Windows file name.</summary>
@@ -66,16 +68,22 @@ public static class FileNames
         return Devices.Contains(stem) ? FileNameProblem.Reserved : FileNameProblem.None;
     }
 
-    public static string Message(FileNameProblem problem) => problem switch
+    /// <summary>The sentence shown under a rename box, in <paramref name="locale"/> (default: the app's language).</summary>
+    public static string Message(FileNameProblem problem, Locale? locale = null)
     {
-        FileNameProblem.Empty => "A name can't be empty",
-        FileNameProblem.DotSegment => "A name can't be . or ..",
-        FileNameProblem.InvalidCharacter => "A name can't contain \\ / : * ? \" < > |",
-        FileNameProblem.Reserved => "That name is reserved by Windows",
-        FileNameProblem.TrailingDotOrSpace => "A name can't end with a dot or a space",
-        FileNameProblem.TooLong => "That name is too long",
-        _ => string.Empty,
-    };
+        Str? id = problem switch
+        {
+            FileNameProblem.Empty => Str.WidgetsB_Folder_NameProblem_Empty,
+            FileNameProblem.DotSegment => Str.WidgetsB_Folder_NameProblem_DotSegment,
+            FileNameProblem.InvalidCharacter => Str.WidgetsB_Folder_NameProblem_InvalidCharacter,
+            FileNameProblem.Reserved => Str.WidgetsB_Folder_NameProblem_Reserved,
+            FileNameProblem.TrailingDotOrSpace => Str.WidgetsB_Folder_NameProblem_TrailingDotOrSpace,
+            FileNameProblem.TooLong => Str.WidgetsB_Folder_NameProblem_TooLong,
+            _ => null,
+        };
+
+        return id is { } key ? Strings.Get(locale ?? Strings.Current, key) : string.Empty;
+    }
 
     /// <summary>
     /// [S-1321] How an item's name is shown: folders whole; files without the extension unless

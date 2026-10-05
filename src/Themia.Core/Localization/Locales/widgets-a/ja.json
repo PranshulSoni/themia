@@ -504,5 +504,22 @@
   "widgetsA.stack.takeOut": "スタックから取り出す",
   "widgetsA.tabs.moveLeft": "左へ移動",
   "widgetsA.tabs.moveRight": "右へ移動",
-  "widgetsA.tabs.takeOut": "タブから取り出す"
+  "widgetsA.tabs.takeOut": "タブから取り出す",
+  "widgetsA.audio.unnamedDevice": "出力デバイス",
+  "widgetsA.audio.theDevice": "このデバイス",
+  "widgetsA.audio.deviceGone": "{name} は接続されていません。",
+  "widgetsA.audio.deviceGoneUnnamed": "デバイスは接続されていません。",
+  "widgetsA.audio.switchNotSupported": "このバージョンの Windows では Themia が既定の出力を変更できないため、このウィジェットには {name} を表示します。",
+  "widgetsA.audio.switchDenied": "Windows が既定の出力の変更を許可しなかったため、このウィジェットには {name} を表示します。",
+  "widgetsA.audio.switchFailed": "Windows が既定の出力を変更できなかったため、このウィジェットには {name} を表示します。",
+  "widgetsA.colorSwatch.default.ink": "インク",
+  "widgetsA.colorSwatch.default.slate": "スレート",
+  "widgetsA.colorSwatch.default.sky": "スカイ",
+  "widgetsA.colorSwatch.default.blue": "ブルー",
+  "widgetsA.colorSwatch.default.violet": "バイオレット",
+  "widgetsA.colorSwatch.default.rose": "ローズ",
+  "widgetsA.colorSwatch.default.amber": "アンバー",
+  "widgetsA.colorSwatch.default.lime": "ライム",
+  "widgetsA.colorSwatch.default.emerald": "エメラルド",
+  "widgetsA.colorSwatch.default.stone": "ストーン"
 }

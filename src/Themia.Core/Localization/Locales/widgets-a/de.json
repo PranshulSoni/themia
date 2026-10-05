@@ -516,5 +516,22 @@
   "widgetsA.stack.takeOut": "Aus dem Stapel nehmen",
   "widgetsA.tabs.moveLeft": "Nach links",
   "widgetsA.tabs.moveRight": "Nach rechts",
-  "widgetsA.tabs.takeOut": "Aus den Registerkarten nehmen"
+  "widgetsA.tabs.takeOut": "Aus den Registerkarten nehmen",
+  "widgetsA.audio.unnamedDevice": "Ausgabegerät",
+  "widgetsA.audio.theDevice": "das Gerät",
+  "widgetsA.audio.deviceGone": "{name} ist nicht mehr verbunden.",
+  "widgetsA.audio.deviceGoneUnnamed": "Das Gerät ist nicht mehr verbunden.",
+  "widgetsA.audio.switchNotSupported": "Diese Windows-Version lässt Themia die Standardausgabe nicht ändern, daher zeigt dieses Widget jetzt {name} an.",
+  "widgetsA.audio.switchDenied": "Windows hat das Ändern der Standardausgabe nicht erlaubt, daher zeigt dieses Widget jetzt {name} an.",
+  "widgetsA.audio.switchFailed": "Windows konnte die Standardausgabe nicht ändern, daher zeigt dieses Widget jetzt {name} an.",
+  "widgetsA.colorSwatch.default.ink": "Tinte",
+  "widgetsA.colorSwatch.default.slate": "Schiefer",
+  "widgetsA.colorSwatch.default.sky": "Himmel",
+  "widgetsA.colorSwatch.default.blue": "Blau",
+  "widgetsA.colorSwatch.default.violet": "Violett",
+  "widgetsA.colorSwatch.default.rose": "Rosé",
+  "widgetsA.colorSwatch.default.amber": "Bernstein",
+  "widgetsA.colorSwatch.default.lime": "Limette",
+  "widgetsA.colorSwatch.default.emerald": "Smaragd",
+  "widgetsA.colorSwatch.default.stone": "Stein"
 }

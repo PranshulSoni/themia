@@ -776,5 +776,11 @@
   "widgetsB.settings.mixer.peaks.label": "电平表",
   "widgetsB.settings.mixer.peaks.desc": "在空间允许时，在每个滑块下方显示实时电平",
   "widgetsB.settings.mixer.microphone.desc": "在超大布局的侧面板中显示默认麦克风",
-  "widgetsB.settings.mixer.note": "列表会随应用开始或停止播放而跟随 Windows 更新。单击合成器，然后使用 ↑ 和 ↓ 选择一行，使用 ← 和 → 或 + 和 − 进行调整，按 M 静音。"
+  "widgetsB.settings.mixer.note": "列表会随应用开始或停止播放而跟随 Windows 更新。单击合成器，然后使用 ↑ 和 ↓ 选择一行，使用 ← 和 → 或 + 和 − 进行调整，按 M 静音。",
+  "widgetsB.folder.nameProblem.empty": "名称不能为空",
+  "widgetsB.folder.nameProblem.dotSegment": "名称不能是 . 或 ..",
+  "widgetsB.folder.nameProblem.invalidCharacter": "名称不能包含 \\ / : * ? \" < > |",
+  "widgetsB.folder.nameProblem.reserved": "该名称已被 Windows 保留",
+  "widgetsB.folder.nameProblem.trailingDotOrSpace": "名称不能以句点或空格结尾",
+  "widgetsB.folder.nameProblem.tooLong": "名称太长"
 }

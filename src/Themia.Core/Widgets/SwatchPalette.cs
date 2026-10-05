@@ -1,3 +1,5 @@
+using Themia.Core.Localization;
+
 namespace Themia.Core.Widgets;
 
 /// <summary>One colour in a palette, as stored: the text the user typed and the name they gave it.</summary>
@@ -23,19 +25,24 @@ public static class SwatchPalette
     /// <summary>
     /// A palette that is worth having on the desktop unmodified: one step of a calm ramp per hue,
     /// all at a comparable lightness, so they read as a set rather than as ten unrelated colours.
+    /// The names are written into the new widget's own list in the language it was created in, and
+    /// from then on they are the user's to rename.
     /// </summary>
-    public static IReadOnlyList<SwatchSeed> Default { get; } =
+    public static IReadOnlyList<SwatchSeed> Default => DefaultIn(Strings.Current);
+
+    /// <summary>The default palette, named in <paramref name="locale"/>.</summary>
+    public static IReadOnlyList<SwatchSeed> DefaultIn(Locale locale) =>
     [
-        new("#0F172A", "Ink"),
-        new("#64748B", "Slate"),
-        new("#38BDF8", "Sky"),
-        new("#2563EB", "Blue"),
-        new("#7C3AED", "Violet"),
-        new("#F43F5E", "Rose"),
-        new("#F59E0B", "Amber"),
-        new("#84CC16", "Lime"),
-        new("#10B981", "Emerald"),
-        new("#E7E5E4", "Stone"),
+        new("#0F172A", Strings.Get(locale, Str.WidgetsA_ColorSwatch_Default_Ink)),
+        new("#64748B", Strings.Get(locale, Str.WidgetsA_ColorSwatch_Default_Slate)),
+        new("#38BDF8", Strings.Get(locale, Str.WidgetsA_ColorSwatch_Default_Sky)),
+        new("#2563EB", Strings.Get(locale, Str.WidgetsA_ColorSwatch_Default_Blue)),
+        new("#7C3AED", Strings.Get(locale, Str.WidgetsA_ColorSwatch_Default_Violet)),
+        new("#F43F5E", Strings.Get(locale, Str.WidgetsA_ColorSwatch_Default_Rose)),
+        new("#F59E0B", Strings.Get(locale, Str.WidgetsA_ColorSwatch_Default_Amber)),
+        new("#84CC16", Strings.Get(locale, Str.WidgetsA_ColorSwatch_Default_Lime)),
+        new("#10B981", Strings.Get(locale, Str.WidgetsA_ColorSwatch_Default_Emerald)),
+        new("#E7E5E4", Strings.Get(locale, Str.WidgetsA_ColorSwatch_Default_Stone)),
     ];
 
     /// <summary>A palette this size is already unwieldy in a widget, and it bounds the state file.</summary>

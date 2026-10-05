@@ -1,3 +1,5 @@
+using Themia.Core.Localization;
+
 namespace Themia.Core.Widgets;
 
 /// <summary>What a launch target turned out to be, once it had been checked.</summary>
@@ -103,22 +105,23 @@ public static class LaunchTargets
 
     /// <summary>
     /// The shell names this app puts a friendly label on. Not a permission list — any well-formed
-    /// shell name is accepted — only the ones worth showing by name rather than by URI.
+    /// shell name is accepted — only the ones worth showing by name rather than by URI. The labels
+    /// are string ids, so each location reads as Explorer names it in the user's language.
     /// </summary>
-    private static readonly Dictionary<string, string> ShellLabels = new(StringComparer.OrdinalIgnoreCase)
+    private static readonly Dictionary<string, Str> ShellLabels = new(StringComparer.OrdinalIgnoreCase)
     {
-        ["RecycleBinFolder"] = "Recycle Bin",
-        ["MyComputerFolder"] = "This PC",
-        ["Downloads"] = "Downloads",
-        ["Personal"] = "Documents",
-        ["Desktop"] = "Desktop",
-        ["My Pictures"] = "Pictures",
-        ["My Music"] = "Music",
-        ["My Video"] = "Videos",
-        ["UsersFilesFolder"] = "Home",
-        ["ControlPanelFolder"] = "Control Panel",
-        ["NetworkPlacesFolder"] = "Network",
-        ["Profile"] = "User folder",
+        ["RecycleBinFolder"] = Str.WidgetsC_Location_RecycleBin,
+        ["MyComputerFolder"] = Str.WidgetsC_Location_ThisPc,
+        ["Downloads"] = Str.WidgetsC_Location_Downloads,
+        ["Personal"] = Str.WidgetsC_Location_Documents,
+        ["Desktop"] = Str.WidgetsC_Location_Desktop,
+        ["My Pictures"] = Str.WidgetsC_Location_Pictures,
+        ["My Music"] = Str.WidgetsC_Location_Music,
+        ["My Video"] = Str.WidgetsC_Location_Videos,
+        ["UsersFilesFolder"] = Str.WidgetsC_Location_Home,
+        ["ControlPanelFolder"] = Str.WidgetsC_Location_ControlPanel,
+        ["NetworkPlacesFolder"] = Str.WidgetsC_Location_Network,
+        ["Profile"] = Str.WidgetsC_Location_UserFolder,
     };
 
     /// <summary>The shell names offered as one-click additions in the Shortcuts settings.</summary>
@@ -179,20 +182,29 @@ public static class LaunchTargets
     }
 
     /// <summary>A sentence for a refusal, shown under the box that produced it.</summary>
-    public static string RefusalMessage(LaunchRefusal refusal) => refusal switch
+    public static string RefusalMessage(LaunchRefusal refusal, Locale? locale = null)
     {
-        LaunchRefusal.None => string.Empty,
-        LaunchRefusal.Empty => "Type a web address, a full file path, or a shell: location.",
-        LaunchRefusal.TooLong => "That is too long to be a real address or path.",
-        LaunchRefusal.ControlCharacters => "That contains characters an address cannot hold.",
-        LaunchRefusal.UnsupportedScheme => "Only http:// and https:// addresses can be opened.",
-        LaunchRefusal.MalformedUrl => "That is not a web address this app will open.",
-        LaunchRefusal.NotRooted => "Use a full path, starting with a drive letter or \\\\server.",
-        LaunchRefusal.InvalidPathCharacters => "That path contains a character Windows will not accept.",
-        LaunchRefusal.EmptyShellName => "Name a location after shell:, e.g. shell:Downloads.",
-        LaunchRefusal.InvalidShellName => "That is not a Windows shell location.",
-        _ => "That cannot be opened.",
-    };
+        if (refusal == LaunchRefusal.None)
+        {
+            return string.Empty;
+        }
+
+        var id = refusal switch
+        {
+            LaunchRefusal.Empty => Str.WidgetsC_Launch_Refusal_Empty,
+            LaunchRefusal.TooLong => Str.WidgetsC_Launch_Refusal_TooLong,
+            LaunchRefusal.ControlCharacters => Str.WidgetsC_Launch_Refusal_ControlCharacters,
+            LaunchRefusal.UnsupportedScheme => Str.WidgetsC_Launch_Refusal_UnsupportedScheme,
+            LaunchRefusal.MalformedUrl => Str.WidgetsC_Launch_Refusal_MalformedUrl,
+            LaunchRefusal.NotRooted => Str.WidgetsC_Launch_Refusal_NotRooted,
+            LaunchRefusal.InvalidPathCharacters => Str.WidgetsC_Launch_Refusal_InvalidPathCharacters,
+            LaunchRefusal.EmptyShellName => Str.WidgetsC_Launch_Refusal_EmptyShellName,
+            LaunchRefusal.InvalidShellName => Str.WidgetsC_Launch_Refusal_InvalidShellName,
+            _ => Str.WidgetsC_Launch_Refusal_Other,
+        };
+
+        return Strings.Get(locale ?? Strings.Current, id);
+    }
 
     /// <summary>
     /// What to call a target in a list: the user's own label when there is one, and otherwise the
@@ -224,7 +236,7 @@ public static class LaunchTargets
     }
 
     /// <summary>The friendly label for a shell name, or the name itself.</summary>
-    public static string ShellDisplayName(string target)
+    public static string ShellDisplayName(string target, Locale? locale = null)
     {
         var value = Clean(target);
 
@@ -232,7 +244,7 @@ public static class LaunchTargets
             ? value[ShellPrefix.Length..]
             : value;
 
-        return ShellLabels.TryGetValue(name, out var label) ? label : name;
+        return ShellLabels.TryGetValue(name, out var label) ? Strings.Get(locale ?? Strings.Current, label) : name;
     }
 
     /// <summary>

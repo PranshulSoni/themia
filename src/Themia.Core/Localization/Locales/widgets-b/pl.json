@@ -857,5 +857,11 @@
   "widgetsB.settings.mixer.peaks.label": "Wskaźniki poziomu",
   "widgetsB.settings.mixer.peaks.desc": "Wskaźnik na żywo pod każdym suwakiem, jeśli jest miejsce",
   "widgetsB.settings.mixer.microphone.desc": "Domyślny mikrofon w panelu bocznym bardzo dużego układu",
-  "widgetsB.settings.mixer.note": "Lista śledzi Windows, gdy aplikacje zaczynają i przestają odtwarzać dźwięk. Kliknij mikser, a następnie użyj ↑ i ↓, aby wybrać wiersz, ← i → lub + i −, aby go zmienić, oraz M, aby wyciszyć."
+  "widgetsB.settings.mixer.note": "Lista śledzi Windows, gdy aplikacje zaczynają i przestają odtwarzać dźwięk. Kliknij mikser, a następnie użyj ↑ i ↓, aby wybrać wiersz, ← i → lub + i −, aby go zmienić, oraz M, aby wyciszyć.",
+  "widgetsB.folder.nameProblem.empty": "Nazwa nie może być pusta",
+  "widgetsB.folder.nameProblem.dotSegment": "Nazwa nie może być . ani ..",
+  "widgetsB.folder.nameProblem.invalidCharacter": "Nazwa nie może zawierać znaków \\ / : * ? \" < > |",
+  "widgetsB.folder.nameProblem.reserved": "Ta nazwa jest zarezerwowana przez system Windows",
+  "widgetsB.folder.nameProblem.trailingDotOrSpace": "Nazwa nie może kończyć się kropką ani spacją",
+  "widgetsB.folder.nameProblem.tooLong": "Ta nazwa jest za długa"
 }

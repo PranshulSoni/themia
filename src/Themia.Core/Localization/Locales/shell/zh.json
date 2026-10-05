@@ -720,5 +720,6 @@
   "shell.transfer.accent": "主题色",
   "shell.transfer.startupLength": "动画时长",
   "shell.transfer.transitionLength": "视图切换动画时长",
-  "shell.transfer.unlockLength": "解锁动画时长"
+  "shell.transfer.unlockLength": "解锁动画时长",
+  "shell.adapter.wifi": "WLAN"
 }

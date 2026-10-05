@@ -803,5 +803,11 @@
   "widgetsB.settings.mixer.peaks.label": "Indicatori di livello",
   "widgetsB.settings.mixer.peaks.desc": "Un indicatore in tempo reale sotto ogni cursore, se c'è spazio",
   "widgetsB.settings.mixer.microphone.desc": "Il microfono predefinito nel pannello laterale della disposizione extra large",
-  "widgetsB.settings.mixer.note": "L'elenco segue Windows man mano che le app iniziano e smettono di riprodurre. Fai clic sul mixer, poi usa ↑ e ↓ per scegliere una riga, ← e → o + e − per cambiarla, e M per disattivarne l'audio."
+  "widgetsB.settings.mixer.note": "L'elenco segue Windows man mano che le app iniziano e smettono di riprodurre. Fai clic sul mixer, poi usa ↑ e ↓ per scegliere una riga, ← e → o + e − per cambiarla, e M per disattivarne l'audio.",
+  "widgetsB.folder.nameProblem.empty": "Il nome non può essere vuoto",
+  "widgetsB.folder.nameProblem.dotSegment": "Il nome non può essere . o ..",
+  "widgetsB.folder.nameProblem.invalidCharacter": "Il nome non può contenere \\ / : * ? \" < > |",
+  "widgetsB.folder.nameProblem.reserved": "Questo nome è riservato da Windows",
+  "widgetsB.folder.nameProblem.trailingDotOrSpace": "Il nome non può terminare con un punto o uno spazio",
+  "widgetsB.folder.nameProblem.tooLong": "Questo nome è troppo lungo"
 }

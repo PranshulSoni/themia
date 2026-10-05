@@ -742,5 +742,6 @@
   "shell.transfer.accent": "Cor de destaque",
   "shell.transfer.startupLength": "Duração da animação",
   "shell.transfer.transitionLength": "Duração da animação de troca de visualização",
-  "shell.transfer.unlockLength": "Duração da animação de desbloqueio"
+  "shell.transfer.unlockLength": "Duração da animação de desbloqueio",
+  "shell.adapter.wifi": "Wi-Fi"
 }

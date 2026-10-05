@@ -470,8 +470,9 @@ internal sealed partial class HelpView : Grid, IWidgetView, IWidgetSizeAware
 
     /// <summary>
     /// A command filling the navigation column. Its label sits in a star column so a long one
-    /// ("Widgets bearbeiten") ends in an ellipsis, with the whole label on hover, instead of being
-    /// cut mid-letter by a horizontal stack that measures it as if it had all the room in the world.
+    /// ("Widgets bearbeiten") wraps onto a second line — and only past two lines ends in an
+    /// ellipsis, with the whole label on hover — instead of being cut mid-letter by a horizontal
+    /// stack that measures it as if it had all the room in the world.
     /// </summary>
     private static Button Stretch(Button button)
     {
@@ -482,7 +483,9 @@ internal sealed partial class HelpView : Grid, IWidgetView, IWidgetSizeAware
         {
             stack.Children.Clear();
             label.TextTrimming = TextTrimming.CharacterEllipsis;
-            label.TextWrapping = TextWrapping.NoWrap;
+            label.TextWrapping = TextWrapping.WrapWholeWords;
+            label.MaxLines = 2;
+            icon.VerticalAlignment = VerticalAlignment.Center;
             Grid.SetColumn(label, 1);
 
             var grid = new Grid { ColumnSpacing = stack.Spacing };

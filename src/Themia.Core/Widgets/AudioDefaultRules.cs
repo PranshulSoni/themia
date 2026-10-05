@@ -1,3 +1,5 @@
+using Themia.Core.Localization;
+
 namespace Themia.Core.Widgets;
 
 /// <summary>[S-1615] The roles a default audio endpoint is set for (Core Audio's <c>ERole</c>, same values).</summary>
@@ -142,18 +144,22 @@ public static class AudioDefaultRules
     /// the picked device). Refused: it binds to the picked device, so the pick still does what the user
     /// can see, and says why. A device that went away leaves the widget as it was.
     /// </summary>
-    public static DevicePickResult After(DefaultSwitchResult result, AudioDevice device, string? boundId, string? boundName)
+    public static DevicePickResult After(DefaultSwitchResult result, AudioDevice device, string? boundId, string? boundName, Locale? locale = null)
     {
         ArgumentNullException.ThrowIfNull(device);
-        var name = string.IsNullOrWhiteSpace(device.Name) ? "the device" : device.Name.Trim();
+        var language = locale ?? Strings.Current;
+        var named = !string.IsNullOrWhiteSpace(device.Name);
+        var name = named ? device.Name.Trim() : Strings.Get(language, Str.WidgetsA_Audio_TheDevice);
 
         return result switch
         {
             DefaultSwitchResult.Switched => new DevicePickResult(null, null, null),
-            DefaultSwitchResult.DeviceGone => new DevicePickResult(boundId, boundName, $"{name} is no longer connected."),
-            DefaultSwitchResult.NotSupported => Bound(device, $"This version of Windows does not let Themia change the default output, so this widget now shows {name}."),
-            DefaultSwitchResult.AccessDenied => Bound(device, $"Windows did not allow changing the default output, so this widget now shows {name}."),
-            _ => Bound(device, $"Windows could not change the default output, so this widget now shows {name}."),
+            DefaultSwitchResult.DeviceGone => new DevicePickResult(boundId, boundName, named
+                ? Strings.Format(language, Str.WidgetsA_Audio_DeviceGone, ("name", name))
+                : Strings.Get(language, Str.WidgetsA_Audio_DeviceGoneUnnamed)),
+            DefaultSwitchResult.NotSupported => Bound(device, Strings.Format(language, Str.WidgetsA_Audio_SwitchNotSupported, ("name", name))),
+            DefaultSwitchResult.AccessDenied => Bound(device, Strings.Format(language, Str.WidgetsA_Audio_SwitchDenied, ("name", name))),
+            _ => Bound(device, Strings.Format(language, Str.WidgetsA_Audio_SwitchFailed, ("name", name))),
         };
     }
 

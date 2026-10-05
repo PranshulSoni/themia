@@ -803,5 +803,11 @@
   "widgetsB.settings.mixer.peaks.label": "Medidores de nivel",
   "widgetsB.settings.mixer.peaks.desc": "Un medidor en directo bajo cada control deslizante, si hay espacio",
   "widgetsB.settings.mixer.microphone.desc": "El micrófono predeterminado en el panel lateral del diseño extragrande",
-  "widgetsB.settings.mixer.note": "La lista sigue a Windows a medida que las aplicaciones empiezan y dejan de sonar. Haz clic en el mezclador y usa ↑ y ↓ para elegir una fila, ← y → o + y − para cambiarla, y M para silenciarla."
+  "widgetsB.settings.mixer.note": "La lista sigue a Windows a medida que las aplicaciones empiezan y dejan de sonar. Haz clic en el mezclador y usa ↑ y ↓ para elegir una fila, ← y → o + y − para cambiarla, y M para silenciarla.",
+  "widgetsB.folder.nameProblem.empty": "El nombre no puede estar vacío",
+  "widgetsB.folder.nameProblem.dotSegment": "El nombre no puede ser . ni ..",
+  "widgetsB.folder.nameProblem.invalidCharacter": "El nombre no puede contener \\ / : * ? \" < > |",
+  "widgetsB.folder.nameProblem.reserved": "Windows reserva ese nombre",
+  "widgetsB.folder.nameProblem.trailingDotOrSpace": "El nombre no puede terminar en punto ni en espacio",
+  "widgetsB.folder.nameProblem.tooLong": "Ese nombre es demasiado largo"
 }

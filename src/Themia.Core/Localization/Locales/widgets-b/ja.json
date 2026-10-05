@@ -776,5 +776,11 @@
   "widgetsB.settings.mixer.peaks.label": "レベルメーター",
   "widgetsB.settings.mixer.peaks.desc": "スペースがあれば、各スライダーの下にライブ メーターを表示",
   "widgetsB.settings.mixer.microphone.desc": "特大レイアウトのサイド パネルに既定のマイクを表示",
-  "widgetsB.settings.mixer.note": "アプリの再生開始や停止に合わせて、リストは Windows に追従します。ミキサーをクリックし、↑ と ↓ で行を選び、← と → または + と − で変更し、M でミュートします。"
+  "widgetsB.settings.mixer.note": "アプリの再生開始や停止に合わせて、リストは Windows に追従します。ミキサーをクリックし、↑ と ↓ で行を選び、← と → または + と − で変更し、M でミュートします。",
+  "widgetsB.folder.nameProblem.empty": "名前を空にすることはできません",
+  "widgetsB.folder.nameProblem.dotSegment": "名前を . または .. にすることはできません",
+  "widgetsB.folder.nameProblem.invalidCharacter": "名前に次の文字は使えません: \\ / : * ? \" < > |",
+  "widgetsB.folder.nameProblem.reserved": "この名前は Windows で予約されています",
+  "widgetsB.folder.nameProblem.trailingDotOrSpace": "名前の末尾をピリオドやスペースにすることはできません",
+  "widgetsB.folder.nameProblem.tooLong": "名前が長すぎます"
 }

@@ -102,7 +102,7 @@ internal sealed class NetworkMeter : MeterPart
             if (_preview && Shell.Gallery.NetworkFixture.Wifi is { } fixture)
             {
                 // [S-1619] The packaged, location-refused line, whatever this machine is joined by.
-                name = "Wi-Fi";
+                name = Str.Shell_Adapter_Wifi.Text();
                 wifi = fixture;
                 hint = WifiNameRules.Decide(true, LocationPermission.Denied, lineShown: true, asked: true, hasName: false, nameRefused: true);
             }

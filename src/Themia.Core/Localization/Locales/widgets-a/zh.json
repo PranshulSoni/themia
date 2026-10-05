@@ -504,5 +504,22 @@
   "widgetsA.stack.takeOut": "移出堆叠",
   "widgetsA.tabs.moveLeft": "左移",
   "widgetsA.tabs.moveRight": "右移",
-  "widgetsA.tabs.takeOut": "移出标签页"
+  "widgetsA.tabs.takeOut": "移出标签页",
+  "widgetsA.audio.unnamedDevice": "输出设备",
+  "widgetsA.audio.theDevice": "该设备",
+  "widgetsA.audio.deviceGone": "{name} 已断开连接。",
+  "widgetsA.audio.deviceGoneUnnamed": "设备已断开连接。",
+  "widgetsA.audio.switchNotSupported": "此版本的 Windows 不允许 Themia 更改默认输出，因此此小组件现在显示 {name}。",
+  "widgetsA.audio.switchDenied": "Windows 不允许更改默认输出，因此此小组件现在显示 {name}。",
+  "widgetsA.audio.switchFailed": "Windows 无法更改默认输出，因此此小组件现在显示 {name}。",
+  "widgetsA.colorSwatch.default.ink": "墨色",
+  "widgetsA.colorSwatch.default.slate": "石板",
+  "widgetsA.colorSwatch.default.sky": "天空",
+  "widgetsA.colorSwatch.default.blue": "蓝色",
+  "widgetsA.colorSwatch.default.violet": "紫罗兰",
+  "widgetsA.colorSwatch.default.rose": "玫瑰",
+  "widgetsA.colorSwatch.default.amber": "琥珀",
+  "widgetsA.colorSwatch.default.lime": "青柠",
+  "widgetsA.colorSwatch.default.emerald": "祖母绿",
+  "widgetsA.colorSwatch.default.stone": "石色"
 }

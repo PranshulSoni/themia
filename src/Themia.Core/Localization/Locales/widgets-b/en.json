@@ -802,5 +802,11 @@
   "widgetsB.settings.mixer.peaks.label": "Level meters",
   "widgetsB.settings.mixer.peaks.desc": "A live meter under each slider, where there is room",
   "widgetsB.settings.mixer.microphone.desc": "The default microphone in the extra-large layout's side panel",
-  "widgetsB.settings.mixer.note": "The list follows Windows as apps start and stop playing. Click the mixer, then use ↑ and ↓ to pick a row, ← and → or + and − to change it, and M to mute."
+  "widgetsB.settings.mixer.note": "The list follows Windows as apps start and stop playing. Click the mixer, then use ↑ and ↓ to pick a row, ← and → or + and − to change it, and M to mute.",
+  "widgetsB.folder.nameProblem.empty": "A name can't be empty",
+  "widgetsB.folder.nameProblem.dotSegment": "A name can't be . or ..",
+  "widgetsB.folder.nameProblem.invalidCharacter": "A name can't contain \\ / : * ? \" < > |",
+  "widgetsB.folder.nameProblem.reserved": "That name is reserved by Windows",
+  "widgetsB.folder.nameProblem.trailingDotOrSpace": "A name can't end with a dot or a space",
+  "widgetsB.folder.nameProblem.tooLong": "That name is too long"
 }

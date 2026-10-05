@@ -720,5 +720,6 @@
   "shell.transfer.accent": "アクセント カラー",
   "shell.transfer.startupLength": "アニメーションの長さ",
   "shell.transfer.transitionLength": "ビュー切り替えアニメーションの長さ",
-  "shell.transfer.unlockLength": "ロック解除アニメーションの長さ"
+  "shell.transfer.unlockLength": "ロック解除アニメーションの長さ",
+  "shell.adapter.wifi": "Wi-Fi"
 }

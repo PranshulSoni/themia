@@ -1,3 +1,5 @@
+using Themia.Core.Localization;
+
 namespace Themia.Core.Widgets;
 
 /// <summary>One active output (or input) device, as Windows names it in Sound settings.</summary>
@@ -90,7 +92,7 @@ public static class AudioRules
     /// [S-1221] The name to show for a device: its friendly name, else the name stored when it was
     /// chosen (so an unplugged device is still called by name), else a neutral placeholder.
     /// </summary>
-    public static string DeviceName(string? id, IReadOnlyList<AudioDevice> devices, string? remembered)
+    public static string DeviceName(string? id, IReadOnlyList<AudioDevice> devices, string? remembered, Locale? locale = null)
     {
         ArgumentNullException.ThrowIfNull(devices);
 
@@ -102,7 +104,7 @@ public static class AudioRules
             }
         }
 
-        return string.IsNullOrWhiteSpace(remembered) ? "Output device" : remembered.Trim();
+        return string.IsNullOrWhiteSpace(remembered) ? Strings.Get(locale ?? Strings.Current, Str.WidgetsA_Audio_UnnamedDevice) : remembered.Trim();
     }
 
     /// <summary>

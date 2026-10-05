@@ -742,5 +742,6 @@
   "shell.transfer.accent": "Couleur d’accentuation",
   "shell.transfer.startupLength": "Durée de l’animation",
   "shell.transfer.transitionLength": "Durée de l’animation de changement de vue",
-  "shell.transfer.unlockLength": "Durée de l’animation au déverrouillage"
+  "shell.transfer.unlockLength": "Durée de l’animation au déverrouillage",
+  "shell.adapter.wifi": "Wi-Fi"
 }

@@ -516,5 +516,22 @@
   "widgetsA.stack.takeOut": "Tirar da pilha",
   "widgetsA.tabs.moveLeft": "Mover para a esquerda",
   "widgetsA.tabs.moveRight": "Mover para a direita",
-  "widgetsA.tabs.takeOut": "Tirar dos separadores"
+  "widgetsA.tabs.takeOut": "Tirar dos separadores",
+  "widgetsA.audio.unnamedDevice": "Dispositivo de saída",
+  "widgetsA.audio.theDevice": "o dispositivo",
+  "widgetsA.audio.deviceGone": "{name} não está mais conectado.",
+  "widgetsA.audio.deviceGoneUnnamed": "O dispositivo não está mais conectado.",
+  "widgetsA.audio.switchNotSupported": "Esta versão do Windows não permite que o Themia altere a saída padrão, por isso este widget agora mostra {name}.",
+  "widgetsA.audio.switchDenied": "O Windows não permitiu alterar a saída padrão, por isso este widget agora mostra {name}.",
+  "widgetsA.audio.switchFailed": "O Windows não conseguiu alterar a saída padrão, por isso este widget agora mostra {name}.",
+  "widgetsA.colorSwatch.default.ink": "Tinta",
+  "widgetsA.colorSwatch.default.slate": "Ardósia",
+  "widgetsA.colorSwatch.default.sky": "Céu",
+  "widgetsA.colorSwatch.default.blue": "Azul",
+  "widgetsA.colorSwatch.default.violet": "Violeta",
+  "widgetsA.colorSwatch.default.rose": "Rosa",
+  "widgetsA.colorSwatch.default.amber": "Âmbar",
+  "widgetsA.colorSwatch.default.lime": "Lima",
+  "widgetsA.colorSwatch.default.emerald": "Esmeralda",
+  "widgetsA.colorSwatch.default.stone": "Pedra"
 }

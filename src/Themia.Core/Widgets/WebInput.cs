@@ -1,3 +1,5 @@
+using Themia.Core.Localization;
+
 namespace Themia.Core.Widgets;
 
 /// <summary>Why a web address was refused. <see cref="None"/> means it was accepted.</summary>
@@ -134,18 +136,27 @@ public static class WebInput
     }
 
     /// <summary>What to tell the user about a refused address. Empty when there is nothing wrong.</summary>
-    public static string Explain(WebUrlProblem problem) => problem switch
+    public static string Explain(WebUrlProblem problem, Locale? locale = null)
     {
-        WebUrlProblem.None => string.Empty,
-        WebUrlProblem.Empty => "No feed address yet",
-        WebUrlProblem.TooLong => "That address is too long",
-        WebUrlProblem.Malformed => "That is not a web address",
-        WebUrlProblem.UnsupportedScheme => "Only http and https addresses",
-        WebUrlProblem.UncPath => "Network paths are not feeds",
-        WebUrlProblem.Credentials => "Remove the user name and password",
-        WebUrlProblem.NoHost => "That address has no host",
-        _ => "That address was refused",
-    };
+        if (problem == WebUrlProblem.None)
+        {
+            return string.Empty;
+        }
+
+        var id = problem switch
+        {
+            WebUrlProblem.Empty => Str.WidgetsC_WebUrl_Empty,
+            WebUrlProblem.TooLong => Str.WidgetsC_WebUrl_TooLong,
+            WebUrlProblem.Malformed => Str.WidgetsC_WebUrl_Malformed,
+            WebUrlProblem.UnsupportedScheme => Str.WidgetsC_WebUrl_UnsupportedScheme,
+            WebUrlProblem.UncPath => Str.WidgetsC_WebUrl_UncPath,
+            WebUrlProblem.Credentials => Str.WidgetsC_WebUrl_Credentials,
+            WebUrlProblem.NoHost => Str.WidgetsC_WebUrl_NoHost,
+            _ => Str.WidgetsC_WebUrl_Refused,
+        };
+
+        return Strings.Get(locale ?? Strings.Current, id);
+    }
 
     /// <summary>
     /// Whether a ticker symbol or CoinGecko id is safe to put in a URL path and worth asking about.
