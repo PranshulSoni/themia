@@ -128,6 +128,8 @@ internal sealed partial class AppHost
             _windows.Remove(dead);
         }
 
+        var rekeyed = AdoptResolvedIds(monitors, byId);
+
         var surfaces = new Dictionary<string, DisplayInfo>(StringComparer.Ordinal);
         foreach (var window in _windows)
         {
@@ -200,7 +202,7 @@ internal sealed partial class AppHost
             window.EnsurePlacement();
         }
 
-        if (!plan.IsEmpty || created > 0)
+        if (!plan.IsEmpty || created > 0 || rekeyed)
         {
             Log.Info(Scope, $"display pass: {_windows.Count} surface(s) on {monitors.Count} display(s) " +
                 $"(+{plan.Create.Count} -{plan.Close.Count} ~{plan.Update.Count})");
@@ -208,6 +210,46 @@ internal sealed partial class AppHost
             // The settings tree lists the displays, and a display may now show another view.
             StateChanged?.Invoke();
         }
+    }
+
+    /// <summary>
+    /// [S-843] A display that ran under its ordinal and now reports its device path keeps its view,
+    /// on/off switch, scale and view bar, and its surface: both are re-keyed to the path in this pass,
+    /// before the plan is made. Otherwise the plan would see a new display, close the old surface
+    /// (restarting its widgets) and show the default view on the new one.
+    /// </summary>
+    /// <returns>Whether any display was re-keyed, so Settings must re-read its display list.</returns>
+    private bool AdoptResolvedIds(List<MonitorTarget> monitors, Dictionary<string, MonitorTarget> byId)
+    {
+        var rekeys = DisplayPlan.Rekeys([.. monitors.Select(m => (m.GdiName, m.Info))]);
+        if (rekeys.Count == 0)
+        {
+            return false;
+        }
+
+        var rekeyed = false;
+
+        if (DisplayPlan.AdoptResolvedIds(State, rekeys))
+        {
+            rekeyed = true;
+            Log.Info(Scope, "moved display settings from their ordinal keys to the device paths the displays now report");
+            _store.SaveSoon(State);
+
+            // The system's doing, not the user's: not something Ctrl+Z should take away ([S-887]).
+            AdoptLayout();
+        }
+
+        foreach (var (from, to) in DisplayPlan.SurfaceRekeys([.. _windows.Select(w => w.Monitor.Id)], rekeys))
+        {
+            if (_windows.Find(w => w.Monitor.Id == from) is { } window && byId.TryGetValue(to, out var monitor))
+            {
+                Log.Info(Scope, $"{monitor.GdiName} reported its device path; its surface is now '{to}'");
+                window.UpdateMonitor(monitor);
+                rekeyed = true;
+            }
+        }
+
+        return rekeyed;
     }
 
     /// <summary>

@@ -237,4 +237,109 @@ public class DisplayPlanTests
         Assert.Equal(1, created);
         Assert.NotEqual(state.MonitorViews[PathA], state.MonitorViews[PathB]);
     }
+    // ---- ordinal fallback re-keyed when the path appears ([S-843]) ------------------------------
+
+    private const string Ordinal1 = @"\\.\DISPLAY1";
+    private const string Ordinal2 = @"\\.\DISPLAY2";
+
+    [Fact]
+    public void S843_a_display_that_reports_its_path_rekeys_from_its_ordinal()
+    {
+        var rekeys = DisplayPlan.Rekeys([(Ordinal1, A), (Ordinal2, B)]);
+
+        Assert.Equal([new DisplayRekey(Ordinal1, PathA), new DisplayRekey(Ordinal2, PathB)], rekeys);
+    }
+
+    [Fact]
+    public void S843_an_unresolved_display_and_a_repeated_ordinal_rekey_nothing_more()
+    {
+        var unresolved = Display(Ordinal2, x: 1920, resolved: false);
+
+        var rekeys = DisplayPlan.Rekeys([(Ordinal1, A), (Ordinal2, unresolved), (Ordinal1, B)]);
+
+        Assert.Equal([new DisplayRekey(Ordinal1, PathA)], rekeys);
+    }
+
+    [Fact]
+    public void S843_the_display_keeps_its_view_switch_scale_and_view_bar_when_its_path_appears()
+    {
+        var state = AppState.CreateDefault();
+        var second = ViewState.Create("Second");
+        state.Views.Add(second);
+        state.MonitorViews[Ordinal1] = state.Views[0].Id;
+        state.MonitorViews[Ordinal2] = second.Id;
+        state.DisabledMonitors.Add(Ordinal2);
+        state.MonitorScales[Ordinal1] = 1.5;
+        state.ViewBars[Ordinal1] = new ViewBarSettings { Hidden = true };
+
+        var changed = DisplayPlan.AdoptResolvedIds(state, DisplayPlan.Rekeys([(Ordinal1, A), (Ordinal2, B)]));
+
+        Assert.True(changed);
+        Assert.Equal(state.Views[0].Id, state.MonitorViews[PathA]);
+        Assert.Equal(second.Id, state.MonitorViews[PathB]);
+        Assert.Equal([PathB], state.DisabledMonitors);
+        Assert.Equal(1.5, state.MonitorScales[PathA]);
+        Assert.True(state.ViewBars[PathA].Hidden);
+        Assert.DoesNotContain(Ordinal1, state.MonitorViews.Keys);
+        Assert.DoesNotContain(Ordinal2, state.MonitorViews.Keys);
+        Assert.DoesNotContain(Ordinal1, state.MonitorScales.Keys);
+        Assert.DoesNotContain(Ordinal1, state.ViewBars.Keys);
+    }
+
+    [Fact]
+    public void S843_what_the_screen_showed_under_its_ordinal_wins_over_a_stale_path_entry()
+    {
+        var state = AppState.CreateDefault();
+        var shown = ViewState.Create("Shown");
+        state.Views.Add(shown);
+        state.MonitorViews[PathA] = state.Views[0].Id;
+        state.MonitorViews[Ordinal1] = shown.Id;
+
+        DisplayPlan.AdoptResolvedIds(state, [new DisplayRekey(Ordinal1, PathA)]);
+
+        Assert.Equal(shown.Id, state.MonitorViews[PathA]);
+        Assert.Single(state.MonitorViews);
+    }
+
+    [Fact]
+    public void S843_an_ordinal_with_nothing_stored_leaves_the_paths_own_settings_alone()
+    {
+        // A waking panel that answered with its ordinal for a moment was never given a view.
+        var state = AppState.CreateDefault();
+        state.MonitorViews[PathA] = state.Views[0].Id;
+        state.DisabledMonitors.Add(PathB);
+        state.MonitorScales[PathA] = 0.75;
+
+        var changed = DisplayPlan.AdoptResolvedIds(state, [new DisplayRekey(Ordinal1, PathA), new DisplayRekey(Ordinal2, PathB)]);
+
+        Assert.False(changed);
+        Assert.Equal(state.Views[0].Id, state.MonitorViews[PathA]);
+        Assert.Equal([PathB], state.DisabledMonitors);
+        Assert.Equal(0.75, state.MonitorScales[PathA]);
+    }
+
+    [Fact]
+    public void S843_a_surface_under_its_ordinal_is_rekeyed_in_the_same_pass_not_replaced()
+    {
+        var fallbackA = Display(Ordinal1, primary: true, resolved: false);
+        var fallbackB = Display(Ordinal2, x: 1920, resolved: false);
+        var surfaces = Surfaces(fallbackA, fallbackB);
+
+        var rekeys = DisplayPlan.SurfaceRekeys([.. surfaces.Keys], DisplayPlan.Rekeys([(Ordinal1, A), (Ordinal2, B)]));
+        Assert.Equal([new DisplayRekey(Ordinal1, PathA), new DisplayRekey(Ordinal2, PathB)], rekeys);
+
+        // What AppHost does with them: the surface takes the resolved display, then the plan runs.
+        var rekeyed = Surfaces(A, B);
+        var pass = DisplayPlan.Reconcile(rekeyed, [A, B], []);
+
+        Assert.True(pass.IsEmpty);
+    }
+
+    [Fact]
+    public void S843_a_surface_is_not_rekeyed_onto_one_that_already_has_the_resolved_id()
+    {
+        var surfaces = Surfaces(Display(Ordinal1, resolved: false), A);
+
+        Assert.Empty(DisplayPlan.SurfaceRekeys([.. surfaces.Keys], [new DisplayRekey(Ordinal1, PathA)]));
+    }
 }

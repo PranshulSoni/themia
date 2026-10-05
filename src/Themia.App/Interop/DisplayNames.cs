@@ -25,6 +25,13 @@ internal static partial class DisplayNames
     private const int DeviceInfoGetSourceName = 1;
     private const int DeviceInfoGetTargetName = 2;
     private const int ErrorSuccess = 0;
+    private const int ErrorInsufficientBuffer = 122;
+
+    /// <summary>
+    /// How often a topology change between sizing and querying is retried. Each retry re-sizes the
+    /// buffers for the new topology, so this only bounds a display that keeps changing.
+    /// </summary>
+    private const int QueryAttempts = 4;
 
     /// <summary>
     /// Map GDI device name (<c>\\.\DISPLAY1</c>) to the monitor's product name and device path.
@@ -39,18 +46,8 @@ internal static partial class DisplayNames
 
         try
         {
-            if (GetDisplayConfigBufferSizes(QdcOnlyActivePaths, out var pathCount, out var modeCount) != ErrorSuccess)
+            if (!LayoutMatchesWindows() || Query() is not (var paths, var pathCount))
             {
-                Log.Warn(Scope, "GetDisplayConfigBufferSizes failed; displays fall back to their ordinal names");
-                return names;
-            }
-
-            var paths = new DisplayConfigPathInfo[pathCount];
-            var modes = new DisplayConfigModeInfo[modeCount];
-
-            if (QueryDisplayConfig(QdcOnlyActivePaths, ref pathCount, paths, ref modeCount, modes, 0) != ErrorSuccess)
-            {
-                Log.Warn(Scope, "QueryDisplayConfig failed; displays fall back to their ordinal names");
                 return names;
             }
 
@@ -65,8 +62,9 @@ internal static partial class DisplayNames
                     Header = Header(DeviceInfoGetSourceName, Marshal.SizeOf<SourceDeviceName>(), path.SourceInfo.AdapterId, path.SourceInfo.Id),
                 };
 
-                if (DisplayConfigGetDeviceInfo(ref source) != ErrorSuccess)
+                if (DisplayConfigGetDeviceInfo(ref source) is var sourceResult and not ErrorSuccess)
                 {
+                    Log.Warn(Scope, $"no source name for display path {i} (win32 {sourceResult})");
                     continue;
                 }
 
@@ -75,8 +73,9 @@ internal static partial class DisplayNames
                     Header = Header(DeviceInfoGetTargetName, Marshal.SizeOf<TargetDeviceName>(), path.TargetInfo.AdapterId, path.TargetInfo.Id),
                 };
 
-                if (DisplayConfigGetDeviceInfo(ref target) != ErrorSuccess)
+                if (DisplayConfigGetDeviceInfo(ref target) is var targetResult and not ErrorSuccess)
                 {
+                    Log.Warn(Scope, $"no monitor name for display path {i} (win32 {targetResult})");
                     continue;
                 }
 
@@ -99,7 +98,65 @@ internal static partial class DisplayNames
         return names;
     }
 
-    private static DeviceInfoHeader Header(int type, int size, ulong adapterId, uint id) => new()
+    /// <summary>
+    /// The active paths, re-sized and re-queried when the topology changes between the two calls
+    /// (<c>ERROR_INSUFFICIENT_BUFFER</c>), as the API documents. Null, logged, on any other failure.
+    /// </summary>
+    private static (DisplayConfigPathInfo[] Paths, uint Count)? Query()
+    {
+        for (var attempt = 0; attempt < QueryAttempts; attempt++)
+        {
+            if (GetDisplayConfigBufferSizes(QdcOnlyActivePaths, out var pathCount, out var modeCount) is var sized and not ErrorSuccess)
+            {
+                Log.Warn(Scope, $"GetDisplayConfigBufferSizes failed (win32 {sized}); displays fall back to their ordinal names");
+                return null;
+            }
+
+            var paths = new DisplayConfigPathInfo[pathCount];
+            var modes = new DisplayConfigModeInfo[modeCount];
+
+            var queried = QueryDisplayConfig(QdcOnlyActivePaths, ref pathCount, paths, ref modeCount, modes, 0);
+            if (queried == ErrorSuccess)
+            {
+                return (paths, pathCount);
+            }
+
+            if (queried != ErrorInsufficientBuffer)
+            {
+                Log.Warn(Scope, $"QueryDisplayConfig failed (win32 {queried}); displays fall back to their ordinal names");
+                return null;
+            }
+        }
+
+        Log.Warn(Scope, "the display topology kept changing while it was read; displays fall back to their ordinal names");
+        return null;
+    }
+
+    /// <summary>
+    /// The structs below must match the Windows SDK byte for byte: a header size Windows does not
+    /// expect is refused with <c>ERROR_INVALID_PARAMETER</c>, and a wrong path stride reads every path
+    /// after the first at the wrong offset. Either silently costs every display its device path
+    /// ([S-843]); a 64-bit LUID padding every struct that holds one once did exactly that, so the
+    /// sizes are checked and a mismatch is logged as the error it is.
+    /// </summary>
+    private static unsafe bool LayoutMatchesWindows()
+    {
+        if (sizeof(DisplayConfigPathInfo) == 72
+            && sizeof(DisplayConfigModeInfo) == 64
+            && sizeof(DeviceInfoHeader) == 20
+            && sizeof(SourceDeviceName) == 84
+            && sizeof(TargetDeviceName) == 420)
+        {
+            return true;
+        }
+
+        Log.Error(Scope, $"DISPLAYCONFIG struct layout does not match Windows (path {sizeof(DisplayConfigPathInfo)}, " +
+            $"mode {sizeof(DisplayConfigModeInfo)}, header {sizeof(DeviceInfoHeader)}, source {sizeof(SourceDeviceName)}, " +
+            $"target {sizeof(TargetDeviceName)}); displays fall back to their ordinal names");
+        return false;
+    }
+
+    private static DeviceInfoHeader Header(int type, int size, Luid adapterId, uint id) => new()
     {
         Type = type,
         Size = (uint)size,
@@ -125,12 +182,23 @@ internal static partial class DisplayNames
     [LibraryImport("user32.dll")]
     private static partial int DisplayConfigGetDeviceInfo(ref TargetDeviceName request);
 
+    /// <summary>
+    /// <c>LUID</c>: two 32-bit halves, so 4-byte aligned. Never a <c>ulong</c>: that is 8-byte aligned
+    /// and pads every DISPLAYCONFIG struct holding one away from the SDK layout.
+    /// </summary>
+    [StructLayout(LayoutKind.Sequential)]
+    private struct Luid
+    {
+        public uint LowPart;
+        public int HighPart;
+    }
+
     [StructLayout(LayoutKind.Sequential)]
     private struct DeviceInfoHeader
     {
         public int Type;
         public uint Size;
-        public ulong AdapterId;
+        public Luid AdapterId;
         public uint Id;
     }
 
@@ -198,7 +266,7 @@ internal static partial class DisplayNames
     [StructLayout(LayoutKind.Sequential)]
     private struct PathSourceInfo
     {
-        public ulong AdapterId;
+        public Luid AdapterId;
         public uint Id;
         public uint ModeInfoIdx;
         public uint StatusFlags;
@@ -207,13 +275,14 @@ internal static partial class DisplayNames
     [StructLayout(LayoutKind.Sequential)]
     private struct PathTargetInfo
     {
-        public ulong AdapterId;
+        public Luid AdapterId;
         public uint Id;
         public uint ModeInfoIdx;
         public uint OutputTechnology;
         public uint Rotation;
         public uint Scaling;
-        public ulong RefreshRate;
+        public uint RefreshRateNumerator;
+        public uint RefreshRateDenominator;
         public uint ScanLineOrdering;
         public int TargetAvailable;
         public uint StatusFlags;
@@ -225,10 +294,11 @@ internal static partial class DisplayNames
     {
         public uint InfoType;
         public uint Id;
-        public ulong AdapterId;
+        public Luid AdapterId;
         public ModeUnion Mode;
     }
 
+    /// <summary>The 48-byte mode union. Its largest member holds 64-bit fields, hence the 8-byte alignment.</summary>
     [StructLayout(LayoutKind.Explicit, Size = 48)]
     private struct ModeUnion
     {

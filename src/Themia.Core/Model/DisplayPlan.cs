@@ -153,4 +153,101 @@ public static class DisplayPlan
 
         return [.. enabled.Where(d => d.IdResolved || monitorViews.ContainsKey(d.Id)).Select(d => d.Id)];
     }
+
+    /// <summary>
+    /// [S-843] The ordinal fallback keys that now belong to a resolved id: one per connected display
+    /// that reports a device path, from the id it had while it reported none (its GDI ordinal) to that
+    /// path. A display whose ordinal appears twice is skipped after the first, as Windows lists them.
+    /// </summary>
+    /// <param name="connected">Each connected display with its GDI ordinal (<c>\\.\DISPLAY1</c>).</param>
+    public static List<DisplayRekey> Rekeys(IReadOnlyList<(string Ordinal, DisplayInfo Display)> connected)
+    {
+        ArgumentNullException.ThrowIfNull(connected);
+
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        var rekeys = new List<DisplayRekey>();
+        foreach (var (ordinal, display) in connected)
+        {
+            if (!display.IdResolved || string.IsNullOrEmpty(display.Id))
+            {
+                continue;
+            }
+
+            // Exactly the id the display had while unresolved, so the key matches what was stored.
+            var fallback = DisplayIdentity.Resolve(null, ordinal).Id;
+            if (fallback != display.Id && seen.Add(fallback))
+            {
+                rekeys.Add(new DisplayRekey(fallback, display.Id));
+            }
+        }
+
+        return rekeys;
+    }
+
+    /// <summary>
+    /// [S-843] "Its ordinal until it reports one": when a display that ran under its ordinal reports
+    /// its device path, everything stored under the ordinal moves to the path — its view, its on/off
+    /// switch, its scale and its view bar — so the screen looks the same before and after.
+    /// <para>
+    /// Per setting, the ordinal's entry replaces the path's: it is what the screen showed while it
+    /// was keyed by the ordinal, and the path's entry was invisible in that time. An ordinal with no
+    /// entry moves nothing, so a panel that answered with its ordinal for a moment while waking (and
+    /// was never given a view, see <see cref="ViewKeys"/>) keeps its own settings.
+    /// </para>
+    /// </summary>
+    /// <returns>Whether anything moved, i.e. whether the state needs saving.</returns>
+    public static bool AdoptResolvedIds(AppState state, IReadOnlyList<DisplayRekey> rekeys)
+    {
+        ArgumentNullException.ThrowIfNull(state);
+        ArgumentNullException.ThrowIfNull(rekeys);
+
+        var changed = false;
+        foreach (var (from, to) in rekeys)
+        {
+            changed |= Move(state.MonitorViews, from, to);
+            changed |= Move(state.MonitorScales, from, to);
+            changed |= Move(state.ViewBars, from, to);
+
+            if (state.DisabledMonitors.RemoveAll(id => id == from) > 0)
+            {
+                if (!state.DisabledMonitors.Contains(to))
+                {
+                    state.DisabledMonitors.Add(to);
+                }
+
+                changed = true;
+            }
+        }
+
+        return changed;
+    }
+
+    /// <summary>
+    /// [S-843] The live surfaces to re-key in place: those still under an ordinal that now resolved,
+    /// unless a surface under the resolved id already exists (then the plan closes the stale one).
+    /// Re-keyed rather than replaced, so the display's widgets are not restarted.
+    /// </summary>
+    public static List<DisplayRekey> SurfaceRekeys(IReadOnlyCollection<string> surfaceIds, IReadOnlyList<DisplayRekey> rekeys)
+    {
+        ArgumentNullException.ThrowIfNull(surfaceIds);
+        ArgumentNullException.ThrowIfNull(rekeys);
+
+        return [.. rekeys.Where(r => surfaceIds.Contains(r.From) && !surfaceIds.Contains(r.To))];
+    }
+
+    private static bool Move<T>(Dictionary<string, T> map, string from, string to)
+    {
+        if (!map.Remove(from, out var value))
+        {
+            return false;
+        }
+
+        map[to] = value;
+        return true;
+    }
 }
+
+/// <summary>[S-843] A display's settings key moving from its ordinal fallback to its resolved device path.</summary>
+/// <param name="From">The ordinal id the display was keyed by while it reported no device path.</param>
+/// <param name="To">The resolved id ([S-842]).</param>
+public readonly record struct DisplayRekey(string From, string To);

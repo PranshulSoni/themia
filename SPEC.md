@@ -2384,14 +2384,20 @@ model that keeps widgets still when the taskbar changes (S-840..S-859).
 - **[S-842]** A display's id is its monitor **device interface path** (from
   `DISPLAYCONFIG_TARGET_DEVICE_NAME.monitorDevicePath`, lower-cased), never `\\.\DISPLAYn`, which is an
   ordinal Windows re-deals on every topology change. Every per-display setting (`MonitorViews`,
-  `DisabledMonitors`, `MonitorScales`) is keyed by it. Old ordinal keys are **not** migrated (no
-  backwards compatibility, by decision); they simply match no display.
+  `DisabledMonitors`, `MonitorScales`, `ViewBars`) is keyed by it. The DISPLAYCONFIG structs match the
+  SDK byte for byte (a `LUID` is two 32-bit halves, never a `ulong`, which pads the header to 24 bytes
+  and gets every lookup refused with `ERROR_INVALID_PARAMETER`); their sizes are checked and a
+  mismatch, a per-path lookup failure or a failed query is logged with its Win32 code.
+  `ERROR_INSUFFICIENT_BUFFER` (topology changed between sizing and querying) re-sizes and retries.
 - **[S-843]** A monitor with no device path (a virtual or remote display, or a panel still waking)
   falls back to its GDI name, flagged unresolved and logged. An unresolved id is never *given* a new
   view: it shows the active view until it resolves, so a waking panel does not bind to a fresh empty
   view the next display change abandons. One that already has a view (a permanently path-less
-  display) keeps it. When the path appears, the next pass replaces its surface with one under the
-  real id.
+  display) keeps it. When the path appears, the same pass re-keys the fallback to the real id before
+  planning (`DisplayPlan.Rekeys` / `AdoptResolvedIds` / `SurfaceRekeys`): whatever is stored under the
+  ordinal (view, on/off, scale, view bar) moves to the path, replacing the path's own entry (it is what
+  the screen showed), an ordinal with nothing stored moves nothing, and the surface is re-keyed in
+  place, so the screen keeps its view and its widgets are not restarted.
 - **[S-844]** One display pass (`AppHost.ReconcileDisplays`, plan in `DisplayPlan.Reconcile`) builds,
   closes and updates surfaces, matched by stable id, so a surface follows its panel whatever order
   Windows enumerates them in, and a surviving surface keeps its cards (a taskbar change restarts no
