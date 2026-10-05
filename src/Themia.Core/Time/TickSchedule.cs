@@ -43,7 +43,14 @@ public static class TickSchedule
     public static long PeriodIndex(DateTimeOffset now, TimeSpan interval)
         => interval <= TimeSpan.Zero ? now.Ticks : now.Ticks / interval.Ticks;
 
-    /// <summary>Only whole seconds and whole minutes are supported cadences.</summary>
+    /// <summary>
+    /// [S-1825] The cadences the shared timer supports: whole seconds under a minute (at least one),
+    /// and once a minute for anything slower. Every request under a minute used to collapse to one
+    /// second, so a meter asked to read every 5 s read every second and its chart spanned a fifth
+    /// of its span; <see cref="PeriodIndex"/> already fires a 5 s subscriber once per 5 s period.
+    /// </summary>
     public static TimeSpan Normalise(TimeSpan interval)
-        => interval < TimeSpan.FromMinutes(1) ? TimeSpan.FromSeconds(1) : TimeSpan.FromMinutes(1);
+        => interval >= TimeSpan.FromMinutes(1)
+            ? TimeSpan.FromMinutes(1)
+            : TimeSpan.FromSeconds(Math.Max(1, Math.Round(interval.TotalSeconds)));
 }

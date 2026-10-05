@@ -718,9 +718,8 @@
   "shell.transfer.transitionLength": "Długość animacji zmiany widoku",
   "shell.transfer.unlockLength": "Długość animacji odblokowania",
   "shell.meters.drive.label": "Dysk",
-  "shell.meters.drive.desc": "Dysk, którego zajęte miejsce to liczba",
+  "shell.meters.drive.desc": "Dysk, którego odczyty i zapisy to liczba",
   "shell.meters.systemDrive": "Dysk systemowy ({drive})",
-  "shell.meters.chartDesc": "Czyje odczyty i zapisy pokazuje wykres",
   "shell.meters.gpuDescription": "Obciążenie grafiki, dla każdej karty",
   "shell.meters.batteryDescription": "Poziom naładowania",
   "shell.appearance.headerFade": "Jak kryjący jest pasek nagłówka; 100% odpowiada widżetowi"

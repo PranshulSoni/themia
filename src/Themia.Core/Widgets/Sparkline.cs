@@ -43,4 +43,16 @@ public static class Sparkline
     /// </para>
     /// </summary>
     public static double SampleY(double fraction) => 1.0 - Math.Clamp(fraction, 0, 1);
+
+    /// <summary>
+    /// [S-1824] Where sample <paramref name="index"/> is drawn across a chart <paramref name="width"/>
+    /// DIPs wide with a <paramref name="stroke"/>-thick line: <see cref="SampleX"/> across the width
+    /// less half a stroke at each end, so the newest point's stroke is never cut by the chart's edge.
+    /// </summary>
+    public static double PlotX(int index, int count, int capacity, double width, double stroke)
+    {
+        var half = Math.Max(0, stroke) / 2;
+        var span = Math.Max(0, width - (2 * half));
+        return half + (SampleX(index, count, capacity) * span);
+    }
 }

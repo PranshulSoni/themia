@@ -153,7 +153,7 @@
   "widgetsA.catalog.countdown.description": "Le temps restant avant les dates qui comptent pour toi",
   "widgetsA.catalog.cpu.description": "Charge du processeur sur tous les cœurs",
   "widgetsA.catalog.cpu.label": "Processeur",
-  "widgetsA.catalog.disk.description": "Activité de lecture et d’écriture, et espace libre",
+  "widgetsA.catalog.disk.description": "Lectures et écritures disque par seconde",
   "widgetsA.catalog.disk.label": "Disque",
   "widgetsA.catalog.feed.description": "Les titres des flux de ton choix",
   "widgetsA.catalog.feed.label": "Flux",

@@ -64,15 +64,31 @@ public class TickScheduleTests
     }
 
     [Theory]
+    [InlineData(0.2, 1)]
     [InlineData(1, 1)]
-    [InlineData(30, 1)]
+    [InlineData(2.4, 2)]
+    [InlineData(5, 5)]
+    [InlineData(30, 30)]
+    [InlineData(59, 59)]
     [InlineData(60, 60)]
     [InlineData(3600, 60)]
-    public void Normalise_collapses_every_request_to_a_second_or_a_minute(int requestedSeconds, int expectedSeconds)
+    public void S1825_Normalise_keeps_whole_seconds_under_a_minute_and_caps_at_a_minute(double requestedSeconds, int expectedSeconds)
     {
+        // Regression: every request under a minute collapsed to one second, so a disk meter set to
+        // read every 5 s read every second and its 3-minute chart spanned 36 s (S-1825).
         var normalised = TickSchedule.Normalise(TimeSpan.FromSeconds(requestedSeconds));
 
         Assert.Equal(TimeSpan.FromSeconds(expectedSeconds), normalised);
+    }
+
+    [Fact]
+    public void S1825_a_five_second_subscriber_fires_once_per_five_second_period()
+    {
+        var five = TickSchedule.Normalise(TimeSpan.FromSeconds(5));
+        var start = new DateTimeOffset(2026, 3, 9, 12, 0, 0, TimeSpan.Zero);
+
+        Assert.Equal(TickSchedule.PeriodIndex(start, five), TickSchedule.PeriodIndex(start.AddSeconds(4.9), five));
+        Assert.NotEqual(TickSchedule.PeriodIndex(start, five), TickSchedule.PeriodIndex(start.AddSeconds(5), five));
     }
 }
 

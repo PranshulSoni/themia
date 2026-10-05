@@ -46,13 +46,32 @@ internal sealed class NetworkMeter : MeterPart
             return;
         }
 
-        _window.Push(sample.Down, sample.Up);
+        Present(host, sample.Down, sample.Up);
+    }
+
+    private void Present(IMeterHost host, double down, double up)
+    {
+        _window.Push(down, up);
 
         host.Present(new MeterReading(
-            _window.Fraction(sample.Down, ChartFloor),
-            Formatting.Rate(sample.Down),
+            _window.Fraction(down, ChartFloor),
+            Formatting.Rate(down),
             true,
-            Value: sample.Down,
-            Second: sample.Up));
+            Value: down,
+            Second: up));
     }
+
+#if DEBUG
+    public override bool SampleFixture(IMeterHost host, double seconds)
+    {
+        if (!Preview || !Shell.Gallery.MeterFixture.Has(Kind))
+        {
+            return false;
+        }
+
+        var (down, up) = Shell.Gallery.MeterFixture.Network(seconds);
+        Present(host, down, up);
+        return true;
+    }
+#endif
 }

@@ -9,15 +9,14 @@ namespace Themia.App.Services;
 internal readonly record struct DiskActivity(IReadOnlyDictionary<string, DiskRates> Rates);
 
 /// <summary>
-/// [S-1160]..[S-1163] The disk meter's data. Space comes from <c>GetDiskFreeSpaceEx</c> on every
-/// read (microseconds, and the figure a user copying a large file wants to see move); which volumes
-/// exist, and their labels, from a walk of the drives at most every
+/// [S-1160]..[S-1163] [S-1820] The disk meter's data. Which volumes exist, and their labels (the
+/// header's name for a drive), come from a walk of the drives at most every
 /// <see cref="VolumeRefreshMs"/>, because that walk asks every drive — a sleeping removable one
 /// included — for its volume information (the original's [S-21]).
 /// <para>
 /// Reads and writes come from one <see cref="PdhQuery"/> shared by every disk widget, opened by the
-/// first widget that can show them and closed when the last one lets go (<see cref="Acquire"/>), so
-/// a desktop without a disk widget holds no counters. Every read happens on the UI thread's tick, so
+/// first widget and closed when the last one lets go (<see cref="Acquire"/>), so a desktop without a
+/// disk widget holds no counters. Every read happens on the UI thread's tick, so
 /// the state below needs no lock; widgets reading in the same tick share one collection.
 /// </para>
 /// </summary>
@@ -65,28 +64,6 @@ internal static class DiskMetrics
         }
 
         return _volumes;
-    }
-
-    /// <summary>
-    /// One volume as it is now: its space read fresh, its label and file system from the last walk.
-    /// Null when the drive does not answer (removed, not ready) — a state the widget shows, not an error.
-    /// </summary>
-    public static DiskVolume? Volume(string root)
-    {
-        if (!Win32.GetDiskFreeSpaceEx(root, out _, out var total, out var free) || total == 0)
-        {
-            return null;
-        }
-
-        foreach (var known in _volumes)
-        {
-            if (string.Equals(known.Root, root, StringComparison.OrdinalIgnoreCase))
-            {
-                return known with { Total = total, Free = free };
-            }
-        }
-
-        return new DiskVolume(root, string.Empty, string.Empty, false, total, free);
     }
 
     /// <summary>
@@ -154,13 +131,7 @@ internal static class DiskMetrics
                     continue;
                 }
 
-                volumes.Add(new DiskVolume(
-                    root,
-                    drive.VolumeLabel ?? string.Empty,
-                    drive.DriveFormat ?? string.Empty,
-                    drive.DriveType == DriveType.Removable,
-                    (ulong)Math.Max(0, drive.TotalSize),
-                    (ulong)Math.Max(0, drive.TotalFreeSpace)));
+                volumes.Add(new DiskVolume(root, drive.VolumeLabel ?? string.Empty, drive.DriveType == DriveType.Removable));
             }
             catch (IOException ex)
             {

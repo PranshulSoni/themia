@@ -81,4 +81,33 @@ public sealed class SparklineTests
     [InlineData(5, 0.0)]
     public void S111_YIsInvertedAndClamped(double fraction, double expected)
         => Assert.Equal(expected, Sparkline.SampleY(fraction), 9);
+
+    /// <summary>
+    /// [S-1824] Regression: the newest sample was plotted on the chart's right edge itself, so half
+    /// its stroke — the newest peak — was cut off there. The stroke stays whole inside the chart.
+    /// </summary>
+    [Theory]
+    [InlineData(2.0)]
+    [InlineData(1.0)]
+    public void S1824_the_strokes_stay_inside_the_charts_width(double stroke)
+    {
+        const double width = 300;
+
+        var newest = Sparkline.PlotX(Capacity - 1, Capacity, Capacity, width, stroke);
+        var oldest = Sparkline.PlotX(0, Capacity, Capacity, width, stroke);
+
+        Assert.Equal(width - (stroke / 2), newest, 9);
+        Assert.Equal(stroke / 2, oldest, 9);
+    }
+
+    [Fact]
+    public void S1824_a_window_still_filling_stays_right_aligned()
+    {
+        // Task Manager's convention: the trace grows in from the right, one slot per sample.
+        var newest = Sparkline.PlotX(1, 2, Capacity, 300, 2);
+        var older = Sparkline.PlotX(0, 2, Capacity, 300, 2);
+
+        Assert.Equal(299, newest, 9);
+        Assert.Equal(299 - (298.0 / (Capacity - 1)), older, 9);
+    }
 }

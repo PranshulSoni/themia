@@ -661,9 +661,8 @@
   "shell.transfer.transitionLength": "ビュー切り替えアニメーションの長さ",
   "shell.transfer.unlockLength": "ロック解除アニメーションの長さ",
   "shell.meters.drive.label": "ドライブ",
-  "shell.meters.drive.desc": "使用済み容量を数値で表示するドライブ",
+  "shell.meters.drive.desc": "読み取りと書き込みを数値で表示するドライブ",
   "shell.meters.systemDrive": "システム ドライブ ({drive})",
-  "shell.meters.chartDesc": "グラフに表示する読み取りと書き込みの対象",
   "shell.meters.gpuDescription": "アダプターごとのグラフィックス負荷",
   "shell.meters.batteryDescription": "充電レベル",
   "shell.appearance.headerFade": "ヘッダー帯の不透明度。100% でウィジェットと同じになります"

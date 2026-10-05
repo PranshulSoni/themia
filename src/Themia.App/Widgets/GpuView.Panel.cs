@@ -38,6 +38,9 @@ internal sealed partial class GpuView
 
         private GpuConfig _config = new();
         private bool _stacked;
+#if DEBUG
+        private bool _seeded;
+#endif
         private TypeStep _heroStep = FluentType.Subtitle;
 
         public Panel(int index)
@@ -133,7 +136,7 @@ internal sealed partial class GpuView
                 return;
             }
 
-            var plan = MeterFace.Plan(area, _config.ShowGraph, Formatting.Percent(1).Length, Fluent.Space4, Fluent.Space2, MinChart,
+            var plan = MeterFace.Plan(area, _config.ShowGraph, Formatting.Percent(1).Length, WidgetLayout.ContentInset, Fluent.Space2, MinChart,
                 _stacked ? FluentType.Subtitle : null);
             var side = plan.Arrangement == MeterFaceArrangement.Side;
             var alone = plan.Arrangement == MeterFaceArrangement.ReadingOnly;
@@ -155,8 +158,31 @@ internal sealed partial class GpuView
             SetRow(_spark, side ? 0 : 1);
             SetRowSpan(_spark, side ? 2 : 1);
             SetColumn(_spark, side ? 1 : 0);
-            _spark.Margin = side ? new Thickness(0) : new Thickness(0, Fluent.Space2, 0, 0);
+
+            // [S-1824] Inside the card's padding, as every meter's history.
+            _spark.Margin = side
+                ? new Thickness(0, 0, WidgetLayout.ContentInset, WidgetLayout.ContentInset)
+                : new Thickness(WidgetLayout.ContentInset, Fluent.Space2, WidgetLayout.ContentInset, WidgetLayout.ContentInset);
         }
+
+#if DEBUG
+        /// <summary>[S-1823] Once: the fixture's load for <paramref name="adapter"/> over the span, one interval apart, ending one interval before <paramref name="now"/>.</summary>
+        public void SeedFixture(int adapter, double now)
+        {
+            if (_seeded)
+            {
+                return;
+            }
+
+            _seeded = true;
+            var interval = _config.TickInterval.TotalSeconds;
+
+            for (var back = _spark.Capacity - 1; back >= 1; back--)
+            {
+                _spark.Push(Shell.Gallery.MeterFixture.Gpu(adapter, now - (back * interval)));
+            }
+        }
+#endif
 
         private static Brush Pressure(GpuPressure pressure) => pressure switch
         {

@@ -22,7 +22,6 @@ internal sealed class BatteryMeter : MeterPart
 
     private bool _charging;
     private int? _percent;
-    private bool _preview;
 
     public override WidgetKind Kind => WidgetKind.Battery;
 
@@ -40,11 +39,24 @@ internal sealed class BatteryMeter : MeterPart
             ? (_charging ? ChargingLevels : Levels)[BatteryRules.Level(percent)]
             : null;
 
-    public override void Bind(bool preview) => _preview = preview;
+    public override void Sample(IMeterHost host) => Present(host, SystemMetrics.Battery());
 
-    public override void Sample(IMeterHost host)
+#if DEBUG
+    public override bool SampleFixture(IMeterHost host, double seconds)
     {
-        if (Power() is not { } power)
+        if (!Preview || !Shell.Gallery.BatteryFixture.Installed)
+        {
+            return false;
+        }
+
+        Present(host, Shell.Gallery.BatteryFixture.Power(seconds));
+        return true;
+    }
+#endif
+
+    private void Present(IMeterHost host, BatteryPower? reading)
+    {
+        if (reading is not { } power)
         {
             host.Present(MeterReading.Unavailable(Str.WidgetsB_Meters_Unavailable.Text()));
             return;
@@ -66,16 +78,5 @@ internal sealed class BatteryMeter : MeterPart
         _percent = percent;
 
         host.Present(new MeterReading(percent / 100.0, LocaleFormat.Percent(Strings.Current, percent), true));
-    }
-
-    private BatteryPower? Power()
-    {
-#if DEBUG
-        if (_preview && Shell.Gallery.BatteryFixture.Power() is { } fixture)
-        {
-            return fixture;
-        }
-#endif
-        return SystemMetrics.Battery();
     }
 }

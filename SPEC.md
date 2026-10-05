@@ -547,9 +547,9 @@ Sections, grouped by area (file order below; search for the heading).
 - **[S-214]** A card is a tint **on** something, not a flat fill: the opaque surface colour Fluent
   expects, with the real `CardBackgroundFillColor` overlay on top. That overlay is the lift that makes
   a Windows card look raised, and on its own — over a transparent window — it is nearly invisible.
-- **[S-215]** A chart is **full-bleed**: it reaches the card's left, right and bottom edges, and is
-  clipped to its corner radius. A chart floating inside a margin reads as a picture of a chart. Text
-  carries the inset instead, exactly as a list row does.
+- **[S-215]** *Superseded by [S-1824] for the meters:* a meter's chart sits inside the card's
+  padding. Bled to the edges, its newest point and its fill were cut by the card's edge and rounded
+  corner.
 - **[S-215b]** The graph and the bar share one grid row rather than taking one each. They are
   alternatives — one shows exactly when the other does not — and as separate rows the grid's row
   spacing still sat between them, leaving a gap under a chart that is supposed to touch the
@@ -916,7 +916,7 @@ Ported from `widgets/system/{gpu,mixer,screentime}` on `main`. Owning files:
 ### GPU
 
 - **[S-430]** The GPU tile reads like the other meters ([S-1762]): the load as the number and the
-  history as a full-bleed `SparkBand`. One adapter names the card after itself, without vendor and
+  history as a `SparkBand` inside the card's padding ([S-1824]). One adapter names the card after itself, without vendor and
   trademark noise (`GpuRules.ShortName`: "RTX 4060 Ti"). Load reads `--` for the first sample: it is
   a rate and needs two readings.
 - **[S-431]** Data comes from DXGI (which adapters exist: name, LUID) and the PDH GPU counters
@@ -1935,12 +1935,12 @@ the chart plots and how it is coloured. Layout is Core `MeterFace` (tests `Meter
   The kind's own rows (a drive, a host, adapters) come first; CPU, memory, battery and network
   have none.
 - **[S-1123]** Pressure colours, as the original: usage accent < 70 %, caution 70–89 %, critical
-  ≥ 90 % (CPU, memory); a drive 80/90; a battery success > 50 %, caution 21–50 %, critical ≤ 20 %,
+  ≥ 90 % (CPU, memory); a battery success > 50 %, caution 21–50 %, critical ≤ 20 %,
   accent while charging. Compared in whole percent. They colour the chart (and the battery glyph) —
   never the reading, which stays primary text.
 - **[S-1124]** A share is charted against 100 %. A rate (network) is charted against the peak of
   the samples on screen, floor 1 KB/s — not the session's all-time peak, which let one burst
-  flatten the trace for the rest of the session.
+  flatten the trace for the rest of the session. Disk throughput rounds that top up ([S-1821]).
 - **[S-1125]** Performance counters go through one AOT-safe `PdhQuery` (English counter paths,
   `SafeHandle`-owned query, every counter closed with it). The GPU sampler uses it too.
 - **[S-1126]** The chart (`SparkBand`) draws one or two series: the first filled, the second a
@@ -1960,6 +1960,25 @@ the chart plots and how it is coloured. Layout is Core `MeterFace` (tests `Meter
   stacks the reading over the history, which is promised half the height (never under 24 px), the
   reading growing by ramp step up to Display in what is left, and the history taking every pixel
   the reading does not — no empty space at L or XL. With Show history off the reading fills the tile.
+- **[S-1823]** Every meter's gallery `+fixture` (CPU, memory, disk, network, ping, battery, GPU) is
+  made up, never the machine's (`Shell/Gallery/MeterFixture.cs`, Debug only, preview tiles only):
+  each value is a function of a second on one clock that restarts with the page, and a preview's
+  history is filled with the samples it would have taken over the last window at the kind's own
+  default cadence (`MeterPart.SampleFixture`), so the render shows a meter that has run a while
+  and the live ticks carry the same curve on. The GPU keeps the machine's adapter names. The plain
+  pages read this machine and start empty.
+- **[S-1824]** The history sits inside the card's padding: the content inset (16) from both sides
+  and the bottom, its left edge in line with the reading's; beside the reading on a strip, the
+  column's own inset separates them. `MeterFace.Plan` spends that bottom inset before the history.
+  The trace is inset by half its stroke at both ends (`Sparkline.PlotX`), so the newest sample is
+  never cut by the chart's edge (it was, at the card's edge and rounded corner, when the chart
+  bled). Every meter and every GPU panel draws it this way.
+- **[S-1825]** A window still filling stays right-aligned, as Task Manager draws it: the trace grows
+  in from the right, one slot per sample, over a hairline baseline that spans the whole chart from
+  the first frame, so a young meter reads as a chart with little history, not an empty hole. The
+  shared ticker keeps whole-second cadences under a minute (`TickSchedule.Normalise`; it used to
+  collapse them all to one second), so a meter set to 5 s samples every 5 s and its chart spans
+  its configured span.
 - Not ported / different: the original's `visibleMetrics` multi-select and everything it switched
   (removed by [S-1762]). The audit's `MeterLadder` was not built: `MeterFace` and `Disclosure` are
   the ladders.
@@ -2508,29 +2527,41 @@ they show the label, the reading and the history only ([S-1762]).
   chart (original [S-22]). The settings page offers "System drive (C:)" and every drive Windows lists;
   a chosen drive that has been removed stays offered as "not connected".
 - **[S-1161]** The header title names the drive as Explorer does ("System (C:)", "Local Disk (D:)",
-  "USB Drive (E:)"). The reading is the space used (%); colours 80 / 90 ([S-1123]).
+  "USB Drive (E:)"), "C:" for a drive the walk did not list, "All drives" for every drive.
 - **[S-1162]** Read and write rates are per drive from one shared PDH query
   (`\LogicalDisk(*)\Disk Read|Write Bytes/sec`, matched by letter ignoring case; `_Total` and folder
   mounts left out). A drive the counters do not list has no rate, never the system total (original
-  themia-releases#49). The query is held only while the history is on, and closed when the last
-  disk widget lets go. Volumes and labels are re-walked at most every 30 s (original [S-21]); free
-  space is read on every sample.
-- **[S-1163]** **The chart is disk I/O, never space** (user requirement): reads (filled) and writes
-  (line) against the peak of what is on screen, floor 1 KB/s. Whose I/O: `IoScope` = the reading's
-  drive (default), all drives (sum of the letter instances, never `_Total` too) or one named drive
-  (`IoDrive`). Load repairs an unknown scope or a non-letter drive to the reading's, loudly. Changing
-  what is charted clears the chart. No rate yet is a gap, not a 0. The history is on by default.
-- **[S-1166]** The card's "Open C: in Explorer" opens the drive through `ShellLauncher`.
+  themia-releases#49). The query is held while a disk widget lives and closed when the last one
+  lets go. Volumes and labels are re-walked at most every 30 s (original [S-21]).
+- **[S-1163]** **The chart is disk I/O, never space** (user requirement). All drives is the sum of
+  the letter instances, never `_Total` too. The history is on by default.
+- **[S-1820]** **The disk reading is throughput, never space** (user requirement: the disk widget
+  shows disk I/O, not the storage space): reads and writes together per second
+  (`DiskRates.Total`), formatted as a rate ("12 MB/s", `Formatting.Rate`), and the chart is that
+  same total, one series. Space used, free space and a drive pressure colour are neither read nor
+  shown. A sample is a rate, a wait (the counters' first collection lists nothing: a dimmed "--"
+  and no point on the chart, never a 0), a missing drive (dimmed "--", "C: unavailable" on hover)
+  or no counters ("unavailable") — `DiskRules.Read`.
+- **[S-1821]** The throughput chart's top is the window's peak rounded up to a doubling of 1 MB/s
+  (`ChartScale.Doubling`, `DiskRules.Scale`): background writes of a few hundred KB/s stay low on
+  the chart instead of filling it, a copy keeps headroom, and the top only moves when the peak
+  crosses a doubling.
+- **[S-1822]** One setting says whose throughput: `Scope` = one drive (`Drive`, empty = the system
+  drive) or all drives. Changing it clears the chart. Load repairs an unknown scope to one drive,
+  loudly. The separate chart scope (`IoScope` / `IoDrive`) is gone.
+- **[S-1166]** The card's "Open C: in Explorer" opens the drive through `ShellLauncher`; all drives
+  offers no such command.
 - **[S-1167]** Framework hooks for a kind (`MeterView.Part.cs`): a header title
   (`IMeterHost.SetTitle`), right-click commands (`MeterPart.ContextActions`), a header trailing
   element, and `IMeterHost.SampleNow`. A reading that carries a fraction is plotted even when it is
   not available (a missed ping); every other unavailable reading carries none.
-- **[S-1168]** Disk settings: Drive, Chart (same drive as the reading / all drives / each drive),
-  then the shared meter rows.
+- **[S-1168]** Disk settings: Drive (system drive / all drives / each drive Windows lists, a removed
+  one offered as "not connected"), then the shared meter rows.
 - **[S-1169]** Gallery samples (Debug only, preview tiles only): `Disk+fixture` is three made-up
-  drives (System, Data, a removable stick) with rising and falling rates on the system drive;
-  `Ping+fixture` is a labelled router answering in 3–40 ms that misses one probe in nine, with no
-  packet sent. The plain pages read this machine and probe the default host.
+  drives (System, Data, a removable stick) with background writes and copies on the system drive;
+  `Ping+fixture` is a labelled router answering in about 12 ms, now and then slower, that misses
+  about one probe in twenty, with no packet sent. Both fill a full window first ([S-1823]). The
+  plain pages read this machine and probe the default host.
 - **[S-1170]** Ping status: Checking… until the first probe returns, then Online / Offline from the
   last probe. A dot at the right of the header carries it in the success / critical / tertiary
   colour; its tooltip says it in words, and so does a dimmed reading's.
@@ -2611,8 +2642,8 @@ Package SYS-P3. Both meters live in their own files (`Widgets/Meters/BatteryMete
 - **[S-1180]** Battery: charge from `GetSystemPowerStatus`; charging is the `BatteryFlag` charging bit,
   not the plug. The no-battery decision is `PowerRules.Read`'s, so the meter and the power tile
   agree; a machine with no battery shows an empty state.
-- **[S-1186]** The gallery's `Battery+fixture` is a discharging laptop battery
-  (`Shell/Gallery/BatteryFixture.cs`, Debug only); a meter reads it only when its card is a preview
+- **[S-1186]** The gallery's `Battery+fixture` is a laptop battery discharging a point a minute
+  (`Shell/Gallery/BatteryFixture.cs`, Debug only, a full window first per [S-1823]); a meter reads it only when its card is a preview
   (`MeterPart.Bind(preview)` via `IWidgetSurfaceAware`), never on the desktop.
 - **[S-1187]** The battery reading leads with the Segoe Fluent battery glyph filled to the nearest
   tenth, with a bolt while charging, in the pressure colour (`MeterPart.Badge`).

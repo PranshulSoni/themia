@@ -150,7 +150,7 @@
   "widgetsA.catalog.countdown.description": "大切な日までの残り時間",
   "widgetsA.catalog.cpu.description": "全コアのプロセッサー負荷",
   "widgetsA.catalog.cpu.label": "CPU",
-  "widgetsA.catalog.disk.description": "読み書きの状況と空き容量",
+  "widgetsA.catalog.disk.description": "1 秒あたりのディスクの読み取りと書き込み",
   "widgetsA.catalog.disk.label": "ディスク",
   "widgetsA.catalog.feed.description": "選んだフィードの見出し",
   "widgetsA.catalog.feed.label": "フィード",

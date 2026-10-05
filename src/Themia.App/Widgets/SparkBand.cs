@@ -11,7 +11,9 @@ namespace Themia.App.Widgets;
 /// <summary>
 /// The one sparkline every meter draws: a translucent area under a 2px line, newest sample at the
 /// right edge, on a fixed-slot x-axis so the trace grows in from the right instead of rescaling
-/// while the buffer fills.
+/// while the buffer fills (Task Manager's convention, [S-1825]). A hairline baseline spans the whole
+/// width from the first frame, so a window still filling reads as a chart with little history yet,
+/// not as an empty hole under the reading.
 /// <para>
 /// [S-1126] Up to two series — download and upload, reads and writes — the first filled, the second
 /// a line over it. It holds <see cref="Capacity"/> samples (the span setting over the refresh) and
@@ -28,6 +30,7 @@ internal sealed partial class SparkBand : Grid
     private readonly Polygon _fill = new();
     private readonly Polyline _line = new();
     private readonly Polyline _secondLine = new();
+    private readonly Rectangle _baseline = new() { Height = 1, VerticalAlignment = Microsoft.UI.Xaml.VerticalAlignment.Bottom };
     private readonly Queue<double> _first;
     private readonly Queue<double> _second;
     private int _capacity;
@@ -59,7 +62,10 @@ internal sealed partial class SparkBand : Grid
         _secondLine.StrokeLineJoin = PenLineJoin.Round;
         _secondLine.Stretch = Stretch.None;
 
+        _baseline.Fill = FluentLayout.Themed("DividerStrokeColorDefaultBrush", Colors.Gray);
+
         IsHitTestVisible = false;
+        Children.Add(_baseline);
         Children.Add(_fill);
         Children.Add(_line);
         Children.Add(_secondLine);
@@ -181,7 +187,8 @@ internal sealed partial class SparkBand : Grid
 
         var ceiling = _scale.Ceiling(first, second);
 
-        // Inset by the stroke so 0% and 100% are not clipped in half at the edge.
+        // [S-1824] Inset by the stroke on every side, so 0%, 100% and the newest sample are never
+        // clipped in half at the chart's edge.
         var inset = _line.StrokeThickness;
         var usable = Math.Max(1, height - inset);
 
@@ -199,7 +206,7 @@ internal sealed partial class SparkBand : Grid
         _secondLine.Points = Trace(second, window, ceiling, width, inset, usable);
     }
 
-    /// <summary>A series as points. X from <see cref="Sparkline.SampleX"/>, which pins the newest to the right edge; gaps are skipped.</summary>
+    /// <summary>A series as points. X from <see cref="Sparkline.PlotX"/>, which pins the newest to the right edge less half a stroke; gaps are skipped.</summary>
     private static PointCollection Trace(ReadOnlySpan<double> samples, int window, double ceiling, double width, double inset, double usable)
     {
         var points = new PointCollection();
@@ -212,7 +219,7 @@ internal sealed partial class SparkBand : Grid
                 continue;
             }
 
-            var x = Sparkline.SampleX(i, samples.Length, window) * width;
+            var x = Sparkline.PlotX(i, samples.Length, window, width, inset);
             var y = (inset / 2) + (Sparkline.SampleY(fraction) * usable);
             points.Add(new Point(x, y));
         }

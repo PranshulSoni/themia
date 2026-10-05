@@ -23,6 +23,10 @@ namespace Themia.App.Widgets;
 /// ramp step up to Display; a wide strip puts the reading in a column on the left and the history
 /// the full height beside it. With the history switched off the reading fills the tile.
 /// </para>
+/// <para>
+/// [S-1824] The history sits inside the card's padding — the reading's inset from both sides and
+/// the bottom — so its newest point and its fill are never cut by the card's edge or rounded corner.
+/// </para>
 /// </summary>
 internal sealed partial class MeterView : Grid, IWidgetView, IWidgetSizeAware, IWidgetSurfaceAware, IMeterHost
 {
@@ -67,11 +71,15 @@ internal sealed partial class MeterView : Grid, IWidgetView, IWidgetSizeAware, I
     private bool _graph;
     private bool _absent;
     private bool _detached;
+#if DEBUG
+    private bool _preview;
+#endif
 
     public MeterView(WidgetKind kind)
     {
-        // No padding on the view: the graph is a full-bleed band and has to reach the card edge on
-        // three sides. The reading carries the inset instead.
+        // No padding on the view: the reading and the history each carry the content inset
+        // ([S-1824]), the history's on its sides and bottom only, so the gap under the reading is the
+        // ladder's to size.
         _kind = kind;
         _part = MeterPart.For(kind);
         _config = WidgetConfig.CreateDefault(kind);
@@ -159,7 +167,7 @@ internal sealed partial class MeterView : Grid, IWidgetView, IWidgetSizeAware, I
             return;
         }
 
-        var plan = MeterFace.Plan(_area, _graph, _part.ReadingCharacters, Fluent.Space4, Fluent.Space2, GraphFloor);
+        var plan = MeterFace.Plan(_area, _graph, _part.ReadingCharacters, WidgetLayout.ContentInset, Fluent.Space2, GraphFloor);
         var side = plan.Arrangement == MeterFaceArrangement.Side;
         var alone = plan.Arrangement == MeterFaceArrangement.ReadingOnly;
 
@@ -177,7 +185,11 @@ internal sealed partial class MeterView : Grid, IWidgetView, IWidgetSizeAware, I
         SetRowSpan(_band, side ? 2 : 1);
         SetColumn(_band, side ? 1 : 0);
         // Stacked, the history is the star row: exactly what the reading leaves (plan.GraphHeight).
-        _band.Margin = side ? new Thickness(0) : new Thickness(0, Fluent.Space2, 0, 0);
+        // [S-1824] Inside the card's padding either way; beside the reading its column's own inset
+        // already separates the two.
+        _band.Margin = side
+            ? new Thickness(0, 0, WidgetLayout.ContentInset, WidgetLayout.ContentInset)
+            : new Thickness(WidgetLayout.ContentInset, Fluent.Space2, WidgetLayout.ContentInset, WidgetLayout.ContentInset);
 
         if (plan.Reading != _heroStep)
         {
@@ -209,6 +221,10 @@ internal sealed partial class MeterView : Grid, IWidgetView, IWidgetSizeAware, I
         var sampleNow = _part.ApplyConfig(_config, this);
 
         _band.Capacity = gauge?.GraphCapacity ?? 60;
+
+#if DEBUG
+        SeedFixture();
+#endif
 
         var resubscribed = Resubscribe();
         Lay();
@@ -249,6 +265,13 @@ internal sealed partial class MeterView : Grid, IWidgetView, IWidgetSizeAware, I
     {
         try
         {
+#if DEBUG
+            // [S-1823] A gallery preview with its kind's fixture installed reads the fixture.
+            if (_preview && _part.SampleFixture(this, Shell.Gallery.MeterFixture.Now))
+            {
+                return;
+            }
+#endif
             _part.Sample(this);
         }
         catch (Exception ex)
@@ -307,9 +330,43 @@ internal sealed partial class MeterView : Grid, IWidgetView, IWidgetSizeAware, I
 
     public void ClearHistory() => _band.Clear();
 
+#if DEBUG
+    private bool _seeded;
+
+    /// <summary>
+    /// [S-1823] A gallery preview with a fixture starts with a full window: the samples the meter
+    /// would have taken over its span, one interval apart, ending one interval before now — so the
+    /// page shows the meter after it has run a while, and the first live tick carries the curve on.
+    /// Once per view; the desktop never gets here (<see cref="_preview"/>).
+    /// </summary>
+    private void SeedFixture()
+    {
+        if (!_preview || _seeded)
+        {
+            return;
+        }
+
+        var interval = ((_config as GaugeConfig)?.TickInterval ?? TimeSpan.FromSeconds(1)).TotalSeconds;
+        var now = Shell.Gallery.MeterFixture.Now;
+
+        for (var back = _band.Capacity - 1; back >= 1; back--)
+        {
+            if (!_part.SampleFixture(this, now - (back * interval)))
+            {
+                return;
+            }
+
+            _seeded = true;
+        }
+    }
+#endif
+
     /// <summary>[S-1186] A preview's meter part may read its debug fixture instead of the machine.</summary>
     public void Bind(IWidgetSurface surface)
     {
+#if DEBUG
+        _preview = surface.IsPreview;
+#endif
         _part.Bind(surface.IsPreview);
 
         // [S-1167] And keep the surface for a kind's header title (MeterView.Part.cs).

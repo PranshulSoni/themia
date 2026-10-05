@@ -2,32 +2,53 @@ using Themia.Core.Localization;
 
 namespace Themia.Core.Widgets;
 
-/// <summary>One volume as the disk meter sees it: its root, its label and file system, and how full it is.</summary>
+/// <summary>One volume as the disk meter names it: its root, its label, and whether it is removable.</summary>
 /// <param name="Root">The drive root, <c>C:\</c>.</param>
 /// <param name="Label">The volume label ("System"), or empty.</param>
-/// <param name="FileSystem">"NTFS", "exFAT", or empty when Windows did not say.</param>
 /// <param name="Removable">A removable drive rather than a fixed one.</param>
-/// <param name="Total">Size in bytes; 0 when it could not be read.</param>
-/// <param name="Free">Free bytes (for every user, as Explorer shows).</param>
-public readonly record struct DiskVolume(string Root, string Label, string FileSystem, bool Removable, ulong Total, ulong Free)
-{
-    public ulong Used => Total > Free ? Total - Free : 0;
-
-    /// <summary>The share in use, 0..1, or null for a volume whose size is unknown.</summary>
-    public double? UsedFraction => Total == 0 ? null : (double)Used / Total;
-}
+public readonly record struct DiskVolume(string Root, string Label, bool Removable);
 
 /// <summary>Reads and writes per second on one volume, from the performance counters.</summary>
-public readonly record struct DiskRates(double Read, double Write);
+public readonly record struct DiskRates(double Read, double Write)
+{
+    /// <summary>[S-1820] The drive's throughput: reads and writes together, what the reading and the chart show.</summary>
+    public double Total => Read + Write;
+}
+
+/// <summary>[S-1820] What one disk sample amounts to.</summary>
+public enum DiskReadingState
+{
+    /// <summary>A rate: the reading and the next point on the chart.</summary>
+    Rate = 0,
+
+    /// <summary>The counters' first collection, which lists no rates yet: a gap, never a 0.</summary>
+    Waiting = 1,
+
+    /// <summary>The counters answer, but not for this drive (unplugged, or not a volume they list).</summary>
+    DriveMissing = 2,
+
+    /// <summary>The counters could not be opened: the meter is unavailable.</summary>
+    NoCounters = 3,
+}
+
+/// <summary>[S-1820] One disk sample: its state, and the rates when it is <see cref="DiskReadingState.Rate"/>.</summary>
+public readonly record struct DiskReading(DiskReadingState State, DiskRates Rates = default);
 
 /// <summary>
-/// [S-1160]..[S-1163] The disk meter's rules: how a drive is named and matched to its
-/// performance-counter instance, and whose rates the chart plots. Pure, so each is tested.
+/// [S-1160]..[S-1163] [S-1820]..[S-1822] The disk meter's rules: how a drive is named and matched
+/// to its performance-counter instance, whose throughput the meter shows and how it is charted.
+/// Pure, so each is tested.
 /// </summary>
 public static class DiskRules
 {
-    /// <summary>[S-1163] Every rate chart's lowest top: 1 KB/s, so an idle disk stays a flat line, as the original scaled it.</summary>
-    public const double ChartFloor = 1024;
+    /// <summary>
+    /// [S-1821] The chart's lowest top: 1 MB/s. A drive is never truly idle — the system writes a
+    /// few hundred KB/s in the background — and a lower top drew that murmur as a busy disk.
+    /// </summary>
+    public const double ChartFloor = 1024 * 1024;
+
+    /// <summary>[S-1821] Throughput against the window's peak, rounded up to a doubling of <see cref="ChartFloor"/>.</summary>
+    public static ChartScale Scale => ChartScale.Doubling(ChartFloor);
 
     /// <summary>
     /// [S-1160] The root a setting names: <c>c</c>, <c>C:</c> and <c>C:\</c> are all <c>C:\</c>.
@@ -123,28 +144,40 @@ public static class DiskRules
     }
 
     /// <summary>
-    /// [S-1163] The rates the chart plots for a scope: the reading's drive, every drive, or one named
-    /// drive. Null when that drive has no rate (yet), which the chart shows as a gap.
+    /// [S-1822] The rates the meter shows: one drive's (<paramref name="root"/>), or every drive's
+    /// together. Null when there is no rate (yet), which the meter shows as a gap, never a 0.
     /// </summary>
-    public static DiskRates? Charted(Themia.Core.Model.DiskIoScope scope, string readingRoot, string ioDrive, IReadOnlyDictionary<string, DiskRates> byInstance)
+    public static DiskRates? RatesOf(Themia.Core.Model.DiskScope scope, string root, IReadOnlyDictionary<string, DiskRates> byInstance)
     {
         ArgumentNullException.ThrowIfNull(byInstance);
 
-        return scope switch
-        {
-            Themia.Core.Model.DiskIoScope.All => byInstance.Count == 0 ? null : Total(byInstance),
-            Themia.Core.Model.DiskIoScope.Drive when Root(ioDrive) is { } root => RatesFor(root, byInstance),
-            _ => RatesFor(readingRoot, byInstance),
-        };
+        return scope == Themia.Core.Model.DiskScope.AllDrives
+            ? byInstance.Count == 0 ? null : Total(byInstance)
+            : RatesFor(root, byInstance);
     }
 
-    /// <summary>[S-1163] What the chart's rates are of, for its caption on a tile with room: "C:", "all drives".</summary>
-    public static string ChartedName(Themia.Core.Model.DiskIoScope scope, string readingRoot, string ioDrive) => scope switch
+    /// <summary>
+    /// [S-1820] One sample out of a collection (null when the counters could not be opened): the
+    /// scope's rates, or why there are none.
+    /// </summary>
+    public static DiskReading Read(Themia.Core.Model.DiskScope scope, string root, IReadOnlyDictionary<string, DiskRates>? byInstance)
     {
-        Themia.Core.Model.DiskIoScope.All => Str.WidgetsB_Disk_AllDrives.Text(),
-        Themia.Core.Model.DiskIoScope.Drive when Root(ioDrive) is { } root => Instance(root),
-        _ => Instance(readingRoot),
-    };
+        if (byInstance is null)
+        {
+            return new DiskReading(DiskReadingState.NoCounters);
+        }
+
+        if (RatesOf(scope, root, byInstance) is { } rates)
+        {
+            return new DiskReading(DiskReadingState.Rate, rates);
+        }
+
+        // A first collection lists nothing at all; a later one that lists other drives but not this
+        // one is about a drive that is not there.
+        return byInstance.Count == 0
+            ? new DiskReading(DiskReadingState.Waiting)
+            : new DiskReading(DiskReadingState.DriveMissing);
+    }
 
     private static double Clean(double value) => double.IsFinite(value) && value > 0 ? value : 0;
 
@@ -164,13 +197,4 @@ public static class DiskRules
 
         return Strings.Format(locale, Str.WidgetsB_Disk_Title, ("name", name), ("letter", letter));
     }
-
-    /// <summary>A size that formats at its widest: four digits before the unit changes.</summary>
-    private const double WidestBytes = 1000d * 1024 * 1024 * 1024;
-
-    /// <summary>A rate that formats at its widest.</summary>
-    private const double WidestRate = 1000d * 1024 * 1024;
-
-    private static string Whole(Locale locale, double value)
-        => LocaleFormat.Number(locale, double.IsFinite(value) && value > 0 ? Math.Round(value) : 0, 0);
 }

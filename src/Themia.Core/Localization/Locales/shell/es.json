@@ -680,9 +680,8 @@
   "shell.transfer.transitionLength": "Duración de la animación al cambiar de vista",
   "shell.transfer.unlockLength": "Duración de la animación al desbloquear",
   "shell.meters.drive.label": "Unidad",
-  "shell.meters.drive.desc": "La unidad cuyo espacio ocupado es el número",
+  "shell.meters.drive.desc": "La unidad cuyas lecturas y escrituras son el número",
   "shell.meters.systemDrive": "Unidad del sistema ({drive})",
-  "shell.meters.chartDesc": "De qué unidad muestra el gráfico las lecturas y escrituras",
   "shell.meters.gpuDescription": "Carga gráfica, por adaptador",
   "shell.meters.batteryDescription": "Nivel de carga",
   "shell.appearance.headerFade": "Qué tan opaca es la franja del encabezado; 100 % coincide con el widget"

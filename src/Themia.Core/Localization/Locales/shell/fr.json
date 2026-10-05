@@ -680,9 +680,8 @@
   "shell.transfer.transitionLength": "Durée de l’animation de changement de vue",
   "shell.transfer.unlockLength": "Durée de l’animation au déverrouillage",
   "shell.meters.drive.label": "Lecteur",
-  "shell.meters.drive.desc": "Le lecteur dont l’espace utilisé est le nombre",
+  "shell.meters.drive.desc": "Le lecteur dont les lectures et écritures sont le nombre",
   "shell.meters.systemDrive": "Lecteur système ({drive})",
-  "shell.meters.chartDesc": "Les lectures et écritures affichées par le graphique",
   "shell.meters.gpuDescription": "Charge graphique, par carte",
   "shell.meters.batteryDescription": "Niveau de charge",
   "shell.appearance.headerFade": "L’opacité du bandeau d’en-tête ; 100 % correspond au widget"

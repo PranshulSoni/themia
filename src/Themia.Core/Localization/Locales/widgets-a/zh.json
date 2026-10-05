@@ -150,7 +150,7 @@
   "widgetsA.catalog.countdown.description": "距离重要日期的剩余时间",
   "widgetsA.catalog.cpu.description": "所有核心的处理器负载",
   "widgetsA.catalog.cpu.label": "CPU",
-  "widgetsA.catalog.disk.description": "读写活动和剩余空间",
+  "widgetsA.catalog.disk.description": "每秒磁盘读写量",
   "widgetsA.catalog.disk.label": "磁盘",
   "widgetsA.catalog.feed.description": "你所选订阅源的头条",
   "widgetsA.catalog.feed.label": "订阅源",

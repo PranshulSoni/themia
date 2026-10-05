@@ -48,7 +48,6 @@ internal sealed class PingMeter : MeterPart
     private int _interval;
     private string? _detail;
     private bool _detached;
-    private bool _preview;
 
     public override WidgetKind Kind => WidgetKind.Ping;
 
@@ -63,8 +62,6 @@ internal sealed class PingMeter : MeterPart
     public override FrameworkElement? HeaderTrailing => _dot;
 
     private PingStatus Status => PingStats.Status(_history.Any, _history.Last is not null);
-
-    public override void Bind(bool preview) => _preview = preview;
 
     public override bool ApplyConfig(WidgetConfig config, IMeterHost host)
     {
@@ -129,15 +126,6 @@ internal sealed class PingMeter : MeterPart
             return;
         }
 
-#if DEBUG
-        // [S-1169] A gallery preview with the sample installed answers from it, with no packet sent.
-        if (_preview && Shell.Gallery.DiskPingFixture.Ping)
-        {
-            Record(Shell.Gallery.DiskPingFixture.Probe(), host);
-            return;
-        }
-#endif
-
         // [S-1170] Until the first probe is back the tile says so on hover, and the dot is quiet.
         if (!_history.Any)
         {
@@ -148,6 +136,20 @@ internal sealed class PingMeter : MeterPart
         _probe = probe;
         _ = ProbeAsync(_host ?? PingConfig.DefaultHost, probe, host);
     }
+
+#if DEBUG
+    /// <summary>[S-1169] A gallery preview with the sample installed answers from it, with no packet sent.</summary>
+    public override bool SampleFixture(IMeterHost host, double seconds)
+    {
+        if (!Preview || !Shell.Gallery.DiskPingFixture.Ping || _detached)
+        {
+            return false;
+        }
+
+        Record(Shell.Gallery.DiskPingFixture.Probe(seconds), host);
+        return true;
+    }
+#endif
 
     private async Task ProbeAsync(string target, CancellationTokenSource probe, IMeterHost host)
     {

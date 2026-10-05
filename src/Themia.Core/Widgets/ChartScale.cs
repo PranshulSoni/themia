@@ -10,15 +10,24 @@ namespace Themia.Core.Widgets;
 /// rest of the session, which is how the first port drew network throughput.
 /// </para>
 /// </summary>
+/// <para>
+/// [S-1821] A doubling scale (disk throughput) rounds that top up to the floor doubled until it
+/// clears the peak: the trace keeps headroom, and the top only moves when the peak crosses a
+/// doubling rather than with every sample a little higher than the last.
+/// </para>
 /// <param name="FollowsWindow">True for a rate or latency: the top is the window's peak.</param>
 /// <param name="Floor">The lowest the top may be (for a share, the top itself).</param>
-public readonly record struct ChartScale(bool FollowsWindow, double Floor)
+/// <param name="Doubles">[S-1821] The top is the floor doubled past the peak, not the peak itself.</param>
+public readonly record struct ChartScale(bool FollowsWindow, double Floor, bool Doubles = false)
 {
     /// <summary>A share, 0..1, drawn against 100%.</summary>
     public static ChartScale Share { get; } = new(false, 1);
 
     /// <summary>Drawn against the window's peak, but never a top lower than <paramref name="floor"/>, so idle jitter stays flat.</summary>
     public static ChartScale Peak(double floor) => new(true, floor > 0 && double.IsFinite(floor) ? floor : 1);
+
+    /// <summary>[S-1821] Like <see cref="Peak"/>, but the top is <paramref name="floor"/> doubled until it clears the window's peak.</summary>
+    public static ChartScale Doubling(double floor) => Peak(floor) with { Doubles = true };
 
     /// <summary>The value the top of the chart stands for, over one or two series' visible samples.</summary>
     public double Ceiling(ReadOnlySpan<double> first, ReadOnlySpan<double> second = default)
@@ -46,7 +55,19 @@ public readonly record struct ChartScale(bool FollowsWindow, double Floor)
             }
         }
 
-        return top;
+        if (!Doubles)
+        {
+            return top;
+        }
+
+        // Bounded: a finite peak is cleared in at most ~1000 doublings of a positive floor.
+        var stepped = Floor;
+        while (stepped < top && double.IsFinite(stepped * 2))
+        {
+            stepped *= 2;
+        }
+
+        return stepped;
     }
 
     /// <summary>Where <paramref name="value"/> sits under <paramref name="ceiling"/>, 0..1; a gap stays a gap (NaN).</summary>

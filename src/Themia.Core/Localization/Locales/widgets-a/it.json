@@ -153,7 +153,7 @@
   "widgetsA.catalog.countdown.description": "Il tempo che manca alle date importanti per te",
   "widgetsA.catalog.cpu.description": "Carico del processore su tutti i core",
   "widgetsA.catalog.cpu.label": "CPU",
-  "widgetsA.catalog.disk.description": "Attività di lettura e scrittura e spazio libero",
+  "widgetsA.catalog.disk.description": "Letture e scritture su disco al secondo",
   "widgetsA.catalog.disk.label": "Disco",
   "widgetsA.catalog.feed.description": "Titoli dai feed che scegli",
   "widgetsA.catalog.feed.label": "Feed",

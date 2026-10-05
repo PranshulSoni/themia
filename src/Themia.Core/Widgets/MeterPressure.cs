@@ -25,16 +25,12 @@ public enum PressureScale
     /// <summary>A load: caution from 70%, critical from 90% (processor, memory).</summary>
     Usage = 1,
 
-    /// <summary>A store filling up: caution from 80%, critical from 90% (a drive).</summary>
-    Storage = 2,
-
     /// <summary>A charge running down: healthy above 50%, caution to 21%, critical at 20% and under.</summary>
     Charge = 3,
 }
 
 /// <summary>
-/// [S-1123] The original's usage colours: cyan under 70%, amber 70–89%, red from 90% (disk 80/90;
-/// battery green above 50%, amber 21–50%, red at 20% and under, accent while charging).
+/// [S-1123] The original's usage colours: cyan under 70%, amber 70–89%, red from 90% (battery green above 50%, amber 21–50%, red at 20% and under, accent while charging).
 /// <para>
 /// The colour goes on the chart, the bar and secondary bars — never on the reading itself, which
 /// stays the primary text colour so it is legible whatever the load (S-432).
@@ -56,7 +52,6 @@ public static class MeterPressures
         return scale switch
         {
             PressureScale.Usage => percent >= 90 ? MeterPressure.Critical : percent >= 70 ? MeterPressure.Elevated : MeterPressure.Normal,
-            PressureScale.Storage => percent >= 90 ? MeterPressure.Critical : percent >= 80 ? MeterPressure.Elevated : MeterPressure.Normal,
 
             // Charging is good news whatever the level, so it is the accent, not a warning.
             PressureScale.Charge when charging => MeterPressure.Normal,

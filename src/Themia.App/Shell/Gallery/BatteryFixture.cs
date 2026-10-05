@@ -5,40 +5,30 @@ using Themia.Core.Widgets;
 namespace Themia.App.Shell.Gallery;
 
 /// <summary>
-/// [S-1186] The battery meter's gallery sample: a laptop discharging from 78% (to 60%), so a machine
-/// without a battery can still see the populated layout at every size.
+/// [S-1186] The battery meter's gallery sample: a laptop discharging a point a minute, at 78% when
+/// the page is drawn, so a machine without a battery can still see the populated layout at every
+/// size. A function of a second on <see cref="MeterFixture"/>'s clock, so the history before the
+/// page is filled from it too ([S-1823]).
 /// <para>
 /// Read only by a battery meter that is a preview (<see cref="Widgets.IWidgetSurface.IsPreview"/>),
-/// so a desktop widget in the same Debug process never sees a made-up battery. The charge drops a
-/// point every few samples so the chart has a slope to draw. Debug builds only.
+/// so a desktop widget in the same Debug process never sees a made-up battery. Debug builds only.
 /// </para>
 /// </summary>
 internal static class BatteryFixture
 {
-    private static int _calls;
-
     /// <summary>Whether the sample is installed: preview tiles read it instead of the machine.</summary>
     public static bool Installed { get; private set; }
 
-    public static void Install(bool populated)
-    {
-        _calls = 0;
-        Installed = populated;
-    }
+    public static void Install(bool populated) => Installed = populated;
 
-    /// <summary>The power status preview tiles read, or null when no fixture is installed.</summary>
-    public static BatteryPower? Power()
+    /// <summary>The power status at <paramref name="t"/> seconds.</summary>
+    public static BatteryPower Power(double t)
     {
-        if (!Installed)
-        {
-            return null;
-        }
-
-        var percent = Math.Max(60, 78 - (_calls++ / 4));
+        var percent = (int)Math.Clamp(Math.Round(78 - (t / 60)), 5, 100);
         return new BatteryPower(HasBattery: true, Percent: percent, OnMains: false, Charging: false, Remaining: TimeSpan.FromSeconds(percent * 160));
     }
 
-    /// <summary>Sampled every second over a 30-second span, so a short gallery wait draws a real chart.</summary>
-    public static BatteryConfig Config() => new() { IntervalSeconds = 1, GraphSpanSeconds = 30 };
+    /// <summary>The meter's own defaults: every 15 s over five minutes.</summary>
+    public static BatteryConfig Config() => new();
 }
 #endif

@@ -680,9 +680,8 @@
   "shell.transfer.transitionLength": "Dauer der Animation beim Ansichtswechsel",
   "shell.transfer.unlockLength": "Dauer der Entsperranimation",
   "shell.meters.drive.label": "Laufwerk",
-  "shell.meters.drive.desc": "Das Laufwerk, dessen belegter Speicher die Zahl ist",
+  "shell.meters.drive.desc": "Das Laufwerk, dessen Lese- und Schreibvorgänge die Zahl sind",
   "shell.meters.systemDrive": "Systemlaufwerk ({drive})",
-  "shell.meters.chartDesc": "Wessen Lese- und Schreibvorgänge das Diagramm zeigt",
   "shell.meters.gpuDescription": "Grafiklast, je Grafikkarte",
   "shell.meters.batteryDescription": "Ladestand",
   "shell.appearance.headerFade": "Wie deckend die Kopfleiste ist; 100 % entspricht dem Widget"

@@ -252,14 +252,6 @@ internal static partial class Win32
     [return: MarshalAs(UnmanagedType.Bool)]
     internal static partial bool GlobalMemoryStatusEx(ref MemoryStatusEx lpBuffer);
 
-    [LibraryImport("kernel32.dll", EntryPoint = "GetDiskFreeSpaceExW", SetLastError = true, StringMarshalling = StringMarshalling.Utf16)]
-    [return: MarshalAs(UnmanagedType.Bool)]
-    internal static partial bool GetDiskFreeSpaceEx(
-        string lpDirectoryName,
-        out ulong lpFreeBytesAvailableToCaller,
-        out ulong lpTotalNumberOfBytes,
-        out ulong lpTotalNumberOfFreeBytes);
-
     [LibraryImport("kernel32.dll", SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]
     internal static partial bool GetSystemPowerStatus(out SystemPowerStatus lpSystemPowerStatus);

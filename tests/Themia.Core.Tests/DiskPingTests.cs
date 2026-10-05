@@ -7,8 +7,6 @@ namespace Themia.Core.Tests;
 /// <summary>The disk and ping meters' rules (S-1160..S-1174).</summary>
 public sealed class DiskPingTests
 {
-    private const ulong GiB = 1024UL * 1024 * 1024;
-
     // ---- S-1160: which drives ------------------------------------------------------------------
 
     [Theory]
@@ -28,13 +26,13 @@ public sealed class DiskPingTests
     [Fact]
     public void S1160_a_clean_config_repairs_to_nothing_and_clones_every_option()
     {
-        var config = new DiskConfig { Drive = "D:\\", IoScope = DiskIoScope.Drive, IoDrive = "C:\\" };
+        var config = new DiskConfig { Drive = "D:\\", Scope = DiskScope.AllDrives };
 
         Assert.Empty(config.Repair());
 
         var copy = (DiskConfig)config.Clone();
         Assert.Equal("D:\\", copy.Drive);
-        Assert.Equal((DiskIoScope.Drive, "C:\\"), (copy.IoScope, copy.IoDrive));
+        Assert.Equal(DiskScope.AllDrives, copy.Scope);
     }
 
     [Theory]
@@ -99,18 +97,34 @@ public sealed class DiskPingTests
         Assert.Equal(new DiskRates(0, 0), rates["D:"]);
     }
 
-    // ---- S-1163: the chart is I/O, of the drive the settings name ----------------------------------
+    // ---- S-1820 / S-1822: the reading and the chart are throughput, of one drive or all ------------
 
     [Fact]
-    public void S1163_the_chart_follows_the_scope()
+    public void S1820_the_throughput_is_reads_and_writes_together()
+        => Assert.Equal(1300, new DiskRates(1000, 300).Total);
+
+    [Fact]
+    public void S1822_the_rates_follow_the_scope()
     {
         var rates = DiskRules.Pair([("C:", 100), ("D:", 10)], [("C:", 1), ("D:", 2)]);
 
-        Assert.Equal(new DiskRates(100, 1), DiskRules.Charted(DiskIoScope.Reading, "C:\\", "", rates));
-        Assert.Equal(new DiskRates(110, 3), DiskRules.Charted(DiskIoScope.All, "C:\\", "", rates));
-        Assert.Equal(new DiskRates(10, 2), DiskRules.Charted(DiskIoScope.Drive, "C:\\", "d:", rates));
-        Assert.Null(DiskRules.Charted(DiskIoScope.Drive, "C:\\", "E:\\", rates));
-        Assert.Null(DiskRules.Charted(DiskIoScope.All, "C:\\", "", DiskRules.Pair([], [])));
+        Assert.Equal(new DiskRates(100, 1), DiskRules.RatesOf(DiskScope.OneDrive, "C:\\", rates));
+        Assert.Equal(new DiskRates(10, 2), DiskRules.RatesOf(DiskScope.OneDrive, "d:", rates));
+        Assert.Equal(new DiskRates(110, 3), DiskRules.RatesOf(DiskScope.AllDrives, "C:\\", rates));
+        Assert.Null(DiskRules.RatesOf(DiskScope.OneDrive, "E:\\", rates));
+        Assert.Null(DiskRules.RatesOf(DiskScope.AllDrives, "C:\\", DiskRules.Pair([], [])));
+    }
+
+    [Fact]
+    public void S1820_a_sample_is_a_rate_a_wait_a_missing_drive_or_no_counters()
+    {
+        var rates = DiskRules.Pair([("C:", 100)], [("C:", 5)]);
+
+        Assert.Equal(new DiskReading(DiskReadingState.Rate, new DiskRates(100, 5)), DiskRules.Read(DiskScope.OneDrive, "C:\\", rates));
+        Assert.Equal(DiskReadingState.DriveMissing, DiskRules.Read(DiskScope.OneDrive, "E:\\", rates).State);
+        Assert.Equal(DiskReadingState.Waiting, DiskRules.Read(DiskScope.OneDrive, "C:\\", DiskRules.Pair([], [])).State);
+        Assert.Equal(DiskReadingState.Waiting, DiskRules.Read(DiskScope.AllDrives, "C:\\", DiskRules.Pair([], [])).State);
+        Assert.Equal(DiskReadingState.NoCounters, DiskRules.Read(DiskScope.OneDrive, "C:\\", null).State);
     }
 
     [Fact]
@@ -118,48 +132,38 @@ public sealed class DiskPingTests
         => Assert.Equal(new DiskRates(30, 0), DiskRules.Total(DiskRules.Pair([("C:", 10), ("D:", 20), ("_Total", 30)], [])));
 
     [Fact]
-    public void S1163_the_chart_names_what_it_plots()
+    public void S1822_an_unknown_scope_is_repaired_loudly_to_one_drive()
     {
-        Assert.Equal("C:", DiskRules.ChartedName(DiskIoScope.Reading, "C:\\", "D:\\"));
-        Assert.Equal("all drives", DiskRules.ChartedName(DiskIoScope.All, "C:\\", ""));
-        Assert.Equal("D:", DiskRules.ChartedName(DiskIoScope.Drive, "C:\\", "d"));
+        var unknown = new DiskConfig { Scope = (DiskScope)9 };
+
+        Assert.Single(unknown.Repair());
+        Assert.Equal(DiskScope.OneDrive, unknown.Scope);
     }
 
     [Fact]
-    public void S1163_repair_falls_back_to_the_reading_for_a_bad_scope_or_drive()
+    public void S1821_the_chart_tops_out_at_a_doubling_of_one_megabyte_per_second()
     {
-        var bad = new DiskConfig { IoScope = DiskIoScope.Drive, IoDrive = @"\\nas\share" };
-        Assert.Single(bad.Repair());
-        Assert.Equal((DiskIoScope.Reading, ""), (bad.IoScope, bad.IoDrive));
+        var scale = DiskRules.Scale;
 
-        var unknown = new DiskConfig { IoScope = (DiskIoScope)9 };
-        Assert.Single(unknown.Repair());
-        Assert.Equal(DiskIoScope.Reading, unknown.IoScope);
+        // An idle disk's background writes stay low on the chart instead of filling it.
+        Assert.Equal(DiskRules.ChartFloor, scale.Ceiling([0, 40 * 1024, 300 * 1024]));
+        Assert.Equal(1024 * 1024, DiskRules.ChartFloor);
 
-        var loose = new DiskConfig { IoScope = DiskIoScope.Drive, IoDrive = "e" };
-        Assert.Empty(loose.Repair());
-        Assert.Equal("E:\\", loose.IoDrive);
+        // A burst sets the top to the next doubling above it: the trace keeps headroom, and the
+        // top does not move with every sample that is a little higher than the last.
+        Assert.Equal(16 * DiskRules.ChartFloor, scale.Ceiling([2 * DiskRules.ChartFloor, 12.4 * DiskRules.ChartFloor]));
+        Assert.Equal(16 * DiskRules.ChartFloor, scale.Ceiling([15.9 * DiskRules.ChartFloor]));
+        Assert.Equal(16 * DiskRules.ChartFloor, scale.Ceiling([16 * DiskRules.ChartFloor]));
     }
 
-    // ---- S-1161 / S-1163..S-1166: wording ----------------------------------------------------------
+    // ---- S-1161: wording ----------------------------------------------------------------------------
 
     [Fact]
     public void S1161_a_drive_is_named_as_explorer_names_it()
     {
-        Assert.Equal("System (C:)", DiskRules.Title(new DiskVolume("C:\\", " System ", "NTFS", false, 0, 0)));
-        Assert.Equal("Local Disk (D:)", DiskRules.Title(new DiskVolume("D:\\", "", "NTFS", false, 0, 0)));
-        Assert.Equal("USB Drive (E:)", DiskRules.Title(new DiskVolume("E:\\", "", "exFAT", true, 0, 0)));
-    }
-
-    [Fact]
-    public void S1161_used_and_free_follow_the_volume()
-    {
-        var volume = new DiskVolume("C:\\", "", "", false, 100 * GiB, 25 * GiB);
-
-        Assert.Equal(75 * GiB, volume.Used);
-        Assert.Equal(0.75, volume.UsedFraction);
-        Assert.Null(new DiskVolume("C:\\", "", "", false, 0, 0).UsedFraction);
-        Assert.Equal(0UL, new DiskVolume("C:\\", "", "", false, 10, 20).Used);
+        Assert.Equal("System (C:)", DiskRules.Title(new DiskVolume("C:\\", " System ", false)));
+        Assert.Equal("Local Disk (D:)", DiskRules.Title(new DiskVolume("D:\\", "", false)));
+        Assert.Equal("USB Drive (E:)", DiskRules.Title(new DiskVolume("E:\\", "", true)));
     }
 
     // ---- S-1166: the drives list -------------------------------------------------------------------

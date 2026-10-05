@@ -159,7 +159,7 @@
   "widgetsA.catalog.countdown.description": "Czas pozostały do ważnych dla Ciebie dat",
   "widgetsA.catalog.cpu.description": "Obciążenie procesora na wszystkich rdzeniach",
   "widgetsA.catalog.cpu.label": "Procesor",
-  "widgetsA.catalog.disk.description": "Odczyt i zapis oraz wolne miejsce",
+  "widgetsA.catalog.disk.description": "Odczyty i zapisy dysku na sekundę",
   "widgetsA.catalog.disk.label": "Dysk",
   "widgetsA.catalog.feed.description": "Nagłówki z wybranych kanałów",
   "widgetsA.catalog.feed.label": "Kanał",

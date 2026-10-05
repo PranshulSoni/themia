@@ -14,7 +14,7 @@ namespace Themia.App.Widgets;
 
 /// <summary>
 /// [S-430] Graphics load, as the CPU and memory tiles show theirs: the reading and the history as a
-/// full-bleed chart, nothing else ([S-1762]).
+/// chart inside the card's padding ([S-1824]), nothing else ([S-1762]).
 /// <para>
 /// One adapter fills the tile and names the card after itself. Two or more share the tile as panels,
 /// each with its own name, reading and history ([S-433], [S-1207]) — a laptop's integrated and
@@ -44,6 +44,9 @@ internal sealed partial class GpuView : Grid, IWidgetView, IWidgetSurfaceAware, 
     private WidgetArea _area;
     private bool _acquired;
     private bool _detached;
+#if DEBUG
+    private bool _preview;
+#endif
 
     public GpuView()
     {
@@ -55,7 +58,13 @@ internal sealed partial class GpuView : Grid, IWidgetView, IWidgetSurfaceAware, 
         Children.Add(_empty);
     }
 
-    public void Bind(IWidgetSurface surface) => _surface = surface;
+    public void Bind(IWidgetSurface surface)
+    {
+        _surface = surface;
+#if DEBUG
+        _preview = surface.IsPreview;
+#endif
+    }
 
     public void Attach(Ticker ticker, WidgetConfig config)
     {
@@ -180,6 +189,18 @@ internal sealed partial class GpuView : Grid, IWidgetView, IWidgetSurfaceAware, 
         {
             var index = _selection[i];
             var reading = index < snapshot.Readings.Count ? snapshot.Readings[index] : null;
+
+#if DEBUG
+            // [S-1823] A preview with the fixture installed: the machine's adapter, the fixture's
+            // load, and a full window of it before the first live sample.
+            if (_preview && reading is not null && Shell.Gallery.MeterFixture.Has(WidgetKind.Gpu))
+            {
+                var now = Shell.Gallery.MeterFixture.Now;
+                _shown[i].SeedFixture(i, now);
+                reading = reading with { Utilization = Shell.Gallery.MeterFixture.Gpu(i, now) * 100, HasLoad = true };
+            }
+#endif
+
             _shown[i].Show(reading, addSample);
         }
 

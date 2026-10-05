@@ -106,13 +106,6 @@ public sealed class MeterFrameworkTests
         => Assert.Equal(expected, MeterPressures.For(PressureScale.Usage, fraction));
 
     [Theory]
-    [InlineData(0.79, MeterPressure.Normal)]
-    [InlineData(0.80, MeterPressure.Elevated)]
-    [InlineData(0.90, MeterPressure.Critical)]
-    public void S1123_a_drive_turns_amber_at_80_and_red_at_90(double fraction, MeterPressure expected)
-        => Assert.Equal(expected, MeterPressures.For(PressureScale.Storage, fraction));
-
-    [Theory]
     [InlineData(0.51, false, MeterPressure.Healthy)]
     [InlineData(0.50, false, MeterPressure.Elevated)]
     [InlineData(0.21, false, MeterPressure.Elevated)]
@@ -145,6 +138,19 @@ public sealed class MeterFrameworkTests
         Assert.Equal(1024, scale.Ceiling([10, 20]));
         Assert.Equal(9000, scale.Ceiling([100, 200], [9000, double.NaN]));
     }
+
+    [Theory]
+    [InlineData(new double[] { 10, 20 }, 1024)]
+    [InlineData(new double[] { 1024 }, 1024)]
+    [InlineData(new double[] { 1025 }, 2048)]
+    [InlineData(new double[] { 100, 5000, 300 }, 8192)]
+    [InlineData(new double[] { double.NaN, double.PositiveInfinity }, 1024)]
+    public void S1821_a_doubling_chart_tops_out_at_the_floor_doubled_past_the_windows_peak(double[] samples, double expected)
+        => Assert.Equal(expected, ChartScale.Doubling(1024).Ceiling(samples));
+
+    [Fact]
+    public void S1821_a_doubling_chart_counts_the_second_series_too()
+        => Assert.Equal(4096, ChartScale.Doubling(1024).Ceiling([100], [3000]));
 
     [Fact]
     public void S1124_fractions_are_clamped_and_gaps_stay_gaps()

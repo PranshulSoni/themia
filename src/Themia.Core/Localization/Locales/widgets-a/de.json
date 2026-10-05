@@ -153,7 +153,7 @@
   "widgetsA.catalog.countdown.description": "Die verbleibende Zeit bis zu deinen wichtigen Terminen",
   "widgetsA.catalog.cpu.description": "Prozessorauslastung über alle Kerne",
   "widgetsA.catalog.cpu.label": "CPU",
-  "widgetsA.catalog.disk.description": "Lese- und Schreibaktivität und freier Speicher",
+  "widgetsA.catalog.disk.description": "Lese- und Schreibvorgänge pro Sekunde",
   "widgetsA.catalog.disk.label": "Datenträger",
   "widgetsA.catalog.feed.description": "Schlagzeilen aus Feeds deiner Wahl",
   "widgetsA.catalog.feed.label": "Feed",

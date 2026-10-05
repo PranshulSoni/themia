@@ -37,6 +37,7 @@ internal static class GalleryFixtures
         or WidgetKind.Tasks or WidgetKind.OneDrive
         or WidgetKind.Calendar or WidgetKind.Contacts
         or WidgetKind.Power or WidgetKind.Bluetooth or WidgetKind.Battery
+        or WidgetKind.Cpu or WidgetKind.Memory
         or WidgetKind.Disk or WidgetKind.Ping or WidgetKind.Network
         or WidgetKind.Mixer or WidgetKind.Volume
         or WidgetKind.Gpu
@@ -71,6 +72,9 @@ internal static class GalleryFixtures
         // [S-1253]/[S-1258] Power and Bluetooth: the plain pages read this machine.
         PowerFixture.Install(populated: false);
         BluetoothFixture.Install(populated: false);
+
+        // [S-1823] The meters' clock starts again with the page; every meter reads this machine.
+        MeterFixture.Reset();
 
         // [S-1186] Battery: the plain page reads this machine (a desktop shows "No battery").
         BatteryFixture.Install(populated: false);
@@ -123,9 +127,20 @@ internal static class GalleryFixtures
                 return new ScreenTimeConfig { GoalSeconds = 6 * 3600 };
 
             case WidgetKind.Gpu:
-                // [S-1207] The first two adapters, live: how several panels share every size. On a
-                // machine with one adapter the second panel says it is not there.
+                // [S-1207] The first two adapters: how several panels share every size. On a machine
+                // with one adapter the second panel says it is not there. [S-1823] Their names are
+                // the machine's, their load the fixture's, with a full window of history.
+                MeterFixture.Install(WidgetKind.Gpu);
                 return new GpuConfig { Adapters = [0, 1] };
+
+            case WidgetKind.Cpu:
+                // [S-1823] A processor that idles with bursts, at the meter's own cadence and span.
+                MeterFixture.Install(WidgetKind.Cpu);
+                return new CpuConfig();
+
+            case WidgetKind.Memory:
+                MeterFixture.Install(WidgetKind.Memory);
+                return new MemoryConfig();
 
             case WidgetKind.Email:
                 // [S-557] The gallery has no accounts, so the inbox is a data source as well.
@@ -170,12 +185,13 @@ internal static class GalleryFixtures
                 return BluetoothFixture.Config();
 
             case WidgetKind.Battery:
-                // [S-1186] A discharging laptop battery that reports every figure.
+                // [S-1186] A discharging laptop battery that reports every figure. Like every meter's
+                // fixture, its history is a full window from the first frame ([S-1823]).
                 BatteryFixture.Install(populated: true);
                 return BatteryFixture.Config();
 
             case WidgetKind.Disk:
-                // [S-1169] Three drives, busy, one nearly full and one removable.
+                // [S-1169] Three drives, the system drive busy, one removable.
                 DiskPingFixture.InstallDisk(populated: true);
                 return DiskPingFixture.DiskConfig();
 
@@ -185,8 +201,9 @@ internal static class GalleryFixtures
                 return DiskPingFixture.PingConfig();
 
             case WidgetKind.Network:
-                // [S-1762] This machine's traffic, sampled every second over 30 s, so a short wait draws a chart.
-                return new Themia.Core.Model.NetworkConfig { IntervalSeconds = 1, GraphSpanSeconds = 30 };
+                // [S-1823] Chatter with a download every 50 s, never this machine's traffic.
+                MeterFixture.Install(WidgetKind.Network);
+                return new Themia.Core.Model.NetworkConfig();
 
             case WidgetKind.Mixer:
                 // [S-1233] Three devices, a microphone and seven apps; previews never write.
