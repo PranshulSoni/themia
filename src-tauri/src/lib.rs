@@ -3230,18 +3230,25 @@ unsafe fn foreground_change_proc_impl(
             // WinEvent foreground hook fires on every foreground transition.
             let _ = app.emit("themia-blur", ());
         }
-        if any_normal_app_window_visible() {
-            // Plain desktop click, apps are still up. Leave z-order alone;
-            // themia stays anchored just above Progman, behind real apps.
-            return;
+        let action = desktop_foreground_action(
+            WIDGETS_PINNED_TOPMOST.load(Ordering::Relaxed),
+            any_normal_app_window_visible(),
+            any_app_window_cloaked(),
+        );
+        match action {
+            Some(ZAction::DropToAnchor) => {
+                // A desktop click with apps still visible means a previous
+                // Show Desktop pin has become stale; release it immediately.
+                apply_zaction(ZAction::DropToAnchor);
+            }
+            Some(ZAction::PinTopmost) => {
+                log::info!(target: "z-order", "Show Desktop ({class}), pinning widgets topmost");
+                apply_zaction(ZAction::PinTopmost);
+            }
+            None | Some(ZAction::SelfHeal | ZAction::HoldTopmost) => {
+                // Plain desktop click with no stale pin: keep the anchor.
+            }
         }
-        // Genuine Show Desktop: pin widgets to the top of the topmost band so
-        // they float above Progman (which the shell elevates past normal z-order).
-        // Routed through the shared apply so the event path pins-to-top exactly
-        // like the poll does, fixing the race where the hook only flipped the flag
-        // and left secondary monitors below until the next ~200ms tick.
-        log::info!(target: "z-order", "Show Desktop ({class}), pinning widgets topmost");
-        apply_zaction(ZAction::PinTopmost);
         return;
     }
 
@@ -3788,6 +3795,22 @@ fn decide_zaction(
     }
 }
 
+fn desktop_foreground_action(
+    pinned_topmost: bool,
+    normal_app_visible: bool,
+    app_window_cloaked: bool,
+) -> Option<ZAction> {
+    // Progman is foreground after both a desktop click and Show Desktop; only
+    // a DWM-cloaked app distinguishes the latter from a stale pin.
+    if !normal_app_visible && app_window_cloaked {
+        Some(ZAction::PinTopmost)
+    } else if pinned_topmost {
+        Some(ZAction::DropToAnchor)
+    } else {
+        None
+    }
+}
+
 /// The z-order poll must stand down completely while a shell popup menu is in
 /// its modal loop. Pure `bool -> bool` so it is unit-tested on every target.
 ///
@@ -3836,7 +3859,31 @@ fn overlay_activation_demotes(widgets_pinned_topmost: bool) -> bool {
 
 #[cfg(test)]
 mod zorder_decision_tests {
-    use super::{decide_zaction, overlay_activation_demotes, zorder_tick_should_stand_down, ZAction};
+    use super::{
+        decide_zaction, desktop_foreground_action, overlay_activation_demotes,
+        zorder_tick_should_stand_down, ZAction,
+    };
+
+    #[test]
+    fn desktop_foreground_with_restored_apps_drops_a_stale_pin() {
+        assert_eq!(desktop_foreground_action(true, true, false), Some(ZAction::DropToAnchor));
+        assert_eq!(desktop_foreground_action(false, true, false), None);
+    }
+
+    #[test]
+    fn desktop_foreground_without_visible_apps_pins_widgets() {
+        assert_eq!(desktop_foreground_action(false, false, true), Some(ZAction::PinTopmost));
+    }
+
+    #[test]
+    fn desktop_foreground_without_hidden_apps_leaves_an_unpinned_overlay_alone() {
+        assert_eq!(desktop_foreground_action(false, false, false), None);
+    }
+
+    #[test]
+    fn desktop_foreground_without_cloaked_apps_drops_a_stale_pin() {
+        assert_eq!(desktop_foreground_action(true, false, false), Some(ZAction::DropToAnchor));
+    }
 
     // Characterizes the original inline tree in `ensure_widget_zorder_tick`:
     // Show Desktop wins regardless of the pin latch; otherwise the latch decides
@@ -11820,6 +11867,11 @@ fn ensure_work_area_tick() {
 mod tests {
     use super::*;
 
+    // Source scanners use LF boundaries even when this Windows checkout is CRLF.
+    fn source_for_scan() -> String {
+        include_str!("lib.rs").replace("\r\n", "\n")
+    }
+
     fn sr(left: i32, top: i32, right: i32, bottom: i32, radius: i32) -> ShapedRect {
         ShapedRect { left, top, right, bottom, radius }
     }
@@ -12203,7 +12255,7 @@ mod tests {
     /// observable only with a compositor and a real window.
     #[test]
     fn bd02_pin_to_desktop_denies_backdrop() {
-        let src = include_str!("lib.rs");
+        let src = source_for_scan();
         let fn_start = src
             .find("fn pin_to_desktop(")
             .expect("pin_to_desktop must exist");
@@ -12250,7 +12302,7 @@ mod tests {
     /// mode, modal). Source scan: the effect is a DWM attribute on a live HWND.
     #[test]
     fn bd04_denial_reasserts_transparency_blur_behind() {
-        let src = include_str!("lib.rs");
+        let src = source_for_scan();
         let fn_start = src
             .find("unsafe fn deny_dwm_backdrop(")
             .expect("deny_dwm_backdrop must exist");
@@ -12387,7 +12439,7 @@ mod tests {
     /// — the very configuration CI does not have.
     #[test]
     fn wa03_detached_builders_place_at_creation_not_after() {
-        let src = include_str!("lib.rs");
+        let src = source_for_scan();
         for f in ["fn build_detached_window(", "async fn open_web_element_picker_window("] {
             let fn_start = src.find(f).unwrap_or_else(|| panic!("{f} must exist"));
             let fn_end = src[fn_start..]
